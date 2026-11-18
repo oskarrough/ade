@@ -30,7 +30,13 @@ for (const [
 		(request) => {
 			requests.push(request.messages.map(text).join('\n'))
 			const first = text(request.messages.find((message) => message.role === 'user'))
-			return say(first.includes('<input>') ? `L ${'x'.repeat(lineSize - 2)}` : 'ok')
+			if (!first.includes('<input>')) return say('ok')
+			const input = first.slice(
+				first.lastIndexOf('<input>') + '<input>\n'.length,
+				first.lastIndexOf('\n</input>'),
+			)
+			const line = `L ${'x'.repeat(lineSize - 2)}`
+			return say(input.startsWith('[') ? JSON.stringify(JSON.parse(input).map(() => line)) : line)
 		},
 		{ model: { contextWindow } },
 	)

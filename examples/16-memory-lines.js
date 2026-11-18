@@ -15,7 +15,19 @@ const route = (request) => {
 	const all = request.messages.map((m) => text(m)).join('\n')
 	const input = first.slice(first.lastIndexOf('<input>'))
 	requests.push({ first, all, input })
-	return say(line(input.includes('TOOLONG') && request.messages.length <= 3 ? 700 : 300))
+	const source = input.slice('<input>\n'.length, input.lastIndexOf('\n</input>'))
+	const size = (text) =>
+		text.includes('STUBBORN') ||
+		(text.includes('TOOLONG') && !first.includes('Some lines were too long'))
+			? 700
+			: 300
+	return say(
+		source.startsWith('[')
+			? '```json\n' +
+					JSON.stringify(JSON.parse(source).map((item) => line(size(item.text)))) +
+					'\n```'
+			: line(size(source)),
+	)
 }
 const long = (tag) => `${tag} ${'y'.repeat(2000 - tag.length - 1)}`
 const has = (lines, l, i) => lines.some((x) => x.l === l && x.i === i)
@@ -92,10 +104,8 @@ check(
 )
 const tooLong = requests.filter((r) => r.input.includes('TOOLONG'))
 check(
-	tooLong.length === 2 &&
-		tooLong[1].all.includes('Too long: your line is 700 bytes') &&
-		tooLong[1].all.includes('| ← LIMIT'),
-	'a line over 512 bytes is asked again, with the cut',
+	tooLong.length === 2 && tooLong[1].first.includes('Some lines were too long'),
+	'a line over 512 bytes is asked again',
 	tooLong.length,
 )
 check(bl.find((x) => x.l === 0 && x.i === 2)?.size === 300, 'and the line that fits is kept')
@@ -103,6 +113,29 @@ const second = requests.find((r) => r.input.includes('second'))
 check(
 	second?.first.includes(`0+1|${bl.find((x) => x.l === 0 && x.i === 0).text}`),
 	"the second message's request holds the first's line in <chat>",
+)
+
+const grouped = (await api('POST', '/api/threads', { title: 'batch backfill' })).json.id
+for (let i = 0; i < 16; i++)
+	await post(grouped, long(i === 4 ? 'TOOLONG batch' : i === 5 ? 'STUBBORN' : `batch item ${i}`))
+const batchStart = requests.length
+await api('POST', `/api/threads/${grouped}/memory`, { on: true })
+await until(async () => has(await linesOf(grouped), 4, 0), 30000)
+const batchRequests = requests.slice(batchStart)
+const group = batchRequests.find((request) => request.input.includes('batch item 0'))
+const retry = batchRequests.find((request) => request.first.includes('Some lines were too long'))
+check(
+	group?.input.includes('batch item 15') && group.input.includes('TOOLONG batch'),
+	'one call writes sixteen waiting message lines',
+)
+check(
+	retry?.input.includes('TOOLONG batch') && !retry.input.includes('batch item'),
+	'only the oversized batch item is redone',
+)
+check(
+	(await linesOf(grouped)).filter((line) => line.l === 0).length === 16 &&
+		(await linesOf(grouped)).every((line) => line.size <= 512),
+	'even a stubborn batch item gets a capped line without losing its siblings',
 )
 
 await api('POST', `/api/threads/${late}/memory`, { on: false })
