@@ -150,10 +150,10 @@ export function Settings() {
 												type="button"
 												class="small"
 												disabled=${() => !editable() || overridden('MEMORY_MODEL')}
-												title=${() => model() || "Each thread's own agent writes its lines"}
+												title=${() => model() || 'Haiku or Luna on each thread’s runner'}
 												onClick=${(event) => setPicking(true)}
 											>
-												${() => (model() ? writtenTo(agentTo(model())) : "thread's agent")}
+												${() => (model() ? writtenTo(agentTo(model())) : 'Haiku or Luna')}
 											</button>
 										</div>
 										<div class="option compact-option">

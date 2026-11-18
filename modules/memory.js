@@ -1,9 +1,9 @@
 /**
  * Gives each thread a memory: one short line per message, pairs of lines merged going up, so an agent reads the lines
  * instead of every word and zooms back down with `zoom` (experimental). On by default; MODULES=-memory turns it
- * off. The thread's own agent writes its lines, as it runs now, so the runner that works for a thread pays for its
- * memory; with no agent there yet, a bot there writes them, and with neither, the lines wait for the first one
- * asked. A model in the settings, `memory.model` in ade.json or MEMORY_MODEL=model@runner, has that one agent
+ * off. Memory uses a small model on the thread agent's runner: Haiku without thinking for Anthropic or
+ * Claude Code agents, Luna with low thinking otherwise. With no agent yet, a bot supplies its runner;
+ * with neither, the lines wait. A model in settings, `memory.model` in ade.json or MEMORY_MODEL=model@runner, can
  * write every thread's lines instead. Past `memory.compactAt` tokens, 100k unless set, an agent's context is
  * compacted into the lines.
  *
@@ -52,7 +52,11 @@ const cut = (text) => {
 }
 const NOT_YET = '(not summarized yet: zoom it)'
 const unwritten = (l, i) => ({ l, i, text: NOT_YET })
-const span = (line) => ({ id: line.i * 2 ** line.l, n: 2 ** line.l, text: line.text })
+const span = (line) => ({
+	id: line.i * 2 ** line.l,
+	n: 2 ** line.l,
+	text: line.text,
+})
 export const rendered = (line) => {
 	const { id, n, text } = span(line)
 	return `${id}+${n}|${text}`
@@ -103,7 +107,15 @@ export function server(core) {
 		row.memory ??
 		[...Object.keys(row.agents), ...to].some((name) => !name.includes('@') && name !== AGENT)
 
-	/** Who writes a thread's lines: MEMORY_MODEL, else its agent as it runs now, else a bot there, else nobody yet */
+	/** Memory never inherits the working model: only its runner and provider decide the cheap writer. */
+	function smallWriter(to) {
+		const provider = to.model.split('/')[0]
+		return provider === 'anthropic' || provider === 'claude-code'
+			? { runner: to.runner, model: `${provider}/claude-haiku-5-5`, thinkingLevel: 'off' }
+			: { runner: to.runner, model: 'openai-codex/gpt-6-luna', thinkingLevel: 'low' }
+	}
+
+	/** MEMORY_MODEL overrides the small writer on the thread agent's runner, or a bot's runner. */
 	async function writerOf(threadId, signal) {
 		if (override) {
 			await core.runners.online(override.runner, signal)
@@ -115,7 +127,7 @@ export function server(core) {
 			: (Object.entries(agents)[0] ?? [])
 		const to = recipient && (await core.agentOf(recipient.conversation, slot))
 		if (to) await core.runners.online(to.runner, signal)
-		return to
+		return to && core.address(smallWriter(to), false, signal)
 	}
 
 	/** The line, or undefined while the thread has no one to write it */
@@ -131,7 +143,12 @@ export function server(core) {
 		let best
 		for (let attempt = 0; attempt < RETRIES; attempt++) {
 			const reply = await retryAssistantCall(
-				() => core.models.completeSimple(model, { messages }, { signal }),
+				() =>
+					core.models.completeSimple(
+						model,
+						{ messages },
+						{ signal, reasoning: to.thinkingLevel ?? 'off' },
+					),
 				RETRY,
 				signal,
 			)
@@ -151,69 +168,102 @@ export function server(core) {
 		return best
 	}
 
+	/** A thread's lines are written one at a time: each holds the whole thread, and hundreds at once ran out of memory */
+	const queues = new Map()
+	function inTurn(threadId, work) {
+		const run = (queues.get(threadId) ?? Promise.resolve()).then(work, work)
+		const tail = run.catch(() => {})
+		queues.set(threadId, tail)
+		tail.then(() => queues.get(threadId) === tail && queues.delete(threadId))
+		return run
+	}
+
 	const Line = defineTask({
 		name: 'ade.line',
 		version: 1,
 		initial: ({ backfill }) => ({ phase: backfill ? 'backfill' : 'write' }),
 		phases: {
 			/** The thread's first agent is here: each message without its line, and each pair not merged, gets its task */
-			async backfill({ conversationId: threadId, input }, rt, ctx) {
-				const earlier = (await core.messages(threadId)).filter(
-					(message) => input.entry === undefined || message.id < input.entry,
-				)
-				return rt.commit(async (tx) => {
-					const have = await lines(tx, threadId)
-					for (const [i, message] of earlier.entries())
-						if (!have.has(key(0, i)))
-							await tx.createTask(Line, { entry: message.id }, background(threadId))
-					for (const { l, i } of have.values())
-						if (!(i & 1) && have.has(key(l, i + 1)) && !have.has(key(l + 1, i >> 1)))
-							await tx.createTask(Line, { l: l + 1, i: i >> 1 }, background(threadId))
-					// Switched on, it has no message of its own to write
-					if (input.entry === undefined) return finished()
-					return { status: 'running', checkpoint: { phase: 'write' } }
-				}, ctx)
-			},
-			async write({ conversationId: threadId, input }, rt, ctx) {
-				const all = await core.messages(threadId)
-				const have = await core.commit((tx) => lines(tx, threadId))
-				const [l, i] =
-					input.entry !== undefined
-						? [0, all.findIndex((entry) => entry.id === input.entry)]
-						: [input.l, input.i]
-				if (have.has(key(l, i)) || !remembers(await core.thread(threadId)))
-					return rt.commit(() => finished(), ctx)
-				let text = await rt.memo('text', ctx)
-				if (text === undefined) {
-					const ask = `Line: ${l ? 'merge lines' : `compress message ${i}`}`
-					const limit = `into one line of at most ${LINE} bytes (about 70 words), the length of this ruler:\n${RULER}`
-					let source, task
-					if (!l) {
-						source = kept(all[i])
-						task = `${render(memory(have, i, CONTEXT))}\n\n${ask} ${limit}\n<input>\n${source}\n</input>`
-					} else {
-						const [left, right] = [have.get(key(l - 1, 2 * i)), have.get(key(l - 1, 2 * i + 1))]
-						const half = 2 ** (l - 1)
-						const id = i * 2 ** l
-						source = `${left.text} ${right.text}`
-						task =
-							`${render(memory(have, (i + 1) * 2 ** l, CONTEXT))}\n\n${ask} ${id}+${half} and ${id + half}+${half}, adjacent, ${limit}\n` +
-							`<chat> may hold their messages, ${id} to ${id + 2 * half - 1}, in more detail: take details of them from there too.\n<input>\n${left.text}\n${right.text}\n</input>`
+			backfill: ({ conversationId: threadId, input }, rt, ctx) =>
+				inTurn(threadId, async () => {
+					const earlier = (await core.messages(threadId)).filter(
+						(message) => input.entry === undefined || message.id < input.entry,
+					)
+					return rt.commit(async (tx) => {
+						const have = await lines(tx, threadId)
+						// Every start backfills, so skip lines a task from before is still writing
+						const queued = new Set(
+							(
+								await collect((cursor) =>
+									tx.scanTasks({ conversationId: threadId, kind: 'ade.line' }, 500, cursor),
+								)
+							)
+								.filter((task) => task.state.status !== 'terminal' && !task.input.backfill)
+								.map(({ input: { entry, l, i } }) =>
+									entry !== undefined ? `entry ${entry}` : key(l, i),
+								),
+						)
+						for (const [i, message] of earlier.entries())
+							if (!have.has(key(0, i)) && !queued.has(`entry ${message.id}`))
+								await tx.createTask(Line, { entry: message.id }, background(threadId))
+						for (const { l, i } of have.values())
+							if (
+								!(i & 1) &&
+								have.has(key(l, i + 1)) &&
+								!have.has(key(l + 1, i >> 1)) &&
+								!queued.has(key(l + 1, i >> 1))
+							)
+								await tx.createTask(Line, { l: l + 1, i: i >> 1 }, background(threadId))
+						// Switched on, it has no message of its own to write
+						if (input.entry === undefined) return finished()
+						return { status: 'running', checkpoint: { phase: 'write' } }
+					}, ctx)
+				}),
+			write: ({ conversationId: threadId, input }, rt, ctx) =>
+				inTurn(threadId, async () => {
+					rt.signal.throwIfAborted()
+					const all = await core.messages(threadId)
+					const have = await core.commit((tx) => lines(tx, threadId))
+					const [l, i] =
+						input.entry !== undefined
+							? [0, all.findIndex((entry) => entry.id === input.entry)]
+							: [input.l, input.i]
+					if (have.has(key(l, i)) || !remembers(await core.thread(threadId)))
+						return rt.commit(() => finished(), ctx)
+					let text = await rt.memo('text', ctx)
+					if (text === undefined) {
+						const ask = `Line: ${l ? 'merge lines' : `compress message ${i}`}`
+						const limit = `into one line of at most ${LINE} bytes (about 70 words), the length of this ruler:\n${RULER}`
+						let source, task
+						if (!l) {
+							source = kept(all[i])
+							task = `${render(memory(have, i, CONTEXT))}\n\n${ask} ${limit}\n<input>\n${source}\n</input>`
+						} else {
+							const [left, right] = [have.get(key(l - 1, 2 * i)), have.get(key(l - 1, 2 * i + 1))]
+							const half = 2 ** (l - 1)
+							const id = i * 2 ** l
+							source = `${left.text} ${right.text}`
+							task =
+								`${render(memory(have, (i + 1) * 2 ** l, CONTEXT))}\n\n${ask} ${id}+${half} and ${id + half}+${half}, adjacent, ${limit}\n` +
+								`<chat> may hold their messages, ${id} to ${id + 2 * half - 1}, in more detail: take details of them from there too.\n<input>\n${left.text}\n${right.text}\n</input>`
+						}
+						const written = await lineOf(source, task, threadId, rt.signal)
+						// No agent here yet: the first one asked brings this line back
+						if (written === undefined) return rt.commit(() => finished(), ctx)
+						text = await rt.memo('text', written, ctx)
 					}
-					const written = await lineOf(source, task, threadId, rt.signal)
-					// No agent here yet: the first one asked brings this line back
-					if (written === undefined) return rt.commit(() => finished(), ctx)
-					text = await rt.memo('text', written, ctx)
-				}
-				await rt.commit(async (tx) => {
-					const now = await lines(tx, threadId)
-					if (now.has(key(l, i))) return finished()
-					await tx.appendEntry(threadId, { kind: KIND, data: { l, i, text, size: bytes(text) } })
-					if (now.has(key(l, i ^ 1)))
-						await tx.createTask(Line, { l: l + 1, i: i >> 1 }, background(threadId))
-					return finished()
-				}, ctx)
-			},
+					await rt.commit(async (tx) => {
+						const now = await lines(tx, threadId)
+						if (now.has(key(l, i))) return finished()
+						await tx.appendEntry(threadId, {
+							kind: KIND,
+							data: { l, i, text, size: bytes(text) },
+						})
+						if (now.has(key(l, i ^ 1)))
+							await tx.createTask(Line, { l: l + 1, i: i >> 1 }, background(threadId))
+						return finished()
+					}, ctx)
+				}),
 		},
 		abort: (task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
 	})
@@ -433,7 +483,11 @@ export async function lines(tx, threadId) {
 	if (!parent) return map
 	const upTo = await collect((cursor) =>
 		tx.scanEntries(
-			{ conversationId: parent.conversationId, maxEntryId: parent.at, order: 'ascending' },
+			{
+				conversationId: parent.conversationId,
+				maxEntryId: parent.at,
+				order: 'ascending',
+			},
 			500,
 			cursor,
 		),
