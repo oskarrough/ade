@@ -147,7 +147,12 @@ export function server(core) {
 					core.models.completeSimple(
 						model,
 						{ messages },
-						{ signal, reasoning: to.thinkingLevel ?? 'off' },
+						{
+							signal,
+							...(to.thinkingLevel && to.thinkingLevel !== 'off'
+								? { reasoning: to.thinkingLevel }
+								: {}),
+						},
 					),
 				RETRY,
 				signal,
