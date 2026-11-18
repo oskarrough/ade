@@ -17,16 +17,16 @@ const route = (request) => {
 	requests.push({ first, all, input })
 	const source = input.slice('<input>\n'.length, input.lastIndexOf('\n</input>'))
 	const size = (text) =>
-		text.includes('STUBBORN') ||
-		(text.includes('TOOLONG') && !first.includes('Some lines were too long'))
+		text.includes('STUBBORN') || (text.includes('TOOLONG') && !first.includes('Redo only'))
 			? 700
 			: 300
 	return say(
-		source.startsWith('[')
-			? '```json\n' +
-					JSON.stringify(JSON.parse(source).map((item) => line(size(item.text)))) +
-					'\n```'
-			: line(size(source)),
+		'Here are the lines:\n' +
+			[...source.matchAll(/^(\d+)\| (.*)$/gm)]
+				.filter((item) => !item[2].includes('MISSING') || first.includes('Redo only'))
+				.map((item) => `${item[1]}| ${line(size(item[2]))}`)
+				.join('\n') +
+			'\nThat is all.',
 	)
 }
 const long = (tag) => `${tag} ${'y'.repeat(2000 - tag.length - 1)}`
@@ -104,7 +104,7 @@ check(
 )
 const tooLong = requests.filter((r) => r.input.includes('TOOLONG'))
 check(
-	tooLong.length === 2 && tooLong[1].first.includes('Some lines were too long'),
+	tooLong.length === 2 && tooLong[1].first.includes('Redo only'),
 	'a line over 512 bytes is asked again',
 	tooLong.length,
 )
@@ -117,20 +117,27 @@ check(
 
 const grouped = (await api('POST', '/api/threads', { title: 'batch backfill' })).json.id
 for (let i = 0; i < 16; i++)
-	await post(grouped, long(i === 4 ? 'TOOLONG batch' : i === 5 ? 'STUBBORN' : `batch item ${i}`))
+	await post(
+		grouped,
+		long(
+			i === 4 ? 'TOOLONG batch' : i === 5 ? 'STUBBORN' : i === 6 ? 'MISSING' : `batch item ${i}`,
+		),
+	)
 const batchStart = requests.length
 await api('POST', `/api/threads/${grouped}/memory`, { on: true })
 await until(async () => has(await linesOf(grouped), 4, 0), 30000)
 const batchRequests = requests.slice(batchStart)
 const group = batchRequests.find((request) => request.input.includes('batch item 0'))
-const retry = batchRequests.find((request) => request.first.includes('Some lines were too long'))
+const retry = batchRequests.find((request) => request.first.includes('Redo only'))
 check(
 	group?.input.includes('batch item 15') && group.input.includes('TOOLONG batch'),
 	'one call writes sixteen waiting message lines',
 )
 check(
-	retry?.input.includes('TOOLONG batch') && !retry.input.includes('batch item'),
-	'only the oversized batch item is redone',
+	retry?.input.includes('TOOLONG batch') &&
+		retry.input.includes('MISSING') &&
+		!retry.input.includes('batch item'),
+	'only missing or oversized batch items are redone',
 )
 check(
 	(await linesOf(grouped)).filter((line) => line.l === 0).length === 16 &&

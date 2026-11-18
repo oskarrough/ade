@@ -36,7 +36,7 @@ for (const [
 				first.lastIndexOf('\n</input>'),
 			)
 			const line = `L ${'x'.repeat(lineSize - 2)}`
-			return say(input.startsWith('[') ? JSON.stringify(JSON.parse(input).map(() => line)) : line)
+			return say([...input.matchAll(/^(\d+)\| /gm)].map((item) => `${item[1]}| ${line}`).join('\n'))
 		},
 		{ model: { contextWindow } },
 	)
