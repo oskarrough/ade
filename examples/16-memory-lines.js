@@ -7,7 +7,7 @@ const requests = []
 let n = 0
 const line = (size) => {
 	const head = `L${++n} `
-	return head + 'x'.repeat(size - head.length)
+	return head + 'word '.repeat(size).slice(0, size - head.length)
 }
 const route = (request) => {
 	const first = text(request.messages.find((m) => m.role === 'user'))
@@ -20,6 +20,8 @@ const route = (request) => {
 		text.includes('STUBBORN') || (text.includes('TOOLONG') && !first.includes('Redo only'))
 			? 700
 			: 300
+	if (first.includes('without numbering'))
+		return say(source.includes('MISSING') && !first.includes('Redo only') ? '' : line(size(source)))
 	return say(
 		'Here are the lines:\n' +
 			[...source.matchAll(/^(\d+)\| (.*)$/gm)]
@@ -103,12 +105,12 @@ check(
 	'every line request holds the 512-dash ruler',
 )
 const tooLong = requests.filter((r) => r.input.includes('TOOLONG'))
+check(tooLong.length === 1, 'an oversized line is trimmed without another call', tooLong.length)
+const trimmed = bl.find((x) => x.l === 0 && x.i === 2)
 check(
-	tooLong.length === 2 && tooLong[1].first.includes('Redo only'),
-	'a line over 512 bytes is asked again',
-	tooLong.length,
+	trimmed?.size <= 512 && trimmed?.text.endsWith('word'),
+	'the trimmed line ends at a word boundary',
 )
-check(bl.find((x) => x.l === 0 && x.i === 2)?.size === 300, 'and the line that fits is kept')
 const second = requests.find((r) => r.input.includes('second'))
 check(
 	second?.first.includes(`0+1|${bl.find((x) => x.l === 0 && x.i === 0).text}`),
@@ -134,10 +136,10 @@ check(
 	'one call writes sixteen waiting message lines',
 )
 check(
-	retry?.input.includes('TOOLONG batch') &&
-		retry.input.includes('MISSING') &&
+	!retry?.input.includes('TOOLONG batch') &&
+		retry?.input.includes('MISSING') &&
 		!retry.input.includes('batch item'),
-	'only missing or oversized batch items are redone',
+	'only missing batch items are redone, as plain text',
 )
 check(
 	(await linesOf(grouped)).filter((line) => line.l === 0).length === 16 &&

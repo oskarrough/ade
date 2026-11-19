@@ -36,6 +36,7 @@ for (const [
 				first.lastIndexOf('\n</input>'),
 			)
 			const line = `L ${'x'.repeat(lineSize - 2)}`
+			if (first.includes('without numbering')) return say(line)
 			return say([...input.matchAll(/^(\d+)\| /gm)].map((item) => `${item[1]}| ${line}`).join('\n'))
 		},
 		{ model: { contextWindow } },
