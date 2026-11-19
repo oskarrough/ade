@@ -20,7 +20,7 @@ const Bots = defineDoc({
 	initial: () => ({}),
 })
 
-export async function server(core) {
+export function server(core) {
 	const bots = () => core.commit(async (tx) => JSON.parse(JSON.stringify(await tx.doc(Bots))))
 	const list = async () => Object.entries(await bots()).map(([name, bot]) => ({ name, ...bot }))
 
@@ -145,30 +145,6 @@ export async function server(core) {
 				],
 			}
 		},
-	})
-
-	// MIGRATION — delete this block once it has run on the live server (see the report that lands this change):
-	// voice used to be appended after every bot's instructions on every turn, never stored; now it's only the
-	// seed text for a brand new bot. Give every bot that predates this change the full old text once, so none of
-	// them change how they talk. A bot made after this change already has `voice` (the short text) as its stored
-	// instructions, so it's left alone. PM's instructions already say it's hands-off in its own words; give it
-	// the line this module used to add too, unless it's already there.
-	const fullVoice =
-		"Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. You lead, so give the picture, not the work: what changed, what's next, what needs a decision. The details belong to whoever did the work; bring them in only when someone asks. Everyone here already sees the thread, tool calls and posts; say only what's new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can't, say you're guessing."
-	const handsOff =
-		'Look things up yourself (gh, git, logs, files) and hand every change to a worker.'
-	await core.commit(async (tx) => {
-		const all = await tx.doc(Bots)
-		for (const [name, existing] of Object.entries(all)) {
-			const add = [
-				!existing.instructions.includes(voice) &&
-					!existing.instructions.includes(fullVoice) &&
-					fullVoice,
-				name === 'PM' && !existing.instructions.includes(handsOff) && handsOff,
-			].filter(Boolean)
-			if (add.length)
-				existing.instructions = [existing.instructions, ...add].filter(Boolean).join('\n\n')
-		}
 	})
 
 	const section = {
