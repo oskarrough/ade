@@ -192,13 +192,12 @@ function RunnerItem(props) {
 			</div>
 			<${Sure}
 				class="small revoke"
-				title="Take its key away"
-				ask="revoke?"
-				why=${() =>
-					"It goes offline and can't dial back; threads that asked it wait for the name." +
+				title=${() =>
+					"Take its key away. It goes offline and can't dial back; threads that asked it wait for the name." +
 					(props.runner.own
 						? " It's the server's own runner, so it's back when the server restarts, unless it starts with --no-runner."
 						: '')}
+				ask="revoke?"
 				onConfirm=${revoke}
 				>revoke<//
 			>
@@ -290,11 +289,6 @@ export function ConnectRunner(props) {
 						reach it from one.
 					</p>
 				<//>
-				<p class="mute">
-					${() =>
-						`Run it on ${minted().name}, in the folder agents should work in. ` +
-						'It holds the key, so keep it private.'}
-				</p>
 			<//>
 		</div>
 	`
