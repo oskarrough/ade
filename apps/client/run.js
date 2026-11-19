@@ -13,6 +13,7 @@ import {
 import { colorOf, entries, homeBot, threadOf, titleOf } from './server.js'
 import { Cross } from './thread.js'
 import { authorLabel, doing, messageText, shortLabel, touched } from './agent.js'
+import { Stamp } from './time.js'
 
 /**
  * A turn's line. While its agent works, the step it's in now, and below it the last few steps and the words coming in;
@@ -79,6 +80,7 @@ export function Turn(props) {
 					</ol>
 				<//>
 			</details>
+			<${Stamp} time=${() => props.time} />
 		</li>
 	`
 }
@@ -122,6 +124,7 @@ export function Exchange(props) {
 					/>
 				<//>
 			</ol>
+			<${Stamp} time=${() => props.time} />
 		</li>
 	`
 }
@@ -391,6 +394,26 @@ export function turnsOf(conversation) {
 	return turns
 }
 
+/**
+ * What a conversation says about when thread messages were written, for those from before messages carried their time:
+ * `asked`, the message each delivery went out for, by the delivery's time (its newest held; the others it carried along
+ * were written earlier), and `said`, each of its entries by its model message's time, which dates the answers copied from them.
+ */
+export function timesOf(conversation) {
+	const asked = new Map()
+	const said = new Map()
+	for (const entry of conversations[conversation] ?? []) {
+		const time = entry.model?.[0]?.timestamp
+		if (time === undefined) continue
+		said.set(entry.id, time)
+		const held = entry.kind === 'ade.delivery' ? (entry.data?.held ?? []) : []
+		if (!held.length) continue
+		const upTo = Math.max(...held)
+		asked.set(upTo, Math.min(asked.get(upTo) ?? Infinity, time))
+	}
+	return { asked, said }
+}
+
 export const newestCut = (cuts) =>
 	cuts.reduce((best, cut) => (!best || cut.id > best.id ? cut : best), null)
 
@@ -528,6 +551,7 @@ export function Changed(props) {
 					</details>
 				</li>
 			</ol>
+			<${Stamp} time=${() => props.time} />
 		</li>
 	`
 }

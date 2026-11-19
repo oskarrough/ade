@@ -1774,6 +1774,36 @@ body.resizing {
 	}
 }
 
+/* A new day, or an hour gone by: the date or the time, centred and quiet, between the messages. */
+.thread > ul > li.break {
+	font-size: var(--text-small);
+	line-height: var(--text-small-line);
+	text-align: center;
+}
+
+/* A row's time sits in the gap under it, out of the flow so showing it moves nothing: under your bubble on the right, under anyone else's on the left. Only with a mouse on a big screen. */
+.thread > ul > li > time.stamp {
+	display: none;
+	position: absolute;
+	top: 100%;
+	left: 0;
+	color: var(--mute);
+	font-size: var(--text-small);
+	line-height: var(--space-3);
+	white-space: nowrap;
+}
+
+.thread > ul > li.mine > time.stamp {
+	left: auto;
+	right: 0;
+}
+
+@media (hover: hover) and (pointer: fine) and (min-width: 701px) {
+	.thread > ul > li:hover > time.stamp {
+		display: block;
+	}
+}
+
 /* Where compaction cut: a quiet line across the thread, not a message. */
 .thread > ul > li.cut {
 	font-size: var(--text-small);

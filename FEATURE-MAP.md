@@ -84,6 +84,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   run.js                 an agent's turns, from its own conversation
     heard, conversations the conversation entries the socket brings
     turnsOf, cutsOf      a conversation cut into turns, and where its newest compaction cut it
+    timesOf              when its deliveries went out and its entries were written: dates messages from before createdAt
     summary              a closed turn's one line ("edited 2 files · 1 command")
     Exchange             an ask's own row in the asking thread: a sent `Cross` row, then the answer as a received one
     answersIn, answerOf  a post step's answer from the thread it asked
@@ -92,6 +93,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     Changed              a bot rewriting itself: ✎, its name, what changed; opened, a word diff of old against new (the call's details.before; jsdiff from esm.sh on first open, wordDiff), unchanged stretches folded into ⋯ (Fold)
     Turn, Step, Call     a turn's line, opened into steps
     handedStep, light, litIn   the handed step as a count (none for the one message above); opened, it lights those messages
+  time.js                when things were said: Stamp, a row's time under it on hover (now, 4m, 2h, else 14:32; one minute clock);
+                         Break, the line where a day changes or an hour passed between two messages (breakOf)
   composer.js            the box you type in
     pick, agent, askedBots, recipients   whom the next message asks, per thread
     mention, pickMention, mentionsFor   typing @ lists bots, then threads by any word of their title (a combobox); picking a bot asks it,

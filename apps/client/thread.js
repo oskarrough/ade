@@ -56,9 +56,11 @@ import {
 	lastingOf,
 	litIn,
 	newestCut,
+	timesOf,
 	Turn,
 	turnsOf,
 } from './run.js'
+import { Break, breakOf, Stamp } from './time.js'
 import { Composer } from './composer.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
@@ -139,6 +141,7 @@ export function Thread(props) {
 				memos.set(conversation, {
 					turns: createMemo(() => turnsOf(conversation)),
 					cuts: createMemo(() => cutsOf(conversation)),
+					times: createMemo(() => timesOf(conversation)),
 				}),
 			)
 		return memos.get(conversation)
@@ -176,6 +179,7 @@ export function Thread(props) {
 						agent,
 						turn,
 						at: turn.after + 0.5,
+						time: turn.start,
 						live: !!live?.run && live.delivery?.id === turn.delivery,
 					}))
 				// Asked while its runner is offline, before any delivery
@@ -192,6 +196,16 @@ export function Thread(props) {
 				)
 			})
 			const answerOf = answersIn(all)
+			/** When a message was written: its own time, else, from before messages carried one, when its agent answered it or was asked by it */
+			const timeOf = (entry) => {
+				if (entry.data.createdAt) return Date.parse(entry.data.createdAt)
+				const answer = entry.data.answer
+				if (answer) return perConversation(answer.conversation).times().said.get(answer.entry)
+				const times = (latest(thread)?.agents ?? [])
+					.map((agent) => perConversation(agent.conversation).times().asked.get(entry.id))
+					.filter((time) => time !== undefined)
+				return times.length ? Math.min(...times) : undefined
+			}
 			// An answer said here to a question from another thread names where it went
 			const byId = new Map(all.map((entry) => [entry.id, entry]))
 			// Only a question goes back, and only once: an answer that came back here sends nothing on, nor does what follows the first answer
@@ -222,12 +236,14 @@ export function Thread(props) {
 				.flatMap((row) =>
 					lastingOf(row.turn.steps).map((step, index) => {
 						const at = row.at + (index + 1) / 1000
+						const time = step.result.time
 						if (step.name === 'canvas_act')
 							return {
 								key: `${row.key}:${step.name}:${step.key}`,
 								drew: step,
 								agent: row.agent,
 								at,
+								time,
 							}
 						if (step.name !== 'post')
 							return {
@@ -235,6 +251,7 @@ export function Thread(props) {
 								changed: step,
 								agent: row.agent,
 								at,
+								time,
 							}
 						const answer = answerOf(step) || undefined
 						const back =
@@ -249,6 +266,7 @@ export function Thread(props) {
 							answer,
 							back,
 							at,
+							time,
 						}
 					}),
 				)
@@ -263,6 +281,7 @@ export function Thread(props) {
 								question: fetched.question,
 								answer: fetched.answer,
 								at: fetched.question.id,
+								time: timeOf(fetched.question),
 							},
 						]
 					: []
@@ -271,6 +290,7 @@ export function Thread(props) {
 				key: entry.id,
 				entry,
 				at: entry.id,
+				time: timeOf(entry),
 				sent: sentTo(entry),
 			}))
 			// One cut line, the newest compaction's; what the agent reads as lines folds into them, unless opened from it
@@ -287,9 +307,17 @@ export function Thread(props) {
 				...lines,
 				...(newest ? [newest] : []),
 			].sort((one, other) => one.at - other.at)
-			// A message or run line names its author only when it isn't the last one's that wasn't yours: your own are marked by where they sit
+			// A new day, or an hour gone by, between two messages that both have their time, opens with a line saying so
+			let before
+			for (const row of rows) {
+				if (!row.entry) continue
+				row.break = breakOf(before?.time, row.time)
+				before = row
+			}
+			// A message or run line names its author only when it isn't the last one's that wasn't yours, or one before a break: your own are marked by where they sit
 			let last
 			for (const row of rows) {
+				if (row.break) last = undefined
 				row.above = last
 				const author = row.entry ? !row.entry.data.from && row.entry.data.author : row.agent?.name
 				if (author !== me) last = author
@@ -632,6 +660,9 @@ export function Thread(props) {
 					<//>
 					<${For} each=${() => (ready() ? rows : [])} keyed=${(row) => row.key}
 						>${(row) => html`
+							<${Show} when=${() => row().break}>
+								<${Break} kind=${() => row().break} time=${() => row().time} />
+							<//>
 							<${Show}
 								when=${() => !row().cut && !row().line}
 								fallback=${() => html`
@@ -683,6 +714,7 @@ export function Thread(props) {
 									when=${() => !row().drew}
 									fallback=${() => html`
 										<${CanvasRow}
+											time=${() => row().time}
 											step=${() => row().drew}
 											agent=${() => row().agent}
 											thread=${() => props.id}
@@ -692,13 +724,18 @@ export function Thread(props) {
 									<${Show}
 										when=${() => !row().changed}
 										fallback=${() => html`
-											<${Changed} step=${() => row().changed} agent=${() => row().agent} />
+											<${Changed}
+												step=${() => row().changed}
+												agent=${() => row().agent}
+												time=${() => row().time}
+											/>
 										`}
 									>
 										<${Show}
 											when=${() => !row().asked}
 											fallback=${() => html`
 												<${Asked}
+													time=${() => row().time}
 													thread=${() => row().asked}
 													question=${() => row().question}
 													answer=${() => row().answer}
@@ -709,6 +746,7 @@ export function Thread(props) {
 												when=${() => !row().ask}
 												fallback=${() => html`
 													<${Exchange}
+														time=${() => row().time}
 														thread=${() => props.id}
 														step=${() => row().ask}
 														agent=${() => row().agent}
@@ -721,6 +759,7 @@ export function Thread(props) {
 													when=${() => row().turn || row().live}
 													fallback=${() => html`
 														<${Message}
+															time=${() => row().time}
 															thread=${() => props.id}
 															entry=${() => row().entry}
 															at=${() =>
@@ -731,6 +770,7 @@ export function Thread(props) {
 													`}
 												>
 													<${Turn}
+														time=${() => row().time}
 														thread=${() => props.id}
 														agent=${() => row().agent}
 														turn=${() => row().turn}
@@ -816,6 +856,7 @@ function Message(props) {
 					</div>
 				`}<//
 			>
+			<${Stamp} time=${() => props.time} />
 			<${Show} when=${() => !props.entry.sending}>
 				<button
 					class="small fork"
@@ -910,6 +951,7 @@ const Asked = (props) => html`
 				title=${() => `${props.question.data.author} asked in thread ${props.thread}`}
 			/>
 		</ol>
+		<${Stamp} time=${() => props.time} />
 	</li>
 `
 
