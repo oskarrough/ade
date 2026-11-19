@@ -63,9 +63,8 @@ process.on('SIGTERM', () => process.exit(143))
 
 /** Servers and runners use the example's own store and XDG config, never the person's settings. */
 export function start(file, args = [], env = {}, cwd = tmp) {
-	const child = spawn(process.execPath, [path.join(repo, file), ...args], {
+	return command(process.execPath, [path.resolve(repo, file), ...args], {
 		cwd,
-		detached: true,
 		env: {
 			...process.env,
 			PORT: String(port),
@@ -74,6 +73,14 @@ export function start(file, args = [], env = {}, cwd = tmp) {
 			XDG_CONFIG_HOME: tmp,
 			...env,
 		},
+	})
+}
+
+/** Own the whole process group until the example exits, even if its leader exits first. */
+export function command(file, args = [], options = {}) {
+	const child = spawn(file, args, {
+		...options,
+		detached: true,
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
 	child.stdout.on(
@@ -82,7 +89,6 @@ export function start(file, args = [], env = {}, cwd = tmp) {
 	)
 	child.stderr.on('data', (chunk) => process.stdout.write(`[${file} err] ${chunk}`))
 	procs.add(child)
-	child.on('exit', () => procs.delete(child))
 	return child
 }
 

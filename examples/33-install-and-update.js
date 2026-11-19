@@ -1,5 +1,4 @@
 /** `curl -fsSL <server>/connect-runner | sh` installs a runner from the server and starts it */
-import { spawn } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, readdirSync, appendFileSync, symlinkSync } from 'node:fs'
 import path from 'node:path'
 import {
@@ -7,13 +6,17 @@ import {
 	api,
 	base,
 	check,
+	command,
 	db,
 	dir,
 	done,
 	keyFor,
+	kill,
+	online,
 	repo,
 	runner,
 	server,
+	start,
 	until,
 } from './lib.js'
 
@@ -21,20 +24,6 @@ const tmp = path.dirname(db)
 const HOME = path.join(tmp, 'installed-home')
 mkdirSync(HOME)
 const installed = path.join(HOME, '.local', 'share', 'ade', 'runner')
-const procs = []
-process.on('exit', () => {
-	for (const p of procs)
-		try {
-			process.kill(-p.pid)
-		} catch {}
-})
-const start = (command, args, options) => {
-	const p = spawn(command, args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'], ...options })
-	p.stdout.on('data', (d) => process.env.VERBOSE && process.stdout.write(`[${args[0]}] ${d}`))
-	p.stderr.on('data', (d) => process.env.VERBOSE && process.stdout.write(`[${args[0]} err] ${d}`))
-	procs.push(p)
-	return p
-}
 const runnerOf = async (name) =>
 	(await api('GET', '/api/runners')).json.find((r) => r.name === name)
 const ask = async (id, n) => {
@@ -49,7 +38,7 @@ const ask = async (id, n) => {
 let srv = await server()
 const port = new URL(base).port
 const key = await keyFor('fresh')
-start('sh', ['-c', `curl -fsSL ${base}/connect-runner | sh -s -- --dir ${dir} --name fresh`], {
+command('sh', ['-c', `curl -fsSL ${base}/connect-runner | sh -s -- --dir ${dir} --name fresh`], {
 	env: { ...process.env, HOME, XDG_CONFIG_HOME: '', XDG_DATA_HOME: '', ADE_KEY: key },
 })
 check(
@@ -80,7 +69,7 @@ symlinkSync(path.join(repo, 'node_modules'), path.join(deployed, 'node_modules')
 appendFileSync(path.join(deployed, 'remote.js'), '// deployed\n')
 srv.kill('SIGTERM')
 await new Promise((r) => srv.on('exit', r))
-srv = start(process.execPath, ['server.js'], {
+srv = command(process.execPath, ['server.js'], {
 	cwd: deployed,
 	env: { ...process.env, PORT: port, HOST: '127.0.0.1', DB_PATH: db },
 })
@@ -104,4 +93,15 @@ await runner('checkout')
 await until(async () => (await runnerOf('checkout'))?.online)
 const checkout = await runnerOf('checkout')
 check(checkout?.outdated && checkout.online, 'a runner from a checkout is outdated, and stays up')
+const stoppable = start('runner-updater.js', [base, '--name', 'stoppable', '--dir', dir], {
+	HOME,
+	ADE_HOME: installed,
+	ADE_KEY: await keyFor('stoppable'),
+})
+check(await online('stoppable'), 'an updater starts its runner')
+await kill(stoppable)
+check(
+	await until(async () => !(await runnerOf('stoppable'))?.online),
+	'stopping the updater stops its runner child too',
+)
 done()
