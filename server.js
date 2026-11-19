@@ -58,6 +58,7 @@ import {
  * @typedef {object} Message  The data of every thread entry.
  * @property {string} author  A human's name, a bot's, or the thread's agent as `model:thinking@runner` when it wrote.
  * @property {string} body
+ * @property {string} [createdAt]  When it was written, as an ISO time, which append stamps; a pi session's message keeps pi's. Older messages have none.
  * @property {{ type: 'image', mimeType: string, data: string }[]} [images]  As pi's ImageContent, base64; the agent sees them with the words.
  * @property {string[]} [to]  Whom it asks, named as `author` names them.
  * @property {number} [from]  The thread it came from.
@@ -826,7 +827,7 @@ async function append(
 ) {
 	const row = await tx.doc(Thread, threadId)
 	const names = (to ?? []).map(writtenTo)
-	const data = { ...message, ...(to ? { to: names } : {}) }
+	const data = { createdAt: now(), ...message, ...(to ? { to: names } : {}) }
 	const prior =
 		!empty && names.some((name) => !row.agents[keyOf(name)])
 			? (

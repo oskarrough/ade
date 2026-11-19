@@ -231,6 +231,7 @@ export async function server(core) {
 							data: {
 								author: who,
 								body: textOf(message.content),
+								createdAt: new Date(message.timestamp).toISOString(),
 								to: [label],
 								...(images.length ? { images } : {}),
 							},
@@ -249,6 +250,7 @@ export async function server(core) {
 							await core.post(tx, threadId, {
 								author: label,
 								body: said,
+								createdAt: new Date(message.timestamp).toISOString(),
 								answer: { conversation: agent.conversation, entry: placed.id },
 							})
 					} else if (message.role === 'toolResult') {

@@ -32,6 +32,13 @@ const view = await answered(id)
 const input = view?.entries.find((e) => e.id === posted.json.entry)
 const answer = answers(view ?? { entries: [] })[0]
 check(
+	[input, answer].every(
+		(entry) => Math.abs(Date.parse(entry?.data.createdAt) - Date.now()) < 60_000,
+	),
+	'each message says when it was written (createdAt)',
+	JSON.stringify([input?.data.createdAt, answer?.data.createdAt]),
+)
+check(
 	input?.data.author === 'oskar' && input.data.to?.join() === 'echo:off@laptop',
 	'the message says who wrote it and whom it asks',
 	JSON.stringify(input),
