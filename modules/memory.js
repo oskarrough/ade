@@ -10,6 +10,13 @@
  * A thread with a bot in it remembers; one without doesn't, unless its own switch, POST /api/threads/:id/memory
  * {on}, overrides that in either direction. A thread with memory off writes no lines and compacts as Pi does
  * without memory, when a window is nearly full; switched on, it writes the lines it missed.
+ *
+ * To benchmark backfill: build the fixture from a backup of the live DB, deleting lines for one small span
+ * (about 64 messages plus the merges above them) and checking only that span is gone; never touch the live file.
+ * 64 messages show the retry rate as well as a bigger gap would (450 messages cost 7x as much for nothing).
+ * Change one variable per run, one run per arm, on identical fixture copies. Log retry reasons (unparseable, too
+ * long, missing) and confirm the requested model and thinking level reach the provider. Count calls, total tokens
+ * (cache and reasoning included), retries and peak RSS; keep the evidence in .work/.
  */
 import { retryAssistantCall } from '@earendil-works/pi-ai'
 import { num, obj, opt } from '@earendil-works/pi-schema'
