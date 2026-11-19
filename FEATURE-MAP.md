@@ -130,7 +130,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   agent-memory.js        memory popover and compaction view for the visible thread
   icons.js               Icon: the client's stroke icons (up, back, plus, close, next, check, again, settings), one viewBox and weight
   title.js               defaultTitle shared by new-thread client paths, CLI, post and auto-title
-  settings.js            server settings: modules on/off and memory's model
+  settings.js            server settings: modules on/off and memory's model; its first row goes back to the story
   system.js, wires.js    the live system diagram and the wires between boxes
   tutorial.js            walkthrough buttons wired to the real server
   tutorial-shed.js       loadShed: the example messages and their saved memory, loaded through the API

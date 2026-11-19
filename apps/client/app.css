@@ -38,16 +38,6 @@
 	overflow: hidden;
 }
 
-/* Out of the way: a small arrow at the end of the runners row, under the thread list. */
-.mode-toggle {
-	position: absolute;
-	bottom: calc(var(--space-2) + (var(--foot-height) - var(--small-button)) / 2);
-	/* Its right edge on the list's, where a row's count ends. */
-	left: calc(var(--list-width, 15rem) - 1px - var(--space-2));
-	translate: -100% 0;
-	z-index: 2;
-}
-
 /* The live system, flattened: the server's box is the app's frame; the client, the wires and the runners' cards are the story's. */
 .system {
 	position: relative;
@@ -1516,7 +1506,7 @@ connect-runner {
 	}
 }
 
-/* The list's foot: runners, then settings, then the arrow back to the story that sits over its end. */
+/* The list's foot: blocked, runners, then settings at its end. */
 .list-foot {
 	position: sticky;
 	bottom: 0;
@@ -1527,7 +1517,6 @@ connect-runner {
 	gap: var(--space-1);
 	/* Same height and padding as the composer's bar below it, so the two rows share a baseline across the divider. */
 	height: var(--foot-height);
-	padding: 0 var(--space-6) 0 0;
 	background: Canvas;
 }
 
@@ -1738,8 +1727,8 @@ body.resizing {
 	}
 }
 
-/* The context popover is Settings' frame and rows; its own part is the tape. */
-.recall .rows > li {
+/* A row that opens or goes somewhere, like Context's Inspect memory or Settings' Back to the story. */
+.popover .rows > li[role='button'] {
 	cursor: pointer;
 }
 
@@ -1815,15 +1804,6 @@ body.resizing {
 		overscroll-behavior: none;
 		/* The bar's own height, so the thread below knows where it ends. */
 		--bar-height: calc(var(--control) + 2 * var(--space-2) + env(safe-area-inset-top));
-	}
-
-	.mode-toggle {
-		position: fixed;
-		left: auto;
-		right: var(--space-2);
-		translate: none;
-		bottom: calc((var(--foot-height) - var(--small-button)) / 2);
-		z-index: 4;
 	}
 
 	/* The bar, on the page's own surface so the messages scroll under it, not through it. */
@@ -1922,7 +1902,7 @@ body.resizing {
 		transform: translateX(100%);
 	}
 
-	body:not(.list) :is(.thread-list, .mode-toggle) {
+	body:not(.list) .thread-list {
 		transform: translateX(-30%);
 		visibility: hidden;
 	}
@@ -1942,7 +1922,7 @@ body.resizing {
 	}
 
 	@media (prefers-reduced-motion: no-preference) {
-		:is(.threads, .app-bar, .thread-list, .mode-toggle) {
+		:is(.threads, .app-bar, .thread-list) {
 			transition:
 				transform var(--duration-sheet) var(--ease-sheet),
 				visibility var(--duration-sheet) var(--ease-sheet);

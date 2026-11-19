@@ -12,6 +12,8 @@ import {
 } from 'solid-js'
 
 export const params = new URLSearchParams(location.search)
+/** Just the chat, or the live system around it */
+export const [chat, setChat] = createSignal(params.has('chat'))
 
 /** What a fresh page shows before the server has answered once; everything after comes from cache or the server */
 const DEFAULT_SERVER = {

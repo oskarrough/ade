@@ -2,8 +2,18 @@
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
 import { render } from '@solidjs/web'
-import { createEffect, createSignal, Errored, Loading, onSettled } from 'solid-js'
-import { colorOf, current, drawer, homeBot, params, titleOf, threadOf } from './server.js'
+import { createEffect, Errored, Loading, onSettled, Show } from 'solid-js'
+import {
+	chat,
+	colorOf,
+	current,
+	drawer,
+	homeBot,
+	params,
+	setChat,
+	titleOf,
+	threadOf,
+} from './server.js'
 import { sideOf, toggleSide } from './side.js'
 import { Dot } from './dot.js'
 import { System } from './system.js'
@@ -11,7 +21,6 @@ import { Tutorial } from './tutorial.js'
 
 function Client() {
 	document.body.classList.toggle('grid', params.has('grid'))
-	const [chat, setChat] = createSignal(params.has('chat'))
 	createEffect(chat, (on) => {
 		document.body.classList.toggle('chat', on)
 		drawer(null)
@@ -68,15 +77,11 @@ function Client() {
 		}
 	})
 	return html`
-		<button
-			class="ghost small mode-toggle"
-			type="button"
-			title=${() => (chat() ? 'Back to the story' : '')}
-			aria-label=${() => (chat() ? 'Back to the story' : 'Just the chat')}
-			onClick=${() => setChat(!chat())}
-		>
-			${() => (chat() ? html`<${Icon} name="up" />` : 'Just the chat')}
-		</button>
+		<${Show} when=${() => !chat()}>
+			<button class="ghost small mode-toggle" type="button" onClick=${() => setChat(true)}>
+				Just the chat
+			</button>
+		<//>
 		<${Errored}
 			fallback=${(error, retry) => html`
 				<p class="mute">${() => String(error())} <button onClick=${retry}>Retry</button></p>

@@ -126,16 +126,26 @@ export function System() {
 }
 
 function ListEdge() {
-	const fit = (px) => Math.round(Math.min(Math.max(px, 160), Math.min(640, innerWidth / 2)))
 	const list = (el) => el.parentElement.querySelector('.thread-list')
+	/** As narrow as the list's foot lets it: Blocked, every runner's count and the gear on one line */
+	const least = (edge) => {
+		const foot = list(edge).querySelector('.list-foot')
+		if (!foot) return 160
+		const room = foot.getBoundingClientRect().width
+		foot.style.width = 'max-content'
+		const needs = foot.getBoundingClientRect().width
+		foot.style.width = ''
+		return Math.ceil(list(edge).getBoundingClientRect().width - room + needs)
+	}
+	const fit = (edge, px) => Math.max(Math.round(Math.min(px, 640, innerWidth / 2)), least(edge))
 	return Edge({
 		label: 'Thread list width',
 		width: (edge) => list(edge).offsetWidth,
 		drag: (edge) => {
 			const left = list(edge).getBoundingClientRect().left
-			return (pointer) => listWidth.set(fit(pointer.clientX - left))
+			return (pointer) => listWidth.set(fit(edge, pointer.clientX - left))
 		},
-		set: (px) => listWidth.set(px && fit(px)),
+		set: (edge, px) => listWidth.set(px && fit(edge, px)),
 		grow: 1,
 		edge: 'list-edge',
 	})
@@ -158,7 +168,7 @@ function SideEdge({ after }) {
 				sideWidth.set(Math.min(fit(wanted(pointer)), page(edge).offsetWidth))
 			}
 		},
-		set: (px) => sideWidth.set(px && fit(px)),
+		set: (edge, px) => sideWidth.set(px && fit(px)),
 		grow: after ? 1 : -1,
 		edge: 'side-edge',
 	})
@@ -187,12 +197,12 @@ function Edge({ label, width, drag, set, grow, edge: name }) {
 				document.body.classList.add('resizing')
 				event.preventDefault()
 			}}
-			onDblClick=${(_event) => set(null)}
+			onDblClick=${(event) => set(event.currentTarget, null)}
 			onKeyDown=${(event) => {
 				const step = { ArrowLeft: -16, ArrowRight: 16 }[event.key]
 				if (!step) return
 				event.preventDefault()
-				set(width(event.currentTarget) + grow * step)
+				set(event.currentTarget, width(event.currentTarget) + grow * step)
 			}}
 		></div>
 	`

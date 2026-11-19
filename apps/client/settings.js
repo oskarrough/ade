@@ -11,7 +11,7 @@ import {
 	snapshot,
 	untrack,
 } from 'solid-js'
-import { api, connected, server } from './server.js'
+import { api, connected, server, setChat } from './server.js'
 import { ModelPicker } from './model-picker.js'
 import { Panes } from './panes.js'
 import { agentTo, formatAgent, writtenTo } from './agent.js'
@@ -118,6 +118,20 @@ export function Settings() {
 						onConfigure=${(to) => choose(to)}
 					/>`}
 			>
+				<ul class="rows">
+					<li
+						role="button"
+						tabindex="0"
+						onClick=${() => setChat(false)}
+						onKeyDown=${(event) => event.key === 'Enter' && setChat(false)}
+					>
+						<div>
+							<b>Back to the story</b>
+							<small>The walkthrough, with the live system around this chat.</small>
+						</div>
+						<${Icon} name="up" />
+					</li>
+				</ul>
 				<ul class="rows modules">
 					<${For} each=${all}
 						>${(module) => html`
