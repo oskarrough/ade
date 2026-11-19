@@ -1,7 +1,7 @@
 /** Runners show their agents and choose whom the composer asks. */
 import html from '@solidjs/html'
 import { createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
-import { api, minted, revokeRunner, runners, server, setMinted, threads } from './server.js'
+import { api, minted, revokeRunner, runners, setMinted, threads } from './server.js'
 import { rowOf, doing, lastToolCall, modelsOf, THINKING_LEVELS } from './agent.js'
 import { choose, configure, recipients, toFor } from './composer.js'
 import { placePopover } from './popover.js'
@@ -190,20 +190,18 @@ function RunnerItem(props) {
 					>
 				<//>
 			</div>
-			<${Show} when=${() => server().local}>
-				<${Sure}
-					class="small revoke"
-					title="Take its key away"
-					ask="revoke?"
-					why=${() =>
-						"It goes offline and can't dial back; threads that asked it wait for the name." +
-						(props.runner.own
-							? " It's the server's own runner, so it's back when the server restarts, unless it starts with --no-runner."
-							: '')}
-					onConfirm=${revoke}
-					>revoke<//
-				>
-			<//>
+			<${Sure}
+				class="small revoke"
+				title="Take its key away"
+				ask="revoke?"
+				why=${() =>
+					"It goes offline and can't dial back; threads that asked it wait for the name." +
+					(props.runner.own
+						? " It's the server's own runner, so it's back when the server restarts, unless it starts with --no-runner."
+						: '')}
+				onConfirm=${revoke}
+				>revoke<//
+			>
 		</li>
 	`
 }
@@ -240,70 +238,63 @@ export function ConnectRunner(props) {
 			.catch(report)
 	return html`
 		<div class="connect-runner">
-			<${Show}
-				when=${() => server().local}
-				fallback=${html`
-					<p class="mute">Add and revoke runners from the server's own machine.</p>
-				`}
-			>
-				<form onSubmit=${submit}>
-					<input
-						aria-label="Runner name"
-						placeholder="a name, like laptop"
-						spellcheck="false"
-						autocomplete="off"
-						required
-						value=${() => name()}
-						onInput=${(event) => {
-							// A name is letters, digits, dot, dash or underscore: a space becomes a dash as you type.
-							const input = event.currentTarget
-							const typed = input.value
-							const caret = input.selectionStart ?? typed.length
-							const tidy = (text) => text.replace(/\s/g, '-').replace(/[^\w.-]/g, '')
-							if (tidy(typed) !== typed) {
-								input.value = tidy(typed)
-								const at = tidy(typed.slice(0, caret)).length
-								input.setSelectionRange(at, at)
-							}
-							setName(input.value)
-							setCutting(false)
-						}}
-					/>
-					<button type="submit" disabled=${() => busy()} onBlur=${(_e) => setCutting(false)}>
-						${() => (cutting() ? 'Cut it off?' : existing() ? 'New key' : 'Add runner')}
+			<form onSubmit=${submit}>
+				<input
+					aria-label="Runner name"
+					placeholder="a name, like laptop"
+					spellcheck="false"
+					autocomplete="off"
+					required
+					value=${() => name()}
+					onInput=${(event) => {
+						// A name is letters, digits, dot, dash or underscore: a space becomes a dash as you type.
+						const input = event.currentTarget
+						const typed = input.value
+						const caret = input.selectionStart ?? typed.length
+						const tidy = (text) => text.replace(/\s/g, '-').replace(/[^\w.-]/g, '')
+						if (tidy(typed) !== typed) {
+							input.value = tidy(typed)
+							const at = tidy(typed.slice(0, caret)).length
+							input.setSelectionRange(at, at)
+						}
+						setName(input.value)
+						setCutting(false)
+					}}
+				/>
+				<button type="submit" disabled=${() => busy()} onBlur=${(_e) => setCutting(false)}>
+					${() => (cutting() ? 'Cut it off?' : existing() ? 'New key' : 'Add runner')}
+				</button>
+			</form>
+			<${Show} when=${cutting}>
+				<p class="mute">
+					${() =>
+						`${name().trim()} is online. A new key cuts it off until you run the new command there.`}
+				</p>
+			<//>
+			<${Show} when=${() => error()}><p class="bad">${() => error()}</p><//>
+			<${Show} when=${minted}>
+				<div class="command">
+					<pre>${() => minted().connect}</pre>
+					<button type="button" class="small" onClick=${copy}>
+						${() => (copied() ? 'Copied' : 'Copy')}
 					</button>
-				</form>
-				<${Show} when=${cutting}>
+				</div>
+				<${Show}
+					when=${() =>
+						/^curl -fsSL https?:\/\/(localhost|127(?:\.\d+){3}|\[::1\])[:/]/i.test(
+							minted().connect,
+						)}
+				>
 					<p class="mute">
-						${() =>
-							`${name().trim()} is online. A new key cuts it off until you run the new command there.`}
+						Other machines can't reach this server. Run <code>tailscale serve</code> on its port to
+						reach it from one.
 					</p>
 				<//>
-				<${Show} when=${() => error()}><p class="bad">${() => error()}</p><//>
-				<${Show} when=${minted}>
-					<div class="command">
-						<pre>${() => minted().connect}</pre>
-						<button type="button" class="small" onClick=${copy}>
-							${() => (copied() ? 'Copied' : 'Copy')}
-						</button>
-					</div>
-					<${Show}
-						when=${() =>
-							/^curl -fsSL https?:\/\/(localhost|127(?:\.\d+){3}|\[::1\])[:/]/i.test(
-								minted().connect,
-							)}
-					>
-						<p class="mute">
-							Other machines can't reach this server. Start it with <code>HOST=0.0.0.0</code>
-							(Tailscale recommended).
-						</p>
-					<//>
-					<p class="mute">
-						${() =>
-							`Run it on ${minted().name}, in the folder agents should work in. ` +
-							'It holds the key, so keep it private.'}
-					</p>
-				<//>
+				<p class="mute">
+					${() =>
+						`Run it on ${minted().name}, in the folder agents should work in. ` +
+						'It holds the key, so keep it private.'}
+				</p>
 			<//>
 		</div>
 	`

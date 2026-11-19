@@ -1,4 +1,4 @@
-/** The server's settings: its modules, on or off, and memory's model. Its own machine changes them; saving restarts it. */
+/** The server's settings: its modules, on or off, and memory's model. Saving restarts it. */
 import html from '@solidjs/html'
 import {
 	createEffect,
@@ -30,7 +30,7 @@ export function Settings() {
 		...(server().off ?? []).map((name) => ({ name, on: false })),
 	]
 	const overridden = (name) => server().settings?.overrides.includes(name)
-	const editable = () => server().local && draft.state === ''
+	const editable = () => draft.state === ''
 	const on = (module) => draft.modules[module.name] ?? module.on
 	const model = () => draft.model ?? server().settings?.memory.model ?? ''
 	const compactAt = () => draft.compactAt ?? server().settings?.memory.compactAt ?? 100000
@@ -194,33 +194,26 @@ export function Settings() {
 						`}<//
 					>
 				</ul>
+				<${Show} when=${() => overridden('MODULES')}>
+					<p class="mute">Module switches are locked by MODULES in the server’s environment.</p>
+				<//>
+				<${Show} when=${() => overridden('MEMORY_MODEL')}>
+					<p class="mute">Memory’s agent is locked by MEMORY_MODEL in the server’s environment.</p>
+				<//>
 				<${Show}
-					when=${() => server().local}
-					fallback=${html`<p class="mute">Change these on the server's own machine.</p>`}
+					when=${() => draft.state === ''}
+					fallback=${html`<p class="mute" role="status">
+						${() =>
+							draft.state === 'saving'
+								? 'Saving…'
+								: draft.state === 'restarting'
+									? 'Saved. The server is restarting; this page reconnects on its own.'
+									: 'Saved, and the server stopped: it can’t restart itself here. Start it again with node server.js.'}
+					</p>`}
 				>
-					<${Show} when=${() => overridden('MODULES')}>
-						<p class="mute">Module switches are locked by MODULES in the server’s environment.</p>
-					<//>
-					<${Show} when=${() => overridden('MEMORY_MODEL')}>
-						<p class="mute">
-							Memory’s agent is locked by MEMORY_MODEL in the server’s environment.
-						</p>
-					<//>
-					<${Show}
-						when=${() => draft.state === ''}
-						fallback=${html`<p class="mute" role="status">
-							${() =>
-								draft.state === 'saving'
-									? 'Saving…'
-									: draft.state === 'restarting'
-										? 'Saved. The server is restarting; this page reconnects on its own.'
-										: 'Saved, and the server stopped: it can’t restart itself here. Start it again with node server.js.'}
-						</p>`}
-					>
-						<button type="button" class="save" disabled=${() => !changed()} onClick=${save}>
-							Save and restart
-						</button>
-					<//>
+					<button type="button" class="save" disabled=${() => !changed()} onClick=${save}>
+						Save and restart
+					</button>
 				<//>
 			<//>
 		</div>

@@ -20,7 +20,6 @@ const DEFAULT_SERVER = {
 	modules: [],
 	off: [],
 	about: {},
-	local: false,
 	settings: {
 		overrides: [],
 		director: {},

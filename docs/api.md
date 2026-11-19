@@ -22,7 +22,7 @@ With the `blocked` module on, the agent's `ask_person({body})` tool posts a mess
 To watch a thread live, open `/ws` and send `{"watch": 3}`. You get its newest messages, at least 50, with `earlier: true` when more lie before them, then new messages and each agent's work as it happens; a bare `{}` means "fetch the list again". Send `{"earlier": 3}` for the page before the oldest you have, or `{"earlier": 3, "all": true}` for all of them: each agent's turns for it come first, then the messages, both marked `older: true`, the messages with `earlier` again.
 
 ```
-GET    /api/server                     modules, settings, whether you may add runners
+GET    /api/server                     modules, settings
 GET    /api/runners
 POST   /api/runners {name}             a key, and the command that connects it
 DELETE /api/runners/:name
@@ -70,7 +70,6 @@ node cli.js wait "${thread#thread }"
 The server's address and data path are set in the environment, not in `ade.json`:
 
 ```sh
-HOST=0.0.0.0 npx github:oskarrough/ade  # open the printed address on your phone or another machine
 PORT=3001 npx github:oskarrough/ade     # a fixed port; otherwise the first free one from 3000
 DB_PATH=other.sqlite npx github:oskarrough/ade
 ```

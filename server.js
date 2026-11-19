@@ -536,9 +536,6 @@ const say = (label, text) => console.log(`  ${label.padEnd(8)} ${text}`)
 const tilde = (dir) => (dir?.startsWith(os.homedir()) ? `~${dir.slice(os.homedir().length)}` : dir)
 const loopback = (address) =>
 	/^(127\.|::ffff:127\.)/.test(address) || ['::1', '[::1]', 'localhost'].includes(address)
-/** Opened on the server's own machine: only such a page connects and revokes runners */
-const local = (req) =>
-	loopback(req.socket.remoteAddress) && loopback(req.headers.host?.replace(/:\d+$/, ''))
 
 // ── Addressing: whom a message asks ───────────────────────────────────────
 
@@ -1546,7 +1543,6 @@ const routes = /** @type {[string, Function][]} */ ([
 		async (req) => ({
 			port,
 			file,
-			local: local(req),
 			modules: modules.map((module) => module.name),
 			off: Object.keys(defaults).filter((name) => !modules.some((module) => module.name === name)),
 			about: aboutModules,
@@ -1716,18 +1712,6 @@ async function handleRequest(req, res) {
 		req.headers.origin !== origin(req)
 	)
 		return send(res, 403, { error: 'Cross-origin writes are refused; use the server’s own page' })
-	if (
-		((req.method === 'POST' && url.pathname === '/api/runners') ||
-			(req.method === 'DELETE' && url.pathname.startsWith('/api/runners/'))) &&
-		!local(req)
-	)
-		return send(res, 403, {
-			error: 'Open this page on the server’s own machine to connect a runner',
-		})
-	if (req.method === 'POST' && url.pathname === '/api/settings' && !local(req))
-		return send(res, 403, {
-			error: 'Open this page on the server’s own machine to change its settings',
-		})
 	if (req.method === 'OPTIONS') {
 		res.writeHead(204)
 		return res.end()
