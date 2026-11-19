@@ -1,4 +1,4 @@
-/** A button that asks by changing its words: the first press arms it, the second does it, and leaving lets it go. */
+/** A button that asks by changing its words: the first press arms it, the second does it, and leaving lets it go. Both words sit in one cell, so it's as wide as the wider and arming moves nothing. */
 import html from '@solidjs/html'
 import { createSignal, Show } from 'solid-js'
 
@@ -26,7 +26,8 @@ export function Sure(props) {
 					timer = setTimeout(disarm, 5000)
 				}}
 			>
-				${() => (armed() ? props.ask : props.children)}
+				<span aria-hidden=${() => armed()}>${props.children}</span>
+				<span aria-hidden=${() => !armed()}>${() => props.ask}</span>
 			</button>
 			<${Show} when=${() => armed() && props.why}><small>${() => props.why}</small><//>
 		</span>

@@ -1431,18 +1431,11 @@ agent-memory {
 	display: none;
 }
 
-/* Revoke waits at the row's end, like a thread's archive button, as wide as "revoke?" so arming it moves nothing. */
+/* Revoke waits at the row's end, like a thread's archive button. */
 .runner-list .rows > li {
 	.revoke {
 		flex: none;
 		visibility: hidden;
-
-		&::after {
-			content: 'revoke?';
-			display: block;
-			height: 0;
-			overflow: hidden;
-		}
 	}
 
 	&:focus-within .revoke,
@@ -1647,6 +1640,19 @@ body.resizing {
 /* A button that asks by changing its words; why it asks sits on its own line beneath. */
 .sure {
 	display: contents;
+
+	> button {
+		display: inline-grid;
+	}
+
+	> button > span {
+		grid-area: 1 / 1;
+	}
+
+	&.armed > button > span:first-child,
+	&:not(.armed) > button > span:last-child {
+		visibility: hidden;
+	}
 
 	small {
 		display: block;
