@@ -1,4 +1,5 @@
-/** With memory, every message gets a line and neighbouring lines merge in pairs, once each, through a SIGKILL */
+/** With memory, a short message is its own line at once; a long one waits until someone needs it, and opening the
+ * memory view writes the waiting message lines, sixteen per call, through a SIGKILL, without merging any */
 // MEMORY_MODEL is set because these threads never ask an agent, so without it their lines would wait for one.
 import { api, check, done, kill, linesOf, say, scriptedRunner, server, text, until } from './lib.js'
 
@@ -34,6 +35,7 @@ const route = (request) => {
 const long = (tag) => `${tag} ${'y'.repeat(2000 - tag.length - 1)}`
 const has = (lines, l, i) => lines.some((x) => x.l === l && x.i === i)
 const post = (id, body) => api('POST', `/api/threads/${id}/entries`, { body, to: null })
+const open = (id) => api('GET', `/api/threads/${id}/memory`)
 const thread = async (title) => {
 	const id = (await api('POST', '/api/threads', { title })).json.id
 	await api('POST', `/api/threads/${id}/memory`, { on: true })
@@ -52,11 +54,12 @@ await api('POST', `/api/threads/${late}/memory`, {
 await api('POST', `/api/threads/${late}/memory`, { on: false })
 await post(late, long('missed one'))
 await post(late, long('missed two'))
+await post(late, 'missed short')
 // Importing turns memory on, but does not write the missing messages.
 await api('POST', `/api/threads/${late}/memory`, { lines: [] })
-const pending = (await api('GET', `/api/threads/${late}/memory`)).json.lines
+const pending = (await api('GET', `/api/threads/${late}/memory?budget=65536`)).json.lines
 check(
-	pending.length === 2 && pending[1].id === 1 && pending[1].n === 2,
+	pending.length === 2 && pending[1].id === 1 && pending[1].n === 3,
 	'consecutive unwritten messages are one span',
 	JSON.stringify(pending),
 )
@@ -67,58 +70,70 @@ check(
 )
 await api('POST', `/api/threads/${late}/memory`, { on: true })
 check(
-	Boolean(await until(async () => has(await linesOf(late), 0, 2))),
-	'starting memory fills messages received before it turned on',
+	Boolean(await until(async () => has(await linesOf(late), 0, 3))) &&
+		!has(await linesOf(late), 0, 1) &&
+		requests.length === 0,
+	'switching memory on writes the short messages it missed, and calls no model',
 )
-requests.length = 0
-n = 0
 
-const a = await thread('short')
+const a = await thread('quiet')
 await post(a, 'hi')
-const short = await until(async () => (await linesOf(a)).find((x) => x.l === 0 && x.i === 0))
+await post(a, long('long one'))
+await post(a, long('long two'))
+await post(a, 'bye')
+await until(async () => has(await linesOf(a), 0, 3))
+const quiet = await linesOf(a)
 check(
-	short?.text === 'oskar: hi' && requests.length === 0,
-	'a short message is its own line, with no request',
-	JSON.stringify(short),
+	quiet.length === 2 && quiet[0].text === 'oskar: hi' && requests.length === 0,
+	'a short message is its own line; long ones wait, and no model is called',
+	JSON.stringify(quiet),
 )
 
-const b = await thread('long')
+const b = await thread('view')
 await post(b, long('first'))
-await until(async () => has(await linesOf(b), 0, 0))
 await post(b, long('second'))
-await until(async () => has(await linesOf(b), 1, 0))
 await post(b, long('TOOLONG'))
-await until(async () => has(await linesOf(b), 0, 2), 15000)
+await post(b, 'short')
+await api('GET', `/api/threads/${b}/memory?zoom=0,1`)
+await api('GET', `/api/threads/${b}/memory?zoom=0,2`)
+await api('GET', `/api/threads/${b}/memory?budget=100`)
+await until(async () => has(await linesOf(b), 0, 3))
+check(
+	requests.length === 0 && (await linesOf(b)).length === 1,
+	'zooming and reading a budgeted cut write nothing',
+)
+const shown = (await open(b)).json.lines
+check(
+	shown.some((line) => line.text.includes('not summarized yet')),
+	'opening the memory view answers at once, the waiting lines as placeholders',
+	JSON.stringify(shown),
+)
+await until(async () => (await linesOf(b)).length === 4, 15000)
 const bl = await linesOf(b)
 check(
-	bl.filter((x) => x.l === 0).every((x) => x.size <= 512 && x.text.startsWith('L')),
-	'a long message gets a written line of at most 512 bytes',
+	bl.every((x) => x.l === 0) &&
+		bl.filter((x) => x.i < 3).every((x) => x.size <= 512 && x.text.startsWith('L')),
+	'the view writes each long message a line of at most 512 bytes, and merges nothing',
 	JSON.stringify(bl.map((x) => [x.l, x.i, x.size])),
 )
 check(
-	bl.find((x) => x.l === 1 && x.i === 0)?.text.startsWith('L') &&
-		requests.some((r) => r.input.includes('L1 ') && r.input.includes('L2 ')),
-	'two 300-byte lines merge into a written line',
+	requests.length === 1 &&
+		['first', 'second', 'TOOLONG'].every((tag) => requests[0].input.includes(tag)),
+	'one call writes the waiting message lines',
+	requests.length,
 )
 check(
 	requests.every((r) => r.first.includes('-'.repeat(512))),
 	'every line request holds the 512-dash ruler',
 )
-const tooLong = requests.filter((r) => r.input.includes('TOOLONG'))
-check(tooLong.length === 1, 'an oversized line is trimmed without another call', tooLong.length)
 const trimmed = bl.find((x) => x.l === 0 && x.i === 2)
 check(
 	trimmed?.size <= 512 && trimmed?.text.endsWith('word'),
-	'the trimmed line ends at a word boundary',
-)
-const second = requests.find((r) => r.input.includes('second'))
-check(
-	second?.first.includes(`0+1|${bl.find((x) => x.l === 0 && x.i === 0).text}`),
-	"the second message's request holds the first's line in <chat>",
+	'an oversized line is trimmed at a word boundary, without another call',
 )
 
-const grouped = (await api('POST', '/api/threads', { title: 'batch backfill' })).json.id
-for (let i = 0; i < 16; i++)
+const grouped = await thread('batch')
+for (let i = 0; i < 18; i++)
 	await post(
 		grouped,
 		long(
@@ -126,14 +141,14 @@ for (let i = 0; i < 16; i++)
 		),
 	)
 const batchStart = requests.length
-await api('POST', `/api/threads/${grouped}/memory`, { on: true })
-await until(async () => has(await linesOf(grouped), 4, 0), 30000)
+await open(grouped)
+await until(async () => (await linesOf(grouped)).length === 18, 30000)
 const batchRequests = requests.slice(batchStart)
 const group = batchRequests.find((request) => request.input.includes('batch item 0'))
 const retry = batchRequests.find((request) => request.first.includes('Redo only'))
 check(
-	group?.input.includes('batch item 15') && group.input.includes('TOOLONG batch'),
-	'one call writes sixteen waiting message lines',
+	group?.input.includes('batch item 15') && !group.input.includes('batch item 16'),
+	'one call writes at most sixteen message lines',
 )
 check(
 	!retry?.input.includes('TOOLONG batch') &&
@@ -142,41 +157,32 @@ check(
 	'only missing batch items are redone, as plain text',
 )
 check(
-	(await linesOf(grouped)).filter((line) => line.l === 0).length === 16 &&
-		(await linesOf(grouped)).every((line) => line.size <= 512),
+	(await linesOf(grouped)).every((line) => line.l === 0 && line.size <= 512),
 	'even a stubborn batch item gets a capped line without losing its siblings',
 )
 
 await api('POST', `/api/threads/${late}/memory`, { on: false })
-await post(late, long('missed before restart'))
+await post(late, 'missed before restart')
 await api('POST', `/api/threads/${late}/memory`, { lines: [] })
 
 const c = await thread('restart')
 const entries = []
 for (let k = 0; k < 8; k++) entries.push((await post(c, long(`m${k}`))).json.entry)
-await until(async () => (await linesOf(c)).length > 0, 15000)
+await open(c)
+await until(async () => requests.some((r) => r.input.includes('m0 ')), 15000)
 await kill(srv, 'SIGKILL')
 srv = await server(env)
 check(
-	Boolean(await until(async () => has(await linesOf(late), 0, 3))),
-	'server startup fills messages without surviving line tasks',
+	Boolean(await until(async () => has(await linesOf(late), 0, 4))),
+	'server startup writes short messages without surviving line tasks',
 )
-const want = [
-	[0, 8],
-	[1, 4],
-	[2, 2],
-	[3, 1],
-].flatMap(([l, count]) => Array.from({ length: count }, (_, i) => `${l}:${i}`))
-const built = await until(async () => {
-	const ls = await linesOf(c)
-	return want.every((k) => ls.some((x) => `${x.l}:${x.i}` === k)) && ls
-}, 30000)
+const built = await until(async () => (await linesOf(c)).length >= 8, 30000)
 const keys = (await linesOf(c)).map((x) => `${x.l}:${x.i}`)
 check(
 	Boolean(built) &&
-		keys.length === 15 &&
-		want.every((k) => keys.filter((x) => x === k).length === 1),
-	'after a SIGKILL all 15 lines arrive, each exactly once',
+		keys.length === 8 &&
+		Array.from({ length: 8 }, (_, i) => `0:${i}`).every((k) => keys.includes(k)),
+	'after a SIGKILL the view’s 8 lines arrive, each exactly once, and no merges',
 	JSON.stringify(keys.sort()),
 )
 
@@ -190,7 +196,8 @@ const source = await linesOf(c)
 const sourceLine = (l, i) => source.find((x) => x.l === l && x.i === i).text
 const before = requests.length
 for (let k = 4; k < 8; k++) await post(f, long(`fork${k}`))
-const forkWant = ['0:4', '0:5', '0:6', '0:7', '1:2', '1:3', '2:1', '3:0']
+await open(f)
+const forkWant = ['0:4', '0:5', '0:6', '0:7']
 await until(async () => {
 	const own = (await linesOf(f)).filter((x) => x.id > at)
 	return forkWant.every((k) => own.some((x) => `${x.l}:${x.i}` === k))
@@ -205,14 +212,9 @@ check(
 	"the fork's first line request reads the source's lines through",
 )
 check(
-	JSON.stringify(own) === JSON.stringify(forkWant.sort()),
-	'the fork builds exactly its own lines, up to (3,0)',
+	JSON.stringify(own) === JSON.stringify(forkWant),
+	'the fork writes only its own message lines',
 	JSON.stringify(own),
-)
-const root = requests.slice(before).find((r) => r.input.includes(sourceLine(2, 0)))
-check(
-	Boolean(root) && root.first.includes('merge lines 0+4 and 4+4'),
-	"its (3,0) merges the source's (2,0)",
 )
 
 srv.kill()

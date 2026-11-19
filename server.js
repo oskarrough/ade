@@ -1431,7 +1431,8 @@ const core = {
 	newAgent,
 	setUp,
 	setTitleIn,
-	waitForTask: (id) => harness.waitForTask(id, context),
+	/** `within` is a caller's own context, such as a hook's, so its cancellation ends the wait */
+	waitForTask: (id, within = context) => harness.waitForTask(id, within),
 	post,
 	seenBy,
 	commit,

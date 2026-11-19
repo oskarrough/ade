@@ -1,15 +1,17 @@
 /**
  * Gives each thread a memory: one short line per message, pairs of lines merged going up, so an agent reads the lines
- * instead of every word and zooms back down with `zoom` (experimental). On by default; MODULES=-memory turns it
- * off. Memory uses a small model on the thread agent's runner: Haiku for Anthropic or
- * Claude Code agents, Luna otherwise, both with low thinking. With no agent yet, a bot supplies its runner;
+ * instead of every word and zooms back down with `zoom` (experimental). A message of at most 512 bytes is its own line
+ * and costs no model call. A longer one gets its line only when it's needed: once an agent that has seen it passes 70%
+ * of `memory.compactAt`, or when someone opens the memory view. Merges are written only when a compaction shows them.
+ * On by default; MODULES=-memory turns it off. Memory uses a small model on the thread agent's runner: Haiku for
+ * Anthropic or Claude Code agents, Luna otherwise, both with low thinking. With no agent yet, a bot supplies its runner;
  * with neither, the lines wait. A model in settings, `memory.model` in ade.json or MEMORY_MODEL=model@runner, can
  * write every thread's lines instead. Past `memory.compactAt` tokens, 100k unless set, an agent's context is
  * compacted into the lines.
  *
  * A thread with a bot in it remembers; one without doesn't, unless its own switch, POST /api/threads/:id/memory
  * {on}, overrides that in either direction. A thread with memory off writes no lines and compacts as Pi does
- * without memory, when a window is nearly full; switched on, it writes the lines it missed.
+ * without memory, when a window is nearly full; switched on, it writes the short lines it missed.
  *
  * To benchmark backfill: build the fixture from a backup of the live DB, deleting lines for one small span
  * (about 64 messages plus the merges above them) and checking only that span is gone; never touch the live file.
@@ -22,6 +24,7 @@ import { retryAssistantCall } from '@earendil-works/pi-ai'
 import { num, obj, opt } from '@earendil-works/pi-schema'
 import {
 	CompactionTask,
+	GenerationTask,
 	LiveDoc,
 	defineExtension,
 	defineTask,
@@ -36,6 +39,8 @@ export const on = true
 const KIND = 'ade.line'
 const RETRY = { enabled: true, maxRetries: 10, baseDelayMs: 2000 }
 const BATCH = 16
+/** Share of `compactAt` at which an agent's seen messages get their lines */
+const EARLY = 0.7
 const LINE = 512,
 	PANEL = 64 * 1024,
 	CONTEXT = 16 * 1024,
@@ -111,6 +116,7 @@ export function server(core) {
 	if (name && !name.includes('@'))
 		throw new Error("memory's model is model@runner, or leave it out")
 	const override = name && agentTo(name)
+	const compactAt = Number(core.config?.memory?.compactAt) || 100000
 
 	/** Whether a thread remembers: its own switch, else a thread with a bot in it; `to` counts the bots a message is asking in */
 	const remembers = (row, to = []) =>
@@ -205,7 +211,10 @@ export function server(core) {
 		return result
 	}
 
-	/** Keep positions and summaries, never message bodies. Later writes read only new entries and their own messages. */
+	/**
+	 * Keep positions, which messages are too long to be their own line, and summaries, never message bodies. Later
+	 * writes read only new entries and their own messages.
+	 */
 	const indexes = new Map()
 	async function indexOf(threadId) {
 		let index = indexes.get(threadId)
@@ -213,7 +222,13 @@ export function server(core) {
 			const { parent } = await core.commit((tx) => tx.conversation(threadId))
 			const inherited = parent && (await indexOf(parent.conversationId))
 			const ids = inherited ? inherited.ids.filter((id) => id <= parent.at) : []
-			index = { ids, positions: new Map(ids.map((id, at) => [id, at])), have: new Map(), newest: 0 }
+			index = {
+				ids,
+				positions: new Map(ids.map((id, at) => [id, at])),
+				have: new Map(),
+				long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
+				newest: 0,
+			}
 			if (inherited)
 				for (const [coordinates, line] of inherited.have)
 					if ((line.i + 1) * 2 ** line.l <= ids.length) index.have.set(coordinates, line)
@@ -230,6 +245,7 @@ export function server(core) {
 			)
 			for (const entry of page.items) {
 				if (entry.kind === 'ade.message' && !index.positions.has(entry.id)) {
+					if (bytes(kept(entry)) > LINE) index.long.add(index.ids.length)
 					index.positions.set(entry.id, index.ids.length)
 					index.ids.push(entry.id)
 				}
@@ -242,133 +258,228 @@ export function server(core) {
 		return index
 	}
 
-	/** One batch per thread at a time, including after a server restart. */
+	/**
+	 * One batch per thread at a time, including after a server restart. Compaction's batches go ahead of background
+	 * ones, so it waits at most for the batch already running; an aborted task leaves the queue at once.
+	 */
 	const queues = new Map()
-	function inTurn(threadId, work) {
-		const run = (queues.get(threadId) ?? Promise.resolve()).then(work, work)
-		const tail = run.catch(() => {})
-		queues.set(threadId, tail)
-		tail.then(() => queues.get(threadId) === tail && queues.delete(threadId))
-		return run
+	function inTurn(threadId, work, { urgent = false, signal = undefined } = {}) {
+		return new Promise((resolve, reject) => {
+			const queue = queues.get(threadId) ?? { running: false, waiting: [] }
+			queues.set(threadId, queue)
+			const turn = { work, resolve, reject, urgent }
+			const at = urgent ? queue.waiting.findIndex((other) => !other.urgent) : -1
+			queue.waiting.splice(at < 0 ? queue.waiting.length : at, 0, turn)
+			signal?.addEventListener(
+				'abort',
+				() => {
+					const index = queue.waiting.indexOf(turn)
+					if (index < 0) return
+					queue.waiting.splice(index, 1)
+					reject(signal.reason)
+				},
+				{ once: true },
+			)
+			drain(threadId, queue)
+		})
+	}
+	async function drain(threadId, queue) {
+		if (queue.running) return
+		queue.running = true
+		while (queue.waiting.length) {
+			const turn = queue.waiting.shift()
+			try {
+				turn.resolve(await turn.work())
+			} catch (error) {
+				turn.reject(error)
+			}
+		}
+		queue.running = false
+		if (queues.get(threadId) === queue) queues.delete(threadId)
+	}
+
+	/** Every merge a cut over messages 0..T-1 shows that isn't written, with the unwritten lines below it */
+	function needed(have, T, budget) {
+		const want = new Map()
+		const add = (l, i) => {
+			if (have.has(key(l, i)) || want.has(key(l, i))) return
+			want.set(key(l, i), { l, i })
+			if (l) {
+				add(l - 1, 2 * i)
+				add(l - 1, 2 * i + 1)
+			}
+		}
+		for (const line of memory(have, T, budget)) if (line.text === NOT_YET) add(line.l, line.i)
+		return [...want.values()]
+	}
+
+	/**
+	 * A fill's next batch, oldest first: up to BATCH lines of one level whose halves are written. `leaves` writes only
+	 * message lines below `upTo`; `cut` writes what the cut over `upTo` messages within `budget` bytes shows.
+	 */
+	function due({ ids, have }, { fill, upTo, budget }) {
+		const T = Math.min(upTo, ids.length)
+		const wanted =
+			fill === 'cut'
+				? needed(have, T, budget)
+				: Array.from({ length: T }, (_, i) => ({ l: 0, i })).filter(({ i }) => !have.has(key(0, i)))
+		const ready = wanted
+			.filter(({ l, i }) => !l || (have.has(key(l - 1, 2 * i)) && have.has(key(l - 1, 2 * i + 1))))
+			.sort((a, b) => (a.i + 1) * 2 ** a.l - (b.i + 1) * 2 ** b.l || a.l - b.l)
+		return ready.filter((line) => line.l === ready[0]?.l).slice(0, BATCH)
+	}
+
+	const STATUSES = ['pending', 'running', 'waiting', 'sleeping']
+	async function liveFills(tx, threadId) {
+		const live = []
+		for (const status of STATUSES)
+			live.push(
+				...(await collect((cursor) =>
+					tx.scanTasks({ conversationId: threadId, kind: 'ade.line', status }, 500, cursor),
+				)),
+			)
+		return live.filter((task) => task.input.fill)
+	}
+
+	/**
+	 * Starts a fill unless a live one covers it; the task to wait for, or nothing when no line is missing
+	 * @param {string} threadId
+	 * @param {{fill: 'leaves' | 'cut', upTo: number, budget?: number}} need
+	 */
+	async function demand(threadId, { fill, upTo, budget }) {
+		const index = await indexOf(threadId)
+		upTo = Math.min(upTo, index.ids.length)
+		if (!due(index, { fill, upTo, budget }).length) return undefined
+		return core.commit(async (tx) => {
+			const same = (await liveFills(tx, threadId)).find(({ input }) =>
+				fill === 'leaves'
+					? input.fill === fill && input.upTo >= upTo
+					: input.fill === fill && input.upTo === upTo && input.budget === budget,
+			)
+			return (
+				same?.id ??
+				tx.createTask(
+					Line,
+					{ fill, upTo, ...(fill === 'cut' ? { budget } : {}) },
+					background(threadId),
+				)
+			)
+		})
 	}
 
 	const Line = defineTask({
 		name: 'ade.line',
 		version: 1,
-		initial: ({ backfill }) => ({ phase: backfill ? 'backfill' : 'write' }),
+		initial: ({ backfill, fill }) =>
+			fill ? { phase: 'fill', round: 0 } : { phase: backfill ? 'backfill' : 'write' },
 		phases: {
-			/** The thread's first agent is here: each message without its line, and each pair not merged, gets its task */
+			/** Short messages without their line get it, word for word; long ones wait for a fill */
 			backfill: ({ conversationId: threadId, input }, rt, ctx) =>
-				inTurn(threadId, async () => {
-					const { ids, have } = await indexOf(threadId)
-					const earlier = ids.filter((id) => input.entry === undefined || id < input.entry)
-					return rt.commit(async (tx) => {
-						// Every start backfills, so skip lines a task from before is still writing
-						const queued = new Set(
-							(
-								await collect((cursor) =>
-									tx.scanTasks({ conversationId: threadId, kind: 'ade.line' }, 500, cursor),
-								)
-							)
-								.filter((task) => task.state.status !== 'terminal' && !task.input.backfill)
-								.map(({ input: { entry, l, i } }) =>
-									entry !== undefined ? `entry ${entry}` : key(l, i),
-								),
+				inTurn(
+					threadId,
+					async () => {
+						rt.signal.throwIfAborted()
+						const { ids, have, long } = await indexOf(threadId)
+						const missing = ids.flatMap((id, i) =>
+							(input.entry === undefined || id < input.entry) &&
+							!have.has(key(0, i)) &&
+							!long.has(i)
+								? [i]
+								: [],
 						)
-						for (const [i, entry] of earlier.entries())
-							if (!have.has(key(0, i)) && !queued.has(`entry ${entry}`))
-								await tx.createTask(Line, { entry }, background(threadId))
-						for (const { l, i } of have.values())
-							if (
-								!(i & 1) &&
-								have.has(key(l, i + 1)) &&
-								!have.has(key(l + 1, i >> 1)) &&
-								!queued.has(key(l + 1, i >> 1))
-							)
-								await tx.createTask(Line, { l: l + 1, i: i >> 1 }, background(threadId))
-						// Switched on, it has no message of its own to write
-						if (input.entry === undefined) return finished()
-						return { status: 'running', checkpoint: { phase: 'write' } }
-					}, ctx)
-				}),
+						const found = await core.commit(async (tx) => {
+							const read = []
+							for (const i of missing) read.push([i, kept(await tx.entry(ids[i]))])
+							return read
+						})
+						return rt.commit(async (tx) => {
+							for (const [i, text] of found)
+								await tx.appendEntry(threadId, {
+									kind: KIND,
+									data: { l: 0, i, text, size: bytes(text) },
+								})
+							// Switched on, it has no message of its own to write
+							if (input.entry === undefined) return finished()
+							return { status: 'running', checkpoint: { phase: 'write' } }
+						}, ctx)
+					},
+					{ signal: rt.signal },
+				),
+			/** A short message is its own line; a long one gets none until a fill needs it */
 			write: ({ conversationId: threadId, input }, rt, ctx) =>
-				inTurn(threadId, async () => {
-					rt.signal.throwIfAborted()
-					const { ids, positions, have } = await indexOf(threadId)
-					const l = input.entry !== undefined ? 0 : input.l
-					const i = input.entry !== undefined ? positions.get(input.entry) : input.i
-					if (have.has(key(l, i)) || !remembers(await core.thread(threadId)))
-						return rt.commit(() => finished(), ctx)
-					/** @type {{l: number, i: number, text: string, size: number}[] | undefined} */
-					let batch = await rt.memo('batch', ctx)
-					if (!batch) {
-						const waiting = await core.commit(async (tx) =>
-							collect((cursor) =>
-								tx.scanTasks({ conversationId: threadId, kind: 'ade.line' }, 500, cursor),
-							),
+				inTurn(
+					threadId,
+					async () => {
+						rt.signal.throwIfAborted()
+						const { positions, have, long } = await indexOf(threadId)
+						const i = positions.get(input.entry)
+						if (
+							i === undefined ||
+							have.has(key(0, i)) ||
+							long.has(i) ||
+							!remembers(await core.thread(threadId))
 						)
-						const due = new Set(
-							waiting
-								.filter((task) => task.state.status !== 'terminal' && !task.input.backfill)
-								.map(({ input }) =>
-									input.entry !== undefined
-										? key(0, positions.get(input.entry))
-										: key(input.l, input.i),
-								),
-						)
-						const items = []
-						for (let next = i; next < i + BATCH; next++) {
-							if (next !== i && (!due.has(key(l, next)) || have.has(key(l, next)))) break
-							let source, ask
-							if (!l) {
-								source = kept(await core.commit((tx) => tx.entry(ids[next])))
-								ask = `Line: compress message ${next}`
-							} else {
-								const left = have.get(key(l - 1, 2 * next)),
-									right = have.get(key(l - 1, 2 * next + 1))
-								if (!left || !right) break
-								source = `${left.text} ${right.text}`
-								const half = 2 ** (l - 1),
-									id = next * 2 ** l
-								ask = `Line: merge lines ${id}+${half} and ${id + half}+${half}`
+							return rt.commit(() => finished(), ctx)
+						const text = kept(await core.commit((tx) => tx.entry(input.entry)))
+						return rt.commit(async (tx) => {
+							await tx.appendEntry(threadId, {
+								kind: KIND,
+								data: { l: 0, i, text, size: bytes(text) },
+							})
+							return finished()
+						}, ctx)
+					},
+					{ signal: rt.signal },
+				),
+			/** One batch per pass, committed with the next round, so a restart repeats at most the batch it cut off */
+			fill: ({ conversationId: threadId, input, state }, rt, ctx) =>
+				inTurn(
+					threadId,
+					async () => {
+						rt.signal.throwIfAborted()
+						const index = await indexOf(threadId)
+						const batch = remembers(await core.thread(threadId)) ? due(index, input) : []
+						if (!batch.length) return rt.commit(() => finished(), ctx)
+						const { ids, have } = index
+						const messages = await core.commit(async (tx) => {
+							const read = new Map()
+							for (const { l, i } of batch) if (!l) read.set(i, kept(await tx.entry(ids[i])))
+							return read
+						})
+						const items = batch.map(({ l, i }) => {
+							if (!l) return { l, i, ask: `Line: compress message ${i}`, source: messages.get(i) }
+							const half = 2 ** (l - 1),
+								id = i * 2 ** l
+							return {
+								l,
+								i,
+								ask: `Line: merge lines ${id}+${half} and ${id + half}+${half}`,
+								source: `${have.get(key(l - 1, 2 * i)).text} ${have.get(key(l - 1, 2 * i + 1)).text}`,
 							}
-							items.push({ l, i: next, ask, source })
-						}
-						if (!items.length) return rt.commit(() => finished(), ctx)
-						const chat = render(memory(have, (i + (l ? items.length : 0)) * 2 ** l, CONTEXT))
+						})
+						const { l, i } = items[0]
+						const chat = render(memory(have, l ? (items.at(-1).i + 1) * 2 ** l : i, CONTEXT))
 						const texts = await writeLines(items, chat, threadId, rt.signal)
 						if (!texts) return rt.commit(() => finished(), ctx)
-						batch = items.map(({ l, i }, offset) => ({
-							l,
-							i,
-							text: texts[offset],
-							size: bytes(texts[offset]),
-						}))
-						batch = await rt.memo('batch', batch, ctx)
-					}
-					const now = await indexOf(threadId)
-					await rt.commit(async (tx) => {
-						const parents = new Set()
-						const written = batch.filter((line) => !now.have.has(key(line.l, line.i)))
-						const available = new Set([
-							...now.have.keys(),
-							...written.map((line) => key(line.l, line.i)),
-						])
-						for (const line of written) {
-							await tx.appendEntry(threadId, { kind: KIND, data: line })
-							if (
-								available.has(key(line.l, line.i ^ 1)) &&
-								!available.has(key(line.l + 1, line.i >> 1))
-							)
-								parents.add(key(line.l + 1, line.i >> 1))
-						}
-						for (const coordinates of parents) {
-							const [l, i] = coordinates.split(':').map(Number)
-							await tx.createTask(Line, { l, i }, background(threadId))
-						}
-						return finished()
-					}, ctx)
-				}),
+						const now = await indexOf(threadId)
+						return rt.commit(async (tx) => {
+							for (const [offset, { l, i }] of items.entries())
+								if (!now.have.has(key(l, i)))
+									await tx.appendEntry(threadId, {
+										kind: KIND,
+										data: { l, i, text: texts[offset], size: bytes(texts[offset]) },
+									})
+							return {
+								status: 'running',
+								checkpoint: {
+									phase: 'fill',
+									round: /** @type {{round: number}} */ (state.checkpoint).round + 1,
+								},
+							}
+						}, ctx)
+					},
+					{ urgent: input.fill === 'cut', signal: rt.signal },
+				),
 		},
 		abort: (task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
 	})
@@ -393,17 +504,33 @@ export function server(core) {
 			return reason === 'threshold' && early ? { decline: /** @type {const} */ (true) } : undefined
 		}
 		const T = (await cutPosition(api.conversationId, firstKept, home.thread)) + 1
-		return T > 0
-			? {
-					summary: render(
-						memory(
-							await core.commit((tx) => lines(tx, home.thread)),
-							T,
-							Math.min(await budget(api.conversationId), PANEL),
-						),
-					),
-				}
-			: undefined
+		if (T <= 0) return undefined
+		const most = Math.min(await budget(api.conversationId), PANEL)
+		// Only the lines this cut shows, and those below them; newer messages wait for their own demand
+		const fill = await demand(home.thread, { fill: 'cut', upTo: T, budget: most })
+		if (fill !== undefined) await core.waitForTask(fill, context)
+		return {
+			summary: render(memory(await core.commit((tx) => lines(tx, home.thread)), T, most)),
+		}
+	}
+
+	/** Past 70% of `compactAt`, the messages an agent has seen get their lines, so its compaction needs only merges */
+	const afterResponse = async ({ usage }, api, context) => {
+		const tokens =
+			usage &&
+			(usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite)
+		if (!(tokens >= EARLY * compactAt)) return
+		const home = await core.home(api.conversationId)
+		if (!home?.thread || !remembers(await core.thread(home.thread))) return
+		let cursor, seen
+		do {
+			const page = await api.entries({ order: 'descending' }, 100, cursor, context)
+			seen = page.items.find((entry) => entry.kind === 'ade.delivery')
+			cursor = page.next
+		} while (!seen && cursor)
+		if (!seen?.data.held?.length) return
+		const at = (await indexOf(home.thread)).positions.get(Math.max(...seen.data.held))
+		if (at !== undefined) await demand(home.thread, { fill: 'leaves', upTo: at + 1 })
 	}
 
 	async function catchUp(threadId, held, all, agent, told) {
@@ -512,6 +639,9 @@ export function server(core) {
 			return typeof opened === 'string' ? { message: opened } : { lines: opened }
 		}
 		const T = (await core.messages(thread)).length
+		// Opening the memory view writes its missing message lines, never merges
+		if (!query.size && remembers(await core.thread(thread)))
+			await demand(thread, { fill: 'leaves', upTo: T })
 		const budget = Math.min(Number(query.get('budget')) || PANEL, PANEL)
 		return {
 			lines: collapse(memory(await core.commit((tx) => lines(tx, thread)), T, budget).map(span)),
@@ -524,7 +654,7 @@ export function server(core) {
 		return !home?.thread || remembers(await core.thread(home.thread)) ? SECTION : undefined
 	}
 
-	/** A thread's switch: on writes the lines it missed */
+	/** A thread's switch: on writes the short lines it missed; long ones wait for a fill */
 	async function turn(threadId, { on }) {
 		if (typeof on !== 'boolean') throw new Error('on is true or false')
 		await core.conversation(threadId)
@@ -537,19 +667,22 @@ export function server(core) {
 	}
 
 	/**
-	 * Each message in a thread that remembers gets a line; the one that asks a thread's first agent, or turns its memory
-	 * on by asking a bot in, also brings back the lines that waited
+	 * A short message in a thread that remembers is its own line, without a model; a long one waits for a fill. The
+	 * message that asks a thread's first agent, or turns its memory on by asking a bot in, also brings back the short
+	 * lines that waited
 	 */
 	async function posted(tx, threadId, entry) {
 		const row = await core.threadIn(tx, threadId)
 		const to = entry.data.to ?? []
 		if (!remembers(row, to)) return
 		const first = (!override && to.length > 0 && !Object.keys(row.agents).length) || !remembers(row)
-		await tx.createTask(
-			Line,
-			{ entry: entry.id, ...(first ? { backfill: true } : {}) },
-			background(threadId),
-		)
+		const short = bytes(kept(entry)) <= LINE
+		if (short || first)
+			await tx.createTask(
+				Line,
+				{ ...(short ? { entry: entry.id } : {}), ...(first ? { backfill: true } : {}) },
+				background(threadId),
+			)
 	}
 
 	return {
@@ -558,9 +691,9 @@ export function server(core) {
 			tasks: [Line],
 			tools: [zoom],
 			sections: [{ key: 'memory', tag: false, render: section }],
-			hooks: [hook(CompactionTask, { beforeCompact })],
+			hooks: [hook(CompactionTask, { beforeCompact }), hook(GenerationTask, { afterResponse })],
 		}),
-		/** Resume missing messages too, not only tasks that survived the previous server. */
+		/** Write short messages that missed their line, besides resuming the tasks that survived the previous server */
 		async start() {
 			for (const archived of [false, true])
 				for (const row of await core.threadList(undefined, archived))
@@ -572,7 +705,7 @@ export function server(core) {
 		serve,
 		remembers: (row) => remembers(row),
 		/** Past this many tokens an agent's context is compacted into the lines, so it never carries a full window */
-		compactAt: Number(core.config?.memory?.compactAt) || 100000,
+		compactAt,
 	}
 }
 
