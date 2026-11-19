@@ -41,7 +41,10 @@ modules/
                          starts a thread for two or more bots (opener in server.js's post)
   auto-title.js          first-answer title generation (AutoTitle; the model sees the opening and the newest messages, `recent`), sanitizeThreadTitle, one attempt per thread; serve: a new title on request
   memory.js              memory lines (Line task), `zoom`, `smallWriter` (Haiku/Luna on the thread runner), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve); render; lines, memory and rendered, which overview reads too
-  bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove)
+  bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove); voice, the seed instructions a
+                         new bot is created with, from then on hers to rewrite; a startup migration (to delete once run)
+                         gives bots made before voice existed the full old text once, idempotent, and PM the old handsOff
+                         line it already echoes in its own words
   context.js             AGENTS.md, skills and the folder's path (cwd) from the runner; listed skills stay readable outside it;
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
   director.js            the `direct` hook: @mentions ask that bot, by default a model picks the thread's agent, bots or nobody (decide), with a short, visible fallback to the thread agent on failure;
@@ -161,7 +164,7 @@ Where a feature lives:
 - Overview recaps: modules/overview.js, client overview.js, side.js (its tab and header button), thread.js (data-message), system.js (the column).
 - Canvas: modules/canvas.js (rooms, tools, relay, the socket), client canvas.js and canvas/ (host, vendored starter kit), server.js upgrade (a module's `connect` takes /api/threads/:id/<module> sockets), client canvas.js, side.js PageTabs, system.js (which page the column shows).
 - Memory and compaction: modules/memory.js, server.js compact/compactingAt, client agent-memory.js, thread.js rows (cuts, folded lines), run.js cutsOf.
-- Bots: modules/bots.js, client bot.js, composer.js PickerBot, client server.js homeBot/botAgent; a bot's colour is server.js `colorOf` (its picked `color` hue, else by the order bots were made), picked in bot.js `BotSettings` `.colors`.
+- Bots: modules/bots.js (voice, its migration), client bot.js, composer.js PickerBot, client server.js homeBot/botAgent; a bot's colour is server.js `colorOf` (its picked `color` hue, else by the order bots were made), picked in bot.js `BotSettings` `.colors`.
 - Runners and keys: remote.js, runner.js, server.js mintKey/revoke/upgrade, client runner.js.
 - Forks: server.js forkThread/seenBy, client server.js fork, thread.js Message (fork link).
 - `$ cmd`: server.js Shell, printed, shells.

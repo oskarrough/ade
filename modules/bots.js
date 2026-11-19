@@ -1,8 +1,8 @@
 /**
  * A bot is one name in many threads: a home thread, the agent it joins as, instructions, and the hue it's shown in if
- * someone picked one. Ask `ada` anywhere and an
- * agent named ada joins as that, with every tool a thread agent has; at home it rewrites its own instructions with the `bot` tool. On by default;
- * MODULES=-bots turns it off.
+ * someone picked one. A new bot starts with `voice`, a chatty default; at home it rewrites its own instructions with
+ * the `bot` tool, from then on in her own words. Ask `ada` anywhere and an agent named ada joins as that, with every
+ * tool a thread agent has. On by default; MODULES=-bots turns it off.
  */
 import { obj, opt, str } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTool } from '@earendil-works/pi-durable'
@@ -20,9 +20,13 @@ const Bots = defineDoc({
 	initial: () => ({}),
 })
 
-export function server(core) {
+export async function server(core) {
 	const bots = () => core.commit(async (tx) => JSON.parse(JSON.stringify(await tx.doc(Bots))))
 	const list = async () => Object.entries(await bots()).map(([name, bot]) => ({ name, ...bot }))
+
+	/** How a bot talks until it writes its own words: the instructions a new bot starts with */
+	const voice =
+		"Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. Everyone here already sees the thread, tool calls and posts; say only what's new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can't, say you're guessing."
 
 	async function change({ name, to, instructions, color = undefined }) {
 		if (typeof name !== 'string' || !/^[\w.-]{1,40}$/.test(name))
@@ -49,7 +53,7 @@ export function server(core) {
 		if (!all[name]) {
 			if (!to) throw new Error(`${name} is new: say what it runs as, to: model@runner`)
 			const home = await core.startThread(tx, name, null)
-			all[name] = { home, to, instructions: instructions ?? '' }
+			all[name] = { home, to, instructions: instructions ?? voice }
 		} else {
 			if (to) all[name].to = to
 			if (instructions !== undefined) all[name].instructions = instructions
@@ -143,13 +147,29 @@ export function server(core) {
 		},
 	})
 
-	/** How a bot talks: thread agents keep their own voice, so this is in the bot's section only */
-	const voice =
+	// MIGRATION — delete this block once it has run on the live server (see the report that lands this change):
+	// voice used to be appended after every bot's instructions on every turn, never stored; now it's only the
+	// seed text for a brand new bot. Give every bot that predates this change the full old text once, so none of
+	// them change how they talk. A bot made after this change already has `voice` (the short text) as its stored
+	// instructions, so it's left alone. PM's instructions already say it's hands-off in its own words; give it
+	// the line this module used to add too, unless it's already there.
+	const fullVoice =
 		"Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. You lead, so give the picture, not the work: what changed, what's next, what needs a decision. The details belong to whoever did the work; bring them in only when someone asks. Everyone here already sees the thread, tool calls and posts; say only what's new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can't, say you're guessing."
-
-	/** Hands off by habit, not by withholding tools: a bot has the shell, and uses it to look */
 	const handsOff =
 		'Look things up yourself (gh, git, logs, files) and hand every change to a worker.'
+	await core.commit(async (tx) => {
+		const all = await tx.doc(Bots)
+		for (const [name, existing] of Object.entries(all)) {
+			const add = [
+				!existing.instructions.includes(voice) &&
+					!existing.instructions.includes(fullVoice) &&
+					fullVoice,
+				name === 'PM' && !existing.instructions.includes(handsOff) && handsOff,
+			].filter(Boolean)
+			if (add.length)
+				existing.instructions = [existing.instructions, ...add].filter(Boolean).join('\n\n')
+		}
+	})
 
 	const section = {
 		key: 'bot',
@@ -176,8 +196,6 @@ export function server(core) {
 				others.length &&
 					agent.tools.some((tool) => tool.name === 'post') &&
 					`The other bot${others.length > 1 ? 's are' : ' is'} ${others.join(', ')}: post with \`to\` set to a name to ask one.`,
-				handsOff,
-				voice,
 				home && 'This is your home. Ask before you change your model.',
 			]
 				.filter(Boolean)

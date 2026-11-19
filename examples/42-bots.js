@@ -6,13 +6,21 @@ import {
 	call,
 	check,
 	done,
+	kill,
 	say,
 	scriptedRunner,
 	server,
 	text,
 } from './lib.js'
 
-await server({ MODULES: '+bots' })
+/** What a new bot starts with, until she rewrites it; the full text a bot made before this existed used to get
+ * appended on every turn instead, which the migration below gives her once, in her own stored instructions. */
+const voice =
+	"Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. Everyone here already sees the thread, tool calls and posts; say only what's new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can't, say you're guessing."
+const fullVoice =
+	"Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. You lead, so give the picture, not the work: what changed, what's next, what needs a decision. The details belong to whoever did the work; bring them in only when someone asks. Everyone here already sees the thread, tool calls and posts; say only what's new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can't, say you're guessing."
+
+let srv = await server({ MODULES: '+bots' })
 /** Pi carries the system prompt in system messages: what each runner was last asked with */
 const prompt = {}
 const route = (runner) => (request) => {
@@ -44,9 +52,24 @@ check(
 		homeRow?.title === 'ada' &&
 		homeRow.tools === null &&
 		v.agents.map((a) => a.name).join() === 'ada' &&
-		prompt.laptop.includes("You're new"),
-	'one call makes ada and her home, with every tool; asked there, she joins as her model and knows she is new',
+		made.json.instructions === voice &&
+		prompt.laptop.includes(voice),
+	'one call makes ada and her home, with every tool, talking the default voice until she writes her own',
 	JSON.stringify([made.json, homeRow, prompt.laptop]),
+)
+
+// With instructions explicitly empty, a bot still starts with nothing, and asks the person who she is
+const blank = await api('POST', '/api/bots', {
+	name: 'blank',
+	to: 'echo/echo@laptop',
+	instructions: '',
+})
+await post(blank.json.home, 'hi', 'blank')
+await answered(blank.json.home)
+check(
+	blank.json.instructions === '' && prompt.laptop.includes("You're new"),
+	'a bot made with nothing in her instructions still finds out who she is',
+	JSON.stringify([blank.json, prompt.laptop]),
 )
 
 await post(home, 'be a pirate', 'ada')
@@ -56,7 +79,7 @@ const rewrote = (await api('GET', `/api/conversations/${ownAt}`)).json.entries.f
 	(e) => e.kind === 'pi.tool-result' && e.model[0].toolName === 'bot',
 )?.model[0].details
 check(
-	rewrote?.before?.instructions === '' && rewrote.before.model === 'echo/echo@laptop',
+	rewrote?.before?.instructions === voice && rewrote.before.model === 'echo/echo@laptop',
 	'rewriting herself, her bot call keeps what she was before, so a thread can show old against new',
 	JSON.stringify(rewrote),
 )
@@ -65,7 +88,7 @@ await post(shed, 'build it?', 'ada')
 v = await answered(shed)
 const ada = v.agents.find((a) => a.name === 'ada')
 check(
-	(await bots())[0].instructions === 'Answer like a pirate.' &&
+	(await bots()).find((b) => b.name === 'ada')?.instructions === 'Answer like a pirate.' &&
 		ada?.to.runner === 'laptop' &&
 		answers(v)[0]?.data.author === 'ada' &&
 		prompt.laptop.includes('Answer like a pirate.') &&
@@ -112,12 +135,17 @@ check(
 	"a bot makes a bot with its own home, on her model; a runner's name is no bot's, and a new bot needs a model",
 	JSON.stringify([await bots(), runnerName.json, nameless.json]),
 )
+await api('POST', '/api/bots', {
+	name: 'PM',
+	to: 'echo/echo@laptop',
+	instructions: 'Coordinates the team end to end.',
+})
 
 await post(home, 'ask wren', 'ada')
 await answered(home, 5)
 const side = (await api('GET', '/api/threads')).json.find((t) => t.parent === home)
 check(
-	prompt.laptop.includes('The other bot is wren') &&
+	/The other bots? (is|are) .*\bwren\b/.test(prompt.laptop) &&
 		side?.agents.map((a) => a.name).join() === 'wren' &&
 		answers(await (await api('GET', `/api/threads/${side.id}`)).json)[0]?.data.author === 'wren',
 	'a bot knows the other bots by name, and asks one with post',
@@ -199,6 +227,35 @@ check(
 	'a name that is no bot is refused',
 	JSON.stringify(nameless2.json),
 )
+// wren and PM predate voice and kept their own words; a restart gives every bot the full old voice once, as it
+// would any bot made before this change, PM the old handsOff line too, and a second restart repeats neither
+const handsOff = 'Look things up yourself (gh, git, logs, files) and hand every change to a worker.'
+const times = (t, s) => t.split(s).length - 1
+await kill(srv, 'SIGKILL')
+srv = await server({ MODULES: '+bots' })
+let wrenNow = (await bots()).find((b) => b.name === 'wren')
+let pmNow = (await bots()).find((b) => b.name === 'PM')
+check(
+	wrenNow.instructions.includes('Review diffs.') &&
+		times(wrenNow.instructions, fullVoice) === 1 &&
+		pmNow.instructions.includes('Coordinates the team end to end.') &&
+		times(pmNow.instructions, fullVoice) === 1 &&
+		times(pmNow.instructions, handsOff) === 1,
+	'a restart gives a bot that predates voice the full old text once, keeping her own words too; PM gets handsOff too',
+	JSON.stringify([wrenNow.instructions, pmNow.instructions]),
+)
+await kill(srv, 'SIGKILL')
+srv = await server({ MODULES: '+bots' })
+wrenNow = (await bots()).find((b) => b.name === 'wren')
+pmNow = (await bots()).find((b) => b.name === 'PM')
+check(
+	times(wrenNow.instructions, fullVoice) === 1 &&
+		times(pmNow.instructions, fullVoice) === 1 &&
+		times(pmNow.instructions, handsOff) === 1,
+	'a second restart does not add any of it again',
+	JSON.stringify([wrenNow.instructions, pmNow.instructions]),
+)
+
 const archived = await api('POST', `/api/threads/${home}/archive`, { archived: true })
 check(
 	archived.status === 201,
