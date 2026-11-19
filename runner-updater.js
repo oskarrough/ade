@@ -66,8 +66,12 @@ async function install() {
 			const [command, ...rest] = bun
 				? [process.execPath, 'install']
 				: ['npm', 'install', '--omit=dev', '--no-audit', '--no-fund']
-			if (spawnSync(command, rest, { cwd: staged, stdio: 'inherit' }).status !== 0)
+			const result = spawnSync(command, rest, { cwd: staged, encoding: 'utf8' })
+			if (result.status !== 0) {
+				if (result.stdout) process.stdout.write(result.stdout)
+				if (result.stderr) process.stderr.write(result.stderr)
 				throw new Error("installing the runner's packages failed")
+			}
 		}
 		if (!read('version') && !existsSync(path.join(os.homedir(), '.pi', 'agent', 'auth.json'))) {
 			console.log(
