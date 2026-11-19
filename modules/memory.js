@@ -1,8 +1,8 @@
 /**
  * Gives each thread a memory: one short line per message, pairs of lines merged going up, so an agent reads the lines
  * instead of every word and zooms back down with `zoom` (experimental). On by default; MODULES=-memory turns it
- * off. Memory uses a small model on the thread agent's runner: Haiku without thinking for Anthropic or
- * Claude Code agents, Luna with low thinking otherwise. With no agent yet, a bot supplies its runner;
+ * off. Memory uses a small model on the thread agent's runner: Haiku for Anthropic or
+ * Claude Code agents, Luna otherwise, both with low thinking. With no agent yet, a bot supplies its runner;
  * with neither, the lines wait. A model in settings, `memory.model` in ade.json or MEMORY_MODEL=model@runner, can
  * write every thread's lines instead. Past `memory.compactAt` tokens, 100k unless set, an agent's context is
  * compacted into the lines.
@@ -119,7 +119,7 @@ export function server(core) {
 	function smallWriter(to) {
 		const provider = to.model.split('/')[0]
 		return provider === 'anthropic' || provider === 'claude-code'
-			? { runner: to.runner, model: `${provider}/claude-haiku-5-5`, thinkingLevel: 'off' }
+			? { runner: to.runner, model: `${provider}/claude-haiku-5-5`, thinkingLevel: 'low' }
 			: { runner: to.runner, model: 'openai-codex/gpt-6-luna', thinkingLevel: 'low' }
 	}
 

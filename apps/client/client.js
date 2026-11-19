@@ -31,7 +31,10 @@ function Client() {
 		const viewport = window.visualViewport
 		const fit = () => {
 			document.documentElement.style.setProperty('--visual-height', `${viewport.height}px`)
-			if (viewport.offsetTop) scrollTo(0, 0)
+			// offsetTop also goes nonzero as iOS nudges the page while you type with the keyboard open, not only when
+			// pinch-zoomed; undoing a pinch-zoom pan is the point, so only scroll back when actually zoomed, or every
+			// keystroke's nudge snaps the whole page to the top.
+			if (viewport.scale !== 1) scrollTo(0, 0)
 		}
 		// An installed app on iOS sometimes misses the resize as the keyboard slides in, so focus follows the viewport until it holds still.
 		let settling = 0
