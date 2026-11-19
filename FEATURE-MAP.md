@@ -53,9 +53,9 @@ modules/
                          serve, the `overview` tool; off by default
   canvas.js              a tldraw canvas per thread: Canvas doc (the room's snapshot; a fork copies it), rooms (one TLSocketRoom per
                          thread in use, saved shortly after edits, closed when empty),
-                         `canvas_look` and `canvas_act`; relay hands them to the host tab (hostOf: the tab used last, tabs), else summon asks the
-                         ade page used last (pages, its /api/canvas socket) to bring an editor up; without a host,
-                         looks read stored shapes with estimated sizes, actions ask to open ade in a browser;
+                         `canvas_look` and `canvas_act`; relay hands them to the host tab (hostOf: the visible tab used last, tabs),
+                         and an act counts once the room holds its changes (arrived); without a host, looks read stored shapes
+                         with estimated sizes and alone does create, update, delete, move and label on the stored shapes (apply);
                          who drew it (`meta.by`, whose: the acting agent, else the session's user, stamped by authorizeRecord and
                          onCommittedChanges); serve (GET shapes, POST actions/look/active/answer), connect; off by default
   blocked.js             `ask_person` posts an explicitly marked question; waitingOnPerson reads the latest relevant message via server.js latestMessage to tell whether a person has replied, used by server.js status; off by default
@@ -117,12 +117,11 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   pi-sessions.js         the thread list's "From a pi session" popover (PiSessions), and in thread details where one came from (PiSource)
   canvas.js              a thread's canvas as a page of the side column: tldraw and React loaded once from esm.sh (load), mounted as
                          a React island synced over /api/threads/:id/canvas (board), which also makes the tab a host: it answers the
-                         server's looks and actions, and says when it's used; offerToHost and bringUp, an editor out of sight for a
-                         canvas no tab shows, kept a minute; CanvasRow, a canvas_act call's row in the chat
+                         server's looks and actions, and says when it's used, shown or hidden; CanvasRow, a canvas_act call's row in the chat
                          ("moved 3, deleted 1"), which opens the canvas on what changed (showOnCanvas)
   canvas/host.js         look and act against the live editor, with the starter kit's code: the whole drawing by default (whole),
                          blurry shapes, peripheral clusters, lints, a picture, the person's selection and view;
-                         a batch of actions in one undo step, answering what landed
+                         a batch of actions in one undo step, answering what landed and the records it changed
   canvas/agent/          tldraw's agent starter kit, the parts used, ported to JS (README there; scripts/vendor-canvas-agent.js refreshes it)
   canvas/tldraw.js, canvas/zod.js   tldraw and zod from esm.sh, the one place their versions are named for the browser
   overview.js            the side column's Overview tab: the recap, Page, whose #message-N links scroll the thread there; the

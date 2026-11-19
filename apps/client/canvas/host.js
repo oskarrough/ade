@@ -139,7 +139,7 @@ async function picture(editor, shapes, area) {
 /**
  * A batch of starter-kit actions, in one undo step: each sanitized as the starter kit does, then applied. Answers what
  * each did, the shapes they touched as they landed (as a look shows them, with their real bounds), what was deleted, ids changed to
- * stay unique, and the lints that touch them.
+ * stay unique, the lints that touch them, and the records it changed (`changes`).
  */
 export async function act(editor, { actions }) {
 	await fontsLoaded(editor)
@@ -193,5 +193,11 @@ export async function act(editor, { actions }) {
 			.map((record) => short(record.id)),
 		renamed: Object.fromEntries(helpers.shapeIdMap),
 		lints,
+		// What the server checks its room for before it calls this done: a hidden tab's sync may not have sent it yet
+		changes: {
+			added: Object.keys(diff.added),
+			removed: Object.keys(diff.removed),
+			updated: Object.fromEntries(Object.entries(diff.updated).map(([id, [from]]) => [id, from])),
+		},
 	}
 }

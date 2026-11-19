@@ -3,10 +3,10 @@
  * too. tldraw is React, so it's an island here, loaded from esm.sh when a canvas first opens (React ships no modules a
  * browser can import, and tldraw is some 150 packages), at the version the server's room speaks.
  *
- * A tab with the canvas open is its editor host: the server hands it agents' looks and actions (./canvas/host.js) and
- * it answers what they found or did, against the real editor. The tab someone touched last is the one asked. When no
- * tab shows that canvas, the ade page someone used last brings up an editor for it out of sight (offerToHost), keeps
- * it a minute after its last call, then lets it go; one at a time.
+ * A tab with the canvas open, in front of someone, is its editor host: the server hands it agents' looks and actions
+ * (./canvas/host.js) and it answers what they found or did, against the real editor. The tab someone touched last is
+ * the one asked. A hidden tab says so and isn't asked: it gets no animation frames, and tldraw's sync sends and applies
+ * changes only on one. With no tab to ask, the server draws on its own.
  */
 import html from '@solidjs/html'
 import { createSignal, onSettled, Show, untrack } from 'solid-js'
@@ -72,21 +72,23 @@ const frame = (editor, box) =>
 /** How often a tab says it's being used, at most */
 const ACTIVE = 2000
 
-/** The editor, synced with the thread's room, and this tab as its host; a hidden one only answers calls (`called`) */
-function board({ react, dom, tldraw, sync, host }, element, id, { hidden = false, called } = {}) {
+/** The editor, synced with the thread's room, and this tab as its host while it's in front of someone */
+function board({ react, dom, tldraw, sync, host }, element, id) {
 	const tab = crypto.randomUUID()
 	const path = `/api/threads/${id}/canvas`
 	let editor,
 		said = 0
+	const visible = () => document.visibilityState === 'visible'
+	const tell = () => api(path, { active: tab, visible: visible() }).catch(() => {})
 	const active = () => {
 		if (!editor || Date.now() - said < ACTIVE) return
 		said = Date.now()
-		api(path, { active: tab }).catch(() => {})
+		tell()
 	}
+	const shown = () => editor && tell()
 	// What the server hands this tab: a look or a batch of actions, answered as found or done, or as the error it hit
 	const handle = async ({ call, look, act }) => {
 		if (!call) return
-		called?.()
 		let answer
 		try {
 			if (!editor) throw new Error('the canvas is still loading')
@@ -105,100 +107,25 @@ function board({ react, dom, tldraw, sync, host }, element, id, { hidden = false
 	}
 	const onMount = (mounted) => {
 		editor = mounted
-		if (!hidden) {
-			editors.set(id, mounted)
-			if (waiting.has(id)) frame(mounted, waiting.get(id))
-			waiting.delete(id)
-		}
-		active()
+		editors.set(id, mounted)
+		if (waiting.has(id)) frame(mounted, waiting.get(id))
+		waiting.delete(id)
+		tell()
 	}
 	const Board = () => {
 		const store = sync.useSync(options)
 		return react.createElement(tldraw.Tldraw, { store, inferDarkMode: true, onMount })
 	}
-	if (!hidden)
-		for (const kind of ['pointerdown', 'keydown', 'focusin', 'wheel'])
-			element.addEventListener(kind, active, { passive: true })
+	for (const kind of ['pointerdown', 'keydown', 'focusin', 'wheel'])
+		element.addEventListener(kind, active, { passive: true })
+	document.addEventListener('visibilitychange', shown)
 	const root = dom.createRoot(element)
 	root.render(react.createElement(Board))
 	return () => {
+		document.removeEventListener('visibilitychange', shown)
 		if (editors.get(id) === editor) editors.delete(id)
 		editor = undefined
 		root.unmount()
-	}
-}
-
-/** How long an editor brought up out of sight stays after its last call, for the calls that follow */
-const KEEP = 60000
-/** The one editor this page keeps out of sight: its thread, and how to let it go */
-let unseen
-
-/** Brings up an editor for a thread's canvas out of sight, to answer an agent; a tab showing it already answers */
-async function bringUp(id) {
-	if (editors.has(id)) return
-	if (unseen?.id === id) return unseen.keep()
-	unseen?.close()
-	const modules = await load()
-	const element = document.createElement('div')
-	element.className = 'unseen-canvas'
-	element.setAttribute('aria-hidden', 'true')
-	document.body.append(element)
-	let timer
-	const mine = {
-		id,
-		keep: () => {
-			clearTimeout(timer)
-			timer = setTimeout(() => mine.close(), KEEP)
-		},
-		close: () => {
-			clearTimeout(timer)
-			unmount()
-			element.remove()
-			if (unseen === mine) unseen = undefined
-		},
-	}
-	unseen = mine
-	const unmount = board(modules, element, id, { hidden: true, called: () => mine.keep() })
-	mine.keep()
-}
-
-/** How often a page says it's being used, at most */
-const USED = 2000
-
-/**
- * This page offers to host canvases it isn't showing: a socket the server asks over, and word when someone uses the
- * page, so the server asks the one used last. Answers how to stop.
- */
-export function offerToHost() {
-	const page = crypto.randomUUID()
-	let socket,
-		retry,
-		said = 0,
-		stopped = false
-	const connect = () => {
-		socket = new WebSocket(`${url.replace(/^http/, 'ws')}/api/canvas?page=${page}`)
-		socket.onmessage = (event) => {
-			const { host } = JSON.parse(event.data)
-			if (host) bringUp(host).catch((error) => console.error(`canvas ${host}: ${error.message}`))
-		}
-		socket.onclose = () => {
-			if (!stopped) retry = setTimeout(connect, 1000)
-		}
-	}
-	const used = () => {
-		if (Date.now() - said < USED || socket?.readyState !== WebSocket.OPEN) return
-		said = Date.now()
-		api('/api/canvas', { active: page }).catch(() => {})
-	}
-	connect()
-	const kinds = ['pointerdown', 'keydown', 'focusin']
-	for (const kind of kinds) document.addEventListener(kind, used, { passive: true })
-	return () => {
-		stopped = true
-		clearTimeout(retry)
-		socket.close()
-		for (const kind of kinds) document.removeEventListener(kind, used)
-		unseen?.close()
 	}
 }
 
