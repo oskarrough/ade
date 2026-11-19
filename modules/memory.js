@@ -4,7 +4,8 @@
  * and costs no model call. A longer one gets its line only when it's needed: once an agent that has seen it passes 70%
  * of `memory.compactAt`, or when someone opens the memory view. Merges are written only when a compaction shows them.
  * On by default; MODULES=-memory turns it off. Memory uses a small model on the thread agent's runner: Haiku for
- * Anthropic or Claude Code agents, Luna otherwise, both with low thinking. With no agent yet, a bot supplies its runner;
+ * Anthropic or Claude Code agents, Luna otherwise, both with low thinking. If the runner doesn't list that model,
+ * memory uses the thread agent's own model and thinking. With no agent yet, a bot supplies its runner;
  * with neither, the lines wait. A model in settings, `memory.model` in ade.json or MEMORY_MODEL=model@runner, can
  * write every thread's lines instead. Past `memory.compactAt` tokens, 100k unless set, an agent's context is
  * compacted into the lines.
@@ -123,12 +124,16 @@ export function server(core) {
 		row.memory ??
 		[...Object.keys(row.agents), ...to].some((name) => !name.includes('@') && name !== AGENT)
 
-	/** Memory never inherits the working model: only its runner and provider decide the cheap writer. */
-	function smallWriter(to) {
+	/** Prefer a small writer only when the thread's runner lists it. */
+	async function smallWriter(to) {
 		const provider = to.model.split('/')[0]
-		return provider === 'anthropic' || provider === 'claude-code'
-			? { runner: to.runner, model: `${provider}/claude-haiku-5-5`, thinkingLevel: 'low' }
-			: { runner: to.runner, model: 'openai-codex/gpt-6-luna', thinkingLevel: 'low' }
+		const model =
+			provider === 'anthropic' || provider === 'claude-code'
+				? `${provider}/claude-haiku-5-5`
+				: 'openai-codex/gpt-6-luna'
+		return (await core.known())[to.runner]?.models?.[model]
+			? { runner: to.runner, model, thinkingLevel: 'low' }
+			: to
 	}
 
 	/** MEMORY_MODEL overrides the small writer on the thread agent's runner, or a bot's runner. */
@@ -143,7 +148,7 @@ export function server(core) {
 			: (Object.entries(agents)[0] ?? [])
 		const to = recipient && (await core.agentOf(recipient.conversation, slot))
 		if (to) await core.runners.online(to.runner, signal)
-		return to && core.address(smallWriter(to), false, signal)
+		return to && core.address(await smallWriter(to), false, signal)
 	}
 
 	/** Short sources need no model. Trim oversized replies; only missing items get one more attempt. */
