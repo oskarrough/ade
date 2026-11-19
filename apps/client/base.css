@@ -491,6 +491,15 @@ button[data-danger]:focus-visible:not(:disabled) {
 	}
 }
 
+/* A runner heading is one line: its dot sits on the name's centre, not a two-line row's top. */
+.model-controls li > .who {
+	align-items: center;
+
+	> .dot {
+		margin-top: 0;
+	}
+}
+
 :where(.popover .rows > li) small {
 	display: block;
 	overflow-wrap: anywhere;
