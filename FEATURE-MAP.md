@@ -53,7 +53,8 @@ modules/
                          serve, the `overview` tool; off by default
   canvas.js              a tldraw canvas per thread: Canvas doc (the room's snapshot; a fork copies it), rooms (one TLSocketRoom per
                          thread in use, saved shortly after edits, closed when empty),
-                         `canvas_look` (look: the stored shapes, read) and `canvas_act` (alone: create, update, delete, move and
+                         `canvas_look` (look: the stored shapes, read, and what each person present has selected and in view, as
+                         their tab reports it: seen, report, present) and `canvas_act` (alone: create, update, delete, move and
                          label on the stored shapes, apply, sizes guessed); who drew it (`meta.by`, the session's user, stamped by
                          authorizeRecord and onCommittedChanges, except a shape that only grew to fit its label: grew);
                          serve (GET shapes, POST actions/look), connect; off by default
@@ -116,7 +117,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   pi-sessions.js         the thread list's "From a pi session" popover (PiSessions), and in thread details where one came from (PiSource)
   canvas.js              a thread's canvas as a page of the side column: tldraw and React loaded once from esm.sh (load), mounted as
                          a React island synced over /api/threads/:id/canvas (board), which only shows the board and grows shapes whose
-                         labels don't fit (fitLabels); CanvasRow, a canvas_act call's row in the chat
+                         labels don't fit (fitLabels), and tells the server what the person has selected and in view (reportSeen); CanvasRow, a canvas_act call's row in the chat
                          ("moved 3, deleted 1"), which opens the canvas on what changed (showOnCanvas)
   canvas/agent/          the JSON schema of canvas_act's actions, from tldraw's agent starter kit (README there; scripts/vendor-canvas-agent.js refreshes it)
   canvas/tldraw.js       tldraw from esm.sh, the one place its version is named for the browser

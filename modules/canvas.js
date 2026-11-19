@@ -8,12 +8,14 @@
  * open or not, in the starter kit's shape format (tldraw's agent starter kit, its actions' schema vendored in
  * apps/client/canvas/agent): create, update, delete, move and label. Sizes are the server's guess, since only an editor
  * lays text out; a browser that opens the board lays it out, and grows a shape whose label doesn't fit, as tldraw does
- * when a label is typed. A look reads the stored shapes.
+ * when a label is typed. A look reads the stored shapes, and what each person with the canvas open has selected and in
+ * view, as their tab reports it (tldraw sync shares no presence with one person alone).
  *
  * `by` on a shape is who drew or changed it last: the person, or the bot's name, or the agent's model@runner, kept in its
  * `meta.by`; a shape growing to fit its label is nobody's change. `GET /api/threads/:id/canvas` answers `{shapes,
  * tldraw}`: the stored shapes, simply, and the tldraw version the client loads, the same as the server's, to speak the
- * room's protocol. `POST {actions}` acts and `{look: {bounds}}` looks, as the tools do.
+ * room's protocol. `POST {actions}` acts and `{look: {bounds}}` looks, as the tools do; `{seen: {selected, view}}` is
+ * a tab's report.
  *
  * The tab needs the internet the first time it opens, to load tldraw from esm.sh. On localhost or plain http tldraw runs
  * without a licence key and shows its watermark; served over https at a domain it would need a key.
@@ -182,6 +184,7 @@ export function server(core) {
 		const { room, save } = await open
 		if (room.getNumActiveSessions()) return
 		rooms.delete(threadId)
+		seen.delete(threadId)
 		await save()
 		room.close()
 	}
@@ -252,11 +255,44 @@ export function server(core) {
 			}
 		})
 
+	/** Thread → person → what their tab last reported: the shapes they have selected and the area in view */
+	const seen = new Map()
+
+	/** What each person with the canvas open has selected and in view, as their tab last said */
+	const present = (threadId, room, records) => {
+		const here = new Set(
+			room
+				.getSessions()
+				.filter((session) => session.isConnected)
+				.map((session) => session.meta.by),
+		)
+		return [...(seen.get(threadId) ?? [])]
+			.filter(([name]) => here.has(name))
+			.map(([name, { selected, view }]) => ({
+				name,
+				selected: selected.filter((id) => records[`shape:${id}`]),
+				view,
+			}))
+	}
+
+	/** A tab's report of what its person has selected and in view; null when the tab stops showing the canvas */
+	function report(threadId, name, tab) {
+		if (!seen.has(threadId)) seen.set(threadId, new Map())
+		if (!tab) return void seen.get(threadId).delete(name)
+		const { selected = [], view } = tab
+		seen.get(threadId).set(name, {
+			selected: selected.map(String).map(short),
+			view:
+				view && Object.fromEntries(['x', 'y', 'w', 'h'].map((key) => [key, Math.round(view[key])])),
+		})
+	}
+
 	async function read(threadId, bounds) {
-		const { storage } = await open(threadId)
+		const { room, storage } = await open(threadId)
 		const records = recordsOf(storage)
+		const people = present(threadId, room, records)
 		close(threadId)
-		return Object.values(records)
+		const shapes = Object.values(records)
 			.filter((record) => record.typeName === 'shape')
 			.map((shape) => simple(shape, records))
 			.filter((shape) => !bounds || overlaps(shape, bounds))
@@ -265,13 +301,21 @@ export function server(core) {
 					('y' in one ? one.y : one.y1) - ('y' in other ? other.y : other.y1) ||
 					('x' in one ? one.x : one.x1) - ('x' in other ? other.x : other.x1),
 			)
+		return { shapes, people }
 	}
 
-	/** What's in an area, or the whole drawing: its shapes, simply, with sizes as stored */
-	const look = async (threadId, bounds) => ({
-		bounds: bounds ?? null,
-		shapes: (await read(threadId, bounds)).map(blurry),
-	})
+	/**
+	 * What's in an area, or the whole drawing: its shapes, simply, with sizes as stored; and, while anyone has the canvas
+	 * open, what each has selected and in view
+	 */
+	const look = async (threadId, bounds) => {
+		const { shapes, people } = await read(threadId, bounds)
+		return {
+			bounds: bounds ?? null,
+			shapes: shapes.map(blurry),
+			...(people.length && { people }),
+		}
+	}
 
 	/** Who a tool call is: the bot's name, or the agent's model@runner, and its thread */
 	const caller = async (api) => {
@@ -282,7 +326,7 @@ export function server(core) {
 	const canvasLook = defineTool({
 		name: 'canvas_look',
 		description:
-			"Look at your thread's canvas, where people in the thread draw with you: the whole drawing, or only what's in `bounds`. Answers its shapes as {shapeId, type, x, y, w, h, text, by}, `by` naming who drew or changed it last, and sizes as stored, so a long text's may be off. Look before you change what's there.",
+			"Look at your thread's canvas, where people in the thread draw with you: the whole drawing, or only what's in `bounds`. Answers its shapes as {shapeId, type, x, y, w, h, text, by}, `by` naming who drew or changed it last, and sizes as stored, so a long text's may be off; and, while people have it open, `people` as {name, selected, view}: the shapeIds each has selected (\"this box\" means one of those) and the area they have in view. Look before you change what's there.",
 		parameters: obj({
 			bounds: opt(obj({ x: num(), y: num(), w: num(), h: num() })),
 		}),
@@ -314,13 +358,20 @@ export function server(core) {
 
 	return {
 		extension: defineExtension({ name: 'ade.canvas', tools: [canvasLook, canvasAct] }),
-		/** GET: the stored shapes, simply, and the tldraw version. POST {actions}: canvas_act as the person asking; {look: {bounds}}: canvas_look */
+		/**
+		 * GET: the stored shapes, simply, and the tldraw version. POST {actions}: canvas_act as the person asking; {look:
+		 * {bounds}}: canvas_look; {seen: {selected, view}}: what the person asking has selected and in view, or null
+		 */
 		async serve(threadId, query, body, user) {
 			if (threadId === undefined) throw new Error('A canvas is at /api/threads/:id/canvas')
-			if (body === undefined) return { shapes: await read(threadId), tldraw: version }
+			if (body === undefined) return { shapes: (await read(threadId)).shapes, tldraw: version }
 			if (Array.isArray(body.actions)) return alone(threadId, body.actions, user)
 			if (body.look) return look(threadId, body.look.bounds)
-			throw new Error('POST {actions} or {look}')
+			if ('seen' in body) {
+				report(threadId, user, body.seen)
+				return {}
+			}
+			throw new Error('POST {actions}, {look} or {seen}')
 		},
 		/** A browser's tldraw sync socket, at /api/threads/:id/canvas; `user` says who is drawing */
 		async connect(threadId, socket, url) {

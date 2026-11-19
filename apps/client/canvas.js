@@ -4,7 +4,8 @@
  * browser can import, and tldraw is some 150 packages), at the version the server's room speaks.
  *
  * A tab only shows the board: agents draw on the server's room, which can't lay text out, so a tab grows any shape whose
- * label doesn't fit, as tldraw does when a label is typed (fitLabels).
+ * label doesn't fit, as tldraw does when a label is typed (fitLabels), and tells the server what the person has selected
+ * and in view, so an agent's look knows what "this box" is (reportSeen).
  */
 import html from '@solidjs/html'
 import { createSignal, onSettled, Show, untrack } from 'solid-js'
@@ -100,9 +101,42 @@ async function fitLabels(tldraw, editor) {
 	)
 }
 
+/** How often at most a tab tells the server what its person has selected and in view */
+const REPORT = 500
+
+/**
+ * Tells the server what the person has selected and in view whenever either changes, at most every REPORT ms, and that
+ * they've gone when the canvas closes. tldraw sync shares this as presence, but not while someone is alone in the room.
+ */
+function reportSeen(tldraw, editor, id) {
+	let timer,
+		last = 0,
+		sent = ''
+	const send = () => {
+		timer = undefined
+		last = Date.now()
+		const { x, y, w, h } = editor.getViewportPageBounds()
+		const seen = { selected: editor.getSelectedShapeIds(), view: { x, y, w, h } }
+		const body = JSON.stringify(seen)
+		if (body === sent) return
+		sent = body
+		api(`/api/threads/${id}/canvas`, { seen }).catch(() => (sent = ''))
+	}
+	const stop = tldraw.react('report what the person sees', () => {
+		editor.getSelectedShapeIds()
+		editor.getViewportPageBounds()
+		timer ??= setTimeout(send, Math.max(0, last + REPORT - Date.now()))
+	})
+	return () => {
+		stop()
+		clearTimeout(timer)
+		api(`/api/threads/${id}/canvas`, { seen: null }).catch(() => {})
+	}
+}
+
 /** The editor, synced with the thread's room */
 function board({ react, dom, tldraw, sync }, element, id) {
-	let editor, stop
+	let editor, stop, unreport
 	// The same options every render, or useSync starts over each time
 	const options = {
 		uri: `${url.replace(/^http/, 'ws')}/api/threads/${id}/canvas?user=${encodeURIComponent(me)}`,
@@ -114,6 +148,7 @@ function board({ react, dom, tldraw, sync }, element, id) {
 		editors.set(id, mounted)
 		if (waiting.has(id)) frame(mounted, waiting.get(id))
 		waiting.delete(id)
+		unreport = reportSeen(tldraw, mounted, id)
 		fitLabels(tldraw, mounted)
 			.then((unlisten) => (editor === mounted ? (stop = unlisten) : unlisten()))
 			.catch((error) => console.error(`canvas ${id}: ${error.message}`))
@@ -126,6 +161,7 @@ function board({ react, dom, tldraw, sync }, element, id) {
 	root.render(react.createElement(Board))
 	return () => {
 		stop?.()
+		unreport?.()
 		if (editors.get(id) === editor) editors.delete(id)
 		editor = undefined
 		root.unmount()
