@@ -1,4 +1,4 @@
-/** Agents draw on a thread's canvas with no browser open, and the drawing outlives a restart */
+/** Agents draw on a thread's canvas through the server, with no browser open, and the drawing outlives a restart */
 import { api, check, done, kill, server } from './lib.js'
 
 const env = { MODULES: '+canvas' }
@@ -27,14 +27,15 @@ const drawn = await api('POST', canvas, {
 check(drawn.status < 300, 'with no browser open, the server draws', JSON.stringify(drawn.json))
 check(
 	drawn.json.applied?.map((done) => (done.ok ? 'ok' : done.skipped)).join() ===
-		'ok,ok,ok,ok,needs the canvas open in front of someone',
-	'what needs a live editor is skipped, and says why',
+		'ok,ok,ok,ok,not one ade does',
+	"an action ade doesn't do is skipped, and says why",
 	JSON.stringify(drawn.json.applied),
 )
+const seen = (await api('POST', canvas, { look: {} })).json
 check(
-	/sizes guessed/.test(drawn.json.estimated ?? ''),
-	'it says sizes are guessed',
-	drawn.json.estimated,
+	seen.shapes?.map((shape) => shape.shapeId).join() === 'a,ab,b',
+	'a look sees what was drawn',
+	JSON.stringify(seen),
 )
 
 const shapes = async () => (await api('GET', canvas)).json.shapes

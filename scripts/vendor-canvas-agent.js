@@ -1,13 +1,12 @@
 /**
- * Refreshes apps/client/canvas/agent from tldraw's agent starter kit: the files the canvas tools use, their TypeScript
- * turned into plain JS, and the actions' JSON schema the server offers agents.
+ * Refreshes apps/client/canvas/agent from tldraw's agent starter kit: the JSON schema of the actions the server offers
+ * agents with `canvas_act`, made from the kit's own schemas, and its licence.
  *
  *   git clone https://github.com/tldraw/agent-template <upstream>
  *   npm i --prefix <tools> typescript tldraw@<ours> zod@4 react@<ours> react-dom@<ours>
  *   node scripts/vendor-canvas-agent.js <upstream> <tools>
  *
- * In the browser `tldraw` and `zod` come from the canvas's own shims, which load them from esm.sh; the schema is made in
- * Node from <tools>' copies. Then read the diff, and bump UPSTREAM in canvas/agent/README.md.
+ * Then read the diff, and bump UPSTREAM in canvas/agent/README.md.
  */
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync, cpSync } from 'node:fs'
@@ -21,7 +20,7 @@ const ts = createRequire(path.join(tools, 'x.js'))('typescript')
 const repo = path.resolve(import.meta.dirname, '..')
 const out = path.join(repo, 'apps/client/canvas/agent')
 
-/** What the canvas tools use, and only that: formats, the actions and their helpers, the lints, what a look reads */
+/** The kit files ported beside the schemas, so what they import resolves */
 export const FILES = [
 	'shared/types/ids-schema.ts',
 	'shared/format/FocusedColor.ts',
@@ -52,34 +51,24 @@ export const FILES = [
 		'Pen',
 	].map((name) => `client/actions/${name}ActionUtil.ts`),
 ]
-// Only schema generation reads these; they don't ship to the browser.
 const SCHEMA_FILES = [
 	'shared/format/FocusedGeoShapeType.ts',
 	'shared/format/FocusedShape.ts',
 	'shared/schema/AgentActionSchemas.ts',
 ]
-/** The actions agents get, by their `_type`, and the schema each has upstream */
+/** The actions agents get, those that need no layout, by their `_type`, and the schema each has upstream */
 export const ACTIONS = {
 	create: 'CreateAction',
 	update: 'UpdateAction',
 	delete: 'DeleteAction',
 	move: 'MoveAction',
 	label: 'LabelAction',
-	resize: 'ResizeAction',
-	rotate: 'RotateAction',
-	align: 'AlignAction',
-	distribute: 'DistributeAction',
-	stack: 'StackAction',
-	place: 'PlaceAction',
-	bringToFront: 'BringToFrontAction',
-	sendToBack: 'SendToBackAction',
-	pen: 'PenAction',
 }
 
-/** One file as plain JS; imports of types alone go, `tldraw` and `zod` come from `shims` (a folder) or as they are */
-function port(file, shims) {
+/** One file as plain JS, for Node: imports of types alone go */
+function port(file) {
 	const source = readFileSync(path.join(upstream, file), 'utf8')
-	let { outputText } = ts.transpileModule(source, {
+	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
 			target: ts.ScriptTarget.ES2022,
 			module: ts.ModuleKind.ESNext,
@@ -87,29 +76,18 @@ function port(file, shims) {
 			useDefineForClassFields: true,
 		},
 	})
-	const up = path.relative(path.dirname(file), '.') || '.'
-	outputText = outputText.replace(/from '(\.[^']*)'/g, "from '$1.js'")
-	if (shims)
-		outputText = outputText.replace(
-			/from '(tldraw|zod)'/g,
-			(_, name) => `from '${up === '.' ? '.' : up}/../${name}.js'`,
-		)
-	return outputText
+	return outputText.replace(/from '(\.[^']*)'/g, "from '$1.js'")
 }
 
-rmSync(out, { recursive: true, force: true })
 const scratch = path.join(tools, 'ported')
 rmSync(scratch, { recursive: true, force: true })
 mkdirSync(scratch, { recursive: true })
+mkdirSync(out, { recursive: true })
 writeFileSync(path.join(scratch, 'package.json'), '{"type":"module"}')
 for (const file of [...FILES, ...SCHEMA_FILES]) {
 	const js = file.replace(/\.ts$/, '.js')
-	if (FILES.includes(file)) {
-		mkdirSync(path.dirname(path.join(out, js)), { recursive: true })
-		writeFileSync(path.join(out, js), port(file, true))
-	}
 	mkdirSync(path.dirname(path.join(scratch, js)), { recursive: true })
-	writeFileSync(path.join(scratch, js), port(file, false))
+	writeFileSync(path.join(scratch, js), port(file))
 }
 cpSync(path.join(upstream, 'LICENSE.md'), path.join(out, 'LICENSE.md'))
 
@@ -131,5 +109,5 @@ writeFileSync(path.join(out, 'actions.schema.json'), `${JSON.stringify(schema, n
 const commit = execFileSync('git', ['-C', upstream, 'rev-parse', 'HEAD'], {
 	encoding: 'utf8',
 }).trim()
-console.log(`ported ${FILES.length} files from ${commit}`)
+console.log(`wrote the schema of ${Object.keys(ACTIONS).length} actions from ${commit}`)
 process.exit(0)

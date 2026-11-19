@@ -3,10 +3,8 @@
  * too. tldraw is React, so it's an island here, loaded from esm.sh when a canvas first opens (React ships no modules a
  * browser can import, and tldraw is some 150 packages), at the version the server's room speaks.
  *
- * A tab with the canvas open, in front of someone, is its editor host: the server hands it agents' looks and actions
- * (./canvas/host.js) and it answers what they found or did, against the real editor. The tab someone touched last is
- * the one asked. A hidden tab says so and isn't asked: it gets no animation frames, and tldraw's sync sends and applies
- * changes only on one. With no tab to ask, the server draws on its own.
+ * A tab only shows the board: agents draw on the server's room, which can't lay text out, so a tab grows any shape whose
+ * label doesn't fit, as tldraw does when a label is typed (fitLabels).
  */
 import html from '@solidjs/html'
 import { createSignal, onSettled, Show, untrack } from 'solid-js'
@@ -21,7 +19,7 @@ const TLDRAW = '5.6.1'
 const REACT = '19.3.0'
 const deps = `deps=react@${REACT},react-dom@${REACT}`
 
-/** React, react-dom, tldraw and the host as one set of modules, fetched once a page */
+/** React, react-dom and tldraw as one set of modules, fetched once a page */
 let loading
 const load = () =>
 	(loading ??= (async () => {
@@ -29,14 +27,13 @@ const load = () =>
 		css.rel = 'stylesheet'
 		css.href = `https://esm.sh/tldraw@${TLDRAW}/tldraw.css`
 		document.head.append(css)
-		const [react, dom, tldraw, sync, host] = await Promise.all([
+		const [react, dom, tldraw, sync] = await Promise.all([
 			import(`https://esm.sh/react@${REACT}`),
 			import(`https://esm.sh/react-dom@${REACT}/client?deps=react@${REACT}`),
 			import('./canvas/tldraw.js'),
 			import(`https://esm.sh/@tldraw/sync@${TLDRAW}?${deps}`),
-			import('./canvas/host.js'),
 		])
-		return { react, dom, tldraw, sync, host }
+		return { react, dom, tldraw, sync }
 	})().catch((error) => {
 		loading = undefined
 		throw error
@@ -69,60 +66,66 @@ export function showOnCanvas(id, box) {
 const frame = (editor, box) =>
 	editor.zoomToBounds(box, { inset: 48, targetZoom: 1, animation: { duration: 300 } })
 
-/** How often a tab says it's being used, at most */
-const ACTIVE = 2000
+/**
+ * Grows each shape whose label doesn't fit, now and as agents draw, with tldraw's own measure of the label (what its
+ * shapes do when created in an editor). The room counts that as nobody's change.
+ */
+async function fitLabels(tldraw, editor) {
+	// A font that fails to load leaves its fallback measured, as an editor would show it
+	await Promise.allSettled(
+		tldraw.allDefaultFontFaces.map((face) => editor.fonts.ensureFontIsLoaded(face)),
+	)
+	await document.fonts.ready
+	const fit = (shapes) => {
+		const grown = shapes.flatMap((shape) => {
+			if (shape.type !== 'geo' && shape.type !== 'note') return []
+			const next = editor.getShapeUtil(shape).onBeforeCreate?.(shape)
+			if (!next) return []
+			const { growY, fontSizeAdjustment } = next.props
+			const props = shape.type === 'note' ? { growY, fontSizeAdjustment } : { growY }
+			return [{ id: next.id, type: next.type, props }]
+		})
+		if (grown.length) editor.run(() => editor.updateShapes(grown), { history: 'ignore' })
+	}
+	fit(editor.getCurrentPageShapes())
+	return editor.store.listen(
+		({ changes }) =>
+			fit(
+				[
+					...Object.values(changes.added),
+					...Object.values(changes.updated).map(([, to]) => to),
+				].filter((record) => record.typeName === 'shape'),
+			),
+		{ source: 'remote', scope: 'document' },
+	)
+}
 
-/** The editor, synced with the thread's room, and this tab as its host while it's in front of someone */
-function board({ react, dom, tldraw, sync, host }, element, id) {
-	const tab = crypto.randomUUID()
-	const path = `/api/threads/${id}/canvas`
-	let editor,
-		said = 0
-	const visible = () => document.visibilityState === 'visible'
-	const tell = () => api(path, { active: tab, visible: visible() }).catch(() => {})
-	const active = () => {
-		if (!editor || Date.now() - said < ACTIVE) return
-		said = Date.now()
-		tell()
-	}
-	const shown = () => editor && tell()
-	// What the server hands this tab: a look or a batch of actions, answered as found or done, or as the error it hit
-	const handle = async ({ call, look, act }) => {
-		if (!call) return
-		let answer
-		try {
-			if (!editor) throw new Error('the canvas is still loading')
-			answer = { call, result: await (look ? host.look(editor, look) : host.act(editor, act)) }
-		} catch (error) {
-			answer = { call, error: error.message }
-		}
-		await api(path, { answer }).catch(() => {})
-	}
+/** The editor, synced with the thread's room */
+function board({ react, dom, tldraw, sync }, element, id) {
+	let editor, stop
 	// The same options every render, or useSync starts over each time
 	const options = {
-		uri: `${url.replace(/^http/, 'ws')}${path}?user=${encodeURIComponent(me)}&tab=${tab}`,
+		uri: `${url.replace(/^http/, 'ws')}/api/threads/${id}/canvas?user=${encodeURIComponent(me)}`,
 		assets,
 		userInfo: { id: me, name: me },
-		onCustomMessageReceived: handle,
 	}
 	const onMount = (mounted) => {
 		editor = mounted
 		editors.set(id, mounted)
 		if (waiting.has(id)) frame(mounted, waiting.get(id))
 		waiting.delete(id)
-		tell()
+		fitLabels(tldraw, mounted)
+			.then((unlisten) => (editor === mounted ? (stop = unlisten) : unlisten()))
+			.catch((error) => console.error(`canvas ${id}: ${error.message}`))
 	}
 	const Board = () => {
 		const store = sync.useSync(options)
 		return react.createElement(tldraw.Tldraw, { store, inferDarkMode: true, onMount })
 	}
-	for (const kind of ['pointerdown', 'keydown', 'focusin', 'wheel'])
-		element.addEventListener(kind, active, { passive: true })
-	document.addEventListener('visibilitychange', shown)
 	const root = dom.createRoot(element)
 	root.render(react.createElement(Board))
 	return () => {
-		document.removeEventListener('visibilitychange', shown)
+		stop?.()
 		if (editors.get(id) === editor) editors.delete(id)
 		editor = undefined
 		root.unmount()

@@ -3,24 +3,17 @@
  * Off by default; MODULES=+canvas turns it on.
  *
  * The server holds one tldraw sync room per thread that someone has open or an agent draws on, and keeps its snapshot in
- * the thread's Canvas doc, so an agent draws with no browser open and a fork starts with the canvas as it was. A browser
- * syncs over the socket at `/api/threads/:id/canvas?user=<name>&tab=<id>`.
- *
- * Agents see and change the canvas as tldraw's agent starter kit's own agent does, with its formats, actions,
- * sanitizers and lints (vendored in apps/client/canvas/agent). Those need a live editor, so the server hands each look
- * and batch of actions to a tab showing that canvas, in front of someone (a hidden tab gets no animation frames, and
- * tldraw's sync sends and applies changes only on one), the one used last, and answers what it found or did: a look
- * brings a picture of the area, at most 1000 px across, and what the person has selected and in view. An act counts as
- * done once the room holds what the tab changed. With no such tab, or one that fails or doesn't answer within
- * HOST_WAIT, the server does what needs no layout itself: looks read the stored shapes, and create, update, delete,
- * move and label change them, with sizes guessed, naming each action it couldn't do. So agents draw with no browser
- * open; a person's editor lays out what they drew when the canvas next opens.
+ * the thread's Canvas doc, so a fork starts with the canvas as it was. A browser syncs over the socket at
+ * `/api/threads/:id/canvas?user=<name>`, and only shows the board: agents draw on the room itself, whether anyone has it
+ * open or not, in the starter kit's shape format (tldraw's agent starter kit, its actions' schema vendored in
+ * apps/client/canvas/agent): create, update, delete, move and label. Sizes are the server's guess, since only an editor
+ * lays text out; a browser that opens the board lays it out, and grows a shape whose label doesn't fit, as tldraw does
+ * when a label is typed. A look reads the stored shapes.
  *
  * `by` on a shape is who drew or changed it last: the person, or the bot's name, or the agent's model@runner, kept in its
- * `meta.by`. `GET /api/threads/:id/canvas` answers `{shapes, tldraw}`: the stored shapes, simply, and the tldraw version
- * the client loads, the same as the server's, to speak the room's protocol. `POST {actions}` acts and `{look: {bounds}}`
- * looks, as the tools do; a tab posts `{active: tab, visible}` when it's used or shown or hidden, and
- * `{answer: {call, result | error}}`.
+ * `meta.by`; a shape growing to fit its label is nobody's change. `GET /api/threads/:id/canvas` answers `{shapes,
+ * tldraw}`: the stored shapes, simply, and the tldraw version the client loads, the same as the server's, to speak the
+ * room's protocol. `POST {actions}` acts and `{look: {bounds}}` looks, as the tools do.
  *
  * The tab needs the internet the first time it opens, to load tldraw from esm.sh. On localhost or plain http tldraw runs
  * without a licence key and shows its watermark; served over https at a domain it would need a key.
@@ -42,9 +35,6 @@ const version = JSON.parse(
 /** A person's edits are saved this long after they stop; an agent's are saved before its tool returns */
 const SAVE = 500
 
-/** How long a tab has to answer a look or a batch of actions, and then for its changes to reach the room */
-const HOST_WAIT = 5000
-
 /**
  * The actions agents get, as the starter kit's schemas (scripts/vendor-canvas-agent.js writes them), asking for less:
  * no `note`, the kit's memo to its own agent, which ade's agents don't read back; and of an update, only what changes
@@ -60,7 +50,7 @@ const ACTIONS = JSON.parse(
 		return { ...value, required: value.required.filter((name) => name !== 'note') }
 	},
 )
-/** What the server does with no tab to ask: what needs no layout */
+/** The actions agents get: those that need no layout */
 const ALONE = ['create', 'update', 'delete', 'move', 'label']
 
 /** The starter kit's shape types and tldraw's geo kinds, both ways (its convertFocusedShapeToTldrawShape) */
@@ -134,14 +124,10 @@ export function server(core) {
 				;(await tx.doc(Canvas, threadId)).snapshot = snapshot
 			})
 		}
-		/** What waits for the room to change: an act waiting for its tab's changes to arrive */
-		const changed = new Set()
 		/** @type {InMemorySyncStorage<import('@tldraw/tlschema').TLRecord>} */
 		const storage = new InMemorySyncStorage({
 			...(stored && { snapshot: stored }),
 			onChange: () => {
-				// After the change commits, so a check can read the room
-				for (const check of changed) queueMicrotask(check)
 				clearTimeout(timer)
 				timer = setTimeout(
 					() => save().catch((error) => console.error(`canvas ${threadId}: ${error.message}`)),
@@ -151,20 +137,19 @@ export function server(core) {
 		})
 		/** Shapes a person changed whose `by` names someone else, until the room says so */
 		const touched = new Map()
-		/** Session → its tab and when it was last used, while its socket is open */
-		const tabs = new Map()
-		/** Session → the agent whose actions it is applying, until they reach the room */
-		const acting = new Map()
-		const whose = (session) => acting.get(session.sessionId) ?? session.meta.by
+		/** @param {any} session the room's session, with who connected it in its meta */
+		const whose = (session) => session.meta.by
 		const room = new TLSocketRoom({
 			schema,
 			storage,
-			// A person's new shape is theirs as it lands; a change to someone else's is stamped right after
+			// A person's new shape is theirs as it lands; a change to someone else's is stamped right after, unless it only grew
+			// to fit its label
 			authorizeRecord: {
 				shape: ({ session, type, prev, next }) => {
 					const by = whose(session)
 					if (type === 'create') return { ...next, meta: { ...next.meta, by } }
-					if (type === 'update' && next.meta?.by !== by) touched.set(next.id, by)
+					if (type === 'update' && next.meta?.by !== by && !grew(prev, next))
+						touched.set(next.id, by)
 					return next ?? prev
 				},
 			},
@@ -187,7 +172,7 @@ export function server(core) {
 				if (!numSessionsRemaining) close(threadId)
 			},
 		})
-		return { room, storage, save, tabs, acting, changed }
+		return { room, storage, save }
 	}
 
 	/** A room nobody is in saves and closes; the next to come opens it from its snapshot */
@@ -226,8 +211,8 @@ export function server(core) {
 	}
 
 	/**
-	 * A batch of actions done here, with no tab to ask: create, update, delete, move and label, one at a time on the
-	 * stored shapes, with sizes guessed, since only an editor lays text out. The rest need a tab.
+	 * A batch of actions: create, update, delete, move and label, one at a time on the stored shapes, with sizes guessed,
+	 * since only an editor lays text out
 	 */
 	const alone = (threadId, actions, by) =>
 		change(threadId, (records) => {
@@ -237,8 +222,7 @@ export function server(core) {
 			const renamed = {}
 			const applied = actions.map((action) => {
 				const type = action?._type
-				if (!ALONE.includes(type))
-					return { _type: type, skipped: 'needs the canvas open in front of someone' }
+				if (!ALONE.includes(type)) return { _type: type, skipped: 'not one ade does' }
 				try {
 					for (const record of apply(action, all, by, renamed)) {
 						if (record.gone) {
@@ -264,7 +248,6 @@ export function server(core) {
 						.map((id) => blurry(simple(now[id], now))),
 					deleted: [...gone].filter((id) => id.startsWith('shape:')).map(short),
 					renamed,
-					lints: [],
 				}),
 			}
 		})
@@ -284,114 +267,11 @@ export function server(core) {
 			)
 	}
 
-	/** Call → what waits for a tab's answer */
-	const calls = new Map()
-
-	/** The tab used last, of those showing this thread's canvas, ready and in front of someone */
-	async function hostOf(threadId) {
-		const room = rooms.get(threadId) && (await rooms.get(threadId))
-		const [sessionId] =
-			[...(room?.tabs ?? [])]
-				.filter(([, tab]) => tab.ready && tab.visible && listening(tab.socket))
-				.sort(([, one], [, other]) => other.active - one.active)[0] ?? []
-		return sessionId && { ...room, sessionId }
-	}
-
-	/** Counts each use of a tab, so the one used last is the highest: two in one millisecond still have an order */
-	let used = 0
-
-	/**
-	 * Hands a look or a batch of actions to the thread's host tab, and answers what it found or did; `{why}` when no tab
-	 * shows the canvas, or the one asked closed, failed or took longer than HOST_WAIT. An act's answer waits until the
-	 * room holds what the tab changed, or says it may not have.
-	 */
-	async function relay(threadId, request, by) {
-		const host = await hostOf(threadId)
-		if (!host) return { why: 'no one has the canvas open in front of them' }
-		const call = crypto.randomUUID()
-		if (request.act) host.acting.set(host.sessionId, by)
-		try {
-			const answer = await new Promise((resolve) => {
-				const timer = setTimeout(
-					() => settle({ why: `the browser didn't answer in ${HOST_WAIT / 1000} s`, maybe: true }),
-					HOST_WAIT,
-				)
-				const settle = (answer) => {
-					clearTimeout(timer)
-					calls.delete(call)
-					resolve(answer)
-				}
-				calls.set(call, { sessionId: host.sessionId, settle })
-				host.room.sendCustomMessage(host.sessionId, { call, ...request })
-			})
-			if (!request.act || !answer.result) return answer
-			const { changes = {}, ...result } = answer.result
-			return (await arrived(host, changes))
-				? { result }
-				: {
-						result: {
-							...result,
-							unconfirmed: `The browser drew this, but it hasn't reached the saved canvas in ${HOST_WAIT / 1000} s, so it may not have. Look before you do it again.`,
-						},
-					}
-		} finally {
-			if (request.act) host.acting.delete(host.sessionId)
-		}
-	}
-
-	/**
-	 * Whether the room holds what a tab changed within HOST_WAIT: what it added there, what it removed gone, and what it
-	 * updated no longer as it was. The tab's sync sends it on its own time, and a tab that closes first never does.
-	 */
-	function arrived({ storage, changed }, { added = [], removed = [], updated = {} }) {
-		const plain = ({ meta: _, ...record }) => JSON.stringify(record)
-		const landed = () => {
-			const now = recordsOf(storage)
-			return (
-				added.every((id) => now[id]) &&
-				removed.every((id) => !now[id]) &&
-				Object.entries(updated).every(
-					([id, before]) => !now[id] || plain(now[id]) !== plain(before),
-				)
-			)
-		}
-		if (landed()) return Promise.resolve(true)
-		return new Promise((resolve) => {
-			const settle = (yes) => {
-				clearTimeout(timer)
-				changed.delete(check)
-				resolve(yes)
-			}
-			const check = () => landed() && settle(true)
-			const timer = setTimeout(() => settle(false), HOST_WAIT)
-			changed.add(check)
-		})
-	}
-
-	async function look(threadId, bounds) {
-		const answer = await relay(threadId, { look: { bounds } })
-		if (answer.result) return answer.result
-		return {
-			bounds: bounds ?? null,
-			shapes: (await read(threadId, bounds)).map(blurry),
-			estimated: `No picture or lints, and sizes are guessed: ${answer.why ?? answer.error}.`,
-		}
-	}
-
-	async function act(threadId, actions, by) {
-		const answer = await relay(threadId, { act: { actions } }, by)
-		if (answer.result) return answer.result
-		// A tab that went quiet may still have drawn it: doing it here too could draw it twice
-		if (answer.maybe)
-			return {
-				applied: actions.map(({ _type }) => ({ _type, skipped: answer.why })),
-				unconfirmed: `${answer.why}, so it may or may not have drawn this. Look before you do it again.`,
-			}
-		return {
-			...(await alone(threadId, actions, by)),
-			estimated: `Done on the stored canvas, sizes guessed: ${answer.why ?? answer.error}.`,
-		}
-	}
+	/** What's in an area, or the whole drawing: its shapes, simply, with sizes as stored */
+	const look = async (threadId, bounds) => ({
+		bounds: bounds ?? null,
+		shapes: (await read(threadId, bounds)).map(blurry),
+	})
 
 	/** Who a tool call is: the bot's name, or the agent's model@runner, and its thread */
 	const caller = async (api) => {
@@ -402,39 +282,30 @@ export function server(core) {
 	const canvasLook = defineTool({
 		name: 'canvas_look',
 		description:
-			"Look at your thread's canvas, where people in the thread draw with you. Without `bounds` you see the whole drawing, or, when it's big, the part the person has in view. Answers a picture of that area; its shapes as {shapeId, type, x, y, w, h, text, by}, `by` naming who drew or changed it last; what the person has selected (\"this box\" means one of those) and their view; the shapes elsewhere as clusters, {bounds, numberOfShapes}, to look at next; and lints: a box grown onto another shape to fit its label, labels overlapping, arrows joined to nothing. Look before you change what's there, and again after.",
+			"Look at your thread's canvas, where people in the thread draw with you: the whole drawing, or only what's in `bounds`. Answers its shapes as {shapeId, type, x, y, w, h, text, by}, `by` naming who drew or changed it last, and sizes as stored, so a long text's may be off. Look before you change what's there.",
 		parameters: obj({
 			bounds: opt(obj({ x: num(), y: num(), w: num(), h: num() })),
 		}),
 		replay: 'safe',
-		execute: async ({ bounds }, api) => {
-			const { picture, ...seen } = await look((await caller(api)).threadId, bounds)
-			return {
-				output: [
-					{ type: 'text', text: JSON.stringify(seen) },
-					...(picture
-						? [
-								{
-									type: /** @type {const} */ ('image'),
-									data: picture.data,
-									mimeType: picture.mimeType,
-								},
-							]
-						: []),
-				],
-			}
-		},
+		execute: async ({ bounds }, api) => ({
+			output: [
+				{
+					type: 'text',
+					text: JSON.stringify(await look((await caller(api)).threadId, bounds)),
+				},
+			],
+		}),
 	})
 
 	const canvasAct = defineTool({
 		name: 'canvas_act',
 		description:
-			"Change your thread's canvas with tldraw's agent actions, in order, in one step a person can undo: create, update, delete, move, label, resize, rotate, align, distribute, stack, place, bringToFront, sendToBack, pen. Refer to shapes by the shapeId canvas_look gives; an arrow created with fromId and toId stays joined to them when they move. Answers what each action did, the shapes it touched as they landed, with their real bounds, and the lints they now have: fix those in place, never by drawing again somewhere else. When no one has the canvas open, only create, update, delete, move and label work, sizes are guessed and there are no lints: the answer says so.",
+			"Change your thread's canvas with tldraw's agent actions, in order: create, update, delete, move and label. Refer to shapes by the shapeId canvas_look gives; an arrow created with fromId and toId stays joined to them when they move. Give a shape room for its label: one too small grows to fit when someone opens the canvas. Answers what each action did and the shapes it touched as they landed.",
 		parameters: obj({ actions: arr(ACTIONS) }),
 		replay: 'unsafe',
 		execute: async ({ actions }, api) => {
 			const { threadId, by } = await caller(api)
-			const done = await act(threadId, actions, by)
+			const done = await alone(threadId, actions, by)
 			return {
 				output: [{ type: 'text', text: `${summary(done.applied)}\n${JSON.stringify(done)}` }],
 			}
@@ -443,83 +314,37 @@ export function server(core) {
 
 	return {
 		extension: defineExtension({ name: 'ade.canvas', tools: [canvasLook, canvasAct] }),
-		/**
-		 * GET: the stored shapes, simply, and the tldraw version. POST {actions}: canvas_act as the person asking;
-		 * {look: {bounds}}: canvas_look. And from a tab: {active: tab} says it's being used, {answer} answers a call.
-		 */
+		/** GET: the stored shapes, simply, and the tldraw version. POST {actions}: canvas_act as the person asking; {look: {bounds}}: canvas_look */
 		async serve(threadId, query, body, user) {
 			if (threadId === undefined) throw new Error('A canvas is at /api/threads/:id/canvas')
 			if (body === undefined) return { shapes: await read(threadId), tldraw: version }
-			if (Array.isArray(body.actions)) return act(threadId, body.actions, user)
+			if (Array.isArray(body.actions)) return alone(threadId, body.actions, user)
 			if (body.look) return look(threadId, body.look.bounds)
-			if (body.active) {
-				const room = rooms.get(threadId) && (await rooms.get(threadId))
-				for (const [, tab] of room?.tabs ?? [])
-					if (tab.tab === body.active)
-						Object.assign(tab, {
-							ready: true,
-							visible: body.visible !== false,
-							...(body.visible !== false && { active: ++used }),
-						})
-				return {}
-			}
-			if (body.answer) {
-				const { call, result, error } = body.answer
-				calls.get(call)?.settle(result ? { result } : { error: error ?? 'no answer' })
-				return {}
-			}
-			throw new Error('POST {actions}, {look}, {active} or {answer}')
+			throw new Error('POST {actions} or {look}')
 		},
-		/**
-		 * A browser's tldraw sync socket, at /api/threads/:id/canvas; `user` says who is drawing, `tab` which tab it is.
-		 */
+		/** A browser's tldraw sync socket, at /api/threads/:id/canvas; `user` says who is drawing */
 		async connect(threadId, socket, url) {
 			if (threadId === undefined)
 				return socket.close(4000, 'a canvas is at /api/threads/:id/canvas')
 			const sessionId = url.searchParams.get('sessionId')
 			if (!sessionId) return socket.close(4000, 'no sessionId')
-			const { room, tabs } = await open(threadId)
+			const { room } = await open(threadId)
 			room.handleSocketConnect({
 				sessionId,
 				socket,
 				meta: { by: speaker(url.searchParams.get('user')) },
 			})
-			const tab = url.searchParams.get('tab')
-			if (!tab) return
-			tabs.set(sessionId, { tab, socket, active: ++used, ready: false, visible: false })
-			socket.on('close', () => {
-				if (tabs.get(sessionId)?.tab !== tab) return
-				tabs.delete(sessionId)
-				for (const [, waiting] of calls)
-					if (waiting.sessionId === sessionId)
-						waiting.settle({ why: 'the browser closed the canvas', maybe: true })
-			})
 		},
 	}
 }
 
-/**
- * Whether a socket still takes messages. A browser that closes one hears back before the server's `close` event comes,
- * so a call right after must already pass it by.
- */
-const listening = (socket) => socket.readyState === socket.OPEN
-
 /** Each action's past tense, for the line that says what a batch did */
 const DID = {
 	create: 'drew',
-	pen: 'drew',
 	update: 'changed',
 	delete: 'deleted',
 	move: 'moved',
 	label: 'labelled',
-	resize: 'resized',
-	rotate: 'rotated',
-	align: 'aligned',
-	distribute: 'distributed',
-	stack: 'stacked',
-	place: 'placed',
-	bringToFront: 'brought forward',
-	sendToBack: 'sent back',
 }
 
 /**
@@ -595,9 +420,7 @@ function apply(action, records, by, renamed) {
 			if (id !== shape.shapeId) renamed[shape.shapeId] = id
 			if (shape._type === 'arrow') {
 				if (!shape.fromId || !shape.toId)
-					throw new Error(
-						'an arrow not joined to two shapes needs the canvas open in front of someone',
-					)
+					throw new Error('an arrow joins two shapes: give fromId and toId')
 				return arrow(
 					{ from: shape.fromId, to: shape.toId, text: shape.text, color: shape.color, id },
 					page.id,
@@ -608,7 +431,7 @@ function apply(action, records, by, renamed) {
 			}
 			const type = GEO[shape._type] ?? shape._type
 			if (!['note', 'text', ...Object.values(GEO)].includes(type))
-				throw new Error(`a ${shape._type} needs the canvas open in front of someone`)
+				throw new Error(`ade doesn't draw a ${shape._type}`)
 			return [
 				record(
 					{
@@ -738,6 +561,13 @@ const endsOf = (arrow, records) =>
 	)
 
 const short = (id) => id.replace(/^shape:/, '')
+
+/** Whether a change only grew a shape to fit its label, as an editor does when it lays the label out */
+function grew(prev, next) {
+	const layout = ({ meta: _, props: { growY: _y, fontSizeAdjustment: _f, ...props }, ...shape }) =>
+		JSON.stringify({ ...shape, props })
+	return Boolean(prev) && layout(prev) === layout(next)
+}
 
 /** A shape as agents see it, on the page; an arrow as the shapes it joins and where its ends are now */
 function simple(shape, records) {
