@@ -13,6 +13,7 @@ import { sideOf } from './side.js'
 import { DetailsPage } from './thread-details.js'
 import { ThreadList } from './thread-list.js'
 import { Wires } from './wires.js'
+import { QuoteButton } from './quote.js'
 
 export function System() {
 	// With the canvas on, this page can bring up an editor for an agent when no tab shows that canvas
@@ -81,6 +82,7 @@ export function System() {
 	})
 	return html`
 		<div class="system">
+			<${QuoteButton} />
 			<${Wires} connections=${() => connections()} />
 			<div class="node client"><b>Client</b></div>
 			<div class=${() => ['node', 'server', { off: !connected() }]}>

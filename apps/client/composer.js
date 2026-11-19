@@ -14,6 +14,7 @@ import {
 	createRoot,
 	createStore,
 	For,
+	onCleanup,
 	onSettled,
 	Show,
 	snapshot,
@@ -48,6 +49,11 @@ import { imageContent, imageUrl } from './images.js'
 
 export function Composer(props) {
 	let input, box, picker, button, chooser, anchor, recall, recallButton, mentionList
+	// So appendQuote can reach this thread's box from outside, even when it isn't the active one
+	onCleanup(() => {
+		const key = props.thread ?? 'new'
+		if (textareas.get(key) === input) textareas.delete(key)
+	})
 	const [mention, setMention] = createSignal(null)
 	const [highlighted, setHighlighted] = createSignal(0)
 	const mentionable = () =>
@@ -136,12 +142,7 @@ export function Composer(props) {
 		}
 	}
 	const draft = () => compose.drafts[props.thread ?? 'new'] ?? emptyDraft
-	const changeDraft = (change, key = props.thread ?? 'new') =>
-		setCompose((store) => {
-			store.drafts[key] ??= { draft: '', images: [], sending: false }
-			change(store.drafts[key])
-			persistDraft(key, store.drafts[key].draft)
-		})
+	const changeDraft = (change, key = props.thread ?? 'new') => changeDraftFor(key, change)
 	// A thread not yet touched this session picks up its saved text; typed-but-unsaved text stays as is
 	createEffect(
 		() => props.thread ?? 'new',
@@ -312,7 +313,10 @@ export function Composer(props) {
 			<div class="box" ref=${(el) => (box = el)}>
 				<textarea
 					class=${() => ({ draft: true, elsewhere: !active() })}
-					ref=${(el) => (input = el)}
+					ref=${(el) => {
+						input = el
+						textareas.set(props.thread ?? 'new', el)
+					}}
 					rows="1"
 					autocomplete="off"
 					enterkeyhint=${() => (touch() ? 'enter' : 'send')}
@@ -658,6 +662,14 @@ function MentionRow(option, mention) {
 
 const [compose, setCompose] = createRoot(() => createStore({ drafts: {}, picks: {}, settings: {} }))
 const emptyDraft = { draft: '', images: [], sending: false }
+/** Each mounted composer's textarea, by thread id ('new' for one with none yet), so a quote from its message list can reach it */
+const textareas = new Map()
+const changeDraftFor = (key, change) =>
+	setCompose((store) => {
+		store.drafts[key] ??= { draft: '', images: [], sending: false }
+		change(store.drafts[key])
+		persistDraft(key, store.drafts[key].draft)
+	})
 /** Unsent text, kept in localStorage by thread id so it survives a reload; a new thread shares one key until it gets an id */
 const draftKey = (key) => `composer-draft:${key}`
 const readDraft = (key) => {
@@ -805,3 +817,32 @@ export const configure = (to, thread = current()) => choose(to, false, thread)
 /** A bot's settings open the current composer's picker, which already edits that bot's agent. */
 let lend
 export const openPicker = (anchor) => lend?.(anchor)
+
+/** A quote's selected lines, each after its own `> `, with no blank line at either end. */
+const quoteBlock = (text) =>
+	text
+		.replace(/^\s*\n+|\n+\s*$/g, '')
+		.split('\n')
+		.map((line) => `> ${line}`)
+		.join('\n')
+/**
+ * A message's quote button calls this: the selection goes into that thread's draft as `> ` lines, a block of its own below
+ * anything already there, with a blank line and the cursor after it, ready to write under it. Quoting again adds another
+ * block the same way, so several passages can each get their own comment before sending.
+ */
+export const appendQuote = (thread, text) => {
+	const key = thread ?? 'new'
+	const block = quoteBlock(text)
+	if (!block) return
+	let full
+	changeDraftFor(key, (draft) => {
+		const before = draft.draft.replace(/\s+$/, '')
+		full = `${before ? `${before}\n\n` : ''}${block}\n\n`
+		draft.draft = full
+	})
+	const input = textareas.get(key)
+	if (!input) return
+	input.focus()
+	input.value = full
+	input.setSelectionRange(full.length, full.length)
+}

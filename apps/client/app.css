@@ -344,6 +344,20 @@ agent-memory {
 	background: color-mix(in srgb, CanvasText 13%, transparent);
 }
 
+/* The quote button: a zero-size marker rides the selection's end as its CSS anchor, so the button tethers to it without any measured position; a ghost like any other, lifted to the top layer as a manual popover. */
+.quote-anchor {
+	anchor-name: --quote-anchor;
+}
+
+.quote {
+	position: fixed;
+	position-anchor: --quote-anchor;
+	inset: auto;
+	margin: 0 0 var(--space-2);
+	position-area: top;
+	position-try-fallbacks: flip-block;
+}
+
 /* A thread: a column with its name on top and the composer at the foot, the messages scrolling between them, fading out under both. */
 .thread {
 	--chat-width: 50rem;

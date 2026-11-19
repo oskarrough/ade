@@ -98,6 +98,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          which is how it joins; picking a thread writes `@"its title"`, no more
     MentionRow           an option in that list, bot, thread or skill; each option says what it writes
     skills, loadSkills, skillsFor   `/` opening a message lists the skills where its agent works; picking one writes `/skill:name `
+    appendQuote, quoteBlock, textareas   a message's quote button sends its selection here: `> ` on every line, a block
+                         below anything already there, a blank line and the cursor after it
     choose, configure, toFor             model picker and runner controls changing that pick
     Composer: submit, add, pickRecipients, filled, compactNow   send, images, typed recipients, context meter
     PickerBot            bots in the picker
@@ -136,6 +138,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   panes.js, popover.js, sure.js, notice.js, dot.js   Panes (a thing you open: its page, one opened over it with back,
                          a close; popovers and the side column), popover placement,
                          two-press button, error line, status dot
+  quote.js               QuoteButton, one instance for the page: watches document selectionchange, shows a ghost button
+                         CSS-anchored (base.css `.quote-anchor`) to a marker it plants at the selection's end inside a
+                         message list, calling composer.js's appendQuote for that thread; nothing on a touch screen
   images.js, markdown.js image shrinking to pi's limits; message markdown, and threadMention, the `@"title"` a picked thread writes
   base.css               tokens, reset, every control's look (buttons and their variants), popover, rows, panes, status dot
   app.css                the chat's layout: list, threads, messages, composer, sheet, picker, settings, phone
@@ -183,6 +188,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Thread head: the thread's name, `h2.title > button.ghost.thread-name` (opens the side column on Details; its tabs do the rest), and its `.close` ("The head:"); the head, `p.from` and the phone's `.app-bar` ("The bar") sit on `Canvas` so messages scroll under them; `.thread-name` is layout only.
 - A thread-list page (Archived) has `.page-head`.
 - Message list: thread.js `Message` in `.thread > ul > li` ("The chat: agents write"), its body `.markdown`, its images `div.images`, compaction's `li.cut` and `li.line`.
+- Quoting a selection into the composer: quote.js (the button, CSS-anchored to the selection), composer.js `appendQuote`/`quoteBlock`, app.css `.quote-anchor`/`.quote`.
 - Tool calls: run.js `Turn`, `Exchange`, `Step`, `Call`; `li.turn` is a `<details>` whose open list is `.steps`, its tools `.tool` and its words `.said`; `.exchange` and a crossed message are a `.steps` list of thread.js `Cross` rows (`li.sent`, `li.received`). There's no thinking block: a live turn's summary says "thinking".
 - Composer: composer.js `Composer`, `.thread form`: the box, `.bar` with `.icon` buttons, `.pick` (whom it asks) and `.stop`, and `ul.images` waiting to go.
 - Small parts: sure.js `Sure` (`.sure`, a button that asks by changing its words), notice.js `Notice` (`.notice`, what went wrong, above the active composer's input), dot.js `Dot` (`.dot`, status).
