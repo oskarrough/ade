@@ -344,7 +344,7 @@ agent-memory {
 	background: color-mix(in srgb, CanvasText 13%, transparent);
 }
 
-/* The quote button: a zero-size marker rides the selection's end as its CSS anchor, so the button tethers to it without any measured position; a ghost like any other, lifted to the top layer as a manual popover. */
+/* The quote button: a zero-size marker rides the selection's end as its CSS anchor, so the button tethers to it without any measured position, just above it so it never sits over the selected words; lifted to the top layer as a manual popover, raised like the composer's own box (its background, border and radius), not a ghost that would float bare over the text. */
 .quote-anchor {
 	anchor-name: --quote-anchor;
 }
@@ -356,6 +356,8 @@ agent-memory {
 	margin: 0 0 var(--space-2);
 	position-area: top;
 	position-try-fallbacks: flip-block;
+	background: var(--tint);
+	border-radius: var(--radius);
 }
 
 /* A thread: a column with its name on top and the composer at the foot, the messages scrolling between them, fading out under both. */

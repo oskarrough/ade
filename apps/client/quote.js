@@ -38,10 +38,9 @@ export function QuoteButton() {
 			ariaHidden: 'true',
 		})
 		marker.remove()
-		// At the selection's start, not its end: above the whole block, not over its last line
-		const start = range.cloneRange()
-		start.collapse(true)
-		start.insertNode(marker)
+		const end = range.cloneRange()
+		end.collapse(false)
+		end.insertNode(marker)
 		thread = at.thread
 		button?.togglePopover(true)
 	}
@@ -61,7 +60,7 @@ export function QuoteButton() {
 		<button
 			type="button"
 			popover="manual"
-			class="ghost small quote"
+			class="quote"
 			ref=${(el) => (button = el)}
 			onMouseDown=${(event) => event.preventDefault()}
 			onClick=${quote}
