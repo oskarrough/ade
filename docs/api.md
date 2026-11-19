@@ -82,6 +82,6 @@ MEMORY_MODEL=sonnet@laptop npx github:oskarrough/ade
 
 From a clone, use `node server.js` in place of `npx github:oskarrough/ade`.
 
-Threads and conversations live in `~/.config/ade/ade.sqlite`, with the server's output in `ade.log` beside it, so every folder you start in sees the same threads. `DB_PATH` moves all three: `other.sqlite` logs to `other.log` and reads `ade.json` from its own folder.
+Threads and conversations live in `${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite`, with its `-wal`, `-shm`, `.lock` and the server's output in `ade.log` beside it. Every folder you start in sees the same threads. Settings stay in `${XDG_CONFIG_HOME:-~/.config}/ade/ade.json`. `DB_PATH=other.sqlite` selects another store and logs to `other.log` beside it; it does not move settings.
 
 `--no-runner` starts the server without connecting this machine as a runner.

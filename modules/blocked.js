@@ -47,7 +47,8 @@ export function server(core) {
 			],
 		}),
 		waitingOnPerson: async (id, row) => {
-			const latest = (await core.messages(id)).findLast(
+			const latest = await core.latestMessage(
+				id,
 				(entry) => entry.data.waitingOnPerson || core.person(row, entry),
 			)
 			return latest?.data.waitingOnPerson === true

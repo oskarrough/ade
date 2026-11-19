@@ -86,7 +86,7 @@ export function server(core) {
 					: []
 			if (thread === undefined && args.to === undefined && !asks.length)
 				throw new Error(
-					'Say who should answer: a bot by name, or model@runner (e.g. anthropic/claude-opus-5-5:medium@oskar).',
+					'Say who should answer: a bot by name, or model@runner (e.g. provider/model:level@runner).',
 				)
 			if (/^\$\s/.test(args.body))
 				throw new Error('Run commands with your own bash tool, not as a post')

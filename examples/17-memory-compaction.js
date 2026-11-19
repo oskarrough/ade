@@ -7,7 +7,7 @@ import {
 	api,
 	check,
 	conversationOf,
-	db,
+	configDir,
 	done,
 	kill,
 	linesOf,
@@ -154,7 +154,7 @@ for (const [
 // Past 70% of compactAt, but short of it, the messages the agent has seen get their lines, and nothing is merged
 await kill(srv)
 writeFileSync(
-	path.join(path.dirname(db), 'ade.json'),
+	path.join(configDir, 'ade.json'),
 	JSON.stringify({ memory: { compactAt: COMPACT_AT } }),
 )
 srv = await server({ MODULES: '+memory' })

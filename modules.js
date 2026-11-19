@@ -4,17 +4,21 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-/** Where ade.sqlite, ade.log and ade.json live: $XDG_CONFIG_HOME/ade, or DB_PATH's folder when that's set */
+/** Default store and log folder: $XDG_DATA_HOME/ade */
 export function dataDir() {
-	if (process.env.DB_PATH) return path.dirname(path.resolve(process.env.DB_PATH))
-	const dir = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'ade')
+	const dir = path.join(
+		process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'),
+		'ade',
+	)
 	mkdirSync(dir, { recursive: true })
 	return dir
 }
 
 /** ade.json: its settings, which env vars override */
 export async function readConfig() {
-	const file = path.join(dataDir(), 'ade.json')
+	const dir = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'ade')
+	mkdirSync(dir, { recursive: true })
+	const file = path.join(dir, 'ade.json')
 	const text = await readFile(file, 'utf8').catch((error) => {
 		if (error.code === 'ENOENT') return '{}'
 		throw error

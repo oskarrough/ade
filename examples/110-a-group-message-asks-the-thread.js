@@ -1,12 +1,20 @@
 /** A mention asks a bot once; the next group message asks the director, including the thread's own agent. Failed picks never stick to the last bot. */
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { answered, api, check, db, done, say, scriptedRunner, server, text, view } from './lib.js'
+import {
+	answered,
+	api,
+	check,
+	configDir,
+	done,
+	say,
+	scriptedRunner,
+	server,
+	text,
+	view,
+} from './lib.js'
 
-writeFileSync(
-	path.join(path.dirname(db), 'ade.json'),
-	JSON.stringify({ director: { timeoutMs: 500 } }),
-)
+writeFileSync(path.join(configDir, 'ade.json'), JSON.stringify({ director: { timeoutMs: 500 } }))
 await server({ MODULES: '+bots,-auto-title,-memory' })
 let choosing = 0
 await scriptedRunner('laptop', async (request) => {

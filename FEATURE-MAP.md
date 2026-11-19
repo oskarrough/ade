@@ -34,7 +34,7 @@ remote.js                the runner protocol, both ends: createRunners (server),
 cli.js                   the API from a terminal
 util.js                  helpers server and modules share: agentTo, writtenTo, mentioned, keyOf, speaker, said, written, byAgent,
                          finished (task result), background (thread-owned task)
-modules.js               builtIn (each module's own `on` default), dataDir (~/.config/ade, or DB_PATH's folder), ade.json, MODULES, and loading each module's server/runner half
+modules.js               builtIn (each module's own `on` default), dataDir ($XDG_DATA_HOME/ade, default ~/.local/share/ade), ade.json ($XDG_CONFIG_HOME/ade, default ~/.config/ade), MODULES, and loading each module's server/runner half
 modules/
   talk.js                `post` and `threads` tools; resolveThread accepts ids as numbers or digit strings, or exact, unambiguous titles; post defaults missing titles from the body; reply sends answers back to the parent thread that asked; a bot in the
                          thread it posts to speaks there as itself (member), and so does a bot that
@@ -57,7 +57,7 @@ modules/
                          looks read stored shapes with estimated sizes, actions ask to open ade in a browser;
                          who drew it (`meta.by`, whose: the acting agent, else the session's user, stamped by authorizeRecord and
                          onCommittedChanges); serve (GET shapes, POST actions/look/active/answer), connect; off by default
-  blocked.js             `ask_person` posts an explicitly marked question; waitingOnPerson derives whether a person has replied, used by server.js status; off by default
+  blocked.js             `ask_person` posts an explicitly marked question; waitingOnPerson reads the latest relevant message via server.js latestMessage to tell whether a person has replied, used by server.js status; off by default
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)

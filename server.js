@@ -765,6 +765,17 @@ async function messages(id) {
 	await conversation(id)
 	return (await entries(id)).filter((entry) => entry.kind === KIND)
 }
+/** The newest matching message, stopping as soon as it is found rather than loading a thread. */
+async function latestMessage(id, matches) {
+	const handle = await conversation(id)
+	let cursor
+	do {
+		const page = await handle.entries({ order: 'descending' }, 50, cursor, context)
+		const found = page.items.find((entry) => entry.kind === KIND && matches(entry))
+		if (found) return found
+		cursor = page.next
+	} while (cursor)
+}
 async function lastAsked(id) {
 	const names = (await messages(id)).findLast((entry) => entry.data.to)?.data.to ?? []
 	const { agents } = await thread(id)
@@ -1422,6 +1433,7 @@ const core = {
 	threadList,
 	entries,
 	messages,
+	latestMessage,
 	lastAsked,
 	recipients,
 	instructionsOf: (name) => instructionsOf?.(name),

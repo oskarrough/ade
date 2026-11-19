@@ -37,6 +37,8 @@ let port = 0
 
 /** Its on-disk path, case as stored, since a shell's `pwd` prints that and macOS's temp folder sits behind a symlink */
 const tmp = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'ade-example-')))
+export const configDir = path.join(tmp, 'ade')
+mkdirSync(configDir)
 export const db = path.join(tmp, 'store.sqlite')
 export const dir = path.join(tmp, 'folder')
 mkdirSync(dir)
@@ -59,12 +61,19 @@ process.on('exit', () => {
 process.on('SIGINT', () => process.exit(130))
 process.on('SIGTERM', () => process.exit(143))
 
-/** Servers start in the example's own folder with their own DB_PATH, so ade.json and the store come from there, never ~/.config/ade */
+/** Servers and runners use the example's own store and XDG config, never the person's settings. */
 export function start(file, args = [], env = {}, cwd = tmp) {
 	const child = spawn(process.execPath, [path.join(repo, file), ...args], {
 		cwd,
 		detached: true,
-		env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DB_PATH: db, ...env },
+		env: {
+			...process.env,
+			PORT: String(port),
+			HOST: '127.0.0.1',
+			DB_PATH: db,
+			XDG_CONFIG_HOME: tmp,
+			...env,
+		},
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
 	child.stdout.on(

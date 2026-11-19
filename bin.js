@@ -15,7 +15,8 @@ ade --no-runner       start the server without lending this machine as a runner
 ade runner …          connect this machine to a server (runner --help)
 ade post …            and threads, read, wait, runners, key, revoke, stop (post --help)
 
-Threads, settings, the log and runner keys live in ~/.config/ade (ade.sqlite, ade.json, ade.log, key files).
+Threads and the log live in $XDG_DATA_HOME/ade (default ~/.local/share/ade).
+Settings and runner keys live in $XDG_CONFIG_HOME/ade (default ~/.config/ade).
 PORT, HOST, DB_PATH and MODULES set the server; the README has the rest.`)
 } else if (args[0] === 'runner') {
 	process.argv.splice(2, 1)
