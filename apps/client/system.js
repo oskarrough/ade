@@ -1,6 +1,6 @@
 /** The client, server, threads and runners, with the routes between them. */
 import html from '@solidjs/html'
-import { createEffect, createMemo, For, Loading, Show } from 'solid-js'
+import { createEffect, createMemo, For, Loading, onSettled, Show } from 'solid-js'
 import { columns, connected, current, runners, server, threads, url } from './server.js'
 import { rowOf } from './agent.js'
 import { recipients } from './composer.js'
@@ -138,7 +138,28 @@ function ListEdge() {
 		return Math.ceil(list(edge).getBoundingClientRect().width - room + needs)
 	}
 	const fit = (edge, px) => Math.max(Math.round(Math.min(px, 640, innerWidth / 2)), least(edge))
+	let edge
+	/** A width saved narrower than the foot needs, or one a new runner or Blocked outgrew, goes up to it */
+	const raise = () => {
+		// Hidden on a phone, where the list is a drawer of its own width
+		if (!edge?.offsetParent) return
+		const needs = least(edge)
+		if (list(edge).getBoundingClientRect().width < needs) listWidth.set(needs)
+	}
+	onSettled(() => {
+		const foot = list(edge).querySelector('.list-foot')
+		const watcher = new MutationObserver(raise)
+		if (foot) watcher.observe(foot, { childList: true, subtree: true, characterData: true })
+		raise()
+		document.fonts.ready.then(raise)
+		addEventListener('resize', raise)
+		return () => {
+			watcher.disconnect()
+			removeEventListener('resize', raise)
+		}
+	})
 	return Edge({
+		ref: (el) => (edge = el),
 		label: 'Thread list width',
 		width: (edge) => list(edge).offsetWidth,
 		drag: (edge) => {
@@ -174,9 +195,10 @@ function SideEdge({ after }) {
 	})
 }
 
-function Edge({ label, width, drag, set, grow, edge: name }) {
+function Edge({ ref = undefined, label, width, drag, set, grow, edge: name }) {
 	return html`
 		<div
+			ref=${(el) => ref?.(el)}
 			class=${name}
 			role="separator"
 			aria-orientation="vertical"
