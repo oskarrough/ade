@@ -38,7 +38,7 @@ import {
 	threads,
 	threadOf,
 } from './server.js'
-import { agentTo, formatAgent, thinkingWord } from './agent.js'
+import { agentTo, formatAgent } from './agent.js'
 import { placePopover } from './popover.js'
 import { matches, metered, Metered, ModelPicker } from './model-picker.js'
 import { conversations } from './run.js'
@@ -120,7 +120,7 @@ export function Composer(props) {
 		directed(props.thread)
 			? 'the thread'
 			: recipients(props.thread)
-					.map((to) => recipientWords(to, props.thread).filter(Boolean).join(' · '))
+					.map((to) => recipientWords(to, props.thread).filter(Boolean).join(':'))
 					.join(' + ')
 	const [lines, setLines] = createSignal(false)
 	const [compacting, setCompacting] = createSignal(false)
@@ -477,17 +477,16 @@ export function Composer(props) {
 							fallback=${() => asking() || 'Pick a model'}
 							><${For} each=${() => recipients(props.thread)}
 								>${(to, index) => [
-									() => (index() ? ' + ' : ''),
+									() => (index() ? ' + ' : agent(props.thread) ? where(props.thread) : ''),
 									() => recipientWords(to, props.thread)[0],
 									html`<${Show} when=${() => !to.name && metered(to.runner, to.model)}
 										>${' '}<${Metered}
 									/><//>`,
 									html`<${Show} when=${() => recipientWords(to, props.thread)[1]}
-										><span class="thinking-word">
-											· ${() => recipientWords(to, props.thread)[1]}</span
+										><span class="thinking-word"
+											>:${() => recipientWords(to, props.thread)[1]}</span
 										><//
 									>`,
-									() => (index() || !agent(props.thread) ? '' : where(props.thread)),
 								]}<//
 							><//
 						></span
@@ -779,7 +778,7 @@ const directing = (thread) => Boolean(thread && here(thread).filter((agent) => a
 const directed = (thread) => directing(thread) && !pick(thread)
 export const recipients = (thread = current()) =>
 	[agent(thread), ...askedBots(thread)].filter(Boolean)
-/** A bot by its name, an agent by its model and provider, then the picker's word for its thinking; the runner is the picker's to show. Without thinking asked, it keeps the running level, or the runner's known pi default. */
+/** A bot by its name, an agent by its model, then its thinking, as `pi --model model:thinking` takes them; the provider and runner are the picker's to show. Without thinking asked, it keeps the running level, or the runner's known pi default. */
 const recipientWords = (to, thread) => {
 	const running = here(thread).find(
 		(agent) =>
@@ -789,11 +788,7 @@ const recipientWords = (to, thread) => {
 	const thinkingLevel =
 		to.thinkingLevel ?? (running ? running.thinkingLevel : runner?.thinkingLevel)
 	if (to.name) return [to.name]
-	const provider = to.model?.includes('/') && to.model.split('/')[0]
-	return [
-		[to.model?.split('/').pop(), provider].filter(Boolean).join(' · '),
-		thinkingLevel && thinkingWord(thinkingLevel),
-	]
+	return [to.model?.split('/').pop(), thinkingLevel]
 }
 /** The folder the next message's agent works in: as picked, else where it runs now, else its runner's own */
 const folderOf = (thread) => {
@@ -807,17 +802,12 @@ const folderOf = (thread) => {
 	if (!dir) return runner.dir
 	return /^([/\\]|[A-Za-z]:)/.test(dir) ? dir : `${runner.dir}/${dir}`
 }
-/** Where the agent works, said after whom the box asks: "in ade", and "on office" once more than one runner is online */
+/** Where the agent works, before whom the box asks: `ade/`, or `office:ade/` once more than one runner is online */
 const where = (thread) => {
-	const folder = folderOf(thread)
-	const runner = agent(thread)?.runner
+	const folder = folderOf(thread)?.split(/[\\/]/).filter(Boolean).pop()
+	if (!folder) return ''
 	const several = runners.filter((runner) => runner.online).length > 1
-	return [
-		folder && ` in ${folder.split(/[\\/]/).filter(Boolean).pop()}`,
-		several && runner && ` on ${runner}`,
-	]
-		.filter(Boolean)
-		.join('')
+	return `${several ? `${agent(thread).runner}:` : ''}${folder}/ `
 }
 /** What a runner's controls show: the agent asked, if it runs there, else what was last chosen there */
 export const toFor = (runner, thread = current()) =>
