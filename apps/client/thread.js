@@ -84,9 +84,10 @@ const firstLine = (text) =>
 		.replace(/[*_`]/g, '')
 		.trim()
 
-/** Each asked thread's first message, the question, and its answer if it had one yet, fetched once for the home of the bot it asks; `null` when it isn't one */
+/** Each asked thread's first message, the question, and its answer if it had one yet, for the home of the bot it asks; `null` when it isn't one */
 const [questions, setQuestions] = createRoot(() => createStore({}, { shallow: true }))
-const fetching = new Set()
+/** Each asked thread's status when it was last fetched; an unanswered one is fetched again when that moves */
+const fetched = new Map()
 
 export function Thread(props) {
 	const thread = createMemo(() => threadOf(props.id))
@@ -106,24 +107,26 @@ export function Thread(props) {
 				other.agents[0].name === bot.name,
 		)
 	})
+	// Fetched once, and again while unanswered each time the asked thread's status moves, as it does when the answer lands
 	createEffect(
-		() => askedHere().map((other) => other.id),
-		(ids) => {
-			for (const id of ids)
-				if (!fetching.has(id)) {
-					fetching.add(id)
-					api(`/api/threads/${id}`)
-						.then((view) => {
-							const first = view.entries[0]
-							// Asked a moment ago, its question may not be in yet; the next look asks again
-							if (!first) return fetching.delete(id)
-							const answer = view.entries.find((entry) => entry.data.re?.includes(first.id))
-							setQuestions((all) => {
-								all[id] = first.data.from ? { question: first, answer } : null
-							})
+		() => askedHere().map((other) => `${other.id} ${other.status}`),
+		(seen) => {
+			for (const [id, status] of seen.map((key) => key.split(' '))) {
+				const settled = questions[id] === null || questions[id]?.answer
+				if (settled || fetched.get(id) === status) continue
+				fetched.set(id, status)
+				api(`/api/threads/${id}`)
+					.then((view) => {
+						const first = view.entries[0]
+						// Asked a moment ago, its question may not be in yet; the next look asks again
+						if (!first) return fetched.delete(id)
+						const answer = view.entries.find((entry) => entry.data.re?.includes(first.id))
+						setQuestions((all) => {
+							all[id] = first.data.from ? { question: first, answer } : null
 						})
-						.catch(report)
-				}
+					})
+					.catch(report)
+			}
 		},
 	)
 	const [unfolded, setUnfolded] = createSignal(false)
@@ -270,24 +273,24 @@ export function Thread(props) {
 						}
 					}),
 				)
-			// A question from another thread, where it came in, on one line that opens to it and its answer
-			// and the bot's answer under it as its own message, which lives in the thread that asked
+			// A question from another thread, where it came in, on one line that opens to it; the bot's answer follows as its
+			// own message, which lives in the thread that asked
 			const asked = askedHere().flatMap((other) => {
-				const fetched = questions[other.id]
-				if (!fetched) return []
+				const got = questions[other.id]
+				if (!got) return []
 				const question = {
 					key: `asked:${other.id}`,
 					asked: other.id,
-					question: fetched.question,
-					at: fetched.question.id,
-					time: timeOf(fetched.question),
+					question: got.question,
+					at: got.question.id,
+					time: timeOf(got.question),
 				}
-				const answer = fetched.answer && {
-					key: `asked:${other.id}:${fetched.answer.id}`,
-					entry: fetched.answer,
+				const answer = got.answer && {
+					key: `asked:${other.id}:${got.answer.id}`,
+					entry: got.answer,
 					thread: other.id,
-					at: fetched.answer.id,
-					time: timeOf(fetched.answer),
+					at: got.answer.id,
+					time: timeOf(got.answer),
 				}
 				return answer ? [question, answer] : [question]
 			})
