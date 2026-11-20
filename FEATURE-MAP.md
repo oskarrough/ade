@@ -41,8 +41,9 @@ modules/
                          starts a thread for two or more bots (opener in server.js's post)
   auto-title.js          first-answer title generation (AutoTitle; the model sees the opening and the newest messages, `recent`), sanitizeThreadTitle, one attempt per thread; serve: a new title on request
   memory.js              memory lines (Line task), `zoom`, `smallWriter` (Haiku/Luna if listed on the thread runner, else its own model and thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve); render; lines, memory and rendered, which overview reads too
-  bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove); voice, the seed instructions a
-                         new bot is created with, from then on hers to rewrite
+  bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, a rename through server.js renameIn);
+                         homesOf, which server.js threadRow uses to title a home with its bot's name; voice, the seed
+                         instructions a new bot is created with, from then on hers to rewrite
   context.js             AGENTS.md, skills and the folder's path (cwd) from the runner;
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
   director.js            the `direct` hook: @mentions ask that bot, by default a model picks the thread's agent, bots or nobody (decide), with a short, visible fallback to the thread agent on failure;

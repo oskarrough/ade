@@ -103,7 +103,12 @@ export function DetailsPage(props) {
 					<//>`}
 			>
 				<${Show} when=${id} fallback=${html`<h2>New thread</h2>`}>
-					<${Title} thread=${id()} />
+					<${Show}
+						when=${() => !homeBot(id())}
+						fallback=${html`<h2 class="thread-title">${() => titleOf(id())}</h2>`}
+					>
+						<${Title} thread=${id()} />
+					<//>
 				<//>
 				<${Show} when=${() => members().length > 1}>
 					<h2>In this thread</h2>

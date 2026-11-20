@@ -2,7 +2,8 @@
  * A bot is one name in many threads: a home thread, the agent it joins as, instructions, and the hue it's shown in if
  * someone picked one. A new bot starts with `voice`, a chatty default; at home it rewrites its own instructions with
  * the `bot` tool, from then on in her own words. Ask `ada` anywhere and an agent named ada joins as that, with every
- * tool a thread agent has. On by default; MODULES=-bots turns it off.
+ * tool a thread agent has. Renamed, a bot keeps all that, and its agent in each thread answers to the new name; its home
+ * thread always shows its name. On by default; MODULES=-bots turns it off.
  */
 import { obj, opt, str } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTool } from '@earendil-works/pi-durable'

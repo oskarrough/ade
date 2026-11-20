@@ -15,6 +15,7 @@ import {
 	openThread,
 	paint,
 	reloadBots,
+	reloadThreads,
 	threads,
 	threadOf,
 } from './server.js'
@@ -85,6 +86,19 @@ export function BotSettings(props) {
 		return [...own, ...elsewhere]
 	})
 	const count = createMemo(() => own().length)
+	/** A new name keeps everything else; the old one stays in messages already written */
+	const rename = async (field) => {
+		const next = field.value.trim()
+		if (next === props.bot.name) return
+		try {
+			if (bots.some((bot) => bot.name === next)) throw new Error(`${next} is another bot`)
+			await api('/api/bots', { name: props.bot.name, rename: next })
+			await Promise.all([reloadBots(), reloadThreads()])
+		} catch (failure) {
+			field.value = props.bot.name
+			report(failure)
+		}
+	}
 	const holder = (hue) =>
 		bots.find((bot) => bot.name !== props.bot.name && hueOf(bot.name) === hue)?.name
 	const setColor = (color) =>
@@ -97,6 +111,24 @@ export function BotSettings(props) {
 	)
 	return html`
 		<div class="bot">
+			<h3>Name</h3>
+			<input
+				class="bot-name"
+				aria-label="Bot name"
+				title="How anyone asks it, in any thread"
+				autocomplete="off"
+				autocapitalize="none"
+				spellcheck="false"
+				value=${() => props.bot.name}
+				onChange=${(event) => rename(event.currentTarget)}
+				onKeyDown=${(event) => {
+					if (event.key === 'Enter') event.currentTarget.blur()
+					if (event.key === 'Escape') {
+						event.currentTarget.value = props.bot.name
+						event.currentTarget.blur()
+					}
+				}}
+			/>
 			<h3>Instructions</h3>
 			<textarea
 				class="instructions"
