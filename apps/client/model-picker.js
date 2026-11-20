@@ -218,22 +218,27 @@ function PickerFoot(runner, props) {
 					`}<//
 				>
 			</div>
-			<${Show} when=${() => props.folders && runner.folders?.length > 1}>
+			<${Show} when=${() => props.folders}>
 				<h3>Folder</h3>
-				<select
+				<input
 					aria-label="Folder"
+					list=${`folders-${runner.name}`}
+					placeholder=${runner.dir}
 					value=${() => to().dir ?? ''}
+					onKeyDown=${(event) => {
+						// Enter takes the folder, not the message
+						if (event.key !== 'Enter') return
+						event.preventDefault()
+						event.currentTarget.blur()
+					}}
 					onChange=${(event) =>
-						props.onConfigure({ ...to(), dir: event.currentTarget.value || undefined })}
-				>
-					<${For} each=${() => runner.folders}
-						>${(folder) => html`
-							<option value=${() => folderValue(folder)}>
-								${() => folderValue(folder) || folder}
-							</option>
-						`}<//
+						props.onConfigure({ ...to(), dir: event.currentTarget.value.trim() || undefined })}
+				/>
+				<datalist id=${`folders-${runner.name}`}>
+					<${For} each=${() => runner.folders ?? []}
+						>${(folder) => html`<option value=${() => folderValue(folder) || folder}></option>`}<//
 					>
-				</select>
+				</datalist>
 			<//>
 		</div>
 	`

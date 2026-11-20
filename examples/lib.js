@@ -237,7 +237,6 @@ export async function localRunner(
 		query = [],
 		readOnly = false,
 		ops = undefined,
-		readable = undefined,
 	},
 ) {
 	let socket,
@@ -256,7 +255,6 @@ export async function localRunner(
 			echo,
 			readOnly,
 			ops,
-			readable,
 			send: (text) => socket.readyState === WebSocket.OPEN && socket.send(text),
 			onTell: (message) => {
 				if (message.op !== 'ready') onTell?.(message)
@@ -287,7 +285,7 @@ export async function localRunner(
 export async function scriptedRunner(
 	name,
 	route,
-	{ onTell, model = {}, query, readOnly, ops, readable } = {},
+	{ onTell, model = {}, query, readOnly, ops } = {},
 ) {
 	const script = fauxProvider({
 		provider: 'echo',
@@ -306,7 +304,6 @@ export async function scriptedRunner(
 		query,
 		readOnly,
 		ops,
-		readable,
 	})
 }
 

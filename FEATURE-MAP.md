@@ -27,7 +27,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   mintKey, revoke, upgrade          runner keys and the runner's socket; a module's own thread socket (its `connect`)
   saveSettings, restart, connectSelf   settings, restart, the server lending its own machine, under the name it first got
 echo.js                  echo/try scripted model responses: file tools, slow commands, posts, bots and director
-runner.js                a runner: offers its models and folders, connects, runs agents for the server
+runner.js                a runner: offers its models and folder shortcuts, connects, runs agents in any folder on its machine
 runner-updater.js        what `curl <server>/connect-runner | sh` starts (it saves the key in ~/.config/ade/key.<name>); keeps the runner up to date
 remote.js                the runner protocol, both ends: createRunners (server), serveRunner (runner),
                          runnerProvider (a model over the wire), remoteEnv (tools in the runner's folder)
@@ -43,7 +43,7 @@ modules/
   memory.js              memory lines (Line task), `zoom`, `smallWriter` (Haiku/Luna if listed on the thread runner, else its own model and thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve); render; lines, memory and rendered, which overview reads too
   bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove); voice, the seed instructions a
                          new bot is created with, from then on hers to rewrite
-  context.js             AGENTS.md, skills and the folder's path (cwd) from the runner; listed skills stay readable outside it;
+  context.js             AGENTS.md, skills and the folder's path (cwd) from the runner;
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
   director.js            the `direct` hook: @mentions ask that bot, by default a model picks the thread's agent, bots or nobody (decide), with a short, visible fallback to the thread agent on failure;
                          those asked take turns (`turns`); a bot's answer @mentioning a bot asks it, resting
@@ -104,7 +104,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     appendQuote, quoteBlock, textareas   a message's quote button sends its selection here: `> ` on every line, a block
                          below anything already there, a blank line and the cursor after it
     choose, configure, toFor             model picker and runner controls changing that pick
-    Composer: submit, add, pickRecipients, filled, compactNow   send, images, typed recipients, context meter
+    Composer: submit, add, pickRecipients, filled, compactNow   send, images, typed recipients, context meter;
+    folderOf                                                 the folder the next message's agent works in, by the +
     PickerBot            bots in the picker
   agent.js               agents' labels and live work (doing); client's agentTo, formatAgent, lastToolCall, modelsOf
   model-picker.js        model search, thinking and folder controls (composer and settings share them); matches;
@@ -181,7 +182,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Buttons, three variants ("Three buttons"): bordered is plain `button` (Done, Create, Copy, archive, fork, revoke); `button.ghost` has no border and gets a soft fill on hover and when `aria-pressed` or `aria-expanded` (composer bar, foot toggles, closes, backs, thinking levels); `button.primary` is filled with ink (send). `data-danger` turns any of them red on hover. One size modifier, `.small` (12px: the composer bar, row ends, Done, options, thinking levels, backs, pane closes, Copy, Create, foot toggles). Two more classes keep a look of their own: `.send`, the one round button, and `.row`, a link as wide as its list. Fields share one look (`input`, `textarea`, `select`), plus `.bare` for a name that reads as a heading and `.draft` for the composer's box.
 - Popover: a `div.popover[popover]` placed by `placePopover` (popover.js), a bottom sheet on phones ("The model picker and settings"). Panes inside it (panes.js `Panes`, `.panes .pane`, "A detail covers") give it a header with a ghost close (shown only on a phone's sheet), a back and actions. Settings (settings.js), Runners (runner.js `.runner-list`) and Context (composer.js `.recall`) use it; the model picker and @mentions (composer.js `.model-picker`) are the same frame without panes.
 - Popover rows: `ul.rows > li` in a popover's pane body, one per module, runner or option ("One row across"); the picker's `.model-controls .who` and `.model` share the look.
-- Model controls: model-picker.js `ModelPicker`, `.model-controls`: a `.search` pinned on top (typing filters, arrows and Enter pick, recipients go to `onRecipients`), the `.model-list` of runners' `.models` that alone scrolls (scoped ones first; an "All models" row or a search reaches every model the runner is logged in for), and a pinned `.foot` with the asked runner's `.thinking` and folder ("A search, then each runner's models"); the composer and settings share it.
+- Model controls: model-picker.js `ModelPicker`, `.model-controls`: a `.search` pinned on top (typing filters, arrows and Enter pick, recipients go to `onRecipients`), the `.model-list` of runners' `.models` that alone scrolls (scoped ones first; an "All models" row or a search reaches every model the runner is logged in for), and a pinned `.foot` with the asked runner's `.thinking` and a folder field, any path with its shortcuts suggested ("A search, then each runner's models"); the composer and settings share it.
 - Left aside: thread-list.js `ThreadList`, `.thread-list`; each row is `li > .row` (a link, or a button, or `form.row` for a new bot), shared with the family list `.thread-family`; its foot is `.list-foot` with `.foot-toggle`s ("The list's foot").
 - Side column: `aside.side` ("The side column"), one page at a time in the same `Panes` as a popover, side.js `PageTabs` in its header: thread-details.js `DetailsPage` (`.thread-details`), overview.js `Overview` (`.overview`), canvas.js `Canvas` (`.canvas`); a bot's part is bot.js `BotSettings`, `.bot`; its fields are plain inputs.
 - Thread head: the thread's name, `h2.title > button.ghost.thread-name` (opens the side column on Details; its tabs do the rest), and its `.close` ("The head:"); the head, `p.from` and the phone's `.app-bar` ("The bar") sit on `Canvas` so messages scroll under them; `.thread-name` is layout only.
@@ -189,5 +190,5 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Message list: thread.js `Message` in `.thread > ul > li` ("The chat: agents write"), its body `.markdown`, its images `div.images`, compaction's `li.cut` and `li.line`.
 - Quoting a selection into the composer: quote.js (the button, CSS-anchored to the selection), composer.js `appendQuote`/`quoteBlock`, app.css `.quote-anchor`/`.quote`.
 - Tool calls: run.js `Turn`, `Exchange`, `Step`, `Call`; `li.turn` is a `<details>` whose open list is `.steps`, its tools `.tool` and its words `.said`; `.exchange` and a crossed message are a `.steps` list of thread.js `Cross` rows (`li.sent`, `li.received`). There's no thinking block: a live turn's summary says "thinking".
-- Composer: composer.js `Composer`, `.thread form`: the box, `.bar` with `.icon` buttons, `.pick` (whom it asks) and `.stop`, and `ul.images` waiting to go.
+- Composer: composer.js `Composer`, `.thread form`: the box, `.bar` with `.icon` buttons, `.pick.folder` (where it works), `.pick` (whom it asks) and `.stop`, and `ul.images` waiting to go.
 - Small parts: sure.js `Sure` (`.sure`, a button that asks by changing its words), notice.js `Notice` (`.notice`, what went wrong, above the active composer's input), dot.js `Dot` (`.dot`, status).

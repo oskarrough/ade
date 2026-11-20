@@ -906,6 +906,11 @@ agent-memory {
 				white-space: nowrap;
 			}
 		}
+
+		/* Where the agent works sits by the +, what it is on the right */
+		.pick.folder {
+			margin-left: 0;
+		}
 	}
 }
 
@@ -1290,7 +1295,7 @@ agent-memory {
 		flex: none;
 		border-top: 1px solid var(--line);
 
-		select {
+		input {
 			width: 100%;
 		}
 	}

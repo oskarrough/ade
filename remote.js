@@ -417,16 +417,10 @@ export function remoteEnv(runners, name, cwd) {
 	return env
 }
 
-/** Whether a path is one of `folders` or inside one: the folders a runner offers */
-export const within = (folders, target) =>
-	folders.some((folder) => target === folder || target.startsWith(folder + path.sep))
-
 /** `resolve(pattern)` is pi's `--model pattern`: { model, thinkingLevel? */
 export function serveRunner({
 	name,
 	dir,
-	roots = [dir],
-	readable = () => [],
 	models,
 	resolve,
 	echo,
@@ -447,29 +441,20 @@ export function serveRunner({
 	const ops = {
 		...more,
 		resolve: ({ model }) => resolved(model),
-		/** The pi session files of a folder, one of them read, and a conversation's new entries appended to its own; the folder must be one the runner offers */
-		'pi-session-list': async ({ cwd }) => listPiSessions({ cwd: inside(cwd) }),
-		'pi-session-read': async ({ cwd, file }) => readPiSession({ cwd: inside(cwd), file }),
+		/** The pi session files of a folder, one of them read, and a conversation's new entries appended to its own */
+		'pi-session-list': async ({ cwd }) => listPiSessions({ cwd: at(cwd) }),
+		'pi-session-read': async ({ cwd, file }) => readPiSession({ cwd: at(cwd), file }),
 		'pi-session': async ({ session, cwd, entries, title }) => {
 			if (readOnly) throw new Error(`${name} is read-only`)
-			return writePiSession({ session, cwd: inside(cwd), entries, title })
+			return writePiSession({ session, cwd: at(cwd), entries, title })
 		},
 		stream: (message, context) => stream(message, context.abortSignal),
 		env,
 		handle,
 	}
 
-	/** `reading` also reaches the folders `readable()` lists, like the skills an agent was shown */
-	function inside(target, cwd = dir, reading = false) {
-		const full = path.resolve(cwd, target ?? '.')
-		if (!within([...roots, temps], full) && !(reading && within(readable(), full)))
-			throw new FileError(
-				'permission_denied',
-				`${target} is outside ${name}'s folders ${roots.join(', ')}`,
-				target,
-			)
-		return full
-	}
+	/** Any path on this machine: ade has no sandbox, so a folder is where an agent starts, not a fence */
+	const at = (target, cwd = dir) => path.resolve(cwd, target ?? '.')
 
 	/** A model goes to the server without its headers, which can hold credentials */
 	async function resolved(pattern) {
@@ -522,7 +507,7 @@ export function serveRunner({
 	}
 
 	async function env({ id, cwd, method, args }, context) {
-		const root = inside(cwd)
+		const root = at(cwd)
 		if (readOnly && CHANGES.includes(method)) {
 			const message = `${name} is read-only: it reads its folder but changes nothing and runs no commands`
 			return {
@@ -540,15 +525,15 @@ export function serveRunner({
 				command,
 				{
 					...options,
-					cwd: inside(options.cwd, root),
+					cwd: at(options.cwd, root),
 					onOutput: (text, _context, info) => reply({ id, output: { text, info } }),
 				},
 				context,
 			)
 		}
 		if (method === 'createTempDir' || method === 'createTempFile') return temp(method, args[0])
-		if (method !== 'joinPath') args[0] = inside(args[0], root, !CHANGES.includes(method))
-		if (method === 'renameFile') args[1] = inside(args[1], root)
+		if (method !== 'joinPath') args[0] = at(args[0], root)
+		if (method === 'renameFile') args[1] = at(args[1], root)
 		const result = await local[method](...args, context)
 		if (result.ok && READERS[method]) {
 			if (stopped) {

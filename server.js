@@ -43,14 +43,7 @@ import {
 	speaker,
 	finished,
 } from './util.js'
-import {
-	createRunners,
-	messageText,
-	remoteEnv,
-	runnerBundle,
-	runnerProvider,
-	within,
-} from './remote.js'
+import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
 
 /**
  * @typedef {{ runner: string, model: string, thinkingLevel?: import("@earendil-works/pi-ai").ThinkingLevel, dir?: string, name?: string }} To  An agent as it runs:
@@ -565,7 +558,15 @@ async function address(to, command = false, signal, useDefaultThinking = true) {
 			throw new Error(`${to.name} is no bot: only bots have names, and a thread's agent has none`)
 		clean.name = to.name
 	}
-	folder(runner, clean)
+	const cwd = folder(runner, clean)
+	// A folder someone names is checked on the spot; one an agent already works in is checked when it runs
+	if (clean.dir && runners.isOnline(name)) {
+		const found = await remoteEnv(runners, name, runner.dir).exists(cwd, {
+			...context,
+			abortSignal: signal,
+		})
+		if (found.ok && !found.value) throw new Error(`${clean.dir} doesn't exist on ${name}`)
+	}
 	return clean
 }
 const addresses = (to, command, threadId) =>
@@ -632,13 +633,8 @@ function reach(to, by, available) {
 	}
 }
 
-/** `dir` is relative to the runner's first folder, or a path in any folder it offers */
-function folder(runner, to) {
-	const cwd = path.resolve(runner.dir, to.dir || '.')
-	if (!within(runner.folders ?? [runner.dir], cwd))
-		throw new Error(`${to.dir} is outside ${to.runner}'s folders`)
-	return cwd
-}
+/** `dir` is relative to the runner's first folder, or any path on its machine: the folders it offers are only shortcuts */
+const folder = (runner, to) => path.resolve(runner.dir, to.dir || '.')
 
 /** `key`, its key in the thread when the caller has it, saves looking it up */
 async function agentOf(id, key, tx) {

@@ -15,7 +15,6 @@ import {
 	SettingsManager,
 } from '@earendil-works/pi-coding-agent'
 import { defineExtension } from '@earendil-works/pi-durable'
-import { within } from '../remote.js'
 
 export const on = true
 
@@ -59,12 +58,8 @@ export function server({ runners, known, reach }) {
 	}
 }
 
-/** Skill files can sit outside the runner's folder, so the skills it lists are readable wherever they live */
-export function runner(core) {
-	const listed = new Set()
+export function runner() {
 	async function context({ dir, skills: list, expand }) {
-		if (!within(core.roots ?? [core.dir], path.resolve(dir)))
-			throw new Error(`${dir} is outside ${core.name}'s folders`)
 		const loader = new DefaultResourceLoader({
 			cwd: dir,
 			agentDir: getAgentDir(),
@@ -76,7 +71,7 @@ export function runner(core) {
 		await loader.reload()
 		const all = loader.getSkills().skills
 		if (list) return all.map(({ name, description }) => ({ name, description }))
-		if (expand !== undefined) return skillCommand(expand, all, listed)
+		if (expand !== undefined) return skillCommand(expand, all)
 		const files = loader
 			.getAgentsFiles()
 			.agentsFiles.map(
@@ -84,7 +79,6 @@ export function runner(core) {
 					`<project_instructions path="${path}">\n${content}\n</project_instructions>`,
 			)
 		const shown = all.filter((skill) => !skill.disableModelInvocation)
-		for (const skill of shown) listed.add(path.resolve(skill.baseDir))
 		const skills = formatSkillsForPrompt(shown).trim()
 		const parts = [
 			files.length &&
@@ -93,18 +87,17 @@ export function runner(core) {
 		]
 		return parts.filter(Boolean).join('\n\n') || null
 	}
-	return { call: context, readable: () => [...listed] }
+	return { call: context }
 }
 
 /** Pi's own expansion of `/skill:name args`: the skill's file in a <skill> block, then the args; null for no such skill */
-async function skillCommand(text, skills, listed) {
+async function skillCommand(text, skills) {
 	const space = text.indexOf(' ')
 	const name = space === -1 ? text.slice(7) : text.slice(7, space)
 	const args = space === -1 ? '' : text.slice(space + 1).trim()
 	const skill = skills.find((skill) => skill.name === name)
 	if (!skill) return null
 	const body = stripFrontmatter(await readFile(skill.filePath, 'utf8')).trim()
-	listed.add(path.resolve(skill.baseDir))
 	const block = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`
 	return args ? `${block}\n\n${args}` : block
 }

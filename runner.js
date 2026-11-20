@@ -41,7 +41,7 @@ if (args.help) {
 
   --server url      server to dial (ADE_SERVER or http://localhost:3000)
   --name name       runner's name (this machine's hostname)
-  --dir folder      folder agents work in (current folder); repeat for more
+  --dir folder      folder threads start in (current folder); repeat to suggest more
   --discover-dirs   offer git and jj checkouts beneath the folders
   --owner name      take work only from this person and those allowed
   --allow name      also take work from this person or @runner; repeat for more
@@ -105,7 +105,7 @@ const defaultModel = () => {
 /** Sent to the server, which asks a runner its updater started to update when the server's differs */
 const { version } = await runnerBundle(import.meta.dirname).catch(() => ({ version: '' }))
 
-const modules = await load('runner', { name, server, dir, roots })
+const modules = await load('runner', { name, server, dir })
 
 function folders() {
 	const found = []
@@ -198,8 +198,6 @@ async function connect() {
 	const runner = serveRunner({
 		name,
 		dir,
-		roots,
-		readable: () => modules.flatMap((module) => module.readable?.() ?? []),
 		models,
 		resolve,
 		echo,

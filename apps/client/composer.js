@@ -436,6 +436,21 @@ export function Composer(props) {
 						Stop
 					</button>
 				<//>
+				<${Show} when=${() => folderOf(props.thread)}>
+					<button
+						type="button"
+						class="ghost small pick folder"
+						aria-label=${() => `Folder ${folderOf(props.thread)}`}
+						title=${() => folderOf(props.thread)}
+						onClick=${() => {
+							openThread(props.thread)
+							anchor = box
+							picker.togglePopover()
+						}}
+					>
+						<span>${() => folderOf(props.thread).split(/[\\/]/).filter(Boolean).pop()}</span>
+					</button>
+				<//>
 				<${Show} when=${() => filled()}>
 					<button
 						type="button"
@@ -791,6 +806,18 @@ const recipientWords = (to, thread) => {
 		[to.model?.split('/').pop(), provider].filter(Boolean).join(' · '),
 		thinkingLevel && thinkingWord(thinkingLevel),
 	]
+}
+/** The folder the next message's agent works in: as picked, else where it runs now, else its runner's own */
+const folderOf = (thread) => {
+	const to = agent(thread)
+	const runner = to && runners.find((runner) => runner.name === to.runner)
+	if (!runner?.dir) return
+	const running = here(thread).find(
+		(agent) => agent.to?.runner === to.runner && agent.to?.name === to.name,
+	)?.to
+	const dir = to.dir ?? running?.dir
+	if (!dir) return runner.dir
+	return /^([/\\]|[A-Za-z]:)/.test(dir) ? dir : `${runner.dir}/${dir}`
 }
 /** What a runner's controls show: the agent asked, if it runs there, else what was last chosen there */
 export const toFor = (runner, thread = current()) =>

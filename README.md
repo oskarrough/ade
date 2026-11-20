@@ -25,7 +25,7 @@ npx github:oskarrough/ade
 
 Open the address it prints for a walkthrough and the app.
 
-Agents start in the folder you run it from; add more with `--dir ~/sites --dir ~/notes`, and threads start in the first. File tools stay inside these folders, but shell commands don't. Ade has no sandbox: doing one properly is hard, and a half-baked one would only make you feel safe.
+Agents start in the folder you run it from. Add shortcuts with `--dir ~/sites --dir ~/notes`; threads start in the first, and the folder picker suggests them all. A thread can start in any folder on the machine, though: type its path in the picker. Ade has no sandbox: doing one properly is hard, and a half-baked one would only make you feel safe.
 
 To let agents work on another machine, click "Add runner" (or run `npx github:oskarrough/ade key laptop`) for the command to run there; keep it private, it holds a key. There are no accounts, so reach the server only over Tailscale: `tailscale serve <port>`, using the port ade printed. That's it.
 
