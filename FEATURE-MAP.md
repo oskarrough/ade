@@ -79,7 +79,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          page before near the top (nearTop) and holds the view still as it lands (hold)
     rows                 projection: messages plus each agent's turns, a row for each lasting call (an ask, a bot change),
                          live turn, compaction cuts, folded memory lines
-    Asked                in a bot's home, a question another thread asked it, a received `Cross` row that opens to the question and its answer (askedHere)
+    Asked                in a bot's home, a question another thread asked it, a received `Cross` row; the bot's answer follows as its own Message (askedHere)
     Message              one message: author, the director's pick, fork link, Body, Images; one that crossed threads is a `Cross` step row
     Body, threadLink     a message's markdown; a thread it mentions by title is a link that opens it
   run.js                 an agent's turns, from its own conversation

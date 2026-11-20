@@ -271,20 +271,25 @@ export function Thread(props) {
 					}),
 				)
 			// A question from another thread, where it came in, on one line that opens to it and its answer
+			// and the bot's answer under it as its own message, which lives in the thread that asked
 			const asked = askedHere().flatMap((other) => {
 				const fetched = questions[other.id]
-				return fetched
-					? [
-							{
-								key: `asked:${other.id}`,
-								asked: other.id,
-								question: fetched.question,
-								answer: fetched.answer,
-								at: fetched.question.id,
-								time: timeOf(fetched.question),
-							},
-						]
-					: []
+				if (!fetched) return []
+				const question = {
+					key: `asked:${other.id}`,
+					asked: other.id,
+					question: fetched.question,
+					at: fetched.question.id,
+					time: timeOf(fetched.question),
+				}
+				const answer = fetched.answer && {
+					key: `asked:${other.id}:${fetched.answer.id}`,
+					entry: fetched.answer,
+					thread: other.id,
+					at: fetched.answer.id,
+					time: timeOf(fetched.answer),
+				}
+				return answer ? [question, answer] : [question]
 			})
 			const said = shown.map((entry) => ({
 				key: entry.id,
@@ -738,7 +743,6 @@ export function Thread(props) {
 													time=${() => row().time}
 													thread=${() => row().asked}
 													question=${() => row().question}
-													answer=${() => row().answer}
 												/>
 											`}
 										>
@@ -760,10 +764,12 @@ export function Thread(props) {
 													fallback=${() => html`
 														<${Message}
 															time=${() => row().time}
-															thread=${() => props.id}
+															thread=${() => row().thread ?? props.id}
 															entry=${() => row().entry}
 															at=${() =>
-																earlier[props.id] ? undefined : positions().get(row().entry.id)}
+																earlier[props.id] || row().thread
+																	? undefined
+																	: positions().get(row().entry.id)}
 															sent=${() => row().sent}
 															above=${() => row().above}
 														/>
@@ -938,7 +944,7 @@ export function Cross(props) {
 	`
 }
 
-/** A question another thread asked here, as a received row at the moment it came; opened, its answer under it if it had one when fetched */
+/** A question another thread asked here, as a received row at the moment it came; its answer follows as the bot's own message */
 const Asked = (props) => html`
 	<li class="elsewhere">
 		<ol class="steps">
@@ -947,7 +953,6 @@ const Asked = (props) => html`
 				name=${() => shortLabel(props.question.data.author)}
 				thread=${() => props.thread}
 				data=${() => props.question.data}
-				answer=${() => props.answer}
 				title=${() => `${props.question.data.author} asked in thread ${props.thread}`}
 			/>
 		</ol>
