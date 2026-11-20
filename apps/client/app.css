@@ -906,11 +906,6 @@ agent-memory {
 				white-space: nowrap;
 			}
 		}
-
-		/* Where the agent works sits by the +, what it is on the right */
-		.pick.folder {
-			margin-left: 0;
-		}
 	}
 }
 

@@ -436,21 +436,6 @@ export function Composer(props) {
 						Stop
 					</button>
 				<//>
-				<${Show} when=${() => folderOf(props.thread)}>
-					<button
-						type="button"
-						class="ghost small pick folder"
-						aria-label=${() => `Folder ${folderOf(props.thread)}`}
-						title=${() => folderOf(props.thread)}
-						onClick=${() => {
-							openThread(props.thread)
-							anchor = box
-							picker.togglePopover()
-						}}
-					>
-						<span>${() => folderOf(props.thread).split(/[\\/]/).filter(Boolean).pop()}</span>
-					</button>
-				<//>
 				<${Show} when=${() => filled()}>
 					<button
 						type="button"
@@ -469,15 +454,17 @@ export function Composer(props) {
 				<button
 					type="button"
 					class="ghost small pick"
-					aria-label=${() => `Asks ${asking() || 'no one yet; pick a model'}`}
+					aria-label=${() =>
+						`Asks ${asking() || 'no one yet; pick a model'}${folderOf(props.thread) ? ` in ${folderOf(props.thread)}` : ''}`}
 					ref=${(el) => (button = el)}
 					aria-expanded="false"
 					title=${() =>
-						homeBot(props.thread)
+						(homeBot(props.thread)
 							? `The model ${homeBot(props.thread).name} runs as`
 							: directed(props.thread)
 								? 'The director picks the agent, bots, or nobody; pick one here to choose'
-								: recipients(props.thread).map(formatAgent).join(', ')}
+								: recipients(props.thread).map(formatAgent).join(', ')) +
+						(folderOf(props.thread) ? `, in ${folderOf(props.thread)}` : '')}
 					onClick=${() => {
 						openThread(props.thread)
 						anchor = box
@@ -500,6 +487,7 @@ export function Composer(props) {
 											· ${() => recipientWords(to, props.thread)[1]}</span
 										><//
 									>`,
+									() => (index() || !agent(props.thread) ? '' : where(props.thread)),
 								]}<//
 							><//
 						></span
@@ -818,6 +806,18 @@ const folderOf = (thread) => {
 	const dir = to.dir ?? running?.dir
 	if (!dir) return runner.dir
 	return /^([/\\]|[A-Za-z]:)/.test(dir) ? dir : `${runner.dir}/${dir}`
+}
+/** Where the agent works, said after whom the box asks: "in ade", and "on office" once more than one runner is online */
+const where = (thread) => {
+	const folder = folderOf(thread)
+	const runner = agent(thread)?.runner
+	const several = runners.filter((runner) => runner.online).length > 1
+	return [
+		folder && ` in ${folder.split(/[\\/]/).filter(Boolean).pop()}`,
+		several && runner && ` on ${runner}`,
+	]
+		.filter(Boolean)
+		.join('')
 }
 /** What a runner's controls show: the agent asked, if it runs there, else what was last chosen there */
 export const toFor = (runner, thread = current()) =>

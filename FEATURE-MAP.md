@@ -105,7 +105,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          below anything already there, a blank line and the cursor after it
     choose, configure, toFor             model picker and runner controls changing that pick
     Composer: submit, add, pickRecipients, filled, compactNow   send, images, typed recipients, context meter;
-    folderOf                                                 the folder the next message's agent works in, by the +
+    folderOf, where                                          the folder the next message's agent works in, said on its button
     PickerBot            bots in the picker
   agent.js               agents' labels and live work (doing); client's agentTo, formatAgent, lastToolCall, modelsOf
   model-picker.js        model search, thinking and folder controls (composer and settings share them); matches;
@@ -190,5 +190,5 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Message list: thread.js `Message` in `.thread > ul > li` ("The chat: agents write"), its body `.markdown`, its images `div.images`, compaction's `li.cut` and `li.line`.
 - Quoting a selection into the composer: quote.js (the button, CSS-anchored to the selection), composer.js `appendQuote`/`quoteBlock`, app.css `.quote-anchor`/`.quote`.
 - Tool calls: run.js `Turn`, `Exchange`, `Step`, `Call`; `li.turn` is a `<details>` whose open list is `.steps`, its tools `.tool` and its words `.said`; `.exchange` and a crossed message are a `.steps` list of thread.js `Cross` rows (`li.sent`, `li.received`). There's no thinking block: a live turn's summary says "thinking".
-- Composer: composer.js `Composer`, `.thread form`: the box, `.bar` with `.icon` buttons, `.pick.folder` (where it works), `.pick` (whom it asks) and `.stop`, and `ul.images` waiting to go.
+- Composer: composer.js `Composer`, `.thread form`: the box, `.bar` with `.icon` buttons, `.pick` (whom it asks, in which folder) and `.stop`, and `ul.images` waiting to go.
 - Small parts: sure.js `Sure` (`.sure`, a button that asks by changing its words), notice.js `Notice` (`.notice`, what went wrong, above the active composer's input), dot.js `Dot` (`.dot`, status).
