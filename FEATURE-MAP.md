@@ -49,8 +49,8 @@ modules/
   director.js            the `direct` hook: @mentions ask that bot, by default a model picks the thread's agent, bots or nobody (decide), with a short, visible fallback to the thread agent on failure;
                          those asked take turns (`turns`); a bot's answer @mentioning a bot asks it, resting
                          after three bot answers in a row (botTurns); tells bots to @mention, not post (section)
-  overview.js            a thread's recap: WRITER (the prompt), Overview doc, Write task (one writer, rounds while more is new),
-                         since (the new messages, numbered), misshapen (one retry), tidy (the cap), looking (who has it open),
+  overview.js            a thread's recap, a checklist of `- [x]`/`- [ ]` lines: WRITER (the prompt), Overview doc, Write task (one writer,
+                         rounds while more is new), since (the new messages, numbered), misshapen (one retry), checklist (the cap), looking (who has it open),
                          serve, the `overview` tool; off by default
   canvas.js              a tldraw canvas per thread: Canvas doc (the room's snapshot; a fork copies it), rooms (one TLSocketRoom per
                          thread in use, saved shortly after edits, closed when empty),
@@ -123,8 +123,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          ("moved 3, deleted 1"), which opens the canvas on what changed (showOnCanvas)
   canvas/agent/          the JSON schema of canvas_act's actions, from tldraw's agent starter kit (README there; scripts/vendor-canvas-agent.js refreshes it)
   canvas/tldraw.js       tldraw from esm.sh, the one place its version is named for the browser
-  overview.js            the side column's Overview tab: the recap, Page, whose #message-N links scroll the thread there; the
-                         refresh icon pulses while it's rewritten
+  overview.js            the side column's Overview tab: the recap as rows (topicsOf, Topic), a check when done, else a dot that works
+                         while a thread it names is working; Page, whose #message-N links scroll the thread there; the refresh icon pulses while it's rewritten
   side.js                the side column: its pages (pagesOf: details, overview, canvas when on), which one each thread shows
                          (sideOf, openSide, toggleSide), its tabs (PageTabs);
                          system.js puts the page beside the thread
