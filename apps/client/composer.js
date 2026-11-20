@@ -479,14 +479,14 @@ export function Composer(props) {
 								>${(to, index) => [
 									() => (index() ? ' + ' : agent(props.thread) ? where(props.thread) : ''),
 									() => recipientWords(to, props.thread)[0],
-									html`<${Show} when=${() => !to.name && metered(to.runner, to.model)}
-										>${' '}<${Metered}
-									/><//>`,
 									html`<${Show} when=${() => recipientWords(to, props.thread)[1]}
 										><span class="thinking-word"
 											>:${() => recipientWords(to, props.thread)[1]}</span
 										><//
 									>`,
+									html`<${Show} when=${() => !to.name && metered(to.runner, to.model)}
+										>${' '}<${Metered}
+									/><//>`,
 								]}<//
 							><//
 						></span
@@ -778,7 +778,7 @@ const directing = (thread) => Boolean(thread && here(thread).filter((agent) => a
 const directed = (thread) => directing(thread) && !pick(thread)
 export const recipients = (thread = current()) =>
 	[agent(thread), ...askedBots(thread)].filter(Boolean)
-/** A bot by its name, an agent by its model, then its thinking, as `pi --model model:thinking` takes them; the provider and runner are the picker's to show. Without thinking asked, it keeps the running level, or the runner's known pi default. */
+/** A bot by its name, an agent by its model, then its thinking, as `pi --model model:thinking` takes them; the provider only when it bills per use, since that's who charges; the runner is the picker's to show. Without thinking asked, it keeps the running level, or the runner's known pi default. */
 const recipientWords = (to, thread) => {
 	const running = here(thread).find(
 		(agent) =>
@@ -788,7 +788,8 @@ const recipientWords = (to, thread) => {
 	const thinkingLevel =
 		to.thinkingLevel ?? (running ? running.thinkingLevel : runner?.thinkingLevel)
 	if (to.name) return [to.name]
-	return [to.model?.split('/').pop(), thinkingLevel]
+	const model = metered(to.runner, to.model) ? to.model : to.model?.split('/').pop()
+	return [model, thinkingLevel]
 }
 /** The folder the next message's agent works in: as picked, else where it runs now, else its runner's own */
 const folderOf = (thread) => {
