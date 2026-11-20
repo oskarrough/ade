@@ -1353,6 +1353,11 @@ agent-memory {
 	padding: 0;
 	overflow: hidden;
 
+	/* A pi session's folder takes a whole path */
+	&.pi-sessions input {
+		width: 100%;
+	}
+
 	.rows > li.off b {
 		color: var(--mute);
 		font-weight: 500;

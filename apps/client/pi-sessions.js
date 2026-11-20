@@ -24,16 +24,29 @@ export function PiSessions() {
 					dir,
 				})),
 			)
-	const place = () =>
-		places().find((candidate) => JSON.stringify(candidate) === where()) ?? places()[0]
+	/** `runner:dir` or a bare dir on the first online runner: any folder there, the offered ones only suggested */
+	const place = () => {
+		const typed = where().trim()
+		if (!typed) return places()[0]
+		const at = typed.indexOf(':')
+		const named = at > 0 && runners.find((runner) => runner.name === typed.slice(0, at))
+		return named
+			? { runner: named.name, dir: typed.slice(at + 1) }
+			: places()[0] && { runner: places()[0].runner, dir: typed }
+	}
+	const said = (candidate) => `${candidate.runner}:${candidate.dir}`
 	const load = async () => {
 		setError('')
 		setFound([])
-		if (!place()) return
+		const asked = place()
+		if (!asked) return
+		// An answer for a folder since left behind is dropped
+		const current = () => JSON.stringify(place()) === JSON.stringify(asked)
 		try {
-			setFound(await api(`/api/pi-sessions?${new URLSearchParams(place())}`))
+			const sessions = await api(`/api/pi-sessions?${new URLSearchParams(asked)}`)
+			if (current()) setFound(sessions)
 		} catch (failure) {
-			setError(failure.message)
+			if (current()) setError(failure.message)
 		}
 		// It is as tall as its list now, which may not fit where it first opened
 		if (panel.matches(':popover-open')) setTimeout(() => placePopover(panel, button))
@@ -76,21 +89,25 @@ export function PiSessions() {
 					open=${() => false}
 					close=${html`<button type="button" class="ghost small close" aria-label="Close" onClick=${() => panel.hidePopover()}><${Icon} name="close" /></button>`}
 				>
-					<select
+					<input
 						aria-label="Folder"
-						value=${() => JSON.stringify(place() ?? '')}
+						list=${`${id}-folders`}
+						value=${() => (place() ? said(place()) : '')}
+						onKeyDown=${(event) => {
+							if (event.key !== 'Enter') return
+							event.preventDefault()
+							event.currentTarget.blur()
+						}}
 						onChange=${(event) => {
 							setWhere(event.currentTarget.value)
 							load()
 						}}
-					>
+					/>
+					<datalist id=${`${id}-folders`}>
 						<${For} each=${places}
-							>${(candidate) =>
-								html`<option value=${() => JSON.stringify(candidate)}>
-									${() => `${candidate.runner}: ${candidate.dir}`}
-								</option>`}<//
+							>${(candidate) => html`<option value=${() => said(candidate)}></option>`}<//
 						>
-					</select>
+					</datalist>
 					<${Show} when=${() => error()}><p class="bad">${() => error()}</p><//>
 					<${Show} when=${() => !error() && !found().length}
 						><p class="mute">No pi sessions in this folder.</p><//
