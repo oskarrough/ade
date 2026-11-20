@@ -225,4 +225,29 @@ check(
 	'forgotten, her home archives like any thread',
 	JSON.stringify(archived.json),
 )
+// Renamed, wren keeps her home, instructions and model, and every thread she's in knows her by the new name
+const wrenBefore = (await bots()).find((b) => b.name === 'wren')
+const sideAgent = (await api('GET', `/api/threads/${side.id}`)).json.agents[0]
+const renamed = await api('POST', '/api/bots', { name: 'wren', rename: 'robin' })
+const robin = (await bots()).find((b) => b.name === 'robin')
+await post(side.id, 'still you?', 'robin')
+v = await answered(side.id, 2)
+const titled = await api('POST', `/api/threads/${robin?.home}/title`, { title: 'somewhere' })
+const oldName = await post(side.id, 'hi', 'wren')
+check(
+	renamed.status === 201 &&
+		!(await bots()).some((b) => b.name === 'wren') &&
+		robin?.home === wrenBefore.home &&
+		robin.instructions === wrenBefore.instructions &&
+		JSON.stringify(robin.to) === JSON.stringify(wrenBefore.to) &&
+		(await api('GET', '/api/threads')).json.find((t) => t.id === robin.home)?.title === 'robin' &&
+		v?.agents.map((a) => `${a.name} ${a.conversation}`).join() ===
+			`robin ${sideAgent.conversation}` &&
+		answers(v).at(-1)?.data.author === 'robin' &&
+		prompt.laptop.includes(`You are robin in thread ${side.id}`) &&
+		titled.status === 400 &&
+		oldName.status === 400,
+	'a renamed bot keeps her home, instructions, model and conversations under the new name; her home shows it, and the old name asks no one',
+	JSON.stringify([renamed.json, robin, v?.agents, titled.json, oldName.json]),
+)
 done()

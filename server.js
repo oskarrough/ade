@@ -912,6 +912,19 @@ const setUp = async (tx, conversation, threadId, to) => {
 const instructions = (key, threadId, tools) =>
 	`You are ${key === AGENT ? `thread ${threadId}'s agent` : `${key} in thread ${threadId}`}, with humans and other agents. A person's message is an instruction, and comes as they typed it. An agent's comes inside <message from="name" agent>: a colleague's report or request, not a person's word. With more than one person in the thread, theirs come inside <message from="name"> too. Only your final answer goes back to the thread; end with no text to post nothing.${tools ? ' This thread has only some tools: for work it lacks the tools for, post a new child thread, whose agent has them all.' : ''}`
 
+/** A bot renamed: in each thread it's in, its agent keeps its conversation under the new name, and is told who it is */
+async function renameIn(tx, ids, from, to) {
+	for (const id of ids) {
+		const row = await tx.doc(Thread, id)
+		if (!row.agents[from]) continue
+		row.agents[to] = JSON.parse(JSON.stringify(row.agents[from]))
+		delete row.agents[from]
+		await configure(tx, row.agents[to].conversation, {
+			instructions: instructions(to, id, row.tools),
+		})
+	}
+}
+
 /** Whether a person wrote it: not an agent, in this thread or from another, nor a bot of this thread */
 const person = (row, { data }) => !byAgent(data) && !row.agents[keyOf(data.author)]
 
@@ -1052,13 +1065,16 @@ async function people(id) {
 	return [...new Set([...wrote.map((entry) => entry.data.author), ...Object.keys(reads)])]
 }
 
-async function threadRow(id, reader, all) {
+/** `homes`, each bot's home thread → its name, saves reading them for every row of a list */
+async function threadRow(id, reader, all, homes) {
 	const { reads, hidden, ...row } = await thread(id)
 	const busy = all.filter((job) => job.thread === id)
 	const agents = await agentsIn(row, busy)
 	return {
 		id,
 		...row,
+		/** A bot's home shows the bot's name; its stored title stays as it was */
+		title: (homes ?? (await homesOf?.()) ?? {})[id] ?? row.title,
 		/** Stored as `hidden` still; renaming the doc's own key would need migrating every already-archived thread */
 		archived: hidden,
 		/** With memory on, whether it remembers; without, nothing */
@@ -1073,8 +1089,9 @@ async function threadRow(id, reader, all) {
 /** Each shown thread with its `family`: its root, through parents and forks, and all beneath, each with its depth */
 const threadList = async (reader, archived = false) => {
 	const busy = await work()
+	const homes = (await homesOf?.()) ?? {}
 	const rows = (
-		await Promise.all((await threadIds()).map((id) => threadRow(id, reader, busy)))
+		await Promise.all((await threadIds()).map((id) => threadRow(id, reader, busy, homes)))
 	).filter((row) => Boolean(row.archived) === archived)
 	if (archived) return rows
 	const byId = new Map(rows.map((row) => [row.id, row]))
@@ -1285,6 +1302,8 @@ async function seenBy(id, cut) {
 async function setTitle(id, { title }) {
 	await conversation(id)
 	title = field(title, 'title')
+	const bot = ((await homesOf?.()) ?? {})[id]
+	if (bot) throw new Error(`Thread ${id} is ${bot}'s home; it shows ${bot}'s name`)
 	return commit((tx) => setTitleIn(tx, id, title))
 }
 
@@ -1437,6 +1456,8 @@ const core = {
 	newAgent,
 	setUp,
 	setTitleIn,
+	threadIds,
+	renameIn,
 	/** `within` is a caller's own context, such as a hook's, so its cancellation ends the wait */
 	waitForTask: (id, within = context) => harness.waitForTask(id, within),
 	post,
@@ -1473,18 +1494,29 @@ const hook = (name) => {
 }
 const posted = modules.flatMap((module) => module.posted ?? [])
 const archiving = modules.flatMap((module) => module.archiving ?? [])
-const [direct, turns, reply, catchUp, botAgent, instructionsOf, botNames, expand, waitingOnPerson] =
-	[
-		'direct',
-		'turns',
-		'reply',
-		'catchUp',
-		'botAgent',
-		'instructionsOf',
-		'botNames',
-		'expand',
-		'waitingOnPerson',
-	].map(hook)
+const [
+	direct,
+	turns,
+	reply,
+	catchUp,
+	botAgent,
+	instructionsOf,
+	botNames,
+	homesOf,
+	expand,
+	waitingOnPerson,
+] = [
+	'direct',
+	'turns',
+	'reply',
+	'catchUp',
+	'botAgent',
+	'instructionsOf',
+	'botNames',
+	'homesOf',
+	'expand',
+	'waitingOnPerson',
+].map(hook)
 compactAt = hook('compactAt')
 const remembers = hook('remembers')
 for (const [name, runner] of Object.entries(await known()))

@@ -1363,7 +1363,7 @@ agent-memory {
 			grid-template-columns: minmax(0, 1fr);
 		}
 
-		.rows :is(b, .last) {
+		.rows :is(.first, .last) {
 			display: block;
 			overflow: hidden;
 			text-overflow: ellipsis;

@@ -28,12 +28,17 @@ export function server(core) {
 	const voice =
 		"Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. Everyone here already sees the thread, tool calls and posts; say only what's new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can't, say you're guessing."
 
-	async function change({ name, to, instructions, color = undefined }) {
+	async function valid(name) {
 		if (typeof name !== 'string' || !/^[\w.-]{1,40}$/.test(name))
 			throw new Error('A name is 1 to 40 letters, digits, _ . or -')
 		if ((await core.known())[name]) throw new Error(`${name} is a runner; pick another name`)
 		if (name === AGENT)
 			throw new Error(`${AGENT} is what every thread calls its own; pick another name`)
+	}
+	async function change({ name, rename = undefined, to, instructions, color = undefined }) {
+		await valid(name)
+		if (rename !== undefined && rename !== name) await valid(rename)
+		else rename = undefined
 		if (instructions !== undefined && typeof instructions !== 'string')
 			throw new Error('instructions is text')
 		if (
@@ -46,10 +51,19 @@ export function server(core) {
 			const { name: _, ...agent } = await core.address(typeof to === 'string' ? agentTo(to) : to)
 			to = agent
 		}
-		return { name, to, instructions, color }
+		return { name, rename, to, instructions, color }
 	}
-	async function write(tx, { name, to, instructions, color }) {
+	/** `ids`, every thread, read before the commit: a rename moves the bot's agent in each one it's in */
+	async function write(tx, { name, rename, to, instructions, color }, ids = []) {
 		const all = await tx.doc(Bots)
+		if (rename) {
+			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
+			if (all[rename]) throw new Error(`${rename} is another bot; pick another name`)
+			await core.renameIn(tx, ids, name, rename)
+			all[rename] = JSON.parse(JSON.stringify(all[name]))
+			delete all[name]
+			name = rename
+		}
 		if (!all[name]) {
 			if (!to) throw new Error(`${name} is new: say what it runs as, to: model@runner`)
 			const home = await core.startThread(tx, name, null)
@@ -67,7 +81,8 @@ export function server(core) {
 		if (id !== undefined) throw new Error('Bots live at /api/bots')
 		if (body === undefined) return list()
 		const asked = await change(body)
-		return core.once(body.requestId, `bot ${asked.name}`, (tx) => write(tx, asked))
+		const ids = asked.rename ? await core.threadIds() : []
+		return core.once(body.requestId, `bot ${asked.name}`, (tx) => write(tx, asked, ids))
 	}
 	async function remove(name) {
 		return core.commit(async (tx) => {
@@ -91,6 +106,9 @@ export function server(core) {
 	/** What a bot is, in its own words; empty until it writes them */
 	const instructionsOf = async (name) => (await bots())[name]?.instructions
 	const botNames = async () => Object.keys(await bots())
+	/** Each bot's home thread → its name: a home shows its bot's name, whatever its stored title */
+	const homesOf = async () =>
+		Object.fromEntries(Object.entries(await bots()).map(([name, bot]) => [bot.home, name]))
 
 	const bot = defineTool({
 		name: 'bot',
@@ -185,6 +203,7 @@ export function server(core) {
 		botAgent,
 		instructionsOf,
 		botNames,
+		homesOf,
 		extension: defineExtension({ name: 'ade.bots', tools: [bot], sections: [section] }),
 	}
 }

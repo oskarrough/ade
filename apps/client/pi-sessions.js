@@ -25,8 +25,8 @@ export function PiSessions() {
 				})),
 			)
 	/** `runner:dir` or a bare dir on the first online runner: any folder there, the offered ones only suggested */
-	const place = () => {
-		const typed = where().trim()
+	const placeOf = (text) => {
+		const typed = text.trim()
 		if (!typed) return places()[0]
 		const at = typed.indexOf(':')
 		const named = at > 0 && runners.find((runner) => runner.name === typed.slice(0, at))
@@ -34,11 +34,12 @@ export function PiSessions() {
 			? { runner: named.name, dir: typed.slice(at + 1) }
 			: places()[0] && { runner: places()[0].runner, dir: typed }
 	}
+	const place = () => placeOf(where())
 	const said = (candidate) => `${candidate.runner}:${candidate.dir}`
-	const load = async () => {
+	/** `asked` comes in directly, as a signal set in the same event still reads its old value */
+	const load = async (asked = place()) => {
 		setError('')
 		setFound([])
-		const asked = place()
 		if (!asked) return
 		// An answer for a folder since left behind is dropped
 		const current = () => JSON.stringify(place()) === JSON.stringify(asked)
@@ -100,7 +101,7 @@ export function PiSessions() {
 						}}
 						onChange=${(event) => {
 							setWhere(event.currentTarget.value)
-							load()
+							load(placeOf(event.currentTarget.value))
 						}}
 					/>
 					<datalist id=${`${id}-folders`}>
@@ -123,7 +124,9 @@ export function PiSessions() {
 									onKeyDown=${(event) => event.key === 'Enter' && !starting() && start(session)}
 								>
 									<div>
-										<b>${() => session.name || session.firstMessage || session.id}</b>
+										<span class="first"
+											>${() => session.name || session.firstMessage || session.id}</span
+										>
 										<${Show}
 											when=${() => session.lastMessage && session.lastMessage !== session.firstMessage}
 											><span class="last">${() => session.lastMessage}</span><//

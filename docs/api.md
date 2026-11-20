@@ -42,7 +42,17 @@ POST   /api/threads/:id/compact
 GET    /api/conversations/:id          an agent's own conversation, tool calls and all
 ```
 
-Modules add their own routes under `/api/<module>`. The routes are in `server.js`, the runner protocol in [remote.js](../remote.js).
+Modules add their own routes under `/api/<module>`. With `bots` on:
+
+```
+GET    /api/bots
+POST   /api/bots {name, to?, instructions?, color?, rename?}   makes or changes a bot
+DELETE /api/bots/:name
+```
+
+`rename` gives a bot a new name, under the same rules as a new one. It keeps its home, instructions, model and colour, and its agent in every thread it's in answers to the new name. Messages already written keep the old one, which asks no one now. A bot's home thread always shows the bot's name as its title, so it can't be renamed on its own.
+
+The routes are in `server.js`, the runner protocol in [remote.js](../remote.js).
 
 The CLI is the same API from a terminal:
 
