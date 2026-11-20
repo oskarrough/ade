@@ -633,8 +633,12 @@ function reach(to, by, available) {
 	}
 }
 
-/** `dir` is relative to the runner's first folder, or any path on its machine: the folders it offers are only shortcuts */
-const folder = (runner, to) => path.resolve(runner.dir, to.dir || '.')
+/** `dir` is relative to the runner's first folder, or any path on its machine, `~` included: the folders it offers are only shortcuts */
+const folder = (runner, to) => {
+	const dir = to.dir || '.'
+	const home = dir === '~' || dir.startsWith('~/') ? runner.home : undefined
+	return path.resolve(runner.dir, home ? path.join(home, dir.slice(1)) : dir)
+}
 
 /** `key`, its key in the thread when the caller has it, saves looking it up */
 async function agentOf(id, key, tx) {
@@ -2143,6 +2147,7 @@ async function upgrade(req, raw, head) {
 		owner: query('owner') && speaker(query('owner')),
 		allow: url.searchParams.getAll('allow').map(speaker),
 		host: query('host'),
+		home: query('home'),
 		dir: query('dir') || '/',
 		folders: url.searchParams.getAll('folder').length
 			? url.searchParams.getAll('folder')

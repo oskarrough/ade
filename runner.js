@@ -158,6 +158,7 @@ async function connect() {
 		runner: name,
 		owner: args.owner,
 		host: os.hostname(),
+		home: os.homedir(),
 		dir,
 		model: model ?? '',
 		thinkingLevel: thinkingLevel ?? '',
