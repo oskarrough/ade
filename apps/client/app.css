@@ -2101,3 +2101,8 @@ body.resizing {
 		min-height: 0;
 	}
 }
+
+/* A done topic's check sits where an open one's dot does. */
+.overview .rows > li > svg.icon {
+	margin-inline: calc((var(--dot) - 14px) / 2);
+}

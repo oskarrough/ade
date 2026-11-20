@@ -35,7 +35,12 @@ marked.use({
 					const link = /** @type {LinkOptions} */ (this.lexer.options).threadLink?.(
 						line.slice(2, close),
 					)
-					if (link) return { type: 'threadMention', raw: line.slice(0, close + 1), ...link }
+					if (link)
+						return {
+							type: 'threadMention',
+							raw: line.slice(0, close + 1),
+							...link,
+						}
 				}
 			},
 			renderer: ({ href, id, title }) =>
@@ -71,3 +76,7 @@ marked.use({
 })
 
 export const markdown = (text, links = {}) => marked.parse(text ?? '', { async: false, ...links })
+
+/** One line of markdown as HTML, without the paragraph around it */
+export const inline = (text, links = {}) =>
+	marked.parseInline(text ?? '', { async: false, ...links })

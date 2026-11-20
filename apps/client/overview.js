@@ -1,15 +1,17 @@
 /**
- * A thread's overview, as a column beside it: a short recap of where the thread stands, its links scrolling the
- * thread to the message behind a claim. The column being open is what keeps the recap written; while it's rewritten,
+ * A thread's overview, as a column beside it: a checklist of where the thread stands, a row per topic, its links
+ * scrolling the thread to the message behind it. A topic that names a thread whose agent is running right now shows
+ * that thread's working dot, as the thread list does; the recap itself never says what's running. The column being open is what keeps the recap written; while it's rewritten,
  * the refresh button's icon pulses.
  */
 import html from '@solidjs/html'
-import { createMemo, createSignal, onSettled, refresh, Show, untrack } from 'solid-js'
+import { createMemo, createSignal, For, onSettled, refresh, Show, untrack } from 'solid-js'
 import { openSide, PageTabs } from './side.js'
 import { Panes } from './panes.js'
 import { Icon } from './icons.js'
-import { api, followThread, loadEarlier } from './server.js'
-import { markdown } from './markdown.js'
+import { Dot } from './dot.js'
+import { api, followThread, loadEarlier, threadOf } from './server.js'
+import { inline } from './markdown.js'
 import { report } from './notice.js'
 import { links } from './thread.js'
 
@@ -76,11 +78,25 @@ export function Overview(props) {
 	`
 }
 
-/** The page's markdown; a link to a message scrolls the thread beside it there */
+/** A page's lines as topics: done or open, what it says, the messages behind it */
+const topicsOf = (page) =>
+	page
+		.split('\n')
+		.map((line) => line.match(/^- \[([ x])\] (.*)$/))
+		.filter(Boolean)
+		.map(([, mark, text]) => ({
+			done: mark === 'x',
+			text: text
+				.replace(/\[#\d+\]\(#message-\d+\)/g, '')
+				.replace(/[\s,;]+$/, '')
+				.trim(),
+			at: [...text.matchAll(/\[#\d+\]\(#message-(\d+)\)/g)].map((link) => link[1]),
+		}))
+
+/** The checklist; a link to a message scrolls the thread beside it there, one to a thread opens it */
 const Page = (props) => html`
-	<div
-		class="body markdown"
-		innerHTML=${() => markdown(props.text, links)}
+	<ul
+		class="rows"
 		onClick=${(event) => {
 			const link = event.target.closest('a')
 			if (link?.dataset.thread) return followThread(event, Number(link.dataset.thread))
@@ -100,5 +116,34 @@ const Page = (props) => html`
 				}),
 			)
 		}}
-	/>
+	>
+		<${For} each=${() => topicsOf(props.text)}>${(topic) => html`<${Topic} topic=${topic} />`}<//>
+	</ul>
 `
+
+/** A topic's row: the check when done, else a dot that works while a thread it names does */
+function Topic(props) {
+	const said = inline(props.topic.text, links)
+	const working = () =>
+		[...said.matchAll(/data-thread="(\d+)"/g)].some(
+			(link) => threadOf(Number(link[1]))?.status === 'working',
+		)
+	return html`
+		<li class=${() => ({ mute: props.topic.done && !working() })}>
+			<${Show}
+				when=${() => props.topic.done && !working()}
+				fallback=${html`<${Dot} state=${() => (working() ? 'working' : '')} />`}
+			>
+				<${Icon} name="check" />
+			<//>
+			<div>
+				<${Text} html=${said} />
+				<small
+					>${props.topic.at.map((at) => [' ', html`<a href=${`#message-${at}`}>#${at}</a>`])}</small
+				>
+			</div>
+		</li>
+	`
+}
+
+const Text = (props) => html`<span innerHTML=${props.html} />`
