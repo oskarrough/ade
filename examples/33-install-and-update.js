@@ -71,7 +71,7 @@ srv.kill('SIGTERM')
 await new Promise((r) => srv.on('exit', r))
 srv = command(process.execPath, ['server.js'], {
 	cwd: deployed,
-	env: { ...process.env, PORT: port, HOST: '127.0.0.1', DB_PATH: db },
+	env: { ...process.env, PORT: port, HOST: '127.0.0.1', DB_PATH: db, XDG_CONFIG_HOME: tmp },
 })
 
 const updated = await until(async () => {

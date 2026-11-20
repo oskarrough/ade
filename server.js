@@ -2189,22 +2189,32 @@ async function upgrade(req, raw, head) {
  * else it stops and says so. `modules` maps a name to on or off; memory's `model` empty means each thread's agent.
  */
 async function saveSettings({ modules: wanted = {}, memory }) {
-	const loaded = modules.map((module) => module.name)
 	const known = [
 		...Object.keys(defaults),
 		...customModules.map((entry) => path.basename(entry, '.js')),
 	]
 	for (const name of Object.keys(wanted))
 		if (!known.includes(name)) throw new Error(`No module named ${name}`)
-	const on = (name) => wanted[name] ?? loaded.includes(name)
-	const next = { ...settings.config }
-	next.modules = [
-		...Object.keys(defaults)
-			.filter((name) => on(name) !== defaults[name])
-			.map((name) => `${on(name) ? '+' : '-'}${name}`),
-		...customModules.filter((entry) => on(path.basename(entry, '.js'))).map((entry) => `+${entry}`),
-	]
-	if (!next.modules.length) delete next.modules
+	// Merge onto what's on disk now, not what this process loaded at startup, so an entry
+	// this request didn't touch (like a module renamed since) survives untouched.
+	const { config: onDisk } = await readConfig()
+	const next = { ...onDisk }
+	if (Object.keys(wanted).length) {
+		const customPath = Object.fromEntries(
+			customModules.map((entry) => [path.basename(entry, '.js'), entry]),
+		)
+		const nameOf = (change) => {
+			const bare = change.slice(1)
+			return bare.includes('/') ? path.basename(bare, '.js') : bare
+		}
+		const list = (onDisk.modules ?? []).filter((change) => !(nameOf(change) in wanted))
+		for (const [name, on] of Object.entries(wanted))
+			if (name in defaults) {
+				if (on !== defaults[name]) list.push(`${on ? '+' : '-'}${name}`)
+			} else if (on) list.push(`+${customPath[name]}`)
+		next.modules = list
+	}
+	if (!next.modules?.length) delete next.modules
 	if (memory !== undefined) {
 		const model = typeof memory.model === 'string' ? memory.model.trim() : ''
 		if (model && !model.includes('@'))
