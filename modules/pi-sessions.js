@@ -6,7 +6,7 @@
  * A runner writes where pi would: `PI_CODING_AGENT_SESSION_DIR` or the `sessionDir` setting there, else `~/.pi/agent/sessions/--<folder>--/`.
  */
 import { existsSync } from 'node:fs'
-import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises'
+import { appendFile, mkdir, open as openFile, readdir, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -457,14 +457,49 @@ export async function listPiSessions({ cwd }) {
 	const dir = sessionDir(cwd)
 	if (!existsSync(dir)) return []
 	const sessions = await SessionManager.list(cwd, dir)
-	return sessions.map(({ path, id, name, firstMessage, modified, messageCount }) => ({
-		path,
-		id,
-		...(name ? { name } : {}),
-		firstMessage,
-		modified,
-		messageCount,
-	}))
+	return Promise.all(
+		sessions.map(async ({ path, id, name, firstMessage, modified, messageCount }) => ({
+			path,
+			id,
+			...(name ? { name } : {}),
+			firstMessage,
+			lastMessage: await lastWords(path),
+			modified,
+			messageCount,
+		})),
+	)
+}
+
+/** The last thing said in a session file, read from its tail, so a long session isn't read twice */
+async function lastWords(file) {
+	const handle = await openFile(file, 'r')
+	try {
+		const { size } = await handle.stat()
+		const length = Math.min(size, 256 * 1024)
+		const tail = Buffer.alloc(length)
+		await handle.read(tail, 0, length, size - length)
+		// The first line may be cut in half; it fails to parse and is skipped
+		for (const line of tail.toString('utf8').split('\n').reverse()) {
+			let message
+			try {
+				message = JSON.parse(line).message
+			} catch {
+				continue
+			}
+			if (!['user', 'assistant'].includes(message?.role)) continue
+			const text =
+				typeof message.content === 'string'
+					? message.content
+					: (message.content ?? [])
+							.filter((part) => part.type === 'text')
+							.map((part) => part.text)
+							.join(' ')
+			if (text.trim()) return text.trim()
+		}
+		return ''
+	} finally {
+		await handle.close()
+	}
 }
 
 /** One of those sessions: what pi hands its model from its active branch, and the model and thinking it ended on. Read as pi loads it, but never written back. */

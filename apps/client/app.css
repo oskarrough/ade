@@ -1353,9 +1353,22 @@ agent-memory {
 	padding: 0;
 	overflow: hidden;
 
-	/* A pi session's folder takes a whole path */
-	&.pi-sessions input {
-		width: 100%;
+	/* A pi session's folder takes a whole path; a session is one line of its name or first message, the rest on hover */
+	&.pi-sessions {
+		input {
+			width: 100%;
+		}
+
+		.rows {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.rows :is(b, .last) {
+			display: block;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
 	}
 
 	.rows > li.off b {

@@ -115,22 +115,26 @@ export function PiSessions() {
 					<ul class="rows">
 						<${For} each=${found}
 							>${(session) => html`
-								<li>
+								<li
+									role="button"
+									tabindex="0"
+									title=${() => session.firstMessage}
+									onClick=${() => !starting() && start(session)}
+									onKeyDown=${(event) => event.key === 'Enter' && !starting() && start(session)}
+								>
 									<div>
 										<b>${() => session.name || session.firstMessage || session.id}</b>
+										<${Show}
+											when=${() => session.lastMessage && session.lastMessage !== session.firstMessage}
+											><span class="last">${() => session.lastMessage}</span><//
+										>
 										<small
 											>${() =>
-												`${session.messageCount} messages, ${new Date(session.modified).toLocaleString()}`}</small
+												starting() === session.path
+													? 'Starting a thread…'
+													: `${session.messageCount} messages · ${new Date(session.modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}</small
 										>
 									</div>
-									<button
-										type="button"
-										class="small"
-										disabled=${() => starting() === session.path}
-										onClick=${() => start(session)}
-									>
-										Start thread
-									</button>
 								</li>
 							`}<//
 						>
