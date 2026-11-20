@@ -25,6 +25,9 @@ export function Settings() {
 	let button, panel
 	const id = createUniqueId()
 	const [picking, setPicking] = createSignal(false)
+	// One module open at a time: its whole description and its options
+	const [expanded, setExpanded] = createSignal('')
+	const expand = (module) => setExpanded((name) => (name === module.name ? '' : module.name))
 	const all = () => [
 		...server().modules.map((name) => ({ name, on: true })),
 		...(server().off ?? []).map((name) => ({ name, on: false })),
@@ -76,7 +79,7 @@ export function Settings() {
 			<${Icon} name="settings" />
 		</button>
 		<div
-			class="popover"
+			class="popover settings"
 			id=${id}
 			popover
 			ref=${(el) => (panel = el)}
@@ -88,6 +91,42 @@ export function Settings() {
 			<${Panes}
 				title="Settings"
 				detailTitle="Memory’s agent"
+				actions=${html`<button
+					type="button"
+					class="ghost small story"
+					title="Back to the story: the walkthrough, with the live system around this chat"
+					onClick=${(_event) => setChat(false)}
+				>
+					<${Icon} name="up" /> Story
+				</button>`}
+				foot=${html`
+					<${Show} when=${() => overridden('MODULES')}>
+						<p class="mute">Module switches are locked by MODULES in the server’s environment.</p>
+					<//>
+					<${Show} when=${() => overridden('MEMORY_MODEL')}>
+						<p class="mute">
+							Memory’s agent is locked by MEMORY_MODEL in the server’s environment.
+						</p>
+					<//>
+					<${Show}
+						when=${() => draft.state === ''}
+						fallback=${html`<p class="mute" role="status">
+							${() =>
+								draft.state === 'saving'
+									? 'Saving…'
+									: draft.state === 'restarting'
+										? 'Saved. The server is restarting; this page reconnects on its own.'
+										: 'Saved, and the server stopped: it can’t restart itself here. Start it again with node server.js.'}
+						</p>`}
+					>
+						<button type="button" class="save" disabled=${() => !changes()} onClick=${save}>
+							${() =>
+								changes()
+									? `${changes()} ${changes() === 1 ? 'change' : 'changes'} · Save and restart`
+									: 'Save and restart'}
+						</button>
+					<//>
+				`}
 				open=${picking}
 				onClose=${(_event) => panel.hidePopover()}
 				onBack=${(event) => setPicking(false)}
@@ -118,46 +157,45 @@ export function Settings() {
 						onConfigure=${(to) => choose(to)}
 					/>`}
 			>
-				<ul class="rows">
-					<li
-						role="button"
-						tabindex="0"
-						onClick=${() => setChat(false)}
-						onKeyDown=${(event) => event.key === 'Enter' && setChat(false)}
-					>
-						<div>
-							<b>Back to the story</b>
-							<small>The walkthrough, with the live system around this chat.</small>
-						</div>
-						<${Icon} name="up" />
-					</li>
-				</ul>
 				<ul class="rows modules">
 					<${For} each=${all}
 						>${(module) => html`
-							<li
-								class=${() => ({ off: !on(module) })}
-								onClick=${(event) => {
-									// The whole row switches it, but for a link or control of its own
-									if (!event.target.closest('a, button, select, input, .option'))
-										event.currentTarget.querySelector('.switch').click()
-								}}
-							>
-								<${Switch}
-									on=${() => on(module)}
-									disabled=${() => !editable() || overridden('MODULES')}
-									onToggle=${() => toggle(module)}
-									><b>${() => module.name}</b><//
+							<li class=${() => ({ off: !on(module), open: expanded() === module.name })}>
+								<div
+									class="about"
+									role="button"
+									tabindex="0"
+									aria-expanded=${() => String(expanded() === module.name)}
+									onClick=${(event) => {
+										// A link in the description opens itself, not the row
+										if (!event.target.closest('a')) expand(module)
+									}}
+									onKeyDown=${(event) => {
+										if (event.target !== event.currentTarget) return
+										if (event.key !== 'Enter' && event.key !== ' ') return
+										event.preventDefault()
+										expand(module)
+									}}
 								>
-								<div>
+									<b>${() => module.name}</b>
 									${
-										// Its own template: the markdown it fills in would throw off the walk to the options after it
+										// Its own template: the markdown it fills in would throw off the walk to what follows
 										html`<small
 											class="markdown"
 											innerHTML=${() => markdown(server().about?.[module.name] ?? 'Your own module.')}
 										/>`
 									}
-									<${Show} when=${() => module.name === 'memory' && on(module)}>
+								</div>
+								<${Switch}
+									on=${() => on(module)}
+									title=${() => `${module.name}: ${on(module) ? 'on' : 'off'}`}
+									disabled=${() => !editable() || overridden('MODULES')}
+									onToggle=${() => toggle(module)}
+								/>
+								<${Show}
+									when=${() => module.name === 'memory' && expanded() === 'memory' && on(module)}
+								>
+									<div class="options">
 										<div class="option">
 											<span>Writes its lines</span>
 											<button
@@ -188,33 +226,12 @@ export function Settings() {
 											/>
 											<span>k tokens</span>
 										</div>
-									<//>
-								</div>
+									</div>
+								<//>
 							</li>
 						`}<//
 					>
 				</ul>
-				<${Show} when=${() => overridden('MODULES')}>
-					<p class="mute">Module switches are locked by MODULES in the server’s environment.</p>
-				<//>
-				<${Show} when=${() => overridden('MEMORY_MODEL')}>
-					<p class="mute">Memory’s agent is locked by MEMORY_MODEL in the server’s environment.</p>
-				<//>
-				<${Show}
-					when=${() => draft.state === ''}
-					fallback=${html`<p class="mute" role="status">
-						${() =>
-							draft.state === 'saving'
-								? 'Saving…'
-								: draft.state === 'restarting'
-									? 'Saved. The server is restarting; this page reconnects on its own.'
-									: 'Saved, and the server stopped: it can’t restart itself here. Start it again with node server.js.'}
-					</p>`}
-				>
-					<button type="button" class="save" disabled=${() => !changed()} onClick=${save}>
-						Save and restart
-					</button>
-				<//>
 			<//>
 		</div>
 	`
@@ -237,5 +254,5 @@ const memoryChanges = () =>
 			draft[field],
 		]),
 	)
-const changed = () =>
-	Object.keys(draft.modules).length > 0 || Object.keys(memoryChanges()).length > 0
+/** How many switches and memory fields differ from what the server runs */
+const changes = () => Object.keys(draft.modules).length + Object.keys(memoryChanges()).length

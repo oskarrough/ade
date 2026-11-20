@@ -1376,19 +1376,48 @@ agent-memory {
 		font-weight: 500;
 	}
 
-	/* The row is the switch: its dot and name on top, what it does and its options under the name. */
+	/* A module is one line: its name, what it does cut to fit, its switch at the end. A click on the line opens it: the whole description, then its options. */
 	.rows.modules > li {
-		flex-direction: column;
-		align-items: stretch;
-		gap: 0;
-		cursor: pointer;
+		flex-wrap: wrap;
+		align-items: center;
 
-		> .switch {
-			padding: 0;
+		> .about {
+			display: flex;
+			align-items: baseline;
+			gap: var(--space-2);
+			cursor: pointer;
+
+			> b {
+				flex: none;
+			}
+
+			> small {
+				flex: 1;
+				min-width: 0;
+				display: -webkit-box;
+				-webkit-box-orient: vertical;
+				-webkit-line-clamp: 1;
+				overflow: hidden;
+			}
 		}
 
-		> div {
-			padding-left: calc(var(--dot) + var(--space-2));
+		&.open > .about {
+			flex-direction: column;
+			gap: 0;
+
+			> small {
+				display: block;
+			}
+		}
+
+		> .switch {
+			flex: none;
+			align-self: start;
+			padding: var(--space-1);
+		}
+
+		> .options {
+			flex-basis: 100%;
 		}
 	}
 
@@ -1417,8 +1446,24 @@ agent-memory {
 		}
 	}
 
-	.save {
-		margin: var(--space-2) var(--space-2) var(--space-1);
+	/* Settings' foot: what's locked, what's happening, and Save, always in sight */
+	.pane > footer {
+		flex: none;
+		display: grid;
+		gap: var(--space-1);
+		padding: var(--space-2) var(--space-4);
+		border-top: 1px solid var(--line);
+		font-size: var(--text-small);
+
+		> p {
+			margin: 0;
+		}
+	}
+
+	.story {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 	}
 
 	.pane-body > p {
@@ -1426,6 +1471,14 @@ agent-memory {
 		padding-top: var(--space-2);
 		border-top: 1px solid var(--line);
 		font-size: var(--text-small);
+	}
+}
+
+/* Settings get room on a desktop: up to twice a popover's height, as the window allows, and a little wider for the descriptions. A phone keeps the sheet. */
+@media (min-width: 701px) {
+	.popover.settings {
+		width: min(28rem, calc(100vw - 1rem));
+		max-height: min(64rem, calc(100dvh - 5rem));
 	}
 }
 
@@ -1752,7 +1805,7 @@ body.resizing {
 	}
 }
 
-/* A row that opens or goes somewhere, like Context's Inspect memory or Settings' Back to the story. */
+/* A row that opens or goes somewhere, like Context's Inspect memory. */
 .popover .rows > li[role='button'] {
 	cursor: pointer;
 }

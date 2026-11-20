@@ -1,7 +1,8 @@
 /**
  * A thing you open: its top page, a page opened from it that leads back, and a close on both. The popovers and the side
  * column share it. The top page stays mounted under the one opened over it, keeping its scroll and draft. Its head is
- * its `title`, or `head` in its place (the side column's tabs), then its `actions`.
+ * its `title`, or `head` in its place (the side column's tabs), then its `actions`; its `foot` stays pinned under the
+ * body while the body scrolls.
  */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
@@ -48,6 +49,9 @@ export function Panes(props) {
 					${close()}
 				</header>
 				<div class="pane-body">${() => props.children}</div>
+				<${Show} when=${() => props.foot}>
+					<footer>${() => props.foot}</footer>
+				<//>
 			</section>
 			<${Show} when=${() => props.open}>
 				<section class="pane detail" aria-label=${() => props.detailTitle}>
