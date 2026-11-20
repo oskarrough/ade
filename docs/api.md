@@ -52,11 +52,11 @@ DELETE /api/bots/:name
 
 `rename` gives a bot a new name, under the same rules as a new one. It keeps its home, instructions, model and colour, and its agent in every thread it's in answers to the new name. Messages already written keep the old one, which asks no one now. A bot's home thread always shows the bot's name as its title, so it can't be renamed on its own.
 
-With `overview` on:
+With `recap` on:
 
 ```
-GET    /api/threads/:id/overview       {page, through, writtenAt, writing}; `?open` says you're looking, which keeps it written
-POST   /api/threads/:id/overview {fresh?}   writes it now, from scratch with `fresh`, and answers once it's written
+GET    /api/threads/:id/recap       {page, through, writtenAt, writing}; `?open` says you're looking, which keeps it written
+POST   /api/threads/:id/recap {fresh?}   writes it now, from scratch with `fresh`, and answers once it's written
 ```
 
 The `page` is a checklist of at most six lines, one per topic, newest last. A line is `- [x] ` for done or `- [ ] ` for open, a sentence, then the messages behind it as `[#12](#message-12)`, counting from the thread's first message as 0:

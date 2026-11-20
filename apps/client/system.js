@@ -8,7 +8,7 @@ import { Dot } from './dot.js'
 import { Runner } from './runner.js'
 import { Thread } from './thread.js'
 import { Canvas } from './canvas.js'
-import { Overview } from './overview.js'
+import { Recap } from './recap.js'
 import { sideOf } from './side.js'
 import { DetailsPage } from './thread-details.js'
 import { ThreadList } from './thread-list.js'
@@ -96,11 +96,11 @@ export function System() {
 										${(key) =>
 											key === 'canvas'
 												? html`<${Canvas} id=${id} />`
-												: key === 'overview'
+												: key === 'recap'
 													? html`<${Loading}
 															fallback=${html`<aside class="side"><p class="mute">Reading the page…</p></aside>`}
 														>
-															<${Overview} id=${id} />
+															<${Recap} id=${id} />
 														<//>`
 													: html`<${DetailsPage} id=${id} />`}
 									<//>
@@ -167,7 +167,7 @@ function ListEdge() {
 	})
 }
 
-/** The side column's edges drag the same way, either side of it: the overview, details and canvas share its width. */
+/** The side column's edges drag the same way, either side of it: the recap, details and canvas share its width. */
 function SideEdge({ after }) {
 	const fit = (px) => Math.round(Math.min(Math.max(px, 288), innerWidth * 0.7))
 	const page = (el) => (after ? el.previousElementSibling : el.nextElementSibling)

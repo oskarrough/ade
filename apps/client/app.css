@@ -2073,8 +2073,8 @@ body.resizing {
 	gap: var(--space-1);
 }
 
-/* A thread's overview: its recap, and while it's rewritten, the refresh icon breathing like a live turn. */
-.overview button.writing > svg.icon {
+/* A thread's recap, and while it's rewritten, the refresh icon breathing like a live turn. */
+.recap button.writing > svg.icon {
 	--blink-low: 0.55;
 	animation: blink 2.4s ease-in-out infinite;
 }
@@ -2103,6 +2103,6 @@ body.resizing {
 }
 
 /* A done topic's check sits where an open one's dot does. */
-.overview .rows > li > svg.icon {
+.recap .rows > li > svg.icon {
 	margin-inline: calc((var(--dot) - 14px) / 2);
 }

@@ -1,5 +1,5 @@
 /**
- * A thread's overview, as a column beside it: a checklist of where the thread stands, a row per topic, its links
+ * A thread's recap, as a column beside it: a checklist of where the thread stands, a row per topic, its links
  * scrolling the thread to the message behind it. A topic that names a thread whose agent is running right now shows
  * that thread's working dot, as the thread list does; the recap itself never says what's running. The column being open is what keeps the recap written; while it's rewritten,
  * the refresh button's icon pulses.
@@ -15,11 +15,11 @@ import { inline } from './markdown.js'
 import { report } from './notice.js'
 import { links } from './thread.js'
 
-export function Overview(props) {
+export function Recap(props) {
 	// One thread for this column's whole life
 	const id = untrack(() => props.id)
 	// Fetched with ?open, so the server knows someone's looking: a page behind catches up, and answers keep it current
-	const page = createMemo(() => api(`/api/threads/${id}/overview?open`))
+	const page = createMemo(() => api(`/api/threads/${id}/recap?open`))
 	onSettled(() => {
 		const timer = setInterval(() => refresh(page), 5000)
 		return () => clearInterval(timer)
@@ -29,7 +29,7 @@ export function Overview(props) {
 	const rewrite = async () => {
 		setAsked(true)
 		try {
-			await api(`/api/threads/${id}/overview`, {})
+			await api(`/api/threads/${id}/recap`, {})
 			refresh(page)
 		} catch (error) {
 			report(error)
@@ -38,9 +38,9 @@ export function Overview(props) {
 		}
 	}
 	return html`
-		<aside class="side overview" aria-label="Overview">
+		<aside class="side recap" aria-label="Recap">
 			<${Panes}
-				title="Overview"
+				title="Recap"
 				head=${html`<${PageTabs} id=${id} />`}
 				actions=${html`<button
 					type="button"

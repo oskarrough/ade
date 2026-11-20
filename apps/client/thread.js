@@ -91,7 +91,7 @@ const fetching = new Set()
 export function Thread(props) {
 	const thread = createMemo(() => threadOf(props.id))
 	const messages = () => entries[props.id] ?? []
-	/** Each message's position in the thread, from 0, as memory and the overview count them */
+	/** Each message's position in the thread, from 0, as memory and the recap count them */
 	const positions = createMemo(() => new Map(messages().map((entry, at) => [entry.id, at])))
 	/** In a bot's home, the threads others asked it in: it's their one agent, and they started outside its family. A room has more than one. */
 	const askedHere = createMemo(() => {

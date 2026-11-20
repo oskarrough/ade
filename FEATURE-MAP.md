@@ -40,7 +40,7 @@ modules/
                          thread it posts to speaks there as itself (member), and so does a bot that
                          starts a thread for two or more bots (opener in server.js's post)
   auto-title.js          first-answer title generation (AutoTitle; the model sees the opening and the newest messages, `recent`), sanitizeThreadTitle, one attempt per thread; serve: a new title on request
-  memory.js              memory lines (Line task), `zoom`, `smallWriter` (Haiku/Luna if listed on the thread runner, else its own model and thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve); render; lines, memory and rendered, which overview reads too
+  memory.js              memory lines (Line task), `zoom`, `smallWriter` (Haiku/Luna if listed on the thread runner, else its own model and thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve); render; lines, memory and rendered, which recap reads too
   bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, a rename through server.js renameIn);
                          homesOf, which server.js threadRow uses to title a home with its bot's name; voice, the seed
                          instructions a new bot is created with, from then on hers to rewrite
@@ -49,9 +49,9 @@ modules/
   director.js            the `direct` hook: @mentions ask that bot, by default a model picks the thread's agent, bots or nobody (decide), with a short, visible fallback to the thread agent on failure;
                          those asked take turns (`turns`); a bot's answer @mentioning a bot asks it, resting
                          after three bot answers in a row (botTurns); tells bots to @mention, not post (section)
-  overview.js            a thread's recap, a checklist of `- [x]`/`- [ ]` lines: WRITER (the prompt), Overview doc, Write task (one writer,
+  recap.js               a thread's recap, a checklist of `- [x]`/`- [ ]` lines: WRITER (the prompt), Recap doc, Write task (one writer,
                          rounds while more is new), since (the new messages, numbered), misshapen (one retry), checklist (the cap), looking (who has it open),
-                         serve, the `overview` tool; off by default
+                         serve, the `recap` tool; off by default
   canvas.js              a tldraw canvas per thread: Canvas doc (the room's snapshot; a fork copies it), rooms (one TLSocketRoom per
                          thread in use, saved shortly after edits, closed when empty),
                          `canvas_look` (look: the stored shapes, read, and what each person present has selected and in view, as
@@ -123,9 +123,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          ("moved 3, deleted 1"), which opens the canvas on what changed (showOnCanvas)
   canvas/agent/          the JSON schema of canvas_act's actions, from tldraw's agent starter kit (README there; scripts/vendor-canvas-agent.js refreshes it)
   canvas/tldraw.js       tldraw from esm.sh, the one place its version is named for the browser
-  overview.js            the side column's Overview tab: the recap as rows (topicsOf, Topic), a check when done, else a dot that works
+  recap.js               the side column's Recap tab: the recap as rows (topicsOf, Topic), a check when done, else a dot that works
                          while a thread it names is working; Page, whose #message-N links scroll the thread there; the refresh icon pulses while it's rewritten
-  side.js                the side column: its pages (pagesOf: details, overview, canvas when on), which one each thread shows
+  side.js                the side column: its pages (pagesOf: details, recap, canvas when on), which one each thread shows
                          (sideOf, openSide, toggleSide), its tabs (PageTabs);
                          system.js puts the page beside the thread
   agent-memory.js        memory popover and compaction view for the visible thread
@@ -166,7 +166,7 @@ Where a feature lives:
 - Talk between threads: modules/talk.js (post, threads, reply), server.js append/whom, client thread.js `Cross` (a crossed message as a step row), run.js `Exchange`.
 - Asking a model / switching it: composer.js pick/choose, model-picker.js, server.js whom/reconfigure.
 - Live work you watch: server.js work/doing/watch, client agent.js doing, run.js Turn.
-- Overview recaps: modules/overview.js, client overview.js, side.js (its tab and header button), thread.js (data-message), system.js (the column).
+- Recaps: modules/recap.js, client recap.js, side.js (its tab and header button), thread.js (data-message), system.js (the column).
 - Canvas: modules/canvas.js (rooms, tools, the socket, the actions' schema in apps/client/canvas/agent), client canvas.js (fitLabels), server.js upgrade (a module's `connect` takes /api/threads/:id/<module> sockets), client canvas.js, side.js PageTabs, system.js (which page the column shows).
 - Memory and compaction: modules/memory.js, server.js compact/compactingAt, client agent-memory.js, thread.js rows (cuts, folded lines), run.js cutsOf.
 - Bots: modules/bots.js (voice), client bot.js, composer.js PickerBot, client server.js homeBot/botAgent; a bot's colour is server.js `colorOf` (its picked `color` hue, else by the order bots were made), picked in bot.js `BotSettings` `.colors`.
@@ -186,7 +186,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Popover rows: `ul.rows > li` in a popover's pane body, one per module, runner or option ("One row across"); the picker's `.model-controls .who` and `.model` share the look.
 - Model controls: model-picker.js `ModelPicker`, `.model-controls`: a `.search` pinned on top (typing filters, arrows and Enter pick, recipients go to `onRecipients`), the `.model-list` of runners' `.models` that alone scrolls (scoped ones first; an "All models" row or a search reaches every model the runner is logged in for), and a pinned `.foot` with the asked runner's `.thinking` and a folder field, any path with its shortcuts suggested ("A search, then each runner's models"); the composer and settings share it.
 - Left aside: thread-list.js `ThreadList`, `.thread-list`; each row is `li > .row` (a link, or a button, or `form.row` for a new bot), shared with the family list `.thread-family`; its foot is `.list-foot` with `.foot-toggle`s ("The list's foot").
-- Side column: `aside.side` ("The side column"), one page at a time in the same `Panes` as a popover, side.js `PageTabs` in its header: thread-details.js `DetailsPage` (`.thread-details`), overview.js `Overview` (`.overview`), canvas.js `Canvas` (`.canvas`); a bot's part is bot.js `BotSettings`, `.bot`; its fields are plain inputs.
+- Side column: `aside.side` ("The side column"), one page at a time in the same `Panes` as a popover, side.js `PageTabs` in its header: thread-details.js `DetailsPage` (`.thread-details`), recap.js `Recap` (`.recap`), canvas.js `Canvas` (`.canvas`); a bot's part is bot.js `BotSettings`, `.bot`; its fields are plain inputs.
 - Thread head: the thread's name, `h2.title > button.ghost.thread-name` (opens the side column on Details; its tabs do the rest), and its `.close` ("The head:"); the head, `p.from` and the phone's `.app-bar` ("The bar") sit on `Canvas` so messages scroll under them; `.thread-name` is layout only.
 - A thread-list page (Archived) has `.page-head`.
 - Message list: thread.js `Message` in `.thread > ul > li` ("The chat: agents write"), its body `.markdown`, its images `div.images`, compaction's `li.cut` and `li.line`.

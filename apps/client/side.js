@@ -1,5 +1,5 @@
 /**
- * The side column beside a thread: one page at a time, its siblings as tabs (the thread's details, and Overview and
+ * The side column beside a thread: one page at a time, its siblings as tabs (the thread's details, and Recap and
  * Canvas when their modules are on). The thread's name opens it on Details; its tabs do the rest.
  */
 import html from '@solidjs/html'
@@ -8,7 +8,7 @@ import { server } from './server.js'
 
 const PAGES = [
 	{ key: 'details', label: 'Details' },
-	{ key: 'overview', label: 'Overview', title: 'Where this thread stands' },
+	{ key: 'recap', label: 'Recap', title: 'Where this thread stands' },
 	{ key: 'canvas', label: 'Canvas', title: "This thread's canvas" },
 ]
 /** A thread's pages: its details always, the rest once it exists and their modules are on */
