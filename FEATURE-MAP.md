@@ -115,7 +115,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   thread-list.js         the thread list, its family rows, the Blocked filter (including children and bot homes)
   thread-details.js      DetailsPage, the side column's Details tab: title, people, family, tools and the memory switch for a thread;
                          a bot's threads open over them, with back
-  pi-sessions.js         the thread list's "From a pi session" popover (PiSessions), and in thread details where one came from (PiSource)
+  pi-sessions.js         the thread list's "Import pi session" popover (PiSessions), and in thread details where one came from (PiSource)
   canvas.js              a thread's canvas as a page of the side column: tldraw and React loaded once from esm.sh (load), mounted as
                          a React island synced over /api/threads/:id/canvas (board), which only shows the board and grows shapes whose
                          labels don't fit (fitLabels), and tells the server what the person has selected and in view (reportSeen); CanvasRow, a canvas_act call's row in the chat

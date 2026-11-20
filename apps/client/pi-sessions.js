@@ -71,7 +71,7 @@ export function PiSessions() {
 		<li class="new">
 			<button type="button" class="row" ref=${(el) => (button = el)} popovertarget=${id}>
 				<span class="plus" aria-hidden="true"><${Icon} name="plus" /></span>
-				<span>From a pi session</span>
+				<span>Import pi session</span>
 			</button>
 			<div
 				class="popover pi-sessions"
