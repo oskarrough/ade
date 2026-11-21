@@ -1,7 +1,7 @@
 /** The client, server, threads and runners, with the routes between them. */
 import html from '@solidjs/html'
 import { createMemo, For, Loading, onSettled, Show } from 'solid-js'
-import { columns, connected, current, inboxOpen, runners, server, threads, url } from './server.js'
+import { columns, connected, current, inboxOpen, runners, server, threadOf, url } from './server.js'
 import { Inbox } from './inbox.js'
 import { rowOf } from './agent.js'
 import { recipients } from './composer.js'
@@ -18,7 +18,7 @@ import { Wires } from './wires.js'
 import { QuoteButton } from './quote.js'
 
 export function System() {
-	const shown = createMemo(() => threads.filter((thread) => columns().includes(thread.id)))
+	const shown = createMemo(() => columns().map(threadOf).filter(Boolean))
 	const agents = createMemo(() =>
 		shown().flatMap((thread) => thread.agents.map((agent) => ({ ...agent, thread: thread.id }))),
 	)

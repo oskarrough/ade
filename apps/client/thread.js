@@ -93,19 +93,31 @@ const fetched = new Map()
 export function Thread(props) {
 	const thread = createMemo(() => threadOf(props.id))
 	const messages = () => entries[props.id] ?? []
+	/** The forks made from any message shown here, by `thread entry`; a fork is in its source's family, so only the family is read */
+	const forks = createMemo(() => {
+		const at = new Map()
+		for (const member of thread()?.family ?? []) {
+			const fork = threadOf(member.id)
+			const from = forkedFrom(fork)
+			if (!from || fork.archived) continue
+			const key = `${from} ${fork.conversation.parent.at}`
+			at.set(key, [...(at.get(key) ?? []), fork])
+		}
+		return at
+	})
 	/** Each message's position in the thread, from 0, as memory and the recap count them */
 	const positions = createMemo(() => new Map(messages().map((entry, at) => [entry.id, at])))
 	/** In a bot's home, the threads others asked it in: it's their one agent, and they started outside its family. A room has more than one. */
+	const children = createMemo(() =>
+		homeBot(props.id) ? threads.filter((other) => other.parent !== null) : [],
+	)
 	const askedHere = createMemo(() => {
 		const bot = homeBot(props.id)
 		if (!bot) return []
 		const family = new Set((thread()?.family ?? []).map((member) => member.id))
-		return threads.filter(
+		return children().filter(
 			(other) =>
-				other.parent !== null &&
-				!family.has(other.id) &&
-				other.agents.length === 1 &&
-				other.agents[0].name === bot.name,
+				!family.has(other.id) && other.agents.length === 1 && other.agents[0].name === bot.name,
 		)
 	})
 	// Fetched once, and again while unanswered each time the asked thread's status moves, as it does when the answer lands
@@ -780,6 +792,7 @@ export function Thread(props) {
 															time=${() => row().time}
 															thread=${() => row().thread ?? props.id}
 															entry=${() => row().entry}
+															forks=${() => forks()}
 															at=${() =>
 																earlier[props.id] || row().thread
 																	? undefined
@@ -827,13 +840,7 @@ function Message(props) {
 	// A person's own words, a paste most of all; an agent's or bot's answer is what you came to read, so it stays whole
 	const person = () =>
 		!data().author?.includes('@') && !bots.some((bot) => bot.name === data().author)
-	const forks = () =>
-		threads.filter(
-			(thread) =>
-				!thread.archived &&
-				forkedFrom(thread) === props.thread &&
-				thread.conversation.parent.at === props.entry.id,
-		)
+	const forks = () => props.forks?.get(`${props.thread} ${props.entry.id}`) ?? []
 	return html`
 		<li
 			data-message=${() => props.at}
@@ -977,8 +984,16 @@ const Asked = (props) => html`
 `
 
 /** A thread a message mentions by title, archived ones too; the newest of that title */
+const byTitle = createRoot(() =>
+	createMemo(() => {
+		const titled = new Map()
+		for (const row of [...threads, ...archivedThreads])
+			if (!titled.has(row.title)) titled.set(row.title, row)
+		return titled
+	}),
+)
 const threadLink = (title) => {
-	const thread = [...threads, ...archivedThreads].find((row) => row.title === title)
+	const thread = byTitle().get(title)
 	return thread && { href: hrefOf(thread.id), id: thread.id, title }
 }
 

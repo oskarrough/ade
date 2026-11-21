@@ -1,6 +1,6 @@
 /** Details and tools for the thread on screen, or the one about to start. */
 import html from '@solidjs/html'
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { Icon } from './icons.js'
 import { Panes } from './panes.js'
 import { openSide, PageTabs } from './side.js'
@@ -37,7 +37,9 @@ export function DetailsPage(props) {
 				.map((name) => [shortLabel(name), name]),
 		).values(),
 	]
-	const depth = (member) => here()?.family.find((one) => one.id === member)?.depth ?? 0
+	/** Each family member's depth, read once for every row */
+	const depths = createMemo(() => new Map((here()?.family ?? []).map((one) => [one.id, one.depth])))
+	const depth = (member) => depths().get(member) ?? 0
 	const parentOf = (member) => {
 		const thread = threadOf(member)
 		return thread?.parent ?? forkedFrom(thread)

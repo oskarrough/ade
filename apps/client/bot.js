@@ -43,10 +43,7 @@ export function botThreads(bot) {
 }
 
 export function BotItem(props) {
-	const family = createMemo(() => {
-		const members = familyOf(props.bot)
-		return threads.filter((thread) => members.has(thread.id))
-	})
+	const family = createMemo(() => [...familyOf(props.bot)].map(threadOf).filter(Boolean))
 	const working = createMemo(() => family().filter((thread) => thread.status === 'working').length)
 	const status = createMemo(
 		() =>

@@ -15,6 +15,7 @@ import {
 	openInbox,
 	openThread,
 	server,
+	threadOf,
 	threads,
 } from './server.js'
 import { Dot } from './dot.js'
@@ -75,7 +76,7 @@ export function ThreadList() {
 									!thread.archived &&
 									(blockedOnly()
 										? thread.status === 'blocked'
-										: !homeBot(thread.id) && !threads.some((other) => other.id === thread.parent)),
+										: !homeBot(thread.id) && !threadOf(thread.parent)),
 							)}
 					>
 						${(thread) => html`<${ThreadItem} thread=${() => thread} />`}

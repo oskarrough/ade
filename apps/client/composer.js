@@ -423,12 +423,7 @@ export function Composer(props) {
 					}}
 				/>
 				<${Show}
-					when=${() =>
-						open() &&
-						threads.some(
-							(thread) =>
-								thread.id === props.thread && ['working', 'blocked'].includes(thread.status),
-						)}
+					when=${() => open() && ['working', 'blocked'].includes(threadOf(props.thread)?.status)}
 				>
 					<button
 						type="button"
