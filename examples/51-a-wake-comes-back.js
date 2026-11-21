@@ -2,6 +2,8 @@
  * MODULES=+wake: an agent's wake comes back to it after a restart, survives Stop, and × cancels one; a wake `after`
  * another thread comes back once that thread's work ends, or at once if it has none
  */
+import { writeFileSync } from 'node:fs'
+import path from 'node:path'
 import WebSocket from 'ws'
 import {
 	base,
@@ -10,6 +12,7 @@ import {
 	api,
 	call,
 	check,
+	dir,
 	done,
 	kill,
 	say,
@@ -29,8 +32,11 @@ await scriptedRunner('laptop', (request) => {
 	if (after) return call('wake', { after: Number(after[1]), note: after[2] })
 	const asked = text(last).match(/^wake (\S+) (.*)/)
 	if (asked) return call('wake', { in: asked[1], note: asked[2] })
-	const work = text(last).match(/^work (\d+)s/)
-	return work ? call('bash', { command: `sleep ${work[1]}` }) : say(`got: ${text(last)}`)
+	// Work runs until the example makes the file it names
+	const work = text(last).match(/^work (\S+)/)
+	return work
+		? call('bash', { command: `until [ -e ${work[1]} ]; do sleep 0.05; done` })
+		: say(`got: ${text(last)}`)
 })
 const {
 	json: { id },
@@ -43,7 +49,7 @@ const wakes = () => wakesIn(id)
 
 await post('wake 1h tidy the branch')
 await answered(id)
-await post('wake 5s check CI on #412')
+await post('wake 2s check CI on #412')
 await answered(id, 2)
 let pending = await wakes()
 check(
@@ -96,7 +102,7 @@ check(
 const thread = async (title) => (await api('POST', '/api/threads', { title })).json.id
 const fix = await thread('fix')
 const review = await thread('review')
-await postIn(fix, 'work 4s')
+await postIn(fix, 'work fix-done')
 await until(async () => (await view(fix)).status === 'working')
 await postIn(review, `wake after ${fix} review the fix`)
 await answered(review)
@@ -109,7 +115,8 @@ check(
 	'a wake after another thread waits while that thread works',
 	JSON.stringify(waiting),
 )
-const fixed = await answered(fix, 1, 15000)
+writeFileSync(path.join(dir, 'fix-done'), '')
+const fixed = await answered(fix)
 const opened = await until(async () =>
 	(await view(review)).entries.find((entry) => entry.data.wake),
 )
@@ -119,7 +126,7 @@ check(
 	"once that thread's work ends, the wake comes back",
 	JSON.stringify(opened),
 )
-await answered(review, 3)
+await answered(review, 2)
 await postIn(review, `wake after ${fix} look again`)
 const again = await until(async () =>
 	(await view(review)).entries.find((entry) => entry.data.wake && entry.data.body === 'look again'),
@@ -134,15 +141,15 @@ check(
 // A thread that's archived still ends its work, and the wake after it hears that
 const shelved = await thread('shelved')
 await api('POST', `/api/threads/${shelved}/archive`, { archived: true })
-await postIn(shelved, 'work 3s')
+await postIn(shelved, 'work shelved-done')
 await until(async () => (await view(shelved)).status === 'working')
 await postIn(review, `wake after ${shelved} check the shelved one`)
-const shelvedWoke = await until(
-	async () =>
-		(await view(review)).entries.find(
-			(entry) => entry.data.wake && entry.data.body === 'check the shelved one',
-		),
-	15000,
+await until(async () => (await wakesIn(review)).some((wake) => wake.after === shelved))
+writeFileSync(path.join(dir, 'shelved-done'), '')
+const shelvedWoke = await until(async () =>
+	(await view(review)).entries.find(
+		(entry) => entry.data.wake && entry.data.body === 'check the shelved one',
+	),
 )
 check(
 	Boolean(shelvedWoke) && !(await view(shelved)).busy,

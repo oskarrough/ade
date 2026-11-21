@@ -1,5 +1,6 @@
 /** Who wrote a message comes from how the request arrived, never from a name it gives: the owner on the server's own
- * machine, a friend by the login Tailscale Serve names, nobody without one; and posts, read marks and the canvas agree */
+ * machine, a friend by the login Tailscale Serve names, nobody without one; and posts, read marks and the canvas agree.
+ * A runner dials in with its own key, so nobody can take its name, and a revoked one goes offline and stays out. */
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import WebSocket from 'ws'
@@ -29,7 +30,7 @@ writeFileSync(
 	JSON.stringify({ owner: 'oskar', ownerLogins: ['oskar@github'] }),
 )
 await server({ MODULES: '+canvas' })
-await runner('laptop')
+const laptop = await runner('laptop')
 const tailnet = `http://127.0.0.1:${servePort}`
 check(owner === 'oskar', 'on its own machine, you are the owner, by the name ade.json gives', owner)
 
@@ -198,5 +199,36 @@ check(
 	JSON.stringify(look.people),
 )
 socket.close()
+
+// Runners come in by key
+const runnerOnline = async (name) =>
+	(await api('GET', '/api/runners')).json.find((r) => r.name === name)?.online
+const exited = (child) => new Promise((resolve) => child.on('exit', (code) => resolve(code)))
+/** What the server says to a socket that claims `name`, with this key */
+const dial = (name, key) =>
+	new Promise((resolve) => {
+		const socket = new WebSocket(`${base.replace('http', 'ws')}/ws?runner=${name}&dir=/`, {
+			headers: key ? { authorization: `Bearer ${key}` } : {},
+		})
+		socket.onclose = ({ code, reason }) => resolve({ code, reason })
+	})
+const nokey = await runner('stray', { env: { ADE_KEY: '' }, wait: false })
+const out = []
+nokey.stdout.on('data', (d) => out.push(String(d)))
+check((await exited(nokey)) === 1, 'a runner without a key is turned away, and stops')
+check(
+	out.join('').includes('node cli.js key stray'),
+	'and is told how to get one',
+	JSON.stringify(out),
+)
+const thief = await dial('laptop', 'air_guessed')
+check(thief.code === 4001, 'a wrong key is turned away', JSON.stringify(thief))
+check(await runnerOnline('laptop'), 'and the real laptop stays online: nobody can take its name')
+const minted = await api('POST', '/api/runners', { name: '../x' })
+check(minted.status === 400, 'a runner name is letters, digits, dot, dash or underscore')
+const gone = exited(laptop)
+check((await api('DELETE', '/api/runners/laptop')).status === 200, 'revoking answers')
+check((await gone) === 1, 'the revoked runner is cut off and stops dialling back')
+check(!(await runnerOnline('laptop')), 'and it stays offline')
 
 done()

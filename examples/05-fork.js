@@ -126,12 +126,15 @@ check(
 )
 
 // Before an agent's first answer: forked while it streams
-const bot = await scriptedRunner('bot', (request) =>
-	say(
-		text(request.messages.findLast((m) => m.role === 'user')).includes('@bot')
-			? 'another way'
-			: 'still thinking '.repeat(500),
-	),
+const bot = await scriptedRunner(
+	'bot',
+	(request) =>
+		say(
+			text(request.messages.findLast((m) => m.role === 'user')).includes('@bot')
+				? 'another way'
+				: 'still thinking '.repeat(500),
+		),
+	{ tokensPerSecond: 200 },
 )
 const q = (await api('POST', '/api/threads', { title: 'first question' })).json.id
 const ask = (

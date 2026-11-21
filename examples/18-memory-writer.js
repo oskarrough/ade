@@ -19,7 +19,6 @@ const requests = []
 const script = fauxProvider({
 	provider: 'google',
 	models: [{ id: 'thread-model', reasoning: true }],
-	tokensPerSecond: 200,
 })
 script.setResponses(
 	Array.from({ length: 20 }, () => (context, options) => {

@@ -32,7 +32,6 @@ const script = fauxProvider({
 		{ id: 'one', reasoning: true },
 		{ id: 'two', reasoning: true },
 	],
-	tokensPerSecond: 200,
 })
 script.setResponses(
 	Array.from({ length: 200 }, () => (context, options) => {

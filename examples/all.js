@@ -16,13 +16,16 @@ process.on('SIGTERM', () => process.exit(143))
 
 const run = (file) =>
 	new Promise((resolve) => {
+		const began = performance.now()
 		const child = execFile(
 			process.execPath,
 			[`${import.meta.dirname}/${file}`],
 			{ maxBuffer: 1e8, timeout: 180000 },
 			(e, out, err) => {
 				running.delete(child)
-				console.log(`\n# ${file}\n${out}${err}`.trimEnd())
+				console.log(
+					`\n# ${file} ${((performance.now() - began) / 1000).toFixed(1)}s\n${out}${err}`.trimEnd(),
+				)
 				resolve(e ? [file] : [])
 			},
 		)

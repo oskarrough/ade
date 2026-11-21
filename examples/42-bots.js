@@ -6,10 +6,13 @@ import {
 	call,
 	check,
 	done,
+	quiet,
 	say,
 	scriptedRunner,
 	server,
 	text,
+	until,
+	view,
 } from './lib.js'
 
 /** The shared instruction every bot's prompt carries just before her own, until settings override it */
@@ -186,18 +189,22 @@ check(
 
 await post(home, 'nudge wren', 'ada')
 await answered(home, 7)
-await post(home, 'ask anyone', 'ada')
-v = await answered(home, 8)
+// Wren's reply can land before or with the next message; wait for the answer to that one
+const anyone = (await post(home, 'ask anyone', 'ada')).json.entry
+await until(async () => answers(await view(home)).some((a) => a.data.re?.includes(anyone)))
+await quiet()
+v = await view(home)
+const refused = answers(v).find((a) => a.data.re?.includes(anyone))
 const again = (await api('GET', '/api/threads')).json.find(
 	(t) => t.parent === home && t.title === 'again',
 )
 check(
 	again?.agents.map((a) => a.name).join() === 'wren' &&
 		answers(await (await api('GET', `/api/threads/${again.id}`)).json)[0]?.data.author === 'wren' &&
-		answers(v).at(-1).data.body.includes('Say who should answer') &&
+		refused?.data.body.includes('Say who should answer') &&
 		!(await api('GET', '/api/threads')).json.some((t) => t.title === 'anyone'),
 	'a new thread asks whom `to` names or the bots its body @mentions; with neither, post refuses',
-	JSON.stringify([again, answers(v).at(-1)?.data.body]),
+	JSON.stringify([again, refused?.data.body]),
 )
 
 const hide = await api('POST', `/api/threads/${home}/archive`, { archived: true })

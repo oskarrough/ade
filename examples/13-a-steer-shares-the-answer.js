@@ -1,4 +1,5 @@
-/** A steer joins the answer being written, and another thread's post steers like a person's Enter; a stop withdraws the follow-ups queued behind it, and the next input carries them */
+/** A steer joins the answer being written, and another thread's post steers like a person's Enter; a stop withdraws the follow-ups queued behind it, and the next input carries them; a message waiting behind a run that fails still gets its answer */
+import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux'
 import {
 	answered,
 	answers,
@@ -167,4 +168,50 @@ check(
 )
 
 cy.close()
+
+/** A message that waits behind a run that fails still gets its answer */
+const eve = await scriptedRunner('eve', (request) =>
+	request.messages.some((m) => m.role === 'user' && JSON.stringify(m.content).includes('second'))
+		? say('answered second')
+		: request.messages.some((m) => m.role === 'toolResult')
+			? fauxAssistantMessage([], { stopReason: 'error', errorMessage: 'the model broke' })
+			: call('bash', { command: 'sleep 0.5' }),
+)
+const toEve = { runner: 'eve', model: 'echo/echo' }
+const {
+	json: { id: failing },
+} = await api('POST', '/api/threads', { title: 'failed run' })
+await api('POST', `/api/threads/${failing}/entries`, { body: 'first', to: toEve })
+check(
+	Boolean(
+		await until(
+			async () =>
+				(await api('GET', '/api/runners')).json.some(
+					(r) => r.name === 'eve' && r.calls.some((c) => c.what === 'exec'),
+				),
+			8000,
+			10,
+		),
+	),
+	'the first input is inside its tool call',
+)
+await api('POST', `/api/threads/${failing}/entries`, { body: 'second', to: toEve })
+const failed =
+	(await until(async () => {
+		const v = await view(failing)
+		return v.entries.some((e) => e.data.answer) && v.status !== 'working' ? v : null
+	})) ?? (await view(failing))
+const posts = failed.entries.filter((e) => e.data.author === 'echo@eve').map((e) => e.data.body)
+check(
+	posts.some((b) => b.startsWith('gave no answer')),
+	'the failed run says so',
+	JSON.stringify(posts),
+)
+check(
+	posts.includes('answered second'),
+	'the queued message gets its own answer',
+	JSON.stringify(posts),
+)
+check(failed.status !== 'working', 'the agent is not left working', failed.status)
+eve.close()
 done()

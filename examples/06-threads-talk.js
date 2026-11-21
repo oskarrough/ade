@@ -203,6 +203,22 @@ const news = await until(
 	10000,
 )
 check(news && !news.data.re, 'a post after the answer answers nothing', JSON.stringify(news?.data))
+/** That news wakes the asker's agent; its answer stays home and answers nothing there */
+const woken = await until(async () => {
+	const v = await view(asker)
+	return v.status !== 'working' && answers(v).find((e) => e.id > news?.id)
+})
+await quiet()
+check(
+	Boolean(woken) && !woken.data.re?.includes(news?.id),
+	"a child's news wakes its parent's agent, whose answer answers nothing",
+	brief(await view(asker)),
+)
+check(
+	!(await view(byPostThread)).entries.some((e) => e.data.from === asker && e.id > news?.id),
+	'and stays in the parent',
+	brief(await view(byPostThread)),
+)
 
 bot.close()
 done()

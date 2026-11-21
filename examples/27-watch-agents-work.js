@@ -22,16 +22,19 @@ import {
 
 let srv = await server()
 const long = `done ${'and more '.repeat(60)}`
-const bot = await scriptedRunner('bot', (request) =>
-	request.messages.some((m) => m.role === 'toolResult')
-		? say(long)
-		: fauxAssistantMessage(
-				[
-					fauxThinking('first the folder'),
-					fauxToolCall('bash', { command: 'sleep 0.5; echo slept' }),
-				],
-				{ stopReason: 'toolUse' },
-			),
+const bot = await scriptedRunner(
+	'bot',
+	(request) =>
+		request.messages.some((m) => m.role === 'toolResult')
+			? say(long)
+			: fauxAssistantMessage(
+					[
+						fauxThinking('first the folder'),
+						fauxToolCall('bash', { command: 'sleep 0.5; echo slept' }),
+					],
+					{ stopReason: 'toolUse' },
+				),
+	{ tokensPerSecond: 200 },
 )
 const {
 	json: { id },

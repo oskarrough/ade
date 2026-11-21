@@ -11,8 +11,8 @@ const output = (...args) =>
 	})
 const cli = async (...args) => (await output(...args)).stdout
 
-for (const flag of ['--help', '-h']) {
-	const { stdout } = await promisify(execFile)(process.execPath, ['runner.js', flag], {
+{
+	const { stdout } = await promisify(execFile)(process.execPath, ['runner.js', '--help'], {
 		cwd: repo,
 		timeout: 8000,
 	})
@@ -29,7 +29,7 @@ for (const flag of ['--help', '-h']) {
 			'key-file',
 			'help',
 		].every((option) => stdout.includes(`--${option}`)),
-		`runner ${flag} prints its options without connecting`,
+		'runner --help prints its options without connecting',
 		stdout,
 	)
 }

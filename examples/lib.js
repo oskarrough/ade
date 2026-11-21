@@ -296,16 +296,16 @@ export async function localRunner(
 	}
 }
 
-/** A local runner whose only model, echo/echo, answers route(request) */
+/** A local runner whose only model, echo/echo, answers route(request) at once, or streams at `tokensPerSecond` for an example that watches it write */
 export async function scriptedRunner(
 	name,
 	route,
-	{ onTell, model = {}, query, readOnly, ops } = {},
+	{ onTell, model = {}, query, readOnly, ops, tokensPerSecond = undefined } = {},
 ) {
 	const script = fauxProvider({
 		provider: 'echo',
 		models: [{ id: 'echo', ...model }],
-		tokensPerSecond: 200,
+		tokensPerSecond,
 	})
 	script.setResponses(Array.from({ length: 2000 }, () => route))
 	const models = createModels()

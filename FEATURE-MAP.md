@@ -192,8 +192,8 @@ scripts/
   solid-attribution.js   browser init script: Solid's attribution engine, for cost warnings and costs()
   vendor-canvas-agent.js refreshes canvas_act's actions schema from tldraw's agent starter kit
   replay-pi.js           replays pi sessions into a thread, to try memory
-examples/all.js          the suite: every numbered example but the bench, half the cores at once, a timeout each
-examples/lib.js          what examples share: start (Node children), command (owns process groups through cleanup, including exited leaders' children), kill (awaits the exit), server, runner, scriptedRunner, api, view, until, quiet/settled/online (wait for state, not the clock), check
+examples/all.js          the suite: every numbered example but the bench, half the cores at once, a timeout each, each one's time
+examples/lib.js          what examples share: start (Node children), command (owns process groups through cleanup, including exited leaders' children), kill (awaits the exit), server, runner, scriptedRunner (answers at once; `tokensPerSecond` streams for an example that watches it write), api, view, until, quiet/settled/online (wait for state, not the clock), check
 examples/NN-*.js         one promise a user relies on each, about twenty; the file name says which
 examples/19, 23, 86–90-*-real-model.js   bench: memory recall, deep recall, introductions, another thread's
                                  fact, side question, directed mention and web search; REAL=1 only

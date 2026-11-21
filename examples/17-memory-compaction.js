@@ -36,16 +36,14 @@ const firstCut = (thread, agent) =>
 const COMPACT_AT = 40000,
 	LONGS = 56
 let srv = await server({ MODULES: '+memory' })
-for (const [
-	runner,
-	contextWindow,
-	count,
-	half,
-	lineSize,
-] of /** @type {[string, number, number, number, number][]} */ ([
-	['automatic', 40000, 310, 140, 300],
-	['manual', 1000000, 330, 160, 492],
-])) {
+/** Each in a thread and on a runner of its own, so both run at once */
+async function compaction(
+	/** @type {string} */ runner,
+	/** @type {number} */ contextWindow,
+	/** @type {number} */ count,
+	/** @type {number} */ half,
+	/** @type {number} */ lineSize,
+) {
 	const requests = []
 	await scriptedRunner(
 		runner,
@@ -176,6 +174,10 @@ for (const [
 		`${runner}: Pi's summariser never ran`,
 	)
 }
+await Promise.all([
+	compaction('automatic', 40000, 310, 140, 300),
+	compaction('manual', 1000000, 330, 160, 492),
+])
 
 // Past 70% of compactAt, but short of it, the messages the agent has seen get their lines, and nothing is merged
 await kill(srv)
