@@ -229,5 +229,18 @@ check(
 	JSON.stringify(own),
 )
 
+// A line the source writes later, over messages the fork shares, shows in the fork's memory view too
+const tightest = async () =>
+	(await api('GET', `/api/threads/${f}/memory?room=0`)).json.cut.map((line) => line.text)
+await tightest()
+await api('POST', `/api/threads/${c}/memory`, {
+	lines: [{ id: 0, n: 4, text: 'the first four, merged' }],
+})
+check(
+	(await tightest()).includes('the first four, merged'),
+	"a fork's memory view shows a line its source wrote after the fork was first read",
+	JSON.stringify(await tightest()),
+)
+
 srv.kill()
 done()

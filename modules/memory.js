@@ -230,11 +230,27 @@ export function server(core) {
 				have: new Map(),
 				long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
 				newest: 0,
+				/** Goes up with every line this index gains, its own or its parent's */
+				revision: 0,
+				/** A fork's parent, and the parent's revision its lines were last copied at */
+				parent: parent?.conversationId,
+				inheritedAt: -1,
+				/** Messages the fork shares with its parent: lines over them come from the parent too */
+				shared: ids.length,
 			}
-			if (inherited)
-				for (const [coordinates, line] of inherited.have)
-					if ((line.i + 1) * 2 ** line.l <= ids.length) index.have.set(coordinates, line)
 			indexes.set(threadId, index)
+		}
+		// A fork takes the lines its parent has written since over the messages they share
+		if (index.parent !== undefined) {
+			const inherited = await indexOf(index.parent)
+			if (inherited.revision !== index.inheritedAt) {
+				for (const [coordinates, line] of inherited.have)
+					if ((line.i + 1) * 2 ** line.l <= index.shared && !index.have.has(coordinates)) {
+						index.have.set(coordinates, line)
+						index.revision++
+					}
+				index.inheritedAt = inherited.revision
+			}
 		}
 		let cursor
 		do {
@@ -255,8 +271,10 @@ export function server(core) {
 					index.positions.set(entry.id, index.ids.length)
 					index.ids.push(entry.id)
 				}
-				if (entry.kind === KIND && !index.have.has(key(entry.data.l, entry.data.i)))
+				if (entry.kind === KIND && !index.have.has(key(entry.data.l, entry.data.i))) {
 					index.have.set(key(entry.data.l, entry.data.i), entry.data)
+					index.revision++
+				}
 			}
 			cursor = page.next
 			if (!cursor) index.newest = page.items.at(-1)?.id ?? index.newest
@@ -675,8 +693,8 @@ export function server(core) {
 		if (remembers(await core.thread(thread))) await demand(thread, { fill: 'leaves', upTo: T })
 		if (!T) return { total: 0, least: 0, full: 0, budget: 0, cut: [], tree: [] }
 		// The lines this thread's index keeps; the same messages and lines at the same room give the same view
-		const { have } = await indexOf(thread)
-		const version = `${T} ${have.size} ${room}`
+		const { have, revision } = await indexOf(thread)
+		const version = `${T} ${revision} ${room}`
 		const seen = views.get(thread)
 		if (seen?.version === version) return seen.view
 		const shown = layOut(have, T, room)
