@@ -40,7 +40,7 @@ export function Panes(props) {
 		>
 			<section
 				class="pane"
-				inert=${() => props.open}
+				inert=${() => Boolean(props.open)}
 				aria-hidden=${() => (props.open ? 'true' : undefined)}
 				style=${() => ({ visibility: props.open ? 'hidden' : 'visible' })}
 			>
