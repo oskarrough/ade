@@ -2067,9 +2067,9 @@ body.resizing {
 
 	.list-foot {
 		margin: auto calc(-1 * var(--space-2)) 0;
-		padding-left: var(--space-2);
-		/* Clear of the home indicator, which would otherwise sit under Blocked, the runner count and the gear. */
-		padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom));
+		padding-inline: var(--space-2);
+		/* Clear of the home indicator, which would otherwise sit under Blocked, the runner count and the gear; no taller than that when there's no indicator to clear. */
+		padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
 	}
 
 	:is(.list-edge, .side-edge) {
