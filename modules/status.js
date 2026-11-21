@@ -7,11 +7,11 @@
 
 export const on = true
 
-/** One telling at a time, so an older one never lands after a newer one */
+/** One telling at a time, so an older one never lands after a newer one; only a change to the thread list is told */
 export function server({ runners, known, threadList }) {
 	let telling
 	let again = false
-	function changed() {
+	function tell() {
 		if (telling) return void (again = true)
 		telling = (async () => {
 			const all = await known()
@@ -34,11 +34,11 @@ export function server({ runners, known, threadList }) {
 				telling = undefined
 				if (again) {
 					again = false
-					changed()
+					tell()
 				}
 			})
 	}
-	return { changed }
+	return { changed: (lists) => lists.includes('threads') && tell() }
 }
 
 // oxlint-disable-next-line no-control-regex -- strip terminal control characters

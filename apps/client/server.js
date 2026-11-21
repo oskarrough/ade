@@ -353,13 +353,18 @@ export const {
 		}
 		await (list === 'bots' ? reloadBots() : reloadRunners()).finally(settle)
 	}
-	const reload = () => {
-		reloadThreads()
-		reloadArchivedThreads()
-		reloadRunners()
-		reloadBots()
-		reloadInbox()
+	const reloads = {
+		threads: reloadThreads,
+		archived: reloadArchivedThreads,
+		runners: reloadRunners,
+		bots: reloadBots,
+		inbox: reloadInbox,
 	}
+	const reload = () => {
+		for (const list of Object.values(reloads)) list()
+	}
+	/** The socket names the lists that changed; a reconnect may have missed some, so it fetches them all */
+	const changed = (message) => message.changed?.forEach((list) => reloads[list]?.())
 	onSettled(() => {
 		reloadServer().then(() => {
 			reloadBots()
@@ -369,7 +374,7 @@ export const {
 		reloadArchivedThreads()
 		reloadRunners()
 		watch(
-			reload,
+			changed,
 			() => {
 				setConnected(true)
 				reloadServer().then(reload)

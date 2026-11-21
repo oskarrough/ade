@@ -356,7 +356,7 @@ const Shell = defineTask({
 				stderr: '',
 			}
 			shells.set(id, run)
-			notify()
+			notify(['threads', 'archived'])
 			const env = remoteEnv(
 				runners,
 				input.to.runner,
@@ -367,7 +367,7 @@ const Shell = defineTask({
 				{
 					onOutput: (text, _context, info) => {
 						run[info.stream] = (run[info.stream] + text).slice(-TAIL)
-						notify()
+						notify(['threads', 'archived'])
 					},
 				},
 				ctx,
@@ -420,7 +420,7 @@ function printed(
 // ── State, Pi harness and snapshots ───────────────────────────────────────
 
 const clients = new Set()
-const runners = createRunners({ onChange: notify })
+const runners = createRunners({ onChange: () => notify(['runners']) })
 /** Waits woken by every change; set before Pi resumes tasks that wait */
 const changes = new Set()
 /** What each running `$ cmd` has printed so far */
@@ -1999,18 +1999,52 @@ function nudge() {
 	}
 }
 
-/** Browsers hear that something changed, at most every 100 ms, and refresh their lists */
+/** The lists a browser fetches, by the names its socket hears them changed by: threads, archived, runners, bots and inbox */
+const ROWS = ['threads', 'archived', 'inbox']
+/** Whatever an agent is or does shows in its thread's row and its runner's */
+const WORK = ['threads', 'archived', 'runners']
+const docLists = {
+	'ade.thread': ROWS,
+	[AgentDoc.definition.kind]: WORK,
+	'ade.runners': WORK,
+	'ade.keys': ['runners'],
+	'ade.lent': ['runners'],
+	'ade.bots': ['threads', 'archived', 'bots'],
+}
+/** Which lists one stored commit can move; an agent's own transcript and live doc move none */
+function listsOf({ changes }) {
+	return changes.flatMap((change) => {
+		if (change.type === 'conversation') return ROWS
+		if (change.type === 'entry') return change.value.kind.startsWith('ade.') ? ROWS : []
+		if (change.type === 'task')
+			return [Deliver.definition.name, Shell.definition.name, ...moduleWork].includes(
+				change.value.kind,
+			)
+				? WORK
+				: []
+		return change.type === 'submission' ? [] : (docLists[change.record.kind] ?? [])
+	})
+}
+
+/** Browsers hear which lists changed, at most every 100 ms, and fetch only those again */
 let flushing
-function notify() {
+const changedLists = new Set()
+function notify(lists) {
+	for (const list of lists) changedLists.add(list)
 	flushing ??= setTimeout(() => {
 		flushing = undefined
+		const changed = [...changedLists]
+		changedLists.clear()
 		for (const wake of changes) wake()
 		nudge()
-		for (const socket of clients) socket.send('{}')
-		for (const module of modules) module.changed?.()
+		if (changed.length) {
+			const sent = JSON.stringify({ changed })
+			for (const socket of clients) socket.send(sent)
+		}
+		for (const module of modules) module.changed?.(changed)
 	}, 100)
 }
-harness.observeCommits({ advance: notify, end: () => {} })
+harness.observeCommits({ advance: (publication) => notify(listsOf(publication)), end: () => {} })
 
 /** Messages one page brings: the newest when a browser opens a thread, then each earlier page as it scrolls up */
 const PAGE = 50
@@ -2235,7 +2269,7 @@ async function mintKey(name, server) {
 		;(await tx.doc(Keys))[name] = sha256(key)
 	})
 	runners.kick(name, 4001, `${name}'s key was replaced`)
-	notify()
+	notify(['runners'])
 	return {
 		name,
 		key,
@@ -2251,7 +2285,7 @@ async function revoke(name) {
 	})
 	if (!had) throw Object.assign(new Error(`No runner named ${name}`), { status: 404 })
 	runners.kick(name, 4001, `${name} was revoked`)
-	notify()
+	notify(['runners'])
 	return { revoked: name }
 }
 
@@ -2282,7 +2316,10 @@ async function upgrade(req, raw, head) {
 	const close = () => {
 		clients.delete(socket)
 		watch(socket, null)
-		if (connection && runners.disconnect(connection)) say('runner', `${name} offline`)
+		if (connection && runners.disconnect(connection)) {
+			say('runner', `${name} offline`)
+			notify(WORK)
+		}
 	}
 	socket.on('close', close)
 	socket.on('error', close)
@@ -2348,10 +2385,11 @@ async function upgrade(req, raw, head) {
 		models.setProvider(runnerProvider(runners, name, resolved))
 	listen(runners.receive)
 	runners.connect(connection, (text) => socket.send(text))
+	notify(WORK)
 	socket.send(JSON.stringify({ op: 'ready' }))
 	if (runner.version && runner.version !== bundle.version) {
 		outdated.add(connection)
-		notify()
+		notify(['runners'])
 	}
 	say(
 		'runner',
