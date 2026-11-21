@@ -2,7 +2,7 @@
 import html from '@solidjs/html'
 import { createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
 import { api, minted, revokeRunner, runners, setMinted, threads } from './server.js'
-import { rowOf, doing, lastToolCall, modelsOf, THINKING_LEVELS } from './agent.js'
+import { rowOf, doing, lastToolCall, modelsOf, thinkingWord } from './agent.js'
 import { choose, configure, recipients, toFor } from './composer.js'
 import { placePopover } from './popover.js'
 import { Panes } from './panes.js'
@@ -10,8 +10,11 @@ import { report } from './notice.js'
 import { Sure } from './sure.js'
 import { busy, Busy } from './busy.js'
 import { Dot } from './dot.js'
+import { ModelPicker } from './model-picker.js'
+import { Icon } from './icons.js'
 
 export function Runner(props) {
+	let pickButton, pickPanel
 	const runner = () => props.runner
 	const to = () => toFor(runner())
 	const agents = () => props.agents.filter((agent) => agent.to.runner === runner().name)
@@ -50,32 +53,50 @@ export function Runner(props) {
 			<ul class="models">
 				<${Show} when=${() => models().length}>
 					<${AgentRow} to=${() => to()} runner=${() => runner()} agents=${() => agents()}>
-						<select
-							class="swap"
+						<button
+							type="button"
+							class="ghost small pick"
 							aria-label="Model"
-							title="model"
-							value=${() => to().model ?? ''}
-							onClick=${stop}
-							onChange=${(event) => configure({ ...to(), model: event.currentTarget.value })}
+							aria-expanded="false"
+							ref=${(el) => (pickButton = el)}
+							onClick=${(event) => {
+								stop(event)
+								pickPanel.togglePopover()
+							}}
 						>
-							<${For} each=${() => models()}
-								>${(model) => html`<option value=${() => model}>${() => model}</option>`}<//
+							<span>${() => to().model?.split('/').pop() ?? 'Pick a model'}</span
+							><${Show} when=${() => to().thinkingLevel}
+								><span class="thinking-word">:${() => thinkingWord(to().thinkingLevel)}</span><//
 							>
-						</select>
-						<input
-							type="range"
-							min="0"
-							max=${() => THINKING_LEVELS.length}
-							aria-label="Thinking"
-							value=${() => THINKING_LEVELS.indexOf(to().thinkingLevel) + 1}
-							title=${() => to().thinkingLevel || 'default thinking'}
+						</button>
+						<div
+							class="popover model-picker"
+							popover
+							ref=${(el) => (pickPanel = el)}
 							onClick=${stop}
-							onInput=${(event) =>
-								configure({
-									...to(),
-									thinkingLevel: THINKING_LEVELS[event.currentTarget.value - 1],
-								})}
-						/>
+							onToggle=${(event) => {
+								pickButton.setAttribute('aria-expanded', String(event.newState === 'open'))
+								if (event.newState === 'open') placePopover(pickPanel, pickButton)
+							}}
+						>
+							<${ModelPicker}
+								getTo=${(other) => toFor(other)}
+								selectedRunner=${() => runner().name}
+								onChoose=${(next) => {
+									configure(next)
+									pickPanel.hidePopover()
+								}}
+								onConfigure=${(next) => configure(next)}
+								close=${html`<button
+									type="button"
+									class="ghost small close"
+									aria-label="Close"
+									onClick=${() => pickPanel.hidePopover()}
+								>
+									<${Icon} name="close" />
+								</button>`}
+							/>
+						</div>
 					<//>
 				<//>
 				<${For} each=${() => others()}

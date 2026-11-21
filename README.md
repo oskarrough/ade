@@ -23,7 +23,7 @@ npx github:oskarrough/ade
 
 `pnpm dlx` and `bunx` work just as well, or fork/clone the repo and `npm link` (or `pnpm link`) it to get an `ade` command.
 
-Open the address it prints for a walkthrough and the app.
+Open the address it prints for the chat app; add `?story` for the walkthrough.
 
 Agents start in the folder you run it from. Add shortcuts with `--dir ~/sites --dir ~/notes`; threads start in the first, and the folder picker suggests them all. A thread can start in any folder on the machine, though: type its path in the picker. Ade has no sandbox: doing one properly is hard, and a half-baked one would only make you feel safe.
 

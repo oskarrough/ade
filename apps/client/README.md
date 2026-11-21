@@ -1,6 +1,6 @@
 # The web client
 
-Solid 2, no build step. [client.html](client.html) is the walkthrough at `/`, beside the app itself; [base.css](base.css) holds the tokens, the controls and the popover, [app.css](app.css) lays out the chat, and [walkthrough.css](walkthrough.css) lays the story over it while the page isn't just the chat. Tagged templates from `@solidjs/html` describe the views.
+Solid 2, no build step. [client.html](client.html) is the chat app at `/`, beside the walkthrough at `/?story`; [base.css](base.css) holds the tokens, the controls and the popover, [app.css](app.css) lays out the chat, and [walkthrough.css](walkthrough.css) lays the story over it while the page isn't just the chat. Tagged templates from `@solidjs/html` describe the views.
 
 Install at the repository root with `pnpm install --frozen-lockfile` or `npm install`, then run `node server.js`. Solid and Pele are root dependencies. The server resolves their installed files and serves them under `/packages/`. Nothing in the browser comes from a CDN but the canvas: with the `canvas` module on, [canvas.js](canvas.js) loads tldraw (and zod, for the starter kit code in [canvas/agent](canvas/agent)) from esm.sh when a canvas first opens, since React ships no modules a browser can import and tldraw is some 150 packages. The server serves local WOFF, WOFF2 and TrueType collection fonts from the client folder. The import map selects Solid's development builds so reactivity warnings remain visible.
 

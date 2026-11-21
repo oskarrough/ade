@@ -406,12 +406,6 @@ body:not(.chat) {
 				min-width: 0;
 			}
 
-			input[type='range'] {
-				width: 4rem;
-				padding: 0;
-				accent-color: var(--pick);
-			}
-
 			.hands {
 				flex-basis: 100%;
 				font: var(--text-small) / var(--text-small-line) var(--font-mono);
@@ -420,16 +414,6 @@ body:not(.chat) {
 				overflow: hidden;
 				text-overflow: ellipsis;
 			}
-		}
-
-		select.swap {
-			border: 0;
-			padding: 0;
-			background-color: transparent;
-			min-width: 0;
-			flex: 1;
-			font: inherit;
-			cursor: pointer;
 		}
 	}
 
