@@ -1,6 +1,10 @@
-/** MODULES=+wake: an agent's wake comes back to it after a restart, survives Stop, and × cancels one */
+/**
+ * MODULES=+wake: an agent's wake comes back to it after a restart, survives Stop, and × cancels one; a wake `after`
+ * another thread comes back once that thread's work ends, or at once if it has none
+ */
 import {
 	answered,
+	answers,
 	api,
 	call,
 	check,
@@ -19,14 +23,21 @@ let srv = await server(env)
 await scriptedRunner('laptop', (request) => {
 	const last = request.messages.findLast((m) => m.role !== 'system')
 	if (last.role === 'toolResult') return say(last.isError ? `failed: ${text(last)}` : 'set')
+	const after = text(last).match(/^wake after (\d+) (.*)/)
+	if (after) return call('wake', { after: Number(after[1]), note: after[2] })
 	const asked = text(last).match(/^wake (\S+) (.*)/)
-	return asked ? call('wake', { in: asked[1], note: asked[2] }) : say(`got: ${text(last)}`)
+	if (asked) return call('wake', { in: asked[1], note: asked[2] })
+	const work = text(last).match(/^work (\d+)s/)
+	return work ? call('bash', { command: `sleep ${work[1]}` }) : say(`got: ${text(last)}`)
 })
 const {
 	json: { id },
 } = await api('POST', '/api/threads', { title: 'ci' })
-const post = (body) => api('POST', `/api/threads/${id}/entries`, { body, to: 'echo/echo@laptop' })
-const wakes = async () => (await api('GET', `/api/threads/${id}/wake`)).json
+const postIn = (thread, body) =>
+	api('POST', `/api/threads/${thread}/entries`, { body, to: 'echo/echo@laptop' })
+const post = (body) => postIn(id, body)
+const wakesIn = async (thread) => (await api('GET', `/api/threads/${thread}/wake`)).json
+const wakes = () => wakesIn(id)
 
 await post('wake 1h tidy the branch')
 await answered(id)
@@ -66,7 +77,56 @@ check(
 	'a wake that fired is gone',
 	JSON.stringify(pending),
 )
-await api('POST', `/api/threads/${id}/wake`, { cancel: pending[0].id })
-check((await wakes()).length === 0, '× cancels the other', JSON.stringify(await wakes()))
+const cancelled = await api('POST', `/api/threads/${id}/wake`, { cancel: pending[0].id })
+check(
+	(await wakes()).length === 0 && cancelled.json.cancelled === pending[0].id,
+	'× cancels the other',
+	JSON.stringify(cancelled.json),
+)
+const late = await api('POST', `/api/threads/${id}/wake`, { cancel: woke?.fired.data.wake })
+check(
+	late.json.fired === woke?.fired.data.wake,
+	'cancelling a wake that already went off says so',
+	JSON.stringify(late.json),
+)
+
+// A review that opens once its fix lands
+const thread = async (title) => (await api('POST', '/api/threads', { title })).json.id
+const fix = await thread('fix')
+const review = await thread('review')
+await postIn(fix, 'work 4s')
+await until(async () => (await view(fix)).status === 'working')
+await postIn(review, `wake after ${fix} review the fix`)
+await answered(review)
+const waiting = await wakesIn(review)
+check(
+	waiting.length === 1 &&
+		waiting[0].after === fix &&
+		(await view(fix)).status === 'working' &&
+		!(await view(review)).entries.some((entry) => entry.data.wake),
+	'a wake after another thread waits while that thread works',
+	JSON.stringify(waiting),
+)
+const fixed = await answered(fix, 1, 15000)
+const opened = await until(async () =>
+	(await view(review)).entries.find((entry) => entry.data.wake),
+)
+check(
+	opened?.data.body === 'review the fix' &&
+		Date.parse(opened.data.createdAt) >= Date.parse(answers(fixed).at(-1).data.createdAt),
+	"once that thread's work ends, the wake comes back",
+	JSON.stringify(opened),
+)
+await answered(review, 3)
+await postIn(review, `wake after ${fix} look again`)
+const again = await until(async () =>
+	(await view(review)).entries.find((entry) => entry.data.wake && entry.data.body === 'look again'),
+)
+check(Boolean(again), 'after a thread already idle, the wake comes back at once')
+check(
+	(await wakesIn(review)).length === 0,
+	'neither is pending any more',
+	JSON.stringify(await wakesIn(review)),
+)
 
 done()

@@ -16,6 +16,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
   afterCommit, moduleWork           best-effort work once a server commit is stored; modules' task kinds that count as a thread working
   core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
+  core.signal                       a signal to a sleeping task (wake's Ended)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
   outcome, tell, restore, faulted   what a finished delivery posts back (a bot's answer asks whom direct says), or a failure says
   reachable                         a message waits for its agent's runner, following the agent if it moves
@@ -78,7 +79,8 @@ modules/
   inbox.js               every thread's open question, newest first (questions, over core.openQuestion), serve (GET /api/inbox,
                          POST a dismissal, kept as the Thread doc's `dismissed`); off by default
   wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
-                         sleeps again), pending (the thread's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake),
+                         sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and when the
+                         thread lists change, over core.work), pending (the thread's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake),
                          archiving cancels them; duration parses 5m, 1h30m; off by default
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal

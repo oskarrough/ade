@@ -2,7 +2,7 @@
 import html from '@solidjs/html'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 import { Icon } from './icons.js'
-import { api, colorOf, threadOf } from './server.js'
+import { api, colorOf, threadOf, titleOf } from './server.js'
 import { shortLabel } from './agent.js'
 import { ahead } from './time.js'
 import { report } from './notice.js'
@@ -38,7 +38,7 @@ export function Wakes(props) {
 				<p class="notice" role="status">
 					<span
 						>${() =>
-							`⏰ ${shortLabel(wake().agent)} wakes ${ahead(wake().at)}${wake().every ? `, then every ${span(wake().every)}` : ''}: ${wake().note}`}</span
+							`⏰ ${shortLabel(wake().agent)} wakes ${wake().after === undefined ? `${ahead(wake().at)}${wake().every ? `, then every ${span(wake().every)}` : ''}` : `once ${titleOf(wake().after)} is done`}: ${wake().note}`}</span
 					>
 					<button
 						type="button"
@@ -60,6 +60,7 @@ export function WakeSet(props) {
 	const said = () => {
 		const args = props.step.args
 		if (args.cancel !== undefined) return `cancelled a wake`
+		if (args.after !== undefined) return `wakes once ${titleOf(args.after)} is done: ${args.note}`
 		const when = args.in ?? args.every
 		return `wakes in ${when}${args.every ? `, then every ${args.every}` : ''}: ${args.note}`
 	}

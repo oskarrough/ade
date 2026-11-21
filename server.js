@@ -963,9 +963,9 @@ async function route(tx, threadId, messageId, { to, picked }, { steer = false, p
 	return { to: to.map(writtenTo), ...(picked ? { picked } : {}) }
 }
 
-/** A message someone wrote to the thread, not an agent's answer back or a command's output: one that takes over a pick */
+/** A message someone wrote to the thread, not an agent's answer back, its own wake or a command's output: one that takes over a pick */
 const fresh = ({ kind, data }) =>
-	kind === KIND && !data.answer && !data.error && !data.shell && !data.re
+	kind === KIND && !data.answer && !data.error && !data.shell && !data.re && !data.wake
 
 /** Whether a fresh message came after `messageId`, reading back from the newest */
 async function newerThan(tx, threadId, messageId) {
@@ -1639,6 +1639,8 @@ const core = {
 	/** One task's latest record, or every task matching `query` (Pi's TaskQuery) */
 	task: (id) => storage.task(id, context),
 	tasks: (query) => collect((cursor) => storage.scanTasks(query, 200, cursor, context)),
+	/** Delivers a signal to a sleeping task: Pi's `delivered`, `duplicate`, `closed` or `not_found` */
+	signal: (taskId, kind, key, value) => harness.signal(taskId, kind, key, value, context),
 	/**
 	 * Tells each page watching a thread what a module is doing there, as it happens; nothing is kept. An event is
 	 * `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), others are the module's own.
