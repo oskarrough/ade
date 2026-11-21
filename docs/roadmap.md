@@ -38,9 +38,9 @@ What we have. I live in it.
 
 Friends in my house. The question: does steering agents together in one thread work when several people are in it, who's talking, who the director answers, nobody stepping on anyone?
 
-The smallest thing it needs is the server knowing who's talking: a message's author comes from how the request arrived (the owner key, or localhost while invites are off; the tailnet login; an invite key), never from a name the client sends. `?user=` goes away once this is in; it was only ever for faking people. Then invites and revoking, and owner-only settings.
+The smallest thing it needs is the server knowing who's talking: a message's author comes from how the request arrived (the owner key, or localhost while invites are off; the tailnet login), never from a name the client sends. `?user=` goes away once this is in; it was only ever for faking people. No invites needed here: Tailscale's node sharing lets me add people from outside my tailnet, and the server already knows who's who from their login.
 
-The test is us: about six people simulated through real invites, each in their own browser session, steering bots in one thread.
+The test is us: about six people simulated through tailnet logins, each in their own browser session, steering bots in one thread.
 
 Inviting someone shows every runner in the house and whose machine each one is. Guests see the same list. No runner-side setting: a runner only joins a house its owner gave it the key to.
 
@@ -50,7 +50,7 @@ The director, the part that picks who answers, becomes one director made from ar
 
 ### 3. Not me
 
-Someone else runs their own, without my help. The question: is it really portable? One command, one data file, HTTPS, invite keys. This is where the name changes to arbe, and where a public address comes in, with step 2's invites ready to switch on.
+Someone else runs their own, without my help. The question: is it really portable? One command, one data file, HTTPS, invite keys. This is where the name changes to arbe, and where a public address comes in, with invites and revoking as the switch a house turns on before it gets one.
 
 Before it ships, an export that writes every thread out as Markdown or JSON, readable without ade installed.
 
