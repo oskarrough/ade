@@ -117,7 +117,7 @@ export function ThreadList() {
 				<${Show} when=${behind}>
 					<button
 						type="button"
-						class="ghost small foot-toggle"
+						class="ghost small foot-toggle update-toggle"
 						aria-label=${() =>
 							changes().length ? `Update, ${changes().length} commits` : 'Update'}
 						title=${() =>

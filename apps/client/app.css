@@ -1619,7 +1619,7 @@ connect-runner {
 	}
 }
 
-/* The list's foot: inbox, runners, then settings at its end. */
+/* The list's foot: settings and runners on the left, Update pushed to the right. */
 .list-foot {
 	position: sticky;
 	bottom: 0;
@@ -1662,8 +1662,11 @@ button.foot-toggle {
 		font-variant-numeric: tabular-nums;
 	}
 
-	&.settings-toggle {
+	&.update-toggle {
 		margin-inline-start: auto;
+	}
+
+	&.settings-toggle {
 		width: var(--small-button);
 		padding: 0;
 	}
