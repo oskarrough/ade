@@ -27,6 +27,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
   threadList, threadRow, threadView, people   what GET /api/threads returns; people kept per thread (writers), read once;
                                     newest, a thread's messages read back from its end (?last, ?after)
+  recent, older, conversationRecord   each thread's newest entries and record kept as commits land, its older ones read once; what lists, status and openQuestion read
+  harnessSettings                   Pi's settings, worked out once per change of models
   listsOf, placed, listOf           which lists a commit moves: a thread's own list, the inbox only for a question asked, answered or dismissed
   forkThread, seenBy                forks
   compact, compactingAt             compaction now, or early
