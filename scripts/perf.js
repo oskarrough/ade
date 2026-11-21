@@ -274,7 +274,10 @@ async function measure() {
 	)
 	const heap = Number(await browser('eval', 'performance.memory.usedJSHeapSize'))
 	const console = await browser('console')
-	const codes = console.match(/\[[A-Z][A-Z_]+\]/g) ?? []
+	/** Each warning once: its own line, not the help lines under it that name its code again */
+	const codes =
+		console.match(/^\[(?:warning|error)\] \[[A-Z][A-Z_]+\]/gm)?.map((line) => line.split(' ')[1]) ??
+		[]
 	const fanIn = codes.filter((code) => code === '[HUGE_FAN_IN]').length
 
 	// ── Socket and a post under load: three scripted runs while the page watches ──
