@@ -113,7 +113,7 @@ process.on('uncaughtExceptionMonitor', (error, origin) =>
 	console.error(`${origin}: ${error?.stack ?? error}`),
 )
 process.on('unhandledRejection', (reason) =>
-	console.error(`unhandledRejection: ${reason?.stack ?? reason}`),
+	console.error(`unhandledRejection: ${/** @type {any} */ (reason)?.stack ?? reason}`),
 )
 process.on('exit', (code) => logged(`exited with code ${code}`))
 process.on('exit', () => Number(readFileSync(lock, 'utf8')) === process.pid && rmSync(lock))
