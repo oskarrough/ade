@@ -5,7 +5,7 @@
  * the refresh button's icon turns.
  */
 import html from '@solidjs/html'
-import { createMemo, For, onSettled, refresh, Show, untrack } from 'solid-js'
+import { createSignal, For, onSettled, Show, untrack } from 'solid-js'
 import { openSide, PageTabs } from './side.js'
 import { Panes } from './panes.js'
 import { Icon } from './icons.js'
@@ -15,21 +15,31 @@ import { inline } from './markdown.js'
 import { busy, Busy } from './busy.js'
 import { links } from './thread.js'
 
+/** The last page fetched for each thread, kept outside the component: switching tabs away and back remounts it, and
+ * this is what lets it show that page at once instead of a flash of "Reading…". */
+const lastPage = new Map()
+
 export function Recap(props) {
 	// One thread for this column's whole life
 	const id = untrack(() => props.id)
+	const [page, setPage] = createSignal(lastPage.get(id))
 	// Fetched with ?open, so the server knows someone's looking: a page behind catches up, and answers keep it current
-	const page = createMemo(() => api(`/api/threads/${id}/recap?open`))
+	const load = () =>
+		api(`/api/threads/${id}/recap?open`).then((found) => {
+			lastPage.set(id, found)
+			setPage(found)
+		})
 	onSettled(() => {
-		const timer = setInterval(() => refresh(page), 5000)
+		load()
+		const timer = setInterval(load, 5000)
 		return () => clearInterval(timer)
 	})
 	const rewrite = busy(async () => {
 		await api(`/api/threads/${id}/recap`, {})
-		refresh(page)
+		await load()
 	})
 	// Turning while this column asked, or while the recap is rewritten after an answer
-	const state = () => rewrite.state() || (page().writing ? 'busy' : '')
+	const state = () => rewrite.state() || (page()?.writing ? 'busy' : '')
 	const writing = () => state() === 'busy'
 	return html`
 		<aside class="side recap" aria-label="Recap">
@@ -49,17 +59,19 @@ export function Recap(props) {
 				onClose=${(_event) => openSide(id, null)}
 			>
 				<${Show}
-					when=${() => page().page}
+					when=${() => page()?.page}
 					fallback=${html`<p class="mute">
 						${() =>
-							page().writing
-								? 'Writing the recap…'
-								: 'No recap yet. It is written after the next answer, or now with ↻.'}
+							!page()
+								? 'Reading…'
+								: page().writing
+									? 'Writing the recap…'
+									: 'No recap yet. It is written after the next answer, or now with ↻.'}
 					</p>`}
 				>
 					<${Page} text=${() => page().page} thread=${id} />
 				<//>
-				<${Show} when=${() => page().writtenAt}>
+				<${Show} when=${() => page()?.writtenAt}>
 					<p class="mute">
 						<small
 							>${() =>

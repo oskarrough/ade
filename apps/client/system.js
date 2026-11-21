@@ -1,6 +1,6 @@
 /** The client, server, threads and runners, with the routes between them. */
 import html from '@solidjs/html'
-import { createMemo, For, Loading, onSettled, Show } from 'solid-js'
+import { createMemo, For, onSettled, Show } from 'solid-js'
 import { columns, connected, current, inboxOpen, runners, server, threadOf, url } from './server.js'
 import { Inbox } from './inbox.js'
 import { rowOf } from './agent.js'
@@ -105,11 +105,7 @@ export function System() {
 												: key === 'director'
 													? html`<${Director} id=${id} />`
 													: key === 'recap'
-														? html`<${Loading}
-																fallback=${html`<aside class="side"><p class="mute">Reading the page…</p></aside>`}
-															>
-																<${Recap} id=${id} />
-															<//>`
+														? html`<${Recap} id=${id} />`
 														: html`<${DetailsPage} id=${id} />`}
 									<//>
 									<${SideEdge} after />
