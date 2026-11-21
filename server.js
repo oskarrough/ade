@@ -76,14 +76,10 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {true} [error]  The agent gave no answer.
  * @property {true} [stopped]  Its author pressed Stop while the thread was working; the body says `stopped`.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
- * @typedef {{ id: number, kind: 'ade.message', data: Message }} Entry
  * @typedef {{ name: string, conversation: import("@earendil-works/pi-durable").ConversationId, to: To | null, status: string, contextWindow?: number }} Agent  An agent or bot, as a thread view shows it.
  * @typedef {{ conversation: import("@earendil-works/pi-durable").ConversationId, unseen: number[], admission?: { admit: number, deliver: number }, note?: string }} Recipient
  *   A thread doc's row for its agent or a bot: its conversation, the thread messages it hasn't seen, its latest input's
  *   tasks, and what to tell it about a change before its next one.
- * @typedef {{ agent: number, upTo: number, admit: number }} Delivery  One input to an agent: what it hasn't seen up to
- *   the message `upTo` that asked, taken when Admit submits it.
- * @typedef {{ author: string, command: string, to: To }} Command
  */
 
 // ── Start-up: store lock and port ─────────────────────────────────────────
@@ -2413,11 +2409,7 @@ function nudge() {
 	}
 }
 
-/**
- * The lists a browser fetches, by the names its socket hears them changed by: threads, archived, runners, bots and
- * inbox. A thread's change names the list it's in; the inbox, only a question asked, answered or dismissed.
- */
-/** A runner coming or going moves every agent on it, in either list */
+/** The lists a browser fetches again when its socket names them; a runner coming or going moves every agent on it */
 const WORK = ['threads', 'archived', 'runners']
 const docLists = {
 	'ade.runners': WORK,
@@ -2425,7 +2417,7 @@ const docLists = {
 	'ade.lent': ['runners'],
 	'ade.bots': ['threads', 'archived', 'bots'],
 }
-/** Each thread's place, kept from its doc as it changes: archived or not, its dismissed question, and whether a question waits on a person */
+/** Each thread's place, kept from its doc as it changes: archived or not, and its dismissed question */
 const placed = new Map()
 /** Each thread's work tasks heard start and not yet end */
 const workIn = new Map()
