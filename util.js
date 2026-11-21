@@ -100,7 +100,9 @@ export function field(value, name) {
 
 /** Whether an agent wrote it, in this thread or from another */
 export const byAgent = (message) =>
-	Boolean(message.answer || message.error || message.from || message.waitingOnPerson)
+	Boolean(
+		message.answer || message.error || message.from || message.waitingOnPerson || message.wake,
+	)
 
 /** A message's text, with what its shell command gave */
 export const written = (message) =>
@@ -115,7 +117,7 @@ export function said({ data: message }, plain = false) {
 	if (plain && !byAgent(message)) return written(message)
 	const from = String(message.author).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)
 	const agent = byAgent(message)
-		? ` agent${message.from ? ` thread="${message.from}"${message.re ? ' answering' : ''}` : ''}`
+		? ` agent${message.from ? ` thread="${message.from}"${message.re ? ' answering' : ''}` : ''}${message.wake ? ' wake' : ''}`
 		: ''
 	/** A body can't open or close a tag of this name, so nothing in it can pass for someone else's message */
 	return `<message from="${from}"${agent}>\n${written(message).replace(/<(\/?message)/gi, '&lt;$1')}\n</message>`

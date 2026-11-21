@@ -63,6 +63,7 @@ So, what's different about this one? Not much, but it adds patterns I've found u
 - move threads to and from pi (`pi-sessions`, off by default)
 - agents leave you questions only you can answer, and carry on meanwhile; the thread waits on you until you write (`blocked`, off by default)
 - one inbox for every question agents ask you, answered right there (`inbox`, off by default, with `blocked`)
+- agents come back to a thread later, once or every so often, and you see and cancel what's pending (`wake`, off by default)
 
 In a group (the thread's agent plus bots, at least two), leave `to` out to let the director choose who answers, or nobody. The message is saved at once; the director's pick comes after and shows on it as its `to` and `picked`. `@name` asks that bot for one message; the next unaddressed message goes to the director again. People don't count toward the group. Solo chats and `$` commands keep the last recipient.
 
@@ -73,6 +74,8 @@ The chooser is a small model on the thread agent's runner (the first bot's in a 
 With `blocked` on, `ask_person` posts the agent's question in the thread and returns at once: the agent goes on with what doesn't depend on the answer, or ends its turn, and your reply reaches it as an ordinary message. Its message carries `waitingOnPerson: true`; the latest marked question stays open until any person posts a message after it, and a newer question replaces an older open one. Agent messages and reads do not clear it, and restarts keep it. The sidebar's Blocked filter lists blocked threads, including child threads and bot homes; the same dot also marks threads waiting for an offline runner.
 
 With `inbox` on too, the sidebar's Inbox takes the Blocked filter's place: every open question, newest first, with its thread, who asked, when, and the recap's line when `recap` is on. You answer under the question as you would in its thread, and it leaves the inbox; Dismiss hides it until that thread asks again, on every device.
+
+With `wake` on, an agent's `wake({in, every, note})` returns at once; when its time comes, its note arrives in the thread as a message from that agent to itself, marked `wake`, and it answers as to any message. A wake survives a restart (one due while the server was down fires once on start) and the thread's Stop; above the composer each pending wake says when and what, and × cancels it. Archiving the thread cancels them all. The first cut wakes on time only; waking when another thread finishes, or on an outside event, comes later.
 
 For each module's settings, see the top of its file in [modules/](modules). A module there with `export const on = true` is on by default; a new file there is a new module.
 

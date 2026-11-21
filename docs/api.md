@@ -103,6 +103,15 @@ POST   /api/threads/:id/inbox {dismiss}   hides that question (its message id) u
 
 A question leaves the inbox once a person writes in its thread, the same moment the thread stops being blocked. A dismissed one stays blocked; it's only out of the inbox.
 
+With `wake` on:
+
+```
+GET    /api/threads/:id/wake            [{id, at, every?, note, agent}], soonest first: the thread's pending wakes
+POST   /api/threads/:id/wake {cancel}   cancels that wake (its id)
+```
+
+A wake that fires posts `{author, body: note, wake: id, to: [author]}`: the agent that set it, asking itself.
+
 The routes are in `server.js`, the runner protocol in [remote.js](../remote.js).
 
 The CLI is the same API from a terminal:

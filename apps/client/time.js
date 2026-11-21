@@ -22,6 +22,16 @@ const ago = (time, now) => {
 	return clockOf(time)
 }
 
+/** How far off a time ahead is: in 4m, in 2h today, else its weekday and clock time */
+export const ahead = (time) => {
+	const now = minute()
+	const left = time - now
+	if (left < 60_000) return 'in a moment'
+	if (left < HOUR) return `in ${Math.round(left / 60_000)}m`
+	if (dayOf(time) === dayOf(now)) return `in ${Math.round(left / HOUR)}h`
+	return `${new Date(time).toLocaleDateString('en-GB', { weekday: 'short' })} at ${clockOf(time)}`
+}
+
 /** Today, Yesterday, or Tue 18 Nov, with the year when it isn't this one */
 const dayLabel = (time, now) => {
 	const days = Math.round((dayOf(now) - dayOf(time)) / (24 * HOUR))

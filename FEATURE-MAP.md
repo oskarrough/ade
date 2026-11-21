@@ -15,6 +15,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
                                     `fresh`/newerThan: a newer message takes over a pending pick
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
   afterCommit, moduleWork           best-effort work once a server commit is stored; modules' task kinds that count as a thread working
+  core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
   outcome, tell, restore, faulted   what a finished delivery posts back (a bot's answer asks whom direct says), or a failure says
   reachable                         a message waits for its agent's runner, following the agent if it moves
@@ -32,7 +33,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   earlier, covers                   an earlier page on request, after the agent turns that reach back to it
   mintKey, revoke, upgrade          runner keys and the runner's socket; a module's own thread socket (its `connect`)
   saveSettings, restart, connectSelf   settings, restart, the server lending its own machine, under the name it first got
-echo.js                  echo/try scripted model responses: file tools, slow commands, posts, `ask` questions, bots, director and recap
+echo.js                  echo/try scripted model responses: file tools, slow commands, posts, `ask` questions, `wake` calls, bots, director and recap
 runner.js                a runner: offers its models and folder shortcuts, connects, runs agents in any folder on its machine
 runner-updater.js        what `curl <server>/connect-runner | sh` starts (it saves the key in ~/.config/ade/key.<name>); keeps the runner up to date
 remote.js                the runner protocol, both ends: createRunners (server), serveRunner (runner),
@@ -75,6 +76,9 @@ modules/
   blocked.js             `ask_person` posts an explicitly marked question; openQuestion reads the latest relevant message via server.js latestMessage: the question, unless a person has replied, used by server.js status and core.openQuestion; off by default
   inbox.js               every thread's open question, newest first (questions, over core.openQuestion), serve (GET /api/inbox,
                          POST a dismissal, kept as the Thread doc's `dismissed`); off by default
+  wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
+                         sleeps again), pending (the thread's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake),
+                         archiving cancels them; duration parses 5m, 1h30m; off by default
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)
@@ -130,6 +134,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   runner.js              runner list, a runner's agents, ConnectRunner
   bot.js                 a bot's settings, its threads row, new bot; botThreads shares its own/elsewhere lists
   thread-list.js         the thread list, its family rows, the Blocked filter (including children and bot homes), or with inbox on, the Inbox toggle
+  wake.js                Wakes, the thread's pending wakes above the composer as `.notice` lines with × (refetched as its status moves);
+                         WakeSet, a wake call's row in the chat (run.js LASTING); WokeLine under a message a wake posted
   inbox.js               Inbox, in the threads' place while open (server.js inboxOpen/openInbox; system.js): a `.thread.inbox` column whose
                          rows (Question) hold the thread link, who asked and when, the recap's newest open line (RecapLine, recap.js topicsOf),
                          the question (thread.js Body) and composer.js `Composer` with `inbox`, which sends without opening the thread; Dismiss
@@ -198,6 +204,7 @@ Where a feature lives:
 - Status dots: server.js status/busiest, client dot.js. Explicit questions waiting on a person: modules/blocked.js, util.js byAgent.
 - The inbox: modules/inbox.js (over blocked's openQuestion), client inbox.js, server.js inbox/dismiss/inboxOpen, thread-list.js (its toggle), system.js (in the threads' place), composer.js `inbox`.
 - Pi session files, both ways: modules/pi-sessions.js; the runner's messages are `pi-session`, `pi-session-list` and `pi-session-read` in remote.js serveRunner, shipped with the runner through RUNNER_FILES; cli.js `import`.
+- Wakes: modules/wake.js, util.js byAgent/said (`wake` marks the message), client wake.js, composer.js (the strip), thread.js (rows, WokeLine), time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, client settings.js.
 
 ## UI parts

@@ -62,6 +62,8 @@ No hosted pilot. Hosting versus audience comes back up only if people still won'
 
 One primitive: wake a thread when something happens, without anyone posting to it, built on Pi Durable's stored sleeps and signals. Three triggers. A time: an agent scheduling itself ("check CI in 5 minutes") or a recurring routine. Another thread finishing: a review that opens once its fix lands, the dependency idea from Vercel Board. An outside event, the last and optional piece: a push or an email, with MCP Events one possible source. arbe's scheduler is the reference to port from.
 
+The first cut has landed as the `wake` module: time only, `wake({in, every, note})`, a background stored sleep per wake that posts the note back to its agent, survives restarts and Stop, and shows above the composer with × to cancel. Next is `wake({after: N})`: the server signals a thread's waiting wakes when another thread's work ends. Outside events stay last.
+
 ## Parts bin
 
 From arbe, each as a module when a step misses it, not before: limits per thread ([capabilities](https://arbe.0sk.ar/docs/thinking/capabilities/)), shared files ([files](https://arbe.0sk.ar/docs/files/)), workflows ([workflows](https://arbe.0sk.ar/docs/workflows/)), secrets kept out of the model's context ([secrets](https://arbe.0sk.ar/docs/system/access/secrets/)), rented sandboxes as runners ([environments](https://arbe.0sk.ar/docs/system/sandboxes/environments/)), search ([thread search](https://arbe.0sk.ar/docs/system/chat/thread-search/)), usage ([usage & cost](https://arbe.0sk.ar/docs/usage-cost/)), teams ([teams](https://arbe.0sk.ar/docs/system/access/teams/)), and the CLI's best commands ([CLI](https://arbe.0sk.ar/docs/cli/)).

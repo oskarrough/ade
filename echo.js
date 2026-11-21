@@ -55,6 +55,12 @@ export const tryEcho = (request) => {
 		return call('ask_person', { body: text(latest).slice(4) })
 	if (latest.role === 'toolResult' && latest.toolName === 'ask_person')
 		return say('Asked; waiting for your answer.')
+	// "wake 5m <note>" or "wake every 1m <note>" sets a wake, with wake on
+	const waking =
+		latest.role === 'user' &&
+		/(?:^|<message from="[^"]*">\n)wake (every )?(\S+) (.+?)(?:\n<\/message>)?$/s.exec(text(latest))
+	if (waking) return call('wake', { [waking[1] ? 'every' : 'in']: waking[2], note: waking[3] })
+	if (latest.role === 'toolResult' && latest.toolName === 'wake') return say('Wake set.')
 	const bot = bots(request)
 	if (bot) return bot
 	const last = request.messages.findLastIndex((m) => m.role === 'user')

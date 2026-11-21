@@ -60,6 +60,7 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {number[]} [re]  What it answers: messages here, or with `from`, posts there.
  * @property {{ conversation: import("@earendil-works/pi-durable").ConversationId, entry: number }} [answer]  The agent's entry it copies.
  * @property {true} [waitingOnPerson]  An agent's explicit question, open until a person next writes.
+ * @property {number} [wake]  The wake that posted it: an agent's own note, back to it when its time came.
  * @property {true} [error]  The agent gave no answer.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
  * @typedef {{ id: number, kind: 'ade.message', data: Message }} Entry
@@ -1615,6 +1616,9 @@ const core = {
 	fresh,
 	afterCommit,
 	abortTask: (id) => harness.abortTask(id, context),
+	/** One task's latest record, or every task matching `query` (Pi's TaskQuery) */
+	task: (id) => storage.task(id, context),
+	tasks: (query) => collect((cursor) => storage.scanTasks(query, 200, cursor, context)),
 	/**
 	 * Tells each page watching a thread what a module is doing there, as it happens; nothing is kept. An event is
 	 * `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), others are the module's own.

@@ -69,6 +69,7 @@ import { markdown } from './markdown.js'
 import { sideOf, toggleSide } from './side.js'
 import { heardActivity } from './director.js'
 import { CanvasRow } from './canvas.js'
+import { WakeSet, WokeLine } from './wake.js'
 
 /** A folded summary's text, without the literal <summary> wrapper tags some memories still carry */
 const stripSummaryTag = (text) =>
@@ -277,6 +278,14 @@ export function Thread(props) {
 							return {
 								key: `${row.key}:${step.name}:${step.key}`,
 								drew: step,
+								agent: row.agent,
+								at,
+								time,
+							}
+						if (step.name === 'wake')
+							return {
+								key: `${row.key}:${step.name}:${step.key}`,
+								wake: step,
 								agent: row.agent,
 								at,
 								time,
@@ -797,10 +806,14 @@ export function Thread(props) {
 									`}
 								>
 									<${Show}
-										when=${() => !row().changed}
-										fallback=${() => html`
-											<${Changed} step=${() => row().changed} agent=${() => row().agent} />
-										`}
+										when=${() => !row().changed && !row().wake}
+										fallback=${() =>
+											row().wake
+												? html`<${WakeSet} step=${() => row().wake} agent=${() => row().agent} />`
+												: html`<${Changed}
+														step=${() => row().changed}
+														agent=${() => row().agent}
+													/>`}
 									>
 										<${Show}
 											when=${() => !row().asked}
@@ -919,6 +932,7 @@ function Message(props) {
 					>${() => data().picked}
 				</div>
 			<//>
+			<${WokeLine} data=${() => data()} />
 			<${For} each=${forks}
 				>${(fork) => html`
 					<div class="links">
