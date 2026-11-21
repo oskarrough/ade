@@ -169,13 +169,15 @@ export function server(core) {
 			const records = recordsOf(storage)
 			const all = { ...records }
 			const renamed = {}
+			/** In the order the actions touched them, as canvas_act answers them */
+			const touched = new Set()
 			const applied = actions.map((action) => {
 				const type = action?._type
 				if (!ALONE.includes(type)) return { _type: type, skipped: 'not one ade does' }
 				try {
 					for (const record of apply(action, all, by, renamed))
 						if (record.gone) delete all[record.id]
-						else all[record.id] = record
+						else touched.add((all[record.id] = record).id)
 					return { _type: type, ok: true }
 				} catch (error) {
 					return { _type: type, skipped: error.message }
@@ -191,7 +193,7 @@ export function server(core) {
 			const now = recordsOf(storage)
 			return {
 				applied,
-				shapes: changed
+				shapes: [...touched]
 					.filter((id) => now[id]?.typeName === 'shape')
 					.map((id) => blurry(simple(now[id], now))),
 				deleted: gone.filter((id) => id.startsWith('shape:')).map(short),
@@ -572,7 +574,11 @@ function created(shape, records, by, renamed) {
 	if (shape._type === 'arrow') {
 		if (!shape.fromId || !shape.toId)
 			throw new Error('an arrow joins two shapes: give fromId and toId')
-		const [start, end] = [shape.fromId, shape.toId].map((end) => shapeOf(end, records))
+		const [start, end] = [shape.fromId, shape.toId].map((end) => {
+			if (records[`shape:${end}`]?.typeName !== 'shape')
+				throw new Error(`No shape ${end} to point an arrow at`)
+			return records[`shape:${end}`]
+		})
 		const head = middle(start, records),
 			tail = middle(end, records)
 		const arrow = made('arrow', head.x, head.y, {
