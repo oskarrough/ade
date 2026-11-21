@@ -10,7 +10,8 @@
 		"runner": "node runner.js",
 		"examples": "node examples/all.js",
 		"perf": "node scripts/perf.js",
-		"check": "oxfmt && oxlint --type-aware --type-check"
+		"check": "oxfmt && oxlint --type-aware --type-check",
+		"desktop:release": "apps/desktop/release.sh"
 	},
 	"engines": {
 		"node": ">=24"

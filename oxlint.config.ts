@@ -6,7 +6,12 @@ export default defineConfig({
 	env: { browser: false, node: true },
 	overrides: [
 		{
-			files: ['apps/client/**/*.js', 'scripts/page-spy.js', 'scripts/solid-attribution.js'],
+			files: [
+				'apps/client/**/*.js',
+				'apps/desktop/*.js',
+				'scripts/page-spy.js',
+				'scripts/solid-attribution.js',
+			],
 			env: { browser: true, node: false },
 		},
 	],

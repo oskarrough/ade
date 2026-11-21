@@ -224,8 +224,8 @@ Where a feature lives:
 - Pi session files, both ways: modules/pi-sessions.js; the runner's messages are `pi-session`, `pi-session-list` and `pi-session-read` in remote.js serveRunner, shipped with the runner through RUNNER_FILES; cli.js `import`.
 - Wakes: modules/wake.js, util.js byAgent/said (`wake` marks the message), client wake.js, composer.js (the strip), thread.js (rows, WokeLine), time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, client settings.js.
-- A page behind its ade: server.js hashOf/clientVersion (`client` in GET /api/server, `server` named on the socket when apps/client changes), client server.js `behind`, thread-list.js (Updated · Reload in the list's foot).
-- The desktop window: apps/desktop main.go (window, links, offline page, notifications, updater), preload.js (notifications from the thread list, the clipboard on plain http).
+- A page behind its ade: server.js hashOf/clientVersion (`client` in GET /api/server, `server` named on the socket when apps/client changes), git, GET /api/changes (the commits since the page's), client server.js `behind`/`changes`, thread-list.js (Update in the list's foot, with the count of commits).
+- The desktop window: apps/desktop main.go (window, links, offline page, notifications, updater), preload.js (notifications from the thread list, the clipboard on plain http), release.sh (`pnpm desktop:release`).
 
 ## UI parts
 
