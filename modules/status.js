@@ -1,8 +1,6 @@
 /**
  * Shows on a runner's terminal what its agents are doing, in the Program Status Protocol (OSC 7501):
- * https://www.superlogical.com/rex/docs/build/program-status. The root record is the runner, one record per thread
- * that's working, done or error. Terminals ignore what they don't speak, so it writes whenever stdout is a terminal.
- * On by default; MODULES=-status turns it off. STATUS=1 writes even when stdout isn't a terminal.
+ * https://www.superlogical.com/rex/docs/build/program-status.
  */
 
 export const on = true

@@ -1,9 +1,6 @@
 /**
  * Gives each agent what pi reads in its folder before it starts, AGENTS.md and skills, found on the runner before every request,
  * and, as pi does, the folder itself, so paths and commands start there.
- * A person's message that starts `/skill:name` reaches the agent as that skill's file, then the rest of the message, as in pi;
- * `GET /api/context?runner=&dir=` lists the skills a runner's folder has, by name and description.
- * On by default; MODULES=-context turns it off.
  */
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -34,7 +31,6 @@ export function server({ runners, known, reach }) {
 			return found ? `${found}\n\n${folder}` : folder
 		},
 	}
-	/** The skills a runner's folder has, `{skills: [{name, description}]}`, for whoever may work there */
 	async function serve(threadId, query, body, by) {
 		if (threadId !== undefined || body !== undefined)
 			throw new Error('GET /api/context?runner=&dir= lists the skills in a folder')
@@ -46,7 +42,6 @@ export function server({ runners, known, reach }) {
 		const dir = path.resolve(runner.dir, query.get('dir') || '.')
 		return { skills: await runners.call(name, { op: 'context', dir, skills: true }, {}) }
 	}
-	/** A message starting `/skill:name` as pi expands it, on the agent's runner and in its folder; otherwise as it was; the thread keeps the message as typed, and an unknown skill name goes as typed */
 	async function expand(text, runner, dir, signal) {
 		if (!text.startsWith('/skill:')) return text
 		return (await runners.call(runner, { op: 'context', dir, expand: text }, { signal })) ?? text
@@ -90,7 +85,6 @@ export function runner() {
 	return { call: context }
 }
 
-/** Pi's own expansion of `/skill:name args`: the skill's file in a <skill> block, then the args; null for no such skill */
 async function skillCommand(text, skills) {
 	const space = text.indexOf(' ')
 	const name = space === -1 ? text.slice(7) : text.slice(7, space)

@@ -16,7 +16,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
                                     `fresh`/newerThan: a newer message takes over a pending pick
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
   afterCommit, moduleWork           best-effort work once a server commit is stored; modules' task kinds that count as a thread working
-  busy, endings                     whether a thread has work (a view's `busy`, cli.js going, wake); a thread's last work task ending
+  busy, endings                     whether a thread has work (a view's `busy`, CLI waits, wake); a thread's last work task ending
                                     calls modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`
   core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
   core.signal                       a signal to a sleeping task (wake's Ended)

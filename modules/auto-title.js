@@ -1,7 +1,4 @@
-/** Polishes a default thread title once after its first answer, leaving chosen titles alone. On by default; MODULES=-auto-title turns it off.
- * `POST /api/threads/:id/auto-title` writes a new one on request, whatever the title is, and answers once it's written; a rename meanwhile wins.
- * `auto-title.model` in ade.json selects a model:thinking, optionally @runner; the default is
- * the thread agent's own model and runner with thinking off (or the answering bot's with no thread agent). Failed attempts are logged, never retried.
+/** Polishes a default thread title once after its first answer, leaving chosen titles alone.
  */
 import { defineDoc, defineExtension, defineTask } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
@@ -141,7 +138,6 @@ export function server(core) {
 		},
 		abort: (task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
 	})
-	/** A new title on request, from the same model; it answers once the title is written, or with why it wasn't */
 	async function serve(threadId, query, body) {
 		if (threadId === undefined || body === undefined)
 			throw new Error('POST /api/threads/:id/auto-title writes a new title')

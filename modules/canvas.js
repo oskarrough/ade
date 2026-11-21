@@ -1,21 +1,5 @@
 /**
  * A tldraw canvas for each thread, drawn on by people in the browser and by agents with `canvas_look` and `canvas_act`.
- * Off by default; MODULES=+canvas turns it on.
- *
- * The server holds one tldraw sync room per thread that someone has open or an agent draws on, and keeps its snapshot in
- * the thread's Canvas doc, so a fork starts with the canvas as it was. A browser syncs over the socket at
- * `/api/threads/:id/canvas`, as the person the server takes it from, and only shows the board: agents draw on the room itself, whether anyone has it
- * open or not, in the starter kit's shape format (tldraw's agent starter kit, its actions' schema vendored in
- * apps/client/canvas/agent): create, update, delete, move and label. Sizes are the server's guess, since only an editor
- * lays text out; a browser that opens the board lays it out, and grows a shape whose label doesn't fit, as tldraw does
- * when a label is typed. A look reads the stored shapes, and what each person with the canvas open has selected and in
- * view, as their tab reports it (tldraw sync shares no presence with one person alone).
- *
- * `by` on a shape is who drew or changed it last: the person, or the bot's name, or the agent's model@runner, kept in its
- * `meta.by`; a shape growing to fit its label is nobody's change. `GET /api/threads/:id/canvas` answers `{shapes,
- * tldraw}`: the stored shapes, simply, and the tldraw version the client loads, the same as the server's, to speak the
- * room's protocol. `POST {actions}` acts and `{look: {bounds}}` looks, as the tools do; `{seen: {selected, view}}` is
- * a tab's report.
  *
  * The tab needs the internet the first time it opens, to load tldraw from esm.sh. On localhost or plain http tldraw runs
  * without a licence key and shows its watermark; served over https at a domain it would need a key.
@@ -92,7 +76,6 @@ const NOTE = 200
 const schema = createTLSchema()
 
 export function server(core) {
-	/** A thread's canvas: the sync room's snapshot, or null for one nobody has drawn on */
 	const Canvas = defineDoc({
 		kind: 'ade.canvas',
 		version: 1,
@@ -103,7 +86,6 @@ export function server(core) {
 		initial: () => ({ snapshot: null }),
 	})
 
-	/** Thread → its open room, while someone is connected or an agent draws */
 	const rooms = new Map()
 
 	function open(threadId) {
@@ -188,36 +170,13 @@ export function server(core) {
 		room.close()
 	}
 
-	/** Every record in the room, by id */
 	const recordsOf = (storage) =>
 		storage.transaction((txn) => Object.fromEntries(txn.entries())).result
 
-	/**
-	 * One change to a thread's canvas: `make(records)` answers the records to set and the ids to delete, and what to
-	 * answer; nothing is written if it throws. Saved before it returns.
-	 */
-	async function change(threadId, make) {
+	async function alone(threadId, actions, by) {
 		const { storage, save } = await open(threadId)
 		try {
 			const records = recordsOf(storage)
-			const { set = [], remove = [], answer } = make(records)
-			storage.transaction((txn) => {
-				for (const id of remove) txn.delete(id)
-				for (const record of set) txn.set(record.id, record)
-			})
-			await save()
-			return answer(recordsOf(storage))
-		} finally {
-			close(threadId)
-		}
-	}
-
-	/**
-	 * A batch of actions: create, update, delete, move and label, one at a time on the stored shapes, with sizes guessed,
-	 * since only an editor lays text out
-	 */
-	const alone = (threadId, actions, by) =>
-		change(threadId, (records) => {
 			const all = { ...records }
 			const gone = new Set()
 			const touched = new Set()
@@ -240,24 +199,27 @@ export function server(core) {
 					return { _type: type, skipped: error.message }
 				}
 			})
+			storage.transaction((txn) => {
+				for (const id of gone) txn.delete(id)
+				for (const id of touched) if (all[id]) txn.set(id, all[id])
+			})
+			await save()
+			const now = recordsOf(storage)
 			return {
-				set: [...touched].filter((id) => all[id]).map((id) => all[id]),
-				remove: [...gone],
-				answer: (now) => ({
-					applied,
-					shapes: [...touched]
-						.filter((id) => now[id]?.typeName === 'shape')
-						.map((id) => blurry(simple(now[id], now))),
-					deleted: [...gone].filter((id) => id.startsWith('shape:')).map(short),
-					renamed,
-				}),
+				applied,
+				shapes: [...touched]
+					.filter((id) => now[id]?.typeName === 'shape')
+					.map((id) => blurry(simple(now[id], now))),
+				deleted: [...gone].filter((id) => id.startsWith('shape:')).map(short),
+				renamed,
 			}
-		})
+		} finally {
+			close(threadId)
+		}
+	}
 
-	/** Thread → person → what their tab last reported: the shapes they have selected and the area in view */
 	const seen = new Map()
 
-	/** What each person with the canvas open has selected and in view, as their tab last said */
 	const present = (threadId, room, records) => {
 		const here = new Set(
 			room
@@ -274,7 +236,6 @@ export function server(core) {
 			}))
 	}
 
-	/** A tab's report of what its person has selected and in view; null when the tab stops showing the canvas */
 	function report(threadId, name, tab) {
 		if (!seen.has(threadId)) seen.set(threadId, new Map())
 		if (!tab) return void seen.get(threadId).delete(name)
@@ -303,10 +264,6 @@ export function server(core) {
 		return { shapes, people }
 	}
 
-	/**
-	 * What's in an area, or the whole drawing: its shapes, simply, with sizes as stored; and, while anyone has the canvas
-	 * open, what each has selected and in view
-	 */
 	const look = async (threadId, bounds) => {
 		const { shapes, people } = await read(threadId, bounds)
 		return {
@@ -316,7 +273,6 @@ export function server(core) {
 		}
 	}
 
-	/** Who a tool call is: the bot's name, or the agent's model@runner, and its thread */
 	const caller = async (api) => {
 		const found = await core.home(api.conversationId)
 		return { threadId: found?.thread, by: found?.name ?? 'an agent' }
@@ -357,10 +313,6 @@ export function server(core) {
 
 	return {
 		extension: defineExtension({ name: 'ade.canvas', tools: [canvasLook, canvasAct] }),
-		/**
-		 * GET: the stored shapes, simply, and the tldraw version. POST {actions}: canvas_act as the person asking; {look:
-		 * {bounds}}: canvas_look; {seen: {selected, view}}: what the person asking has selected and in view, or null
-		 */
 		async serve(threadId, query, body, user) {
 			if (threadId === undefined) throw new Error('A canvas is at /api/threads/:id/canvas')
 			if (body === undefined) return { shapes: (await read(threadId)).shapes, tldraw: version }
@@ -372,7 +324,6 @@ export function server(core) {
 			}
 			throw new Error('POST {actions}, {look} or {seen}')
 		},
-		/** A browser's tldraw sync socket, at /api/threads/:id/canvas; `by` is who opened it, as the server knows them */
 		async connect(threadId, socket, url, by) {
 			if (threadId === undefined)
 				return socket.close(4000, 'a canvas is at /api/threads/:id/canvas')
@@ -388,7 +339,6 @@ export function server(core) {
 	}
 }
 
-/** Each action's past tense, for the line that says what a batch did */
 const DID = {
 	create: 'drew',
 	update: 'changed',
@@ -397,10 +347,6 @@ const DID = {
 	label: 'labelled',
 }
 
-/**
- * What a batch did, in a few words, and what it didn't and why: "moved 3, deleted 1; not done: align, stack (needs the
- * canvas open in front of someone)"; the chat shows it as the call's row
- */
 function summary(applied) {
 	const counts = new Map()
 	const why = new Map()
@@ -412,21 +358,21 @@ function summary(applied) {
 	return `${done || 'did nothing'}${not.length ? `; not done: ${not.join('; ')}` : ''}`
 }
 
-/** A stored shape as the starter kit's blurry shape: its id, type, bounds and text */
+const boundsOf = (shape) =>
+	shape.type === 'arrow'
+		? {
+				x: Math.min(shape.x1, shape.x2),
+				y: Math.min(shape.y1, shape.y2),
+				w: Math.abs(shape.x2 - shape.x1),
+				h: Math.abs(shape.y2 - shape.y1),
+			}
+		: { x: shape.x, y: shape.y, w: shape.w ?? 0, h: shape.h ?? 0 }
+
 function blurry(shape) {
-	const box =
-		shape.type === 'arrow'
-			? {
-					x: Math.min(shape.x1, shape.x2),
-					y: Math.min(shape.y1, shape.y2),
-					w: Math.abs(shape.x2 - shape.x1),
-					h: Math.abs(shape.y2 - shape.y1),
-				}
-			: { x: shape.x, y: shape.y, w: shape.w ?? 0, h: shape.h ?? 0 }
 	return {
 		shapeId: shape.id,
 		type: FOCUSED[shape.type] ?? shape.type,
-		...box,
+		...boundsOf(shape),
 		...(shape.text && { text: shape.text }),
 		...(shape.by && { by: shape.by }),
 	}
@@ -449,7 +395,6 @@ function anchored(anchor = 'top-left', { w = 0, h = 0 }) {
 	}
 }
 
-/** One action on the stored records, as the records it changes; a deleted one is {id, gone: true} */
 function apply(action, records, by, renamed) {
 	const page = Object.values(records)
 		.filter((record) => record.typeName === 'page')
@@ -556,10 +501,8 @@ function apply(action, records, by, renamed) {
 
 const byIndex = (one, other) => (one.index < other.index ? -1 : one.index > other.index ? 1 : 0)
 
-/** A record that says who changed it last */
 const stamped = (record, by) => ({ ...record, meta: { ...record.meta, by } })
 
-/** Where a shape sits on the page, however deep it is */
 function onPage(shape, records) {
 	let { x, y } = shape
 	for (let parent = records[shape.parentId]; parent?.typeName === 'shape';) {
@@ -570,7 +513,6 @@ function onPage(shape, records) {
 	return { x, y }
 }
 
-/** A shape's size as agents see it, when it has one */
 function sizeOf(shape) {
 	const { props } = shape
 	const scale = props.scale ?? 1
@@ -594,14 +536,12 @@ function textSize({ props }) {
 	}
 }
 
-/** The middle of a shape on the page, where a bound arrow points */
 function middle(shape, records) {
 	const { x, y } = onPage(shape, records)
 	const { w = 0, h = 0 } = sizeOf(shape)
 	return { x: x + w / 2, y: y + h / 2 }
 }
 
-/** The shapes an arrow's ends are bound to, by terminal */
 const endsOf = (arrow, records) =>
 	Object.fromEntries(
 		Object.values(records)
@@ -619,7 +559,6 @@ function grew(prev, next) {
 	return Boolean(prev) && layout(prev) === layout(next)
 }
 
-/** A shape as agents see it, on the page; an arrow as the shapes it joins and where its ends are now */
 function simple(shape, records) {
 	const { props } = shape
 	const text = props.richText ? plain(props.richText) : props.text
@@ -659,22 +598,13 @@ function simple(shape, records) {
 	}
 }
 
-/** Rich text's words, a line per paragraph */
 const plain = (node) =>
 	node.type === 'text'
 		? node.text
 		: (node.content ?? []).map(plain).join(node.type === 'doc' ? '\n' : '')
 
 const overlaps = (shape, area) => {
-	const [x, y, w, h] =
-		shape.type === 'arrow'
-			? [
-					Math.min(shape.x1, shape.x2),
-					Math.min(shape.y1, shape.y2),
-					Math.abs(shape.x2 - shape.x1),
-					Math.abs(shape.y2 - shape.y1),
-				]
-			: [shape.x, shape.y, shape.w ?? 0, shape.h ?? 0]
+	const { x, y, w, h } = boundsOf(shape)
 	return x <= area.x + area.w && x + w >= area.x && y <= area.y + area.h && y + h >= area.y
 }
 
@@ -698,7 +628,6 @@ const base = (id, x, y, index, parentId, by) => ({
 	meta: { by },
 })
 
-/** A tldraw record from a simple shape, with the starter kit's defaults */
 function record({ type, x, y, w, h, text = '', color, fill, id }, parentId, index, records, by) {
 	if (typeof x !== 'number' || typeof y !== 'number') throw new Error(`A ${type} needs x and y`)
 	const geo = type
@@ -758,7 +687,6 @@ function record({ type, x, y, w, h, text = '', color, fill, id }, parentId, inde
 	return shape
 }
 
-/** An arrow from one shape's middle to another's, and the two bindings that keep its ends on them */
 function arrow({ from, to, text = '', color, id }, parentId, index, records, by) {
 	const [start, end] = [from, to].map((end) => {
 		const shape = records[`shape:${end}`]

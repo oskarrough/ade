@@ -1,11 +1,6 @@
 /**
  * A bot is one name in many threads: a home thread, the agent it joins as, instructions, and the hue it's shown in if
- * someone picked one. A new bot starts with empty instructions; at home it rewrites them with the `bot` tool, from
- * then on in her own words. Every bot's prompt also carries `voice`, one shared instruction rendered just before its
- * own: a chatty default, editable in settings (`bots.voice` in ade.json), that applies to every bot at once. Ask
- * `ada` anywhere and an agent named ada joins as that, with every tool a thread agent has. Renamed, a bot keeps all
- * that, and its agent in each thread answers to the new name; its home thread always shows its name. On by default;
- * MODULES=-bots turns it off.
+ * someone picked one.
  */
 import { obj, opt, str } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTool } from '@earendil-works/pi-durable'
@@ -14,11 +9,9 @@ import { AGENT, agentTo } from '../util.js'
 
 export const on = true
 
-/** The shared voice every bot starts with and reads on top of its own instructions, until settings override it */
 export const DEFAULT_VOICE =
 	'Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. Everyone here already sees the thread, tool calls and posts; say only what\'s new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can\'t, say you\'re guessing.\nWhen you hand work to another agent, keep the brief short: the goal, the boundaries and how to tell it\'s done, not the steps. Aim high and make it measurable ("make this 10x faster", "test it against the old version and close every gap"), not "optimize this".'
 
-/** A bot's name → { home, to, instructions, color? }: color is a hue someone picked; without one, a bot gets its hue from the order bots were made */
 const Bots = defineDoc({
 	kind: 'ade.bots',
 	version: 1,
@@ -36,7 +29,6 @@ export function server(core) {
 			answeredAt: bot.answeredAt ?? null,
 		}))
 
-	/** The shared instruction every bot's prompt carries just before its own instructions; empty means none */
 	const voice = core.config?.bots?.voice ?? DEFAULT_VOICE
 
 	async function valid(name) {
@@ -89,7 +81,6 @@ export function server(core) {
 		return JSON.parse(JSON.stringify({ name, ...all[name] }))
 	}
 
-	/** For a bot's home, each thread that asked her: its question, its first message, and her answer to it, once there is one */
 	const askedHome = (ids) =>
 		Promise.all(
 			ids.map(async (thread) => {
@@ -129,10 +120,8 @@ export function server(core) {
 		return bot && { ...bot.to, name }
 	}
 
-	/** What a bot is, in its own words; empty until it writes them */
 	const instructionsOf = async (name) => (await bots())[name]?.instructions
 	const botNames = async () => Object.keys(await bots())
-	/** Each bot's home thread → its name: a home shows its bot's name, whatever its stored title */
 	const homesOf = async () =>
 		Object.fromEntries(Object.entries(await bots()).map(([name, bot]) => [bot.home, name]))
 
@@ -167,7 +156,6 @@ export function server(core) {
 				instructions: args.instructions,
 				to: args.model ?? (name === at.name ? undefined : { ...own, name: undefined }),
 			})
-			/** What she was before, read in the same commit as the change: the call's result keeps it as `details.before`, `{instructions, model}`, so a thread can show old against new */
 			const made = await core.once(`bot ${api.taskId}`, 'bot', async (tx) => {
 				const was = (await tx.doc(Bots))[name]
 				const before = was && {
@@ -233,7 +221,6 @@ export function server(core) {
 		homesOf,
 		settings: { voice },
 		extension: defineExtension({ name: 'ade.bots', tools: [bot], sections: [section] }),
-		/** A bot's answer, here or anywhere it's asked, stamps when: the moment the sidebar sorts bots by */
 		async posted(tx, threadId, entry) {
 			if (!entry.data.answer) return
 			const all = await tx.doc(Bots)

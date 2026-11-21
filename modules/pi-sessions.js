@@ -1,9 +1,4 @@
 /** Writes each agent's conversation as a pi session file on its runner, in the folder's own sessions directory, so `pi --resume` there lists it and carries on, and starts a thread from a pi session there.
- * Off by default; MODULES=+pi-sessions turns it on. One file per conversation, so a fork starts its own on its first message,
- * and a file only grows, as entries commit; a runner that was offline writes what it missed when it comes back.
- * Nothing syncs: what someone adds to a file in pi, ade never reads. `GET /api/pi-sessions?runner=r&dir=d` lists a folder's pi sessions and
- * `POST /api/pi-sessions {runner, dir?, session, title?}` copies what pi would hand its model from one into a new thread, as whoever asks; importing again after more work in pi makes another thread.
- * A runner writes where pi would: `PI_CODING_AGENT_SESSION_DIR` or the `sessionDir` setting there, else `~/.pi/agent/sessions/--<folder>--/`.
  */
 import { existsSync } from 'node:fs'
 import { appendFile, mkdir, open as openFile, readdir, readFile } from 'node:fs/promises'
@@ -27,7 +22,6 @@ import {
 
 export const on = false
 
-/** Conversations the server follows, `conversation` → { thread, session, seen, last, where, titled, failed }; a tick looks only at the newest entry of each */
 export async function server(core) {
 	// Server-only files, which a runner doesn't have
 	const { AGENT, writtenTo } = await import('../util.js')
@@ -161,7 +155,6 @@ export async function server(core) {
 					.map((part) => part.text)
 					.join('')
 
-	/** The runner's folder a request names, if the runner takes work from whoever asks */
 	async function folderOf({ runner: name = undefined, dir = undefined }, by) {
 		const known = await core.known()
 		const runner = name && known[name]
@@ -171,7 +164,6 @@ export async function server(core) {
 		return { name, cwd: path.resolve(runner.dir, dir || '.') }
 	}
 
-	/** What pi would hand its model from a session, copied into a new thread: the user's messages as the thread's, the agent's last words of each turn as its answers */
 	async function bring({ runner, dir, session, title }, by) {
 		const { name, cwd } = await folderOf({ runner, dir }, by)
 		const listed = await core.runners.call(name, { op: 'pi-session-list', cwd }, {})
@@ -183,7 +175,6 @@ export async function server(core) {
 			.find((message) => message.role === 'user')
 		if (!first) throw new Error('That session has no messages to bring')
 		const asked = { runner: name, dir: cwd }
-		/** The session's own model and thinking, or the runner's defaults when it hasn't them */
 		const to = await core
 			.address({
 				...asked,
@@ -260,7 +251,6 @@ export async function server(core) {
 		return { id: thread }
 	}
 
-	/** `GET /api/pi-sessions?runner=r&dir=d` lists the pi sessions of a folder; `POST` with `session` brings one in; a thread's own says where it came from */
 	async function serve(threadId, query, body, by) {
 		if (threadId !== undefined) {
 			if (body !== undefined)
@@ -280,7 +270,6 @@ export async function server(core) {
 
 	return {
 		serve,
-		/** Threads that just heard from someone: their agents are followed from the next tick */
 		posted: (tx, threadId) => void touched.add(threadId),
 		async changed() {
 			const threads = [...touched]
@@ -304,7 +293,6 @@ const SUMMARY_PREFIX =
 	'The conversation history before this point was compacted into the following summary:\n\n<summary>\n'
 const SUMMARY_SUFFIX = '\n</summary>'
 
-/** Where pi would keep this folder's sessions: its environment variable or setting, else under pi's agent folder */
 function sessionDir(cwd) {
 	const asked =
 		process.env.PI_CODING_AGENT_SESSION_DIR || SettingsManager.create(cwd).getSessionDir()
@@ -316,7 +304,6 @@ function sessionDir(cwd) {
 	return path.join(getAgentDir(), 'sessions', safe)
 }
 
-/** Open sessions by folder and id: where ade's own entries end */
 const opened = new Map()
 
 async function open(dir, id) {
@@ -451,7 +438,6 @@ export async function writePiSession({ session, cwd, entries, title }) {
 	return { last: state.last }
 }
 
-/** The pi sessions of a folder, newest first, as pi lists them for `--resume` */
 export async function listPiSessions({ cwd }) {
 	const dir = sessionDir(cwd)
 	if (!existsSync(dir)) return []
@@ -501,7 +487,6 @@ async function lastWords(file) {
 	}
 }
 
-/** One of those sessions: what pi hands its model from its active branch, and the model and thinking it ended on. Read as pi loads it, but never written back. */
 export async function readPiSession({ cwd, file }) {
 	const dir = sessionDir(cwd)
 	const full = path.resolve(file)

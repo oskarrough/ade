@@ -162,7 +162,7 @@ async function post() {
 				.map((agent) => agent.to?.runner)
 			if (blocked.join() !== waiting && (waiting = blocked.join()))
 				console.error(`waiting for ${waiting}, offline…`)
-			if (!going(view)) return
+			if (!view.busy) return
 			if ((await changes.next()).done)
 				throw new Error('Server disconnected while waiting for the answer')
 		}
@@ -181,9 +181,6 @@ async function lastAsk(id) {
 		if (entries.length < last) return 0
 	}
 }
-
-/** Still going: the thread has work (an agent answering or waiting for its runner, a command); a question alone settles it */
-const going = (view) => view.busy
 
 const commands = {
 	post,
@@ -212,7 +209,7 @@ const commands = {
 			await once(socket, 'open')
 			for (;;) {
 				const view = await api('GET', `/api/threads/${id}?last=0`)
-				if (!going(view)) {
+				if (!view.busy) {
 					// What came after the newest message that asked someone
 					const after = flags.after ? Number(flags.after) : await lastAsk(id)
 					return (await api('GET', `/api/threads/${id}?after=${after}`)).entries.forEach(show)

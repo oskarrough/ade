@@ -1,18 +1,6 @@
 /**
  * Gives each thread a memory: one short line per message, pairs of lines merged going up, so an agent reads the lines
- * instead of every word and zooms back down with `zoom` (experimental). A message of at most 512 bytes is its own line
- * and costs no model call. A longer one gets its line only when it's needed: once an agent that has seen it passes 70%
- * of `memory.compactAt`, or when someone opens the memory view. Merges are written only when a compaction shows them.
- * On by default; MODULES=-memory turns it off. Memory uses a small model on the thread agent's runner: Haiku for
- * Anthropic or Claude Code agents, Luna otherwise, both with low thinking. If the runner doesn't list that model,
- * memory uses the thread agent's own model and thinking. With no agent yet, a bot supplies its runner;
- * with neither, the lines wait. A model in settings, `memory.model` in ade.json or MEMORY_MODEL=model@runner, can
- * write every thread's lines instead. Past `memory.compactAt` tokens, 100k unless set, an agent's context is
- * compacted into the lines.
- *
- * A thread with a bot in it remembers; one without doesn't, unless its own switch, POST /api/threads/:id/memory
- * {on}, overrides that in either direction. A thread with memory off writes no lines and compacts as Pi does
- * without memory, when a window is nearly full; switched on, it writes the short lines it missed.
+ * instead of every word and zooms back down with `zoom` (experimental).
  *
  * To benchmark backfill: build the fixture from a backup of the live DB, deleting lines for one small span
  * (about 64 messages plus the merges above them) and checking only that span is gone; never touch the live file.
@@ -49,7 +37,6 @@ export const on = true
 const KIND = 'ade.line'
 const RETRY = { enabled: true, maxRetries: 10, baseDelayMs: 2000 }
 const BATCH = 16
-/** Share of `compactAt` at which an agent's seen messages get their lines */
 const EARLY = 0.7
 const LINE = 512,
 	PANEL = 64 * 1024,
@@ -128,12 +115,10 @@ export function server(core) {
 	const override = name && agentTo(name)
 	const compactAt = Number(core.config?.memory?.compactAt) || 100000
 
-	/** Whether a thread remembers: its own switch, else a thread with a bot in it; `to` counts the bots a message is asking in */
 	const remembers = (row, to = []) =>
 		row.memory ??
 		[...Object.keys(row.agents), ...to].some((name) => !name.includes('@') && name !== AGENT)
 
-	/** MEMORY_MODEL overrides the small writer on the thread agent's runner, or a bot's runner. */
 	async function writerOf(threadId, signal) {
 		if (override) {
 			await core.runners.online(override.runner, signal)
@@ -322,7 +307,6 @@ export function server(core) {
 		if (queues.get(threadId) === queue) queues.delete(threadId)
 	}
 
-	/** Every merge a cut over messages 0..T-1 shows that isn't written, with the unwritten lines below it */
 	function needed(have, T, budget) {
 		const want = new Map()
 		const add = (l, i) => {
@@ -397,7 +381,6 @@ export function server(core) {
 		initial: ({ backfill, fill }) =>
 			fill ? { phase: 'fill', round: 0 } : { phase: backfill ? 'backfill' : 'write' },
 		phases: {
-			/** Short messages without their line get it, word for word; long ones wait for a fill */
 			backfill: ({ conversationId: threadId, input }, rt, ctx) =>
 				inTurn(
 					threadId,
@@ -429,7 +412,6 @@ export function server(core) {
 					},
 					{ signal: rt.signal },
 				),
-			/** A short message is its own line; a long one gets none until a fill needs it */
 			write: ({ conversationId: threadId, input }, rt, ctx) =>
 				inTurn(
 					threadId,
@@ -553,7 +535,6 @@ export function server(core) {
 		}
 	}
 
-	/** Past 70% of `compactAt`, the messages an agent has seen get their lines, so its compaction needs only merges */
 	const afterResponse = async ({ usage }, api, context) => {
 		const tokens =
 			usage &&
@@ -631,10 +612,6 @@ export function server(core) {
 		},
 	})
 
-	/**
-	 * `POST {lines: [{id, n, text}]}` loads recorded lines: each spans `n` messages from `id`, aligned powers of two within the thread.
-	 * Existing lines stay, and memory turns on without calling a model.
-	 */
 	async function serve(thread, query, body) {
 		if (thread === undefined) throw new Error('Memory is per thread: /api/threads/:id/memory')
 		if (body?.lines) {
@@ -681,11 +658,6 @@ export function server(core) {
 		}
 	}
 
-	/**
-	 * The memory view at `room`, 0 for the tightest cut to 100 for every line that fits PANEL, read from one copy of the
-	 * lines: its bounds in bytes, the cut, and the cut opened from the top down. Like opening the view, it writes missing
-	 * message lines.
-	 */
 	async function view(thread, room) {
 		if (!(room >= 0 && room <= 100)) throw new Error('room goes from 0 to 100')
 		await core.conversation(thread)
@@ -701,7 +673,6 @@ export function server(core) {
 		views.set(thread, { version, view: shown })
 		return shown
 	}
-	/** Each thread's last memory view, with the messages, lines and room it was laid out for */
 	const views = new Map()
 	function layOut(have, T, room) {
 		const cutAt = (budget) => collapse(memory(have, T, Math.min(budget, PANEL)).map(span))
@@ -717,13 +688,11 @@ export function server(core) {
 		return { total: T, least, full, budget, cut, tree }
 	}
 
-	/** Told only to agents of a thread that remembers */
 	async function section({ conversationId }) {
 		const home = await core.home(conversationId)
 		return !home?.thread || remembers(await core.thread(home.thread)) ? SECTION : undefined
 	}
 
-	/** A thread's switch: on writes the short lines it missed; long ones wait for a fill */
 	async function turn(threadId, { on }) {
 		if (typeof on !== 'boolean') throw new Error('on is true or false')
 		await core.conversation(threadId)
@@ -735,11 +704,6 @@ export function server(core) {
 		})
 	}
 
-	/**
-	 * A short message in a thread that remembers is its own line, without a model; a long one waits for a fill. The
-	 * message that asks a thread's first agent, or turns its memory on by asking a bot in, also brings back the short
-	 * lines that waited
-	 */
 	async function posted(tx, threadId, entry) {
 		const row = await core.threadIn(tx, threadId)
 		const to = entry.data.to ?? []
@@ -765,7 +729,6 @@ export function server(core) {
 			sections: [{ key: 'memory', tag: false, render: section }],
 			hooks: [hook(CompactionTask, { beforeCompact }), hook(GenerationTask, { afterResponse })],
 		}),
-		/** Write short messages that missed their line, besides resuming the tasks that survived the previous server */
 		async start() {
 			for (const archived of [false, true])
 				for (const row of await core.threadList(undefined, archived))
@@ -776,12 +739,10 @@ export function server(core) {
 		catchUp,
 		serve,
 		remembers: (row) => remembers(row),
-		/** Past this many tokens an agent's context is compacted into the lines, so it never carries a full window */
 		compactAt,
 	}
 }
 
-/** Every line a thread has, its own and those it inherits up to where it was forked, by `l:i` */
 export async function lines(tx, threadId) {
 	const map = new Map()
 	const own = await collect((cursor) =>
@@ -882,7 +843,6 @@ export function memory(lines, T, budget, from = 0) {
 	return [...here.values()].sort((a, b) => a.i * 2 ** a.l - b.i * 2 ** b.l)
 }
 
-/** Message `id` from character `at`, up to PAGE characters or PAGE_LINES lines, and where to go on */
 function page(text, id, at, n = 1) {
 	if (!Number.isInteger(at) || at < 0 || (at && at >= text.length))
 		throw new Error(`Message ${id} has ${text.length} characters; no page at ${at}`)
@@ -894,7 +854,6 @@ function page(text, id, at, n = 1) {
 		: text.slice(at)
 }
 
-/** The two lines line id+n was made from, as zoom shows them; nothing when that line isn't written */
 function halves(have, T, id, n) {
 	const l = Math.log2(n)
 	if (n === 1 || !have.has(key(l, id / n))) return undefined
@@ -904,7 +863,6 @@ function halves(have, T, id, n) {
 	)
 }
 
-/** The cut's lines under id+n, each under the written lines above it */
 function opened(have, T, id, n, cut) {
 	const within = (line, at, size) => line.id >= at && line.id + line.n <= at + size
 	const same = (a, b) => a.id === b.id && a.n === b.n
