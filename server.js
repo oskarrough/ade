@@ -1692,17 +1692,20 @@ async function invited(id, body) {
 	return Promise.all(names.map((name) => whom(id, name)))
 }
 
-/** No `to` asks the director in a group, or the last recipient in a solo chat or command. */
-/** A message's own key dedupes within its thread: `post {id}/{key}`'s reused by a retry, Matrix's event id, or a future webhook, never by another thread's. */
-function scopedKey(id, key) {
+/**
+ * A caller's own key, namespaced by its scope so two scopes' keys never share a receipt: a message's `post {id}/{key}`
+ * is reused by a retry, Matrix's event id, or a future webhook; a thread's `create thread/{key}` by nothing else.
+ */
+function scopedKey(scope, key) {
 	if (key === undefined) return undefined
 	if (typeof key !== 'string' || !key || key.length > 100)
 		throw new Error('key must be a string of 1 to 100 characters')
-	return `post ${id}/${key}`
+	return `${scope}/${key}`
 }
 
+/** No `to` asks the director in a group, or the last recipient in a solo chat or command. */
 async function postEntry(id, author, input) {
-	const requestId = scopedKey(id, input.key)
+	const requestId = scopedKey(`post ${id}`, input.key)
 	const saved = await receipt(requestId, `post ${id}`)
 	if (saved) return withPick(id, saved.result)
 	await conversation(id)
@@ -1830,19 +1833,19 @@ async function startThread(tx, title, parent, tools = null) {
 	return id
 }
 
-async function createThread({ title, parent = null, tools = null, requestId }) {
+async function createThread({ title, parent = null, tools = null, key }) {
 	if (parent !== null) await conversation((parent = Number(parent)))
 	title = field(title, 'title')
 	tools = toolList(tools)
-	return once(requestId, 'create thread', async (tx) => ({
+	return once(scopedKey('create thread', key), 'create thread', async (tx) => ({
 		id: await startThread(tx, title, parent, tools),
 	}))
 }
 
 /** The walkthrough's example thread, written by its three people as the server names them, since no page can */
-async function exampleShed({ requestId }) {
+async function exampleShed({ key }) {
 	const { SHED } = await import('./apps/client/tutorial-shed.js')
-	const { id } = await createThread({ title: 'The shed', requestId })
+	const { id } = await createThread({ title: 'The shed', key })
 	for (const [index, [author, body]] of SHED.entries())
 		await postEntry(id, personName(author), { body, to: null, key: `shed-${index}` })
 	return { id }

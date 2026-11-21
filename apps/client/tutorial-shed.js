@@ -52,7 +52,7 @@ export const SHED = [
 ]
 
 export async function loadShed(api, open) {
-	const { id } = await api('/api/threads/shed', { requestId: crypto.randomUUID() })
+	const { id } = await api('/api/threads/shed', { key: crypto.randomUUID() })
 	await api(`/api/threads/${id}/memory`, { lines })
 	open(id)
 	return id

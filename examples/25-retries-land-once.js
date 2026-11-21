@@ -19,8 +19,8 @@ await runner('laptop')
 const to = { runner: 'laptop', model: 'echo/echo' }
 const threads = async () => (await api('GET', '/api/threads')).json
 
-const made = await api('POST', '/api/threads', { title: 'once', requestId: 'make-1' })
-const again = await api('POST', '/api/threads', { title: 'once', requestId: 'make-1' })
+const made = await api('POST', '/api/threads', { title: 'once', key: 'make-1' })
+const again = await api('POST', '/api/threads', { title: 'once', key: 'make-1' })
 check(
 	made.status === 201 && again.json.id === made.json.id && (await threads()).length === 1,
 	'a retried thread is the same thread',
@@ -52,7 +52,7 @@ const later = await api('POST', `/api/threads/${id}/entries`, {
 	to,
 	key: 'say-1',
 })
-const remade = await api('POST', '/api/threads', { title: 'once', requestId: 'make-1' })
+const remade = await api('POST', '/api/threads', { title: 'once', key: 'make-1' })
 check(
 	JSON.stringify(later.json) === JSON.stringify(said.json) && remade.json.id === id,
 	'a retry after a restart still finds its receipt',
@@ -76,7 +76,7 @@ check(answers(v).length === 1, 'one answer', JSON.stringify(answers(v).length))
 check(v.entries.filter((e) => e.data.shell).length === 1, 'one command run')
 check((await threads()).length === 1, 'one thread')
 
-const other = await api('POST', '/api/threads', { title: 'other', requestId: 'other-1' })
+const other = await api('POST', '/api/threads', { title: 'other', key: 'other-1' })
 const otherId = other.json.id
 const here = await api('POST', `/api/threads/${id}/entries`, { body: 'hi there', key: 'shared' })
 const elsewhere = await api('POST', `/api/threads/${otherId}/entries`, {
@@ -87,6 +87,18 @@ check(
 	here.status === 201 && elsewhere.status === 201 && here.json.entry !== elsewhere.json.entry,
 	'a key is scoped to its thread: the same key in another thread is a different message',
 	JSON.stringify([here.json, elsewhere.json]),
+)
+
+// A thread-creation key and a message key never share a receipt, even if one is crafted to look like the other's
+const crafted = await api('POST', '/api/threads', { title: 'crafted', key: `post ${id}/collide` })
+const collided = await api('POST', `/api/threads/${id}/entries`, {
+	body: 'not a thread',
+	key: 'collide',
+})
+check(
+	crafted.status === 201 && collided.status === 201 && typeof collided.json.entry === 'number',
+	"a message key never reads a thread-creation key's receipt, whatever text it shares",
+	JSON.stringify([crafted.json, collided.json]),
 )
 
 done()

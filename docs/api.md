@@ -17,7 +17,7 @@ A message's `to` says whom it asks: an agent like `sonnet@laptop`, a bot's name,
 
 Stop ends every agent's and command's work in the thread. If anything was working, it writes a message from whoever pressed it, `stopped: true` with the body `stopped`: everyone sees who ended the run, it asks no one, and the agents read it with what they're handed next.
 
-A message's `key`, 1 to 100 characters, dedupes it within its thread: a repeat with the same key returns the first message instead of posting again, even after a restart. It's scoped to the thread, so the same key in another thread is a different message; reused for a different body or `to` in the same thread, it still returns the first. The CLI sends a fresh one with every post, so a retried request can't double it; Matrix uses the event id, a future webhook its own.
+A message's `key`, 1 to 100 characters, dedupes it within its thread: a repeat with the same key returns the first message instead of posting again, even after a restart. It's scoped to the thread, so the same key in another thread is a different message; reused for a different body or `to` in the same thread, it still returns the first. Creating a thread takes the same `key`, scoped instead to thread creation, so the same text can't collide between the two. The CLI sends a fresh one with every post, so a retried request can't double it; a future webhook can use its own. The `matrix` module dedupes a different way, by the Matrix event id, inside the server, not through this field.
 
 A bot that posts with its `post` tool into a thread it's in, or one it opens for other bots, speaks there as itself: its message carries `posted: true`, which marks it as an agent's, as `answer` does, so it never counts as a person's. Messages from before this have no mark.
 
@@ -39,7 +39,7 @@ POST   /api/runners {name}             a key, and the command that connects it
 DELETE /api/runners/:name
 GET    /api/runners/:name/available    every model pi is logged in for there; `offers` are its scoped ones
 GET    /api/threads                    each thread's row; its `parent`, or `conversation.parent` for a fork, places it in a family
-POST   /api/threads {title, parent?, tools?}
+POST   /api/threads {title, parent?, tools?, key?}
 GET    /api/threads/:id                its row, people and messages; `?last=n` only the newest n, `?after=id` only those after one
 GET    /api/threads/archived
 POST   /api/threads/:id/archive {archived}
