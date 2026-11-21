@@ -72,7 +72,14 @@ export function Turn(props) {
 						style=${() => `--label: ${Math.max(...steps().map((step) => (step.name ?? step.label ?? '').length))}ch`}
 					>
 						<${For} each=${steps} keyed=${(step) => step.key}
-							>${(step) => html`<${Step} step=${() => step()} />`}<//
+							>${(step) => html`
+								<${Show}
+									when=${() => step().name || step().label}
+									fallback=${() => html`<li class="said">${() => step().said}</li>`}
+								>
+									<${Call} step=${() => step()} />
+								<//>
+							`}<//
 						>
 						<${Show} when=${said}><li class="said">${said}</li><//>
 					</ol>
@@ -122,17 +129,6 @@ export function Exchange(props) {
 				<//>
 			</ol>
 		</li>
-	`
-}
-
-function Step(props) {
-	return html`
-		<${Show}
-			when=${() => props.step.name || props.step.label}
-			fallback=${() => html`<li class="said">${() => props.step.said}</li>`}
-		>
-			<${Call} step=${() => props.step} />
-		<//>
 	`
 }
 
@@ -506,46 +502,52 @@ export function Changed(props) {
 			(error) => setFailed(`Couldn't load the diff from esm.sh: ${error.message}`),
 		)
 	}
-	const said = () => `${props.agent.name} updated their ${changedOf(props.step).join(' and ')}`
 	return html`
-		<li class="elsewhere">
-			<ol class="steps">
-				<li class="call changed plain">
-					<details onToggle=${opened}>
-						<summary>
-							<span class="in">${said}</span>
-						</summary>
-						<div class="whole">
-							<${Show} when=${failed}>${() => html`<p class="failed">${failed}</p>`}<//>
-							<${For} each=${changes} keyed=${(change) => change.key}
-								>${(change) => html`
-									<div class="change">
-										<span class="key">${() => change().key}</span>
-										<${Show} when=${diffWords}
-											>${() => html`
-												<div class="diff">
-													<${For}
-														each=${() => wordDiff(diffWords(), change().before, change().after)}
-														>${(segment) =>
-															segment.kind === 'fold'
-																? html`<${Fold} text=${segment.text} />`
-																: segment.kind === 'same'
-																	? segment.text
-																	: html`<span class=${segment.kind}>${segment.text}</span>`}<//
-													>
-												</div>
-											`}<//
+		<${PlainStep}
+			said=${() => `${props.agent.name} updated their ${changedOf(props.step).join(' and ')}`}
+			onToggle=${opened}
+		>
+			<div class="whole">
+				<${Show} when=${failed}>${() => html`<p class="failed">${failed}</p>`}<//>
+				<${For} each=${changes} keyed=${(change) => change.key}
+					>${(change) => html`
+						<div class="change">
+							<span class="key">${() => change().key}</span>
+							<${Show} when=${diffWords}
+								>${() => html`
+									<div class="diff">
+										<${For} each=${() => wordDiff(diffWords(), change().before, change().after)}
+											>${(segment) =>
+												segment.kind === 'fold'
+													? html`<${Fold} text=${segment.text} />`
+													: segment.kind === 'same'
+														? segment.text
+														: html`<span class=${segment.kind}>${segment.text}</span>`}<//
 										>
 									</div>
 								`}<//
 							>
 						</div>
-					</details>
-				</li>
-			</ol>
-		</li>
+					`}<//
+				>
+			</div>
+		<//>
 	`
 }
+
+/** A lasting change told as one plain sentence on its own row, read as a step; opened, what's under it */
+export const PlainStep = (props) => html`
+	<li class="elsewhere">
+		<ol class="steps">
+			<li class="call changed plain">
+				<details onToggle=${(event) => props.onToggle?.(event)}>
+					<summary><span class="in">${() => props.said}</span></summary>
+					${() => props.children}
+				</details>
+			</li>
+		</ol>
+	</li>
+`
 
 /** Each post's answer, looked up by the thread it asked instead of scanning every message per post */
 export function answersIn(messages) {

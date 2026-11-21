@@ -197,7 +197,8 @@ export const {
 	reloadArchivedThreads,
 	reloadBots,
 	changeThread,
-	removeRow,
+	forgetBot,
+	revokeRunner,
 } = createRoot(() => {
 	const [server, setServer] = createSignal(cached('server', DEFAULT_SERVER))
 	/** The rows this page last saw, shown the way a fetch's are until one lands */
@@ -338,8 +339,12 @@ export const {
 			() => Promise.all([reloadThreads(), reloadArchivedThreads()]),
 		)
 	}
-	const removeRow = (list, name, request) =>
-		(list === 'bots' ? botList : runnerList).remove(name, request)
+	const forgetBot = (name) =>
+		botList.remove(name, () => api(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE'))
+	const revokeRunner = (name) =>
+		runnerList.remove(name, () =>
+			api(`/api/runners/${encodeURIComponent(name)}`, undefined, 'DELETE'),
+		)
 	const reloads = {
 		server: reloadServer,
 		threads: reloadThreads,
@@ -419,7 +424,8 @@ export const {
 		reloadArchivedThreads,
 		reloadBots: botList.reload,
 		changeThread,
-		removeRow,
+		forgetBot,
+		revokeRunner,
 	}
 })
 
@@ -440,12 +446,6 @@ export const renameThread = (id, title) =>
 /** Changes a bot, then shows it changed */
 export const saveBot = (name, change) =>
 	api('/api/bots', { name, ...change }).then(() => reloadBots())
-export const forgetBot = (name) =>
-	removeRow('bots', name, () => api(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE'))
-export const revokeRunner = (name) =>
-	removeRow('runners', name, () =>
-		api(`/api/runners/${encodeURIComponent(name)}`, undefined, 'DELETE'),
-	)
 
 export const fork = async (id, at) => openThread((await api(`/api/threads/${id}/fork`, { at })).id)
 

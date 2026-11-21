@@ -340,9 +340,10 @@ agent-memory {
 	}
 }
 
-/* Without hover, the open thread's row keeps its archive button in sight. */
+/* Without hover, the open thread's row keeps its archive button in sight, and a runner its revoke. */
 @media (hover: none) {
-	:is(.thread-list > ul, .thread-family) > li.current button {
+	:is(.thread-list > ul, .thread-family) > li.current button,
+	.runner-list .rows > li .revoke {
 		visibility: visible;
 	}
 }
@@ -1209,7 +1210,8 @@ agent-memory {
 		background: var(--step);
 	}
 
-	:is(.thread-list > ul, .thread-family) > li:hover button {
+	:is(.thread-list > ul, .thread-family) > li:hover button,
+	.runner-list .rows > li:hover .revoke {
 		visibility: visible;
 	}
 
@@ -1565,18 +1567,6 @@ agent-memory {
 
 	&:focus-within .revoke,
 	.armed .revoke {
-		visibility: visible;
-	}
-}
-
-@media (hover: hover) and (pointer: fine) {
-	.runner-list .rows > li:hover .revoke {
-		visibility: visible;
-	}
-}
-
-@media (hover: none) {
-	.runner-list .rows > li .revoke {
 		visibility: visible;
 	}
 }

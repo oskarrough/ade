@@ -150,7 +150,10 @@ export function Composer(props) {
 		() => props.thread ?? 'new',
 		(key) => {
 			if (untrack(() => compose.drafts[key])) return
-			const saved = readDraft(key)
+			let saved = null
+			try {
+				saved = localStorage.getItem(draftKey(key))
+			} catch {}
 			if (saved)
 				setCompose(
 					(store) => void (store.drafts[key] = { draft: saved, images: [], sending: false }),
@@ -164,7 +167,7 @@ export function Composer(props) {
 	const enter = () => props.inbox || openThread(props.thread)
 	/** Whom it asks: in the inbox, the agent that asked, and no one until the thread's list knows it; never a guess from history */
 	const whom = () => (props.inbox ? [props.asks].filter(Boolean) : recipients(props.thread))
-	const free = () => !props.inbox && directed(props.thread)
+	const free = () => !props.inbox && directing(props.thread) && !pick(props.thread)
 	createEffect(
 		() => [draft().draft, active()],
 		() => {
@@ -228,8 +231,9 @@ export function Composer(props) {
 			draft.draft = ''
 			draft.images = []
 		}, key)
+		// Sending ends your typing: the server ends it with the message too, and this stop outranks any beat still on its way
+		if (beat.thread) typed(beat.thread, '')
 		// Your message shows at once; a `$ command` waits for its run
-		sentTyping()
 		const drop =
 			id && !/^\$\s/.test(body) ? sending(id, { body, ...(images.length && { images }) }) : () => {}
 		try {
@@ -614,14 +618,7 @@ export function Composer(props) {
 									picker.hidePopover()
 								}}
 					folders=${true}
-					close=${html`<button
-						type="button"
-						class="ghost small close"
-						aria-label="Close"
-						onClick=${() => picker.hidePopover()}
-					>
-						<${Icon} name="close" />
-					</button>`}
+					onClose=${(_e) => picker.hidePopover()}
 					after=${(search) => (homeBot(props.thread) ? null : pickerBots(search))}
 				/>
 			</div>
@@ -696,34 +693,21 @@ function typed(thread, text) {
 	beat = typing ? { thread, at: Date.now() } : { thread: null, at: 0 }
 	api(`/api/threads/${thread}/typing`, { typing, seq: ++seq }).catch(() => {})
 }
-/** Sending ends your typing: the server ends it with the message too, and this stop outranks any beat still on its way */
-const sentTyping = () => {
-	if (beat.thread) typed(beat.thread, '')
-}
 
 /** Each mounted composer's textarea, by thread id ('new' for one with none yet), so a quote from its message list can reach it */
 const textareas = new Map()
 const changeDraftFor = (key, change) =>
 	setCompose((store) => {
-		store.drafts[key] ??= { draft: '', images: [], sending: false }
+		store.drafts[key] ??= { ...emptyDraft, images: [] }
 		change(store.drafts[key])
-		persistDraft(key, store.drafts[key].draft)
+		const text = store.drafts[key].draft
+		try {
+			if (text.trim()) localStorage.setItem(draftKey(key), text)
+			else localStorage.removeItem(draftKey(key))
+		} catch {}
 	})
 /** Unsent text, kept in localStorage by thread id so it survives a reload; a new thread shares one key until it gets an id */
 const draftKey = (key) => `composer-draft:${key}`
-const readDraft = (key) => {
-	try {
-		return localStorage.getItem(draftKey(key))
-	} catch {
-		return null
-	}
-}
-const persistDraft = (key, text) => {
-	try {
-		if (text && text.trim()) localStorage.setItem(draftKey(key), text)
-		else localStorage.removeItem(draftKey(key))
-	} catch {}
-}
 /** Each thread's pick, `{agent, bots}`, kept by thread id; a new thread's under `new` */
 const pick = (thread = current()) => compose.picks[thread ?? 'new'] ?? null
 const here = (thread = current()) => threadOf(thread)?.agents ?? []
@@ -818,7 +802,6 @@ const skillsFor = (query, thread) => {
 }
 /** A thread with at least two agents/bots: a message whose sender chose no one goes without `to` */
 const directing = (thread) => Boolean(thread && here(thread).filter((agent) => agent.to).length > 1)
-const directed = (thread) => directing(thread) && !pick(thread)
 export const recipients = (thread = current()) =>
 	[agent(thread), ...askedBots(thread)].filter(Boolean)
 /** A bot by its name, an agent by its model, then its thinking, as `pi --model model:thinking` takes them; the provider only when it bills per use, since that's who charges; the runner is the picker's to show. Without thinking asked, it keeps the running level, or the runner's known pi default. */
@@ -877,13 +860,6 @@ export const configure = (to, thread = current()) => choose(to, false, thread)
 let lend
 export const openPicker = (anchor) => lend?.(anchor)
 
-/** A quote's selected lines, each after its own `> `, with no blank line at either end. */
-const quoteBlock = (text) =>
-	text
-		.replace(/^\s*\n+|\n+\s*$/g, '')
-		.split('\n')
-		.map((line) => `> ${line}`)
-		.join('\n')
 /**
  * A message's quote button calls this: the selection goes into that thread's draft as `> ` lines, a block of its own below
  * anything already there, with a blank line and the cursor after it, ready to write under it. Quoting again adds another
@@ -891,7 +867,12 @@ const quoteBlock = (text) =>
  */
 export const appendQuote = (thread, text) => {
 	const key = thread ?? 'new'
-	const block = quoteBlock(text)
+	// Its lines each after their own `> `, with no blank line at either end
+	const block = text
+		.replace(/^\s*\n+|\n+\s*$/g, '')
+		.split('\n')
+		.map((line) => `> ${line}`)
+		.join('\n')
 	if (!block) return
 	let full
 	changeDraftFor(key, (draft) => {

@@ -149,7 +149,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          which is how it joins; picking a thread writes `@"its title"`, no more
     MentionRow           an option in that list, bot, thread or skill; each option says what it writes
     skills, loadSkills, skillsFor   `/` opening a message lists the skills where its agent works; picking one writes `/skill:name `
-    appendQuote, quoteBlock, textareas   a message's quote button sends its selection here: `> ` on every line, a block
+    appendQuote, textareas   a message's quote button sends its selection here: `> ` on every line, a block
                          below anything already there, a blank line and the cursor after it
     choose, configure, toFor             model picker and runner controls changing that pick
     Composer: submit, add, pickRecipients, filled, compactNow   send, images, typed recipients, context meter;
@@ -249,7 +249,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Thread head: the thread's name, `h2.title > button.ghost.thread-name` (opens the side column on Details; its tabs do the rest), and its `.close` ("The head:"); the head, `p.from` and the phone's `.app-bar` ("The bar") sit on `Canvas` so messages scroll under them; `.thread-name` is layout only.
 - A thread-list page (Archived) has `.page-head`.
 - Message list: thread.js `Message` in `.thread > ul > li` ("The chat: agents write"), its body `.markdown`, its images `div.images`, compaction's `li.cut` and `li.line`.
-- Quoting a selection into the composer: quote.js (the button, CSS-anchored to the selection), composer.js `appendQuote`/`quoteBlock`, app.css `.quote-anchor`/`.quote`.
+- Quoting a selection into the composer: quote.js (the button, CSS-anchored to the selection), composer.js `appendQuote`, app.css `.quote-anchor`/`.quote`.
 - Tool calls: run.js `Turn`, `Exchange`, `Step`, `Call`; `li.turn` is a `<details>` whose open list is `.steps`, its tools `.tool` and its words `.said`; `.exchange` and a crossed message are a `.steps` list of thread.js `Cross` rows (`li.sent`, `li.received`). There's no thinking block: a live turn's summary says "thinking".
 - Composer: composer.js `Composer`, `.thread form`: the box, `.bar` with `.icon` buttons, `.pick` (whom it asks, in which folder) and `.stop`, and `ul.images` waiting to go.
 - Small parts: sure.js `Sure` (`.sure`, a button that asks by changing its words), busy.js `busy`/`Busy` (`.busy`, a button waiting on the server: ↻ turning for half a second at least, then a check; recap refresh, Save and restart, Add runner, revoke), notice.js `Notice` (`.notice`, what went wrong, above the active composer's input), dot.js `Dot` (`.dot`, status).

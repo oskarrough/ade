@@ -4,6 +4,7 @@ import { createEffect, createRoot, createSignal, createStore, For, Show } from '
 import { Icon } from './icons.js'
 import { api, connected, titleOf } from './server.js'
 import { shortLabel } from './agent.js'
+import { PlainStep } from './run.js'
 import { ahead } from './time.js'
 import { report } from './notice.js'
 
@@ -83,22 +84,13 @@ export function WakeSet(props) {
 	}
 	const note = () => props.step.args.note
 	return html`
-		<li class="elsewhere">
-			<ol class="steps">
-				<li class="call changed plain">
-					<details>
-						<summary>
-							<span class="in"
-								>${() => `⏰ ${shortLabel(props.agent.name)} ${when()}${note() ? `: ${note()}` : ''}`}</span
-							>
-						</summary>
-						<${Show} when=${note}>
-							<div class="whole"><p>${note}</p></div>
-						<//>
-					</details>
-				</li>
-			</ol>
-		</li>
+		<${PlainStep}
+			said=${() => `⏰ ${shortLabel(props.agent.name)} ${when()}${note() ? `: ${note()}` : ''}`}
+		>
+			<${Show} when=${note}
+				><div class="whole"><p>${note}</p></div><//
+			>
+		<//>
 	`
 }
 

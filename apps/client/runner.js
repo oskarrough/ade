@@ -11,7 +11,6 @@ import { Sure } from './sure.js'
 import { busy, Busy } from './busy.js'
 import { Dot } from './dot.js'
 import { ModelPicker } from './model-picker.js'
-import { Icon } from './icons.js'
 
 export function Runner(props) {
 	let pickButton, pickPanel
@@ -87,14 +86,7 @@ export function Runner(props) {
 									pickPanel.hidePopover()
 								}}
 								onConfigure=${(next) => configure(next)}
-								close=${html`<button
-									type="button"
-									class="ghost small close"
-									aria-label="Close"
-									onClick=${() => pickPanel.hidePopover()}
-								>
-									<${Icon} name="close" />
-								</button>`}
+								onClose=${(_e) => pickPanel.hidePopover()}
 							/>
 						</div>
 					<//>

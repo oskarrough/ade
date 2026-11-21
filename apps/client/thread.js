@@ -819,7 +819,6 @@ export function Thread(props) {
 								<//>
 								<${Match} when=${() => row().drew}>
 									<${CanvasRow}
-										time=${() => row().time}
 										step=${() => row().drew}
 										agent=${() => row().agent}
 										thread=${() => props.id}
@@ -832,15 +831,10 @@ export function Thread(props) {
 									<${Changed} step=${() => row().changed} agent=${() => row().agent} />
 								<//>
 								<${Match} when=${() => row().asked}>
-									<${Asked}
-										time=${() => row().time}
-										thread=${() => row().asked}
-										question=${() => row().question}
-									/>
+									<${Asked} thread=${() => row().asked} question=${() => row().question} />
 								<//>
 								<${Match} when=${() => row().ask}>
 									<${Exchange}
-										time=${() => row().time}
 										thread=${() => props.id}
 										step=${() => row().ask}
 										agent=${() => row().agent}
@@ -850,7 +844,6 @@ export function Thread(props) {
 								<//>
 								<${Match} when=${() => row().turn || row().live}>
 									<${Turn}
-										time=${() => row().time}
 										thread=${() => props.id}
 										agent=${() => row().agent}
 										turn=${() => row().turn}

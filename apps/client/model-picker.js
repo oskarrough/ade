@@ -30,6 +30,7 @@ export const Metered = () =>
  * A search on top, each runner's models in one list under it, and the thinking and folder of the runner asked pinned at the bottom.
  * Typing filters the list; the arrows walk it and Enter picks the highlighted row. A line that reads as recipients (an `@` or a comma), or matches nothing, goes to `onRecipients` instead.
  * getTo(runner) supplies each runner's choice; the caller decides when a choice is applied or closes the view.
+ * `onClose` puts a close beside the search, which a phone's sheet shows.
  * `before` is rows above the models while nothing is typed; `after(search)` rows under them, filtered by the caller.
  */
 export function ModelPicker(props) {
@@ -100,7 +101,16 @@ export function ModelPicker(props) {
 						event.preventDefault()
 					}}
 				/>
-				${() => props.close}
+				<${Show} when=${() => props.onClose}>
+					<button
+						type="button"
+						class="ghost small close"
+						aria-label="Close"
+						onClick=${(event) => props.onClose(event)}
+					>
+						<${Icon} name="close" />
+					</button>
+				<//>
 			</div>
 			<ul class="model-list" ref=${(el) => (list = el)}>
 				<${Show} when=${() => !search()}>${() => props.before}<//>
