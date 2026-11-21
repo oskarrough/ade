@@ -39,6 +39,7 @@ export function Settings() {
 	const on = (module) => draft.modules[module.name] ?? module.on
 	const model = () => draft.model ?? server().settings?.memory.model ?? ''
 	const compactAt = () => draft.compactAt ?? server().settings?.memory.compactAt ?? 100000
+	const botsVoice = () => draft.botsVoice ?? server().settings?.bots?.voice ?? ''
 	/** A director option as it will be saved: the draft's, else the server's */
 	const directs = (field) => draft.director[field] ?? server().settings?.director?.[field]
 	const directorOption = (field, label, unit, least) =>
@@ -79,11 +80,13 @@ export function Settings() {
 				modules: snapshot(draft.modules),
 				...(Object.keys(memoryChanges()).length && { memory: memoryChanges() }),
 				...(Object.keys(directorChanges()).length && { director: directorChanges() }),
+				...(Object.keys(botsChanges()).length && { bots: botsChanges() }),
 			})
 			setDraft((store) => {
 				store.modules = {}
 				store.director = {}
 				for (const field of MEMORY_FIELDS) store[field] = undefined
+				store.botsVoice = undefined
 				store.state = restarts ? 'restarting' : 'stopped'
 			})
 		} catch (error) {
@@ -291,6 +294,23 @@ export function Settings() {
 									</div>
 								<//>
 								<${Show}
+									when=${() => module.name === 'bots' && expanded() === 'bots' && on(module)}
+								>
+									<div class="options">
+										<div class="option">
+											<span>Every bot reads this on top of its own instructions</span>
+										</div>
+										<textarea
+											rows="6"
+											aria-label="Shared bot instructions"
+											disabled=${() => !editable()}
+											value=${() => botsVoice()}
+											onInput=${(event) =>
+												setDraft((store) => void (store.botsVoice = event.currentTarget.value))}
+										></textarea>
+									</div>
+								<//>
+								<${Show}
 									when=${() =>
 										module.name === 'director' && expanded() === 'director' && on(module)}
 								>
@@ -353,6 +373,7 @@ const [draft, setDraft] = createRoot(() =>
 		model: undefined,
 		compactAt: undefined,
 		director: {},
+		botsVoice: undefined,
 		state: '',
 	}),
 )
@@ -376,8 +397,14 @@ const directorChanges = () =>
 			([field, value]) => value !== server().settings?.director?.[field],
 		),
 	)
-/** How many switches, memory and director fields differ from what the server runs */
+/** The shared bot voice, when it differs from what the server runs */
+const botsChanges = () =>
+	draft.botsVoice !== undefined && draft.botsVoice !== (server().settings?.bots?.voice ?? '')
+		? { voice: draft.botsVoice }
+		: {}
+/** How many switches, memory, director and bots fields differ from what the server runs */
 const changes = () =>
 	Object.keys(draft.modules).length +
 	Object.keys(memoryChanges()).length +
-	Object.keys(directorChanges()).length
+	Object.keys(directorChanges()).length +
+	Object.keys(botsChanges()).length

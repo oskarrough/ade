@@ -1,9 +1,11 @@
 /**
  * A bot is one name in many threads: a home thread, the agent it joins as, instructions, and the hue it's shown in if
- * someone picked one. A new bot starts with `voice`, a chatty default; at home it rewrites its own instructions with
- * the `bot` tool, from then on in her own words. Ask `ada` anywhere and an agent named ada joins as that, with every
- * tool a thread agent has. Renamed, a bot keeps all that, and its agent in each thread answers to the new name; its home
- * thread always shows its name. On by default; MODULES=-bots turns it off.
+ * someone picked one. A new bot starts with empty instructions; at home it rewrites them with the `bot` tool, from
+ * then on in her own words. Every bot's prompt also carries `voice`, one shared instruction rendered just before its
+ * own: a chatty default, editable in settings (`bots.voice` in ade.json), that applies to every bot at once. Ask
+ * `ada` anywhere and an agent named ada joins as that, with every tool a thread agent has. Renamed, a bot keeps all
+ * that, and its agent in each thread answers to the new name; its home thread always shows its name. On by default;
+ * MODULES=-bots turns it off.
  */
 import { obj, opt, str } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTool } from '@earendil-works/pi-durable'
@@ -11,6 +13,10 @@ import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import { AGENT, agentTo } from '../util.js'
 
 export const on = true
+
+/** The shared voice every bot starts with and reads on top of its own instructions, until settings override it */
+export const DEFAULT_VOICE =
+	'Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. Everyone here already sees the thread, tool calls and posts; say only what\'s new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can\'t, say you\'re guessing.\nWhen you hand work to another agent, keep the brief short: the goal, the boundaries and how to tell it\'s done, not the steps. Aim high and make it measurable ("make this 10x faster", "test it against the old version and close every gap"), not "optimize this".'
 
 /** A bot's name → { home, to, instructions, color? }: color is a hue someone picked; without one, a bot gets its hue from the order bots were made */
 const Bots = defineDoc({
@@ -30,9 +36,8 @@ export function server(core) {
 			answeredAt: bot.answeredAt ?? null,
 		}))
 
-	/** How a bot talks until it writes its own words: the instructions a new bot starts with */
-	const voice =
-		"Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. Everyone here already sees the thread, tool calls and posts; say only what's new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can't, say you're guessing."
+	/** The shared instruction every bot's prompt carries just before its own instructions; empty means none */
+	const voice = core.config?.bots?.voice ?? DEFAULT_VOICE
 
 	async function valid(name) {
 		if (typeof name !== 'string' || !/^[\w.-]{1,40}$/.test(name))
@@ -73,7 +78,7 @@ export function server(core) {
 		if (!all[name]) {
 			if (!to) throw new Error(`${name} is new: say what it runs as, to: model@runner`)
 			const home = await core.startThread(tx, name, null)
-			all[name] = { home, to, instructions: instructions ?? voice }
+			all[name] = { home, to, instructions: instructions ?? '' }
 		} else {
 			if (to) all[name].to = to
 			if (instructions !== undefined) all[name].instructions = instructions
@@ -188,6 +193,7 @@ export function server(core) {
 			const home = at.thread === bot.home
 			const others = Object.keys(all).filter((name) => name !== at.name)
 			return [
+				voice,
 				bot.instructions ||
 					(home
 						? "You're new: you have no instructions yet. Find out with the person here who you are, and write it down with your bot tool."
@@ -210,6 +216,7 @@ export function server(core) {
 		instructionsOf,
 		botNames,
 		homesOf,
+		settings: { voice },
 		extension: defineExtension({ name: 'ade.bots', tools: [bot], sections: [section] }),
 		/** A bot's answer, here or anywhere it's asked, stamps when: the moment the sidebar sorts bots by */
 		async posted(tx, threadId, entry) {

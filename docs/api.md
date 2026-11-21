@@ -54,6 +54,8 @@ DELETE /api/bots/:name
 
 `GET /api/bots` gives each bot an `answeredAt`: an ISO time, the newest message anywhere she answered (not only her home), or `null` if she never has.
 
+A new bot starts with empty `instructions`; it writes its own with the `bot` tool, or you can set them directly. Every bot also reads one shared instruction, `bots.voice`, rendered just before its own: a chatty default until someone edits it in settings or `POST /api/settings {bots: {voice}}`, empty for none. `GET /api/server`'s `settings.bots.voice` gives the text in effect, default included.
+
 With `recap` on:
 
 ```

@@ -12,9 +12,11 @@ import {
 	text,
 } from './lib.js'
 
-/** What a new bot starts with, until she rewrites it */
+/** The shared instruction every bot's prompt carries just before her own, until settings override it */
 const voice =
-	"Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. Everyone here already sees the thread, tool calls and posts; say only what's new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can't, say you're guessing."
+	'Talk like a person in a chat with friends: lead with the answer, maybe a reaction or a reason, and stop. Everyone here already sees the thread, tool calls and posts; say only what\'s new. No headings, bold or bullets unless asked for a list, and no ids or mechanics unless someone must act on them. If you can check something, check it; if you can\'t, say you\'re guessing.\nWhen you hand work to another agent, keep the brief short: the goal, the boundaries and how to tell it\'s done, not the steps. Aim high and make it measurable ("make this 10x faster", "test it against the old version and close every gap"), not "optimize this".'
+/** `voice`, as it reads once `prompt.laptop` has JSON-escaped its quotes */
+const voiceInPrompt = JSON.stringify(voice).slice(1, -1)
 
 await server({ MODULES: '+bots' })
 /** Pi carries the system prompt in system messages: what each runner was last asked with */
@@ -48,9 +50,9 @@ check(
 		homeRow?.title === 'ada' &&
 		homeRow.tools === null &&
 		v.agents.map((a) => a.name).join() === 'ada' &&
-		made.json.instructions === voice &&
-		prompt.laptop.includes(voice),
-	'one call makes ada and her home, with every tool, talking the default voice until she writes her own',
+		made.json.instructions === '' &&
+		prompt.laptop.includes(voiceInPrompt),
+	'one call makes ada and her home, with every tool; she starts with no instructions of her own but reads the shared voice until she writes them',
 	JSON.stringify([made.json, homeRow, prompt.laptop]),
 )
 
@@ -75,7 +77,7 @@ const rewrote = (await api('GET', `/api/conversations/${ownAt}`)).json.entries.f
 	(e) => e.kind === 'pi.tool-result' && e.model[0].toolName === 'bot',
 )?.model[0].details
 check(
-	rewrote?.before?.instructions === voice && rewrote.before.model === 'echo/echo@laptop',
+	rewrote?.before?.instructions === '' && rewrote.before.model === 'echo/echo@laptop',
 	'rewriting herself, her bot call keeps what she was before, so a thread can show old against new',
 	JSON.stringify(rewrote),
 )

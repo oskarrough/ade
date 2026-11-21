@@ -47,8 +47,10 @@ modules/
   memory.js              memory lines (Line task), `zoom`, `writerOf` (util's smallModel with low thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve), the memory view in one read (view, opened); render; lines, memory and rendered, which recap reads too
   bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, a rename through server.js renameIn),
                          each with `answeredAt`, stamped on the bot's doc by posted when its entry carries an answer;
-                         homesOf, which server.js threadRow uses to title a home with its bot's name; voice, the seed
-                         instructions a new bot is created with, from then on hers to rewrite
+                         homesOf, which server.js threadRow uses to title a home with its bot's name; a new bot starts
+                         with empty instructions, hers to write with the `bot` tool; DEFAULT_VOICE and `voice`, the
+                         shared instruction every bot's prompt carries just before its own (section), editable as
+                         `bots.voice` in ade.json through settings (settings: {voice}, server.js's saveSettings)
   context.js             AGENTS.md, skills and the folder's path (cwd) from the runner;
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
   director.js            the `direct` hook: @mentions ask that bot, a free group message is saved and gets a Pick task (`directing`),
@@ -185,7 +187,7 @@ Where a feature lives:
 - Recaps: modules/recap.js, client recap.js, side.js (its tab and header button), thread.js (data-message), system.js (the column).
 - Canvas: modules/canvas.js (rooms, tools, the socket, the actions' schema in apps/client/canvas/agent), client canvas.js (fitLabels), server.js upgrade (a module's `connect` takes /api/threads/:id/<module> sockets), client canvas.js, side.js PageTabs, system.js (which page the column shows).
 - Memory and compaction: modules/memory.js, server.js compact/compactingAt, client agent-memory.js, thread.js rows (cuts, folded lines), run.js cutsOf.
-- Bots: modules/bots.js (voice), client bot.js, composer.js PickerBot, client server.js homeBot/botAgent; a bot's colour is server.js `colorOf` (its picked `color` hue, else by the order bots were made), picked in bot.js `BotSettings` `.colors`.
+- Bots: modules/bots.js (DEFAULT_VOICE, voice, settings), client bot.js, composer.js PickerBot, client server.js homeBot/botAgent, client settings.js (the bots row's textarea); a bot's colour is server.js `colorOf` (its picked `color` hue, else by the order bots were made), picked in bot.js `BotSettings` `.colors`.
 - Runners and keys: remote.js, runner.js, server.js mintKey/revoke/upgrade, client runner.js.
 - Forks: server.js forkThread/seenBy, client server.js fork, thread.js Message (fork link).
 - `$ cmd`: server.js Shell, printed, shells.

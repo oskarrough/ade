@@ -30,6 +30,7 @@ import {
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode'
 import { CodemodeSandbox } from '@earendil-works/pi-codemode'
 import { about, builtIn, dataDir, load, readConfig } from './modules.js'
+import { DEFAULT_VOICE } from './modules/bots.js'
 import { WebSocketServer } from 'ws'
 import {
 	AGENT,
@@ -2407,9 +2408,10 @@ async function upgrade(req, raw, head) {
 /**
  * Writes ade.json and restarts to take it up: in place where the runtime can (same terminal, same process),
  * else it stops and says so. `modules` maps a name to on or off; memory's `model` empty means each thread's agent, and
- * the director's a small model on each thread's runner.
+ * the director's a small model on each thread's runner. `bots.voice` empty means no shared instruction; equal to
+ * DEFAULT_VOICE it's left out of ade.json, since that's what every bot reads without one.
  */
-async function saveSettings({ modules: wanted = {}, memory, director }) {
+async function saveSettings({ modules: wanted = {}, memory, director, bots }) {
 	const known = [
 		...Object.keys(defaults),
 		...customModules.map((entry) => path.basename(entry, '.js')),
@@ -2469,6 +2471,13 @@ async function saveSettings({ modules: wanted = {}, memory, director }) {
 			else next.director = { ...next.director, [field]: value }
 		}
 		if (next.director && !Object.keys(next.director).length) delete next.director
+	}
+	if (bots !== undefined) {
+		if (typeof bots.voice !== 'string') throw new Error('bots voice is text')
+		if (bots.voice === DEFAULT_VOICE) {
+			if (next.bots) delete next.bots.voice
+		} else next.bots = { ...next.bots, voice: bots.voice }
+		if (next.bots && !Object.keys(next.bots).length) delete next.bots
 	}
 	writeFileSync(settings.file, `${JSON.stringify(next, null, '\t')}\n`)
 	const restarts = typeof process.execve === 'function'
