@@ -292,9 +292,7 @@ export const {
 		const rows = [...fetchedThreads, ...fetchedArchived.filter((row) => !fresh.has(row.id))]
 			.map((row) => (pending.has(row.id) ? { ...row, ...pending.get(row.id) } : row))
 			.sort((a, b) => b.id - a.id)
-		const open = rows
-			.filter((row) => !row.archived)
-			.map((row) => (row.family ? row : { ...row, family: [{ id: row.id, depth: 0 }] }))
+		const open = withFamilies(rows.filter((row) => !row.archived))
 		const archived = rows.filter((row) => row.archived)
 		setThreads(reconcile(open, 'id'))
 		setArchivedThreads(reconcile(archived, 'id'))
@@ -384,7 +382,7 @@ export const {
 		return untrack(() => new Map(threads.map((thread) => [thread.id, thread])))
 	})
 	const threadOf = (id) => byId().get(id)
-	/** The open thread's family, as the server sends it: one thread until the list has it, `[null]` for a new one */
+	/** The open thread's family, as withFamilies finds it: one thread until the list has it, `[null]` for a new one */
 	const family = createMemo(() =>
 		current() ? (threadOf(current())?.family.map((member) => member.id) ?? [current()]) : [null],
 	)
@@ -472,4 +470,35 @@ export const colorOf = (name, property = 'color') => {
 	return hue === undefined ? '' : `${property}: ${paint(hue)}`
 }
 export const forkedFrom = (thread) => thread?.conversation?.parent?.conversationId
+/**
+ * Each row with its `family`: its root, through parents and forks among these rows, then all beneath it, each with its
+ * depth, breadth first; members share one array
+ */
+function withFamilies(rows) {
+	const byId = new Map(rows.map((row) => [row.id, row]))
+	const parentOf = (row) => row.parent ?? forkedFrom(row)
+	const children = new Map()
+	for (const row of rows) {
+		const parent = parentOf(row)
+		if (byId.has(parent)) children.set(parent, [...(children.get(parent) ?? []), row])
+	}
+	const families = new Map()
+	return rows.map((row) => {
+		let root = row
+		for (let hops = 0; byId.has(parentOf(root)) && hops < 20; hops++)
+			root = byId.get(parentOf(root))
+		if (!families.has(root.id)) {
+			const family = [{ id: root.id, depth: 0 }]
+			const seen = new Set([root.id])
+			for (let index = 0; index < family.length; index++)
+				for (const child of children.get(family[index].id) ?? [])
+					if (!seen.has(child.id)) {
+						seen.add(child.id)
+						family.push({ id: child.id, depth: family[index].depth + 1 })
+					}
+			families.set(root.id, family)
+		}
+		return { ...row, family: families.get(root.id) }
+	})
+}
 export const titleOf = (id) => threadOf(id)?.title ?? `thread ${id}`
