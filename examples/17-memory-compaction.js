@@ -2,9 +2,11 @@
  * the lines its cut shows; an agent past 70% of `memory.compactAt` gets its seen messages' lines ahead of time. */
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
+import WebSocket from 'ws'
 import {
 	answered,
 	api,
+	base,
 	check,
 	conversationOf,
 	configDir,
@@ -17,6 +19,19 @@ import {
 	text,
 	until,
 } from './lib.js'
+
+/** What a page watching `thread` hears with `agent`'s first batch: its newest compaction's cut */
+const firstCut = (thread, agent) =>
+	new Promise((resolve) => {
+		const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
+		socket.onopen = () => socket.send(JSON.stringify({ watch: thread }))
+		socket.onmessage = ({ data }) => {
+			const message = JSON.parse(String(data))
+			if (message.thread !== thread || message.agent !== agent || !message.entries) return
+			socket.close()
+			resolve(message.cut)
+		}
+	})
 
 const COMPACT_AT = 40000,
 	LONGS = 56
@@ -97,6 +112,17 @@ for (const [
 	check(
 		summary.includes('<chat>'),
 		`${runner}: the conversation is compacted with memory as its summary`,
+	)
+	const kept = (await conversation()).entries.find(
+		(entry) => entry.kind === 'ade.delivery' && entry.id >= compaction.head,
+	)
+	const cut = await firstCut(id, view.agents[0].conversation)
+	check(
+		cut?.id === compaction.id &&
+			cut.first === Math.min(...kept.data.held) &&
+			text(cut.model[0]).includes('<chat>'),
+		`${runner}: a watching page gets the newest compaction's cut, and where it falls, with the agent's first batch`,
+		JSON.stringify(cut && { id: cut.id, first: cut.first }),
 	)
 	const chat = summary.slice(summary.indexOf('<chat>\n') + 7, summary.indexOf('\n</chat>'))
 	const heads = chat

@@ -2070,7 +2070,9 @@ function notify(lists) {
 }
 harness.observeCommits({ advance: (publication) => notify(listsOf(publication)), end: () => {} })
 
-/** Messages one page brings: the newest when a browser opens a thread, then each earlier page as it scrolls up */
+/** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
+const FIRST = 15
+/** Messages each earlier page brings as a browser scrolls up */
 const PAGE = 50
 
 /** A browser watches one thread, or asks for its page before the ones it has */
@@ -2082,17 +2084,32 @@ const earlier = (socket, id, all) =>
 	(socket.watches = (socket.watches ?? Promise.resolve())
 		.then(() => socket.pages?.id === id && socket.pages.back(all))
 		.catch(() => {}))
-/**
- * Where an agent's conversation reaches far enough back for the messages from `from` on: a turn before them,
- * and the start of what its newest compaction keeps
- */
-const covers = (from) => (entries) => {
-	const compaction = entries.findLast((entry) => entry.kind === 'pi.compaction')
-	if (compaction && compaction.head < entries[0].id) return false
-	return entries.some(
+/** Where an agent's conversation reaches far enough back for the messages from `from` on: a turn before them */
+const covers = (from) => (entries) =>
+	entries.some(
 		(entry) =>
 			entry.kind === DELIVERY && entry.data?.held?.length && Math.max(...entry.data.held) < from,
 	)
+/**
+ * Where an agent's newest compaction cuts the thread: the summary, and `first`, the first message of the first
+ * delivery it still reads whole; `null` before any compaction. Found by its head, so its turns needn't be sent.
+ */
+async function cutOf(handle, agent) {
+	const marker = await commit((tx) => tx.latestHeadMarker(agent))
+	if (marker?.kind !== 'pi.compaction') return null
+	for (let cursor; ;) {
+		const page = await handle.entries(
+			{ minEntryId: marker.head, order: 'ascending' },
+			20,
+			cursor,
+			context,
+		)
+		const kept = page.items.find((entry) => entry.kind === DELIVERY)
+		const held = /** @type {any} */ (kept?.data)?.held ?? []
+		if (held.length)
+			return { id: marker.id, model: marker.model?.map(visible), first: Math.min(...held) }
+		if (!(cursor = page.next)) return null
+	}
 }
 async function rewatch(socket, id) {
 	const old = socket.watching
@@ -2136,14 +2153,16 @@ async function rewatch(socket, id) {
 			})
 		return [...fresh, ...again]
 	}
-	/** Its newest page of messages, at least PAGE of them, or all there are */
-	const page = (after) => (entries) =>
-		only(entries).filter((entry) => entry.id < after).length >= PAGE
+	/** Its newest page of messages, at least `size` of them, or all there are */
+	const page =
+		(after, size = PAGE) =>
+		(entries) =>
+			only(entries).filter((entry) => entry.id < after).length >= size
 	const thread = await told(
 		handle,
 		messages,
 		async (entries, more) => send({ entries: withPicks(entries), ...more, ...(await present()) }),
-		{ enough: page(Infinity) },
+		{ enough: page(Infinity, FIRST) },
 	)
 	/** The oldest message the browser has, or 0 once it has them all, which its agents' turns reach back to */
 	const from = () => (thread.earlier() ? (only(thread.entries())[0]?.id ?? 0) : 0)
@@ -2194,12 +2213,20 @@ async function rewatch(socket, id) {
 			const transcript = await told(
 				handle,
 				watch,
-				(entries) =>
+				async (entries, said) =>
 					send({
 						agent,
 						entries: entries.filter((entry) => entry.kind !== 'pi.system').map(shown),
+						// The cut comes with the first batch and again after each compaction
+						...('earlier' in said || entries.some((entry) => entry.kind === 'pi.compaction')
+							? { cut: await cutOf(handle, agent) }
+							: {}),
 					}),
-				{ then: async (value) => send({ agent, live: await live(value) }), enough: covers(from()) },
+				{
+					then: async (value) => send({ agent, live: await live(value) }),
+					enough: covers(from()),
+					pageSize: 50,
+				},
 			)
 			pagers.set(agent, async (enough) =>
 				(await transcript.back(enough)).entries
@@ -2237,11 +2264,11 @@ async function told(
 	handle,
 	watch,
 	send,
-	{ then, enough = (_) => /** @type {boolean} */ (true) } = {},
+	{ then, enough = (_) => /** @type {boolean} */ (true), pageSize = 200 } = {},
 ) {
 	const transcript = new ConversationTranscript(
 		(query, limit, ctx) => handle.entries(query, limit, undefined, ctx),
-		{ pageSize: 200 },
+		{ pageSize },
 	)
 	let view,
 		newest = 0,

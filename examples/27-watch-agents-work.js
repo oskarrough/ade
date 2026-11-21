@@ -196,7 +196,7 @@ const now = await until(async () => lives(restarted.heard)[0], 8000, 20)
 const opened = restarted.heard[0]
 check(
 	opened.earlier === true &&
-		opened.entries.length >= 50 &&
+		opened.entries.length >= 15 &&
 		opened.entries.length < burst.length &&
 		opened.entries.every((entry) => entry.data.body.startsWith('note ')),
 	'after a restart, watching again starts with the newest page and says there are messages before it',

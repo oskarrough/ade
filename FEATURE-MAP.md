@@ -26,7 +26,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once
   routes                            every HTTP route, as the README lists them
-  watch, rewatch, told, doing       /ws: a browser watching one thread and its agents' live work, its newest PAGE of messages first
+  watch, rewatch, told, doing       /ws: a browser watching one thread and its agents' live work, its newest FIRST messages first;
+  cutOf                             an agent's newest compaction cut, sent with its first batch so its turns reach back only to the messages sent
   earlier, covers                   an earlier page on request, after the agent turns that reach back to it
   mintKey, revoke, upgrade          runner keys and the runner's socket; a module's own thread socket (its `connect`)
   saveSettings, restart, connectSelf   settings, restart, the server lending its own machine, under the name it first got
@@ -97,7 +98,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     Body, threadLink     a message's markdown; a thread it mentions by title is a link that opens it
   run.js                 an agent's turns, from its own conversation
     heard, conversations the conversation entries the socket brings
-    turnsOf, cutsOf      a conversation cut into turns, and where its newest compaction cut it
+    turnsOf, cutsOf      a conversation cut into turns, and where its newest compaction cut it, as the socket's `cut` says (compactions)
     timesOf              when its deliveries went out and its entries were written: dates messages from before createdAt
     summary              a closed turn's one line ("edited 2 files · 1 command")
     Exchange             an ask's own row in the asking thread: a sent `Cross` row, then the answer as a received one

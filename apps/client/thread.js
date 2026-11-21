@@ -393,14 +393,15 @@ export function Thread(props) {
 	const [shownFrom, setShownFrom] = createSignal(null)
 	const onScreen = createMemo(() => {
 		if (!ready()) return []
-		const from = shownFrom() ?? rows.at(-SHOWN)?.at ?? -Infinity
+		const from = shownFrom() ?? (rows.at(-SHOWN) ?? rows[0])?.at ?? -Infinity
 		return rows.filter((row) => row.at >= from)
 	})
 	/** Once the first rows are laid out, where they start stays put: a message landing below adds a row instead of moving the top */
 	createEffect(
 		() => ready() && rows.length,
 		(count) => {
-			if (count && untrack(shownFrom) === null) setShownFrom(rows.at(-SHOWN)?.at ?? -Infinity)
+			if (count && untrack(shownFrom) === null)
+				setShownFrom((rows.at(-SHOWN) ?? rows[0])?.at ?? -Infinity)
 		},
 	)
 	const titleClick = () =>
@@ -494,6 +495,7 @@ export function Thread(props) {
 						heard(message.agent, message.entries, {
 							whole: !message.older && !followed.has(message.agent),
 							older: message.older,
+							cut: message.cut,
 						})
 						if (!message.older) followed.add(message.agent)
 					}

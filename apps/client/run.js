@@ -270,12 +270,18 @@ const tick = () => {
 const [conversations, setConversations] = createRoot(() => createStore({}, { shallow: true }))
 
 export { conversations }
+/** Each agent's newest compaction cut, as the socket sends it with the first batch and after each compaction: `null` for none */
+const [compactions, setCompactions] = createRoot(() => createStore({}, { shallow: true }))
 
 /**
  * Takes an agent's entries off the socket: as far back as the thread's messages on each new watch, then each one once,
  * as it's written; `older` ones, for an earlier page of messages, go before
  */
-export function heard(conversation, entries, { whole, older } = {}) {
+export function heard(conversation, entries, { whole, older, cut } = {}) {
+	if (cut !== undefined)
+		setCompactions((all) => {
+			all[conversation] = cut
+		})
 	const shown = entries.filter((entry) => entry.kind !== 'pi.system')
 	setConversations((all) => {
 		const had = all[conversation]
@@ -288,44 +294,39 @@ export function heard(conversation, entries, { whole, older } = {}) {
  * Older compactions are history the agent no longer reads, so they don't show. `memory` is whether the summary is the thread's memory lines, or Pi's own.
  */
 export function cutsOf(conversation) {
-	const all = conversations[conversation] ?? []
-	return all
-		.filter((entry) => entry.kind === 'pi.compaction')
-		.slice(-1)
-		.flatMap((entry) => {
-			const kept = all.find((other) => other.kind === 'ade.delivery' && other.id >= entry.head)
-			const first = Math.min(...(kept?.data?.held ?? []))
-			if (!Number.isFinite(first)) return []
-			const summary = messageText(entry.model?.[0]) || ''
-			// With memory the summary is its lines, `id+n|text`; otherwise it is Pi's own text
-			const lines = [...summary.matchAll(/^(\d+)\+(\d+)\|(.*)$/gm)].map((line) => ({
-				key: `${conversation}:${line[1]}+${line[2]}`,
-				at: Number(line[1]),
-				n: Number(line[2]),
-				text: line[3],
-			}))
-			for (let index = lines.length - 1; index >= 0; index--) {
-				const line = lines[index]
-				if (!line.text.includes('not summarized yet')) continue
-				const next = lines[index + 1]
-				if (next?.text.includes('not summarized yet') && line.at + line.n === next.at) {
-					line.n += next.n
-					lines.splice(index + 1, 1)
-				}
-				line.text = `messages ${line.at}–${line.at + line.n - 1} not summarized yet`
+	const cut = compactions[conversation]
+	return (cut ? [cut] : []).flatMap((entry) => {
+		const { first } = entry
+		const summary = messageText(entry.model?.[0]) || ''
+		// With memory the summary is its lines, `id+n|text`; otherwise it is Pi's own text
+		const lines = [...summary.matchAll(/^(\d+)\+(\d+)\|(.*)$/gm)].map((line) => ({
+			key: `${conversation}:${line[1]}+${line[2]}`,
+			at: Number(line[1]),
+			n: Number(line[2]),
+			text: line[3],
+		}))
+		for (let index = lines.length - 1; index >= 0; index--) {
+			const line = lines[index]
+			if (!line.text.includes('not summarized yet')) continue
+			const next = lines[index + 1]
+			if (next?.text.includes('not summarized yet') && line.at + line.n === next.at) {
+				line.n += next.n
+				lines.splice(index + 1, 1)
 			}
-			return [
-				{
-					key: `${conversation}:cut:${entry.id}`,
-					id: entry.id,
-					at: first - 0.5,
-					memory: lines.length > 0,
-					lines: lines.length
-						? lines
-						: [{ key: `${conversation}:summary:${entry.id}`, at: 0, n: first, text: summary }],
-				},
-			]
-		})
+			line.text = `messages ${line.at}–${line.at + line.n - 1} not summarized yet`
+		}
+		return [
+			{
+				key: `${conversation}:cut:${entry.id}`,
+				id: entry.id,
+				at: first - 0.5,
+				memory: lines.length > 0,
+				lines: lines.length
+					? lines
+					: [{ key: `${conversation}:summary:${entry.id}`, at: 0, n: first, text: summary }],
+			},
+		]
+	})
 }
 
 /** A conversation cut into turns: each begins with a delivery and holds the calls, results and words that follow it */
