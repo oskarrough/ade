@@ -26,6 +26,15 @@ export async function collect(scan) {
 	return items
 }
 
+/** The first item `find` matches in a paged `scan`, reading no further than it */
+export async function firstIn(scan, find) {
+	for (let cursor; ;) {
+		const page = await scan(cursor)
+		const found = page.items.find(find)
+		if (found || !(cursor = page.next)) return found
+	}
+}
+
 /** How a `to` is written, shown and typed alike: a bot's name, or the thread's agent as `model:thinking@runner`, the
  * model by its own name without its provider */
 export const writtenTo = (to) =>

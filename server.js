@@ -44,6 +44,7 @@ import {
 	writtenTo,
 	agentTo,
 	collect,
+	firstIn,
 	field,
 	keyOf,
 	said,
@@ -671,22 +672,14 @@ async function older(id, kind) {
 		const loading = kept
 		kept.ready = (async () => {
 			const handle = await harness.conversation(id, context)
-			const found = []
-			if (handle && before !== undefined)
-				for (let cursor; ;) {
-					const page = await handle.entries(
-						{
-							order: 'descending',
-							maxEntryId: /** @type {import("@earendil-works/pi-durable").EntryId} */ (before - 1),
-						},
-						500,
-						cursor,
-						context,
-					)
-					for (const entry of page.items) if (entry.kind === kind) found.push(entry)
-					if (!(cursor = page.next)) break
-				}
-			loading.entries = [...found.reverse(), ...loading.entries]
+			const maxEntryId = /** @type {import("@earendil-works/pi-durable").EntryId} */ (before - 1)
+			const found =
+				handle && before !== undefined
+					? await collect((cursor) =>
+							handle.entries({ order: 'ascending', maxEntryId }, 500, cursor, context),
+						)
+					: []
+			loading.entries = [...found.filter((entry) => entry.kind === kind), ...loading.entries]
 		})()
 		kept.ready.catch(() => tail.older.get(kind) === loading && tail.older.delete(kind))
 	}
@@ -1030,13 +1023,10 @@ const withRoute = (entry, routes) => {
 async function latestMessage(id, matches, kind = KIND, tx = undefined) {
 	const found = (entry) => entry.kind === kind && matches(entry) && entry
 	if (!tx) return back(id, kind, found)
-	let cursor
-	do {
-		const page = await tx.scanEntries({ conversationId: id, order: 'descending' }, 50, cursor)
-		const entry = page.items.find(found)
-		if (entry) return entry
-		cursor = page.next
-	} while (cursor)
+	return firstIn(
+		(cursor) => tx.scanEntries({ conversationId: id, order: 'descending' }, 50, cursor),
+		found,
+	)
 }
 /** The first of `look`'s answers for a thread's entries, newest first: its newest kept in memory, any kind, then its
  * older ones of `kind`, read once */
@@ -1440,19 +1430,13 @@ async function authors(id) {
 	const handle = await conversation(id)
 	const wrote = writers.get(id) ?? { after: 0, authors: new Set() }
 	writers.set(id, wrote)
-	for (let cursor; ;) {
-		const page = await handle.entries(
-			{ order: 'ascending', minEntryId: wrote.after + 1 },
-			500,
-			cursor,
-			context,
-		)
-		for (const record of page.items) {
-			const entry = /** @type {import("@earendil-works/pi-durable").TypedEntry<Message>} */ (record)
-			if (entry.kind === KIND && !byAgent(entry.data)) wrote.authors.add(entry.data.author)
-			wrote.after = Math.max(wrote.after, entry.id)
-		}
-		if (!(cursor = page.next)) break
+	const read = await collect((cursor) =>
+		handle.entries({ order: 'ascending', minEntryId: wrote.after + 1 }, 500, cursor, context),
+	)
+	for (const record of read) {
+		const entry = /** @type {import("@earendil-works/pi-durable").TypedEntry<Message>} */ (record)
+		if (entry.kind === KIND && !byAgent(entry.data)) wrote.authors.add(entry.data.author)
+		wrote.after = Math.max(wrote.after, entry.id)
 	}
 	/** People only, as the server names them: a bot speaking in its own room writes with no agent's mark, and older
 	 * stores hold names anyone could claim */
@@ -2595,19 +2579,15 @@ const covers = (from) => (entries) =>
 async function cutOf(handle, agent) {
 	const marker = await commit((tx) => tx.latestHeadMarker(agent))
 	if (marker?.kind !== 'pi.compaction') return null
-	for (let cursor; ;) {
-		const page = await handle.entries(
-			{ minEntryId: marker.head, order: 'ascending' },
-			20,
-			cursor,
-			context,
-		)
-		const kept = page.items.find((entry) => entry.kind === DELIVERY)
-		const held = /** @type {any} */ (kept?.data)?.held ?? []
-		if (held.length)
-			return { id: marker.id, model: marker.model?.map(visible), first: Math.min(...held) }
-		if (!(cursor = page.next)) return null
-	}
+	const kept = await firstIn(
+		(cursor) =>
+			handle.entries({ minEntryId: marker.head, order: 'ascending' }, 20, cursor, context),
+		(entry) => entry.kind === DELIVERY,
+	)
+	const held = /** @type {any} */ (kept?.data)?.held ?? []
+	return held.length
+		? { id: marker.id, model: marker.model?.map(visible), first: Math.min(...held) }
+		: null
 }
 async function rewatch(socket, id) {
 	const old = socket.watching
@@ -2818,19 +2798,11 @@ async function told(
 	}
 }
 /** An agent's newest delivery entry from `first` on, for a run longer than its watch's window */
-async function lastDelivery(handle, first) {
-	for (let cursor; ;) {
-		const page = await handle.entries(
-			{ minEntryId: first, order: 'descending' },
-			100,
-			cursor,
-			context,
-		)
-		const found = page.items.find((entry) => entry.kind === DELIVERY)
-		if (found || !page.next) return found
-		cursor = page.next
-	}
-}
+const lastDelivery = (handle, first) =>
+	firstIn(
+		(cursor) => handle.entries({ minEntryId: first, order: 'descending' }, 100, cursor, context),
+		(entry) => entry.kind === DELIVERY,
+	)
 
 // ── Runner keys ───────────────────────────────────────────────────────────
 
