@@ -47,11 +47,13 @@ export function botThreads(bot) {
 export function BotItem(props) {
 	const family = createMemo(() => [...familyOf(props.bot)].map(threadOf).filter(Boolean))
 	const working = createMemo(() => family().filter((thread) => thread.status === 'working').length)
+	// Its threads' work, questions and failures, which its home lists; an unread answer only in the home itself, since
+	// opening the home is what clears it
 	const status = createMemo(
 		() =>
-			['working', 'blocked', 'error', 'done'].find((status) =>
+			['working', 'blocked', 'error'].find((status) =>
 				family().some((thread) => thread.status === status),
-			) ?? 'idle',
+			) ?? (threadOf(props.bot.home)?.status === 'done' ? 'done' : 'idle'),
 	)
 	return html`
 		<li class=${() => ({ current: props.bot.home === current() })}>
@@ -101,7 +103,7 @@ export function BotSettings(props) {
 	const holder = (hue) =>
 		bots.find((bot) => bot.name !== props.bot.name && hueOf(bot.name) === hue)?.name
 	const setColor = (color) => saveBot(props.bot.name, { color }).catch(report)
-	// Of its hundreds, the ones happening now or needing a hand; an unread answer already shows its dot in the thread list
+	// Of its hundreds, the ones happening now or needing a hand, which its row's dot counts; an unread answer elsewhere doesn't
 	const active = createMemo(() =>
 		own().filter((thread) => ['working', 'blocked', 'error'].includes(thread.status)),
 	)
