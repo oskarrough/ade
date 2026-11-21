@@ -403,7 +403,8 @@ agent-memory {
 	&::before {
 		top: 0;
 		height: var(--fade-top, 3.4rem);
-		background: linear-gradient(Canvas, transparent);
+		/* Solid along the top edge, then soft, so words scrolling up dissolve before they reach the pill. */
+		background: linear-gradient(Canvas var(--space-2), transparent);
 	}
 
 	/* Solid from the composer's top edge down; above it, one soft fade, so words dim as they reach the composer and never show under it. */
@@ -413,7 +414,7 @@ agent-memory {
 		background: linear-gradient(transparent, Canvas var(--fade-bottom));
 	}
 
-	/* The head: the thread's name and, beside it, its own close, on the page's own surface so nothing scrolls through it. */
+	/* The head: the thread's name and, beside it, its own close, floating over the chat; the fade above keeps words from running into it. */
 	> header {
 		position: absolute;
 		inset: 0 0 auto;
@@ -423,7 +424,6 @@ agent-memory {
 		justify-content: center;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-4);
-		background: Canvas;
 		pointer-events: none;
 		font-size: var(--text-ui);
 
