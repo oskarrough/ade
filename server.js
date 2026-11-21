@@ -1235,13 +1235,32 @@ const threadList = async (reader, archived = false) => {
 		ids.filter((_, index) => shown[index]).map((id) => threadRow(id, reader, busy, homes)),
 	)
 }
-async function threadView(id, reader) {
-	await conversation(id)
+/** A thread's row and people, with its messages: all of them, those after `after`, or the newest `last` */
+async function threadView(id, reader, { after, last } = {}) {
+	const handle = await conversation(id)
 	return {
 		...(await threadRow(id, reader, await work())),
 		people: await people(id),
-		entries: await messages(id),
+		entries:
+			after === undefined && last === undefined
+				? await messages(id)
+				: await newest(handle, { after, last }),
 	}
+}
+/** A thread's newest messages, read back from its end: those after `after`, or the newest `last`, with their picks */
+async function newest(handle, { after = -1, last = Infinity }) {
+	const read = []
+	let count = 0
+	for (let cursor; count < last;) {
+		const page = await handle.entries({ order: 'descending' }, 200, cursor, context)
+		const ended = page.items.findIndex((entry) => entry.id <= after)
+		for (const entry of ended < 0 ? page.items : page.items.slice(0, ended)) {
+			if (entry.kind === KIND && ++count > last) break
+			read.push(entry)
+		}
+		if (ended >= 0 || !(cursor = page.next)) break
+	}
+	return routed(read.reverse())
 }
 
 /** An agent's thread owns its conversation, through its Anchor */
@@ -1810,7 +1829,14 @@ const routes = /** @type {[string, Function][]} */ ([
 	['GET /api/threads', (req) => threadList(user(req))],
 	['GET /api/threads/archived', (req) => threadList(user(req), true)],
 	['POST /api/threads', async (req) => createThread(await input(req))],
-	['GET /api/threads/:id', (req, id) => threadView(id, user(req))],
+	[
+		'GET /api/threads/:id',
+		(req, id, url) => {
+			const number = (name) =>
+				url.searchParams.has(name) ? Number(url.searchParams.get(name)) : undefined
+			return threadView(id, user(req), { after: number('after'), last: number('last') })
+		},
+	],
 	[
 		'POST /api/threads/:id/archive',
 		async (req, id) => archiveThread(id, (await input(req)).archived),

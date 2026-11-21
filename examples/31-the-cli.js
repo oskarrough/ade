@@ -107,6 +107,16 @@ check(
 	'threads lists it with its agents',
 	threads,
 )
+const whole = (await view(id)).entries
+const tail = (await api('GET', `/api/threads/${id}?last=2`)).json.entries
+const afterSecond = (await api('GET', `/api/threads/${id}?after=${whole[1].id}`)).json.entries
+check(
+	whole.length > 3 &&
+		JSON.stringify(tail) === JSON.stringify(whole.slice(-2)) &&
+		JSON.stringify(afterSecond) === JSON.stringify(whole.slice(2)),
+	'a thread reads back from its end: ?last=n its newest n messages, ?after=id those after one',
+	JSON.stringify([whole.length, tail.length, afterSecond.length]),
+)
 const read = await cli('read', id, '--last', '1')
 check(
 	read.includes('from-desk') && !read.includes('hello'),

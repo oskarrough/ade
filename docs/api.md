@@ -29,7 +29,7 @@ DELETE /api/runners/:name
 GET    /api/runners/:name/available    every model pi is logged in for there; `offers` are its scoped ones
 GET    /api/threads                    each thread's row; its `parent`, or `conversation.parent` for a fork, places it in a family
 POST   /api/threads {title, parent?, tools?}
-GET    /api/threads/:id
+GET    /api/threads/:id                its row, people and messages; `?last=n` only the newest n, `?after=id` only those after one
 GET    /api/threads/archived
 POST   /api/threads/:id/archive {archived}
 POST   /api/threads/:id/entries {body, to?, images?, steer?}

@@ -111,7 +111,7 @@ async function post() {
 	const id = fresh
 		? (await api('POST', '/api/threads', { title: flags.title ?? defaultTitle(body) })).id
 		: Number(flags.thread)
-	const seen = (await api('GET', `/api/threads/${id}`)).entries.at(-1)?.id ?? 0
+	const seen = (await api('GET', `/api/threads/${id}?last=1`)).entries.at(-1)?.id ?? 0
 	const to = flags.to && (flags.to.includes('nobody') ? null : flags.to.map(agent))
 	/** Listen before posting so even an immediate answer can't slip between the read and the wait */
 	const socket = flags['no-wait']
@@ -144,8 +144,8 @@ async function post() {
 		let last = posted.entry ?? seen
 		let waiting = ''
 		for (;;) {
-			const view = await api('GET', `/api/threads/${id}`)
-			for (const entry of view.entries.filter((entry) => entry.id > last)) {
+			const view = await api('GET', `/api/threads/${id}?after=${last}`)
+			for (const entry of view.entries) {
 				if (entry.id !== posted.entry) show(entry)
 				last = entry.id
 			}
@@ -178,11 +178,15 @@ const commands = {
 			)
 	},
 	async read() {
-		const { entries } = await api('GET', `/api/threads/${Number(rest[0])}`)
-		for (const entry of entries
-			.filter((entry) => entry.id > Number(flags.after ?? 0))
-			.slice(-(Number(flags.last) || entries.length)))
-			show(entry)
+		const query = [
+			flags.after !== undefined && `after=${Number(flags.after)}`,
+			flags.last !== undefined && `last=${Number(flags.last)}`,
+		].filter(Boolean)
+		const { entries } = await api(
+			'GET',
+			`/api/threads/${Number(rest[0])}${query.length ? `?${query.join('&')}` : ''}`,
+		)
+		for (const entry of entries.slice(-(Number(flags.last) || entries.length))) show(entry)
 	},
 	async wait() {
 		const id = Number(rest[0])
@@ -191,11 +195,15 @@ const commands = {
 		try {
 			await once(socket, 'open')
 			for (;;) {
-				const view = await api('GET', `/api/threads/${id}`)
+				const view = await api('GET', `/api/threads/${id}?last=0`)
 				if (!going(view)) {
-					const asked = view.entries.findLast((entry) => entry.data.to?.length)?.id ?? 0
-					const after = flags.after ? Number(flags.after) : asked
-					return view.entries.filter((entry) => entry.id > after).forEach(show)
+					// What came after the newest message that asked someone, found among the latest
+					const after = flags.after
+						? Number(flags.after)
+						: ((await api('GET', `/api/threads/${id}?last=200`)).entries.findLast(
+								(entry) => entry.data.to?.length,
+							)?.id ?? 0)
+					return (await api('GET', `/api/threads/${id}?after=${after}`)).entries.forEach(show)
 				}
 				if ((await changes.next()).done) throw new Error('Server disconnected while waiting')
 			}
