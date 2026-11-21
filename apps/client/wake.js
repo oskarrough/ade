@@ -1,8 +1,8 @@
 /** Wakes: an agent coming back to its thread later. Its pending wakes above the composer, each with ×; the row a wake call leaves in the chat. */
 import html from '@solidjs/html'
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createEffect, createRoot, createSignal, createStore, For, Show } from 'solid-js'
 import { Icon } from './icons.js'
-import { api, colorOf, threadOf, titleOf } from './server.js'
+import { api, colorOf, connected, titleOf } from './server.js'
 import { shortLabel } from './agent.js'
 import { ahead } from './time.js'
 import { report } from './notice.js'
@@ -21,14 +21,23 @@ const span = (ms) => {
 	return text
 }
 
-/** The thread's pending wakes, fetched when it opens and whenever its status moves (a turn sets one, a wake fires) */
+/** Each thread's count of wake changes heard on its socket, which its strip fetches again on */
+const [heard, setHeard] = createRoot(() => createStore({}))
+export function heardWake(thread, event) {
+	if (event.purpose === 'wake')
+		setHeard((all) => {
+			all[thread] = (all[thread] ?? 0) + 1
+		})
+}
+
+/** The thread's pending wakes, fetched when it opens, when the socket (re)connects, and when a wake changes */
 export function Wakes(props) {
 	const [wakes, setWakes] = createSignal([])
 	const load = () => api(`/api/threads/${props.thread}/wake`).then(setWakes, () => setWakes([]))
 	createEffect(
-		() => [props.thread, threadOf(props.thread)?.status],
-		() => {
-			load()
+		() => [props.thread, connected(), heard[props.thread]],
+		([, online]) => {
+			if (online) load()
 		},
 	)
 	const cancel = (id) => api(`/api/threads/${props.thread}/wake`, { cancel: id }).then(load, report)

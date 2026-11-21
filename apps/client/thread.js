@@ -69,7 +69,7 @@ import { markdown } from './markdown.js'
 import { sideOf, toggleSide } from './side.js'
 import { heardActivity } from './director.js'
 import { CanvasRow } from './canvas.js'
-import { WakeSet, WokeLine } from './wake.js'
+import { heardWake, WakeSet, WokeLine } from './wake.js'
 
 /** A folded summary's text, without the literal <summary> wrapper tags some memories still carry */
 const stripSummaryTag = (text) =>
@@ -502,7 +502,10 @@ export function Thread(props) {
 						})
 						if (!snapshot) markRead(id)
 					}
-					if (message.activity) heardActivity(id, message.activity)
+					if (message.activity) {
+						heardActivity(id, message.activity)
+						heardWake(id, message.activity)
+					}
 					if (message.people)
 						setPeople((all) => {
 							all[id] = message.people
