@@ -59,6 +59,24 @@ export function ThreadList() {
 						<${NewRow} label="Bot" title="New bot" onPick=${(_e) => setCreating(true)} />
 					<//>
 				</ul>
+				<${Show} when=${() => server().modules.includes('inbox')}>
+					<button
+						type="button"
+						class=${() => ['ghost small foot-toggle blocked-toggle', { some: inbox.length }]}
+						aria-pressed=${() => String(inboxOpen())}
+						aria-label=${() => (inbox.length ? `Inbox, ${inbox.length}` : 'Inbox')}
+						onClick=${() => {
+							setArchivedPage(false)
+							if (inboxOpen()) openThread(current())
+							else openInbox()
+						}}
+					>
+						<span>Inbox</span>
+						<${Show} when=${() => inbox.length}
+							><small class="count" aria-hidden="true">${() => inbox.length}</small><//
+						>
+					</button>
+				<//>
 				<${Show} when=${() => server().modules.includes('bots')}>
 					<h2>Bots</h2>
 					<ul class="bots">
@@ -93,24 +111,6 @@ export function ThreadList() {
 				</ul>
 			<//>
 			<footer class="list-foot">
-				<${Show} when=${() => server().modules.includes('inbox')}>
-					<button
-						type="button"
-						class=${() => ['ghost small foot-toggle blocked-toggle', { some: inbox.length }]}
-						aria-pressed=${() => String(inboxOpen())}
-						aria-label=${() => (inbox.length ? `Inbox, ${inbox.length}` : 'Inbox')}
-						onClick=${() => {
-							setArchivedPage(false)
-							if (inboxOpen()) openThread(current())
-							else openInbox()
-						}}
-					>
-						<span>Inbox</span>
-						<${Show} when=${() => inbox.length}
-							><small class="count" aria-hidden="true">${() => inbox.length}</small><//
-						>
-					</button>
-				<//>
 				<${Show}
 					when=${() => server().modules.includes('blocked') && !server().modules.includes('inbox')}
 				>
