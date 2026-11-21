@@ -32,13 +32,8 @@ function toMarkdown(title, people, entries) {
 }
 
 export function server(core) {
-	async function peopleOf(id, entries) {
-		const { reads } = await core.thread(id)
-		const wrote = entries.filter((entry) => !byAgent(entry.data)).map((entry) => entry.data.author)
-		return [...new Set([...wrote, ...Object.keys(reads)])]
-	}
-
-	async function exportAll() {
+	async function serve(threadId) {
+		if (threadId !== undefined) throw new Error('Export has nothing per thread')
 		const rows = [
 			...(await core.threadList(core.owner, false)),
 			...(await core.threadList(core.owner, true)),
@@ -46,17 +41,16 @@ export function server(core) {
 		const files = {}
 		for (const row of rows) {
 			const entries = await core.messages(row.id)
-			const people = await peopleOf(row.id, entries)
+			const { reads } = await core.thread(row.id)
+			const wrote = entries
+				.filter((entry) => !byAgent(entry.data))
+				.map((entry) => entry.data.author)
+			const people = [...new Set([...wrote, ...Object.keys(reads)])]
 			const base = fileName(row.id, row.title)
 			files[`${base}.json`] = `${JSON.stringify(entries, null, 2)}\n`
 			files[`${base}.md`] = toMarkdown(row.title, people, entries)
 		}
 		return { files }
-	}
-
-	async function serve(threadId) {
-		if (threadId !== undefined) throw new Error('Export has nothing per thread')
-		return exportAll()
 	}
 
 	return { serve }

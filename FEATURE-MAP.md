@@ -101,7 +101,7 @@ modules/
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)
   export.js              GET /api/export (serve) answers {files}, every thread's files, archived ones included, as
                          a map of name to text, one Markdown file and one JSON file each, nothing written on the
-                         server (exportAll, fileName, peopleOf over util's byAgent, toMarkdown, foldShell folding a
+                         server (fileName, util's byAgent, toMarkdown, foldShell folding a
                          `$ cmd`'s output to one line); off by default; cli.js's `export <dir>` fetches it and
                          writes the files
   pi-sessions.js         conversations as pi session files: server follows each agent's conversation (push, sync, changed) and sends

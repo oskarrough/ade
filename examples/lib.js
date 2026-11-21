@@ -300,11 +300,7 @@ export async function localRunner(
 		socket.onerror = () => {}
 	}
 	connect()
-	await until(() =>
-		api('GET', '/api/runners').then((response) =>
-			response.json.some((runner) => runner.name === name && runner.online),
-		),
-	)
+	await online(name)
 	return {
 		close: () => {
 			closing = true

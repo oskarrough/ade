@@ -260,28 +260,6 @@ export function createRunners({ onChange }) {
 	}
 }
 
-function failure(model, partial, message, aborted) {
-	return {
-		role: 'assistant',
-		content: [],
-		api: model.api,
-		provider: model.provider,
-		model: model.id,
-		timestamp: Date.now(),
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
-		...partial,
-		stopReason: aborted ? 'aborted' : 'error',
-		errorMessage: message,
-	}
-}
-
 /** Both ends of a connection keep the conversations of its last few sessions, by the same rule in the same order, so they always agree on what the runner holds */
 function keep(kept, key, messages) {
 	kept.delete(key)
@@ -344,7 +322,15 @@ export function runnerProvider(runners, name, resolved = {}) {
 				events.push({
 					type: 'error',
 					reason: signal?.aborted ? 'aborted' : 'error',
-					error: failure(model, partial, error.message, signal?.aborted),
+					error: {
+						...fauxAssistantMessage([]),
+						api: model.api,
+						provider: model.provider,
+						model: model.id,
+						...partial,
+						stopReason: signal?.aborted ? 'aborted' : 'error',
+						errorMessage: error.message,
+					},
 				}),
 			)
 			.finally(() => events.end())
