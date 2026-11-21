@@ -9,6 +9,7 @@
 		"start": "node server.js",
 		"runner": "node runner.js",
 		"examples": "node examples/all.js",
+		"perf": "node scripts/perf.js",
 		"check": "oxfmt && oxlint --type-aware --type-check"
 	},
 	"engines": {
