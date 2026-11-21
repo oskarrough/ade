@@ -7,7 +7,7 @@
  * The bot's model, echo/try, thinks, writes, reads, edits and runs a command in its folder, then answers in markdown.
  * A message with "post" in it makes it post to a new thread too, or to a bot it names; "slow" makes the command take five seconds, to watch live work, and passes on to the thread it posts to.
  * With MODULES=+blocked, a message starting "ask " makes it ask you the rest with `ask_person`. */
-import { api, base, runner, server, shellEnv } from '../examples/lib.js'
+import { api, base, runner, server, servePort, shellEnv } from '../examples/lib.js'
 import { personas } from '../echo.js'
 
 // MODULES=+web-search layers changes on top of this script's own modules.
@@ -31,6 +31,7 @@ await api('POST', `/api/threads/${thread.id}/entries`, {
 })
 
 console.log(`ade at ${base}/?thread=${thread.id}
+serve http://127.0.0.1:${servePort} (people come in by Tailscale-User-Login)
 the bot works in ${process.cwd()}; send to echo/try@bot, "post" or "slow" in a message for more
 bots: ${Object.keys(personas).join(', ')}; from a terminal: export ADE_SERVER=${base}; node cli.js post --to ada hi
 stop: kill ${process.pid}`)
