@@ -60,16 +60,27 @@ export function ThreadList() {
 					<//>
 				</ul>
 				<${Show} when=${() => server().modules.includes('inbox')}>
-					<${Counted}
-						word="Inbox"
-						count=${() => inbox.length}
-						pressed=${inboxOpen}
-						onClick=${(_e) => {
-							setArchivedPage(false)
-							if (inboxOpen()) openThread(current())
-							else openInbox()
-						}}
-					/>
+					<ul>
+						<li class=${() => ({ current: inboxOpen() })}>
+							<button
+								type="button"
+								class="row"
+								aria-pressed=${() => String(inboxOpen())}
+								aria-label=${() => (inbox.length ? `Inbox, ${inbox.length}` : 'Inbox')}
+								onClick=${(_e) => {
+									setArchivedPage(false)
+									if (inboxOpen()) openThread(current())
+									else openInbox()
+								}}
+							>
+								<span class="plus" aria-hidden="true"></span>
+								Inbox
+								<${Show} when=${() => inbox.length}
+									><small aria-hidden="true">${() => inbox.length}</small><//
+								>
+							</button>
+						</li>
+					</ul>
 				<//>
 				<${Show} when=${() => server().modules.includes('bots')}>
 					<h2>Bots</h2>
@@ -122,24 +133,6 @@ export function ThreadList() {
 				<//>
 			</footer>
 		</nav>
-	`
-}
-
-/** A foot toggle whose count sits beside its word, like an unread count; with some, its word goes ink */
-function Counted(props) {
-	return html`
-		<button
-			type="button"
-			class=${() => ['ghost small foot-toggle inbox-toggle', { some: props.count }]}
-			aria-pressed=${() => String(props.pressed)}
-			aria-label=${() => (props.count ? `${props.word}, ${props.count}` : props.word)}
-			onClick=${(event) => props.onClick(event)}
-		>
-			<span>${() => props.word}</span>
-			<${Show} when=${() => props.count}
-				><small class="count" aria-hidden="true">${() => props.count}</small><//
-			>
-		</button>
 	`
 }
 

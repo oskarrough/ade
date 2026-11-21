@@ -1652,15 +1652,6 @@ button.foot-toggle {
 		flex: 0 1 auto;
 	}
 
-	/* Inbox stays muted with nothing in it; with some, its words go ink and a count sits beside them, like an unread count. */
-	&.inbox-toggle {
-		gap: var(--space-1);
-
-		&.some {
-			color: var(--ink);
-		}
-	}
-
 	.count {
 		min-width: var(--space-4);
 		padding: 0 var(--space-1);
