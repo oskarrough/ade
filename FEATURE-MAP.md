@@ -86,7 +86,7 @@ modules/
                          thread in use, saved shortly after edits, closed when empty),
                          `canvas_look` (look: the stored shapes, read, and what each person present has selected and in view, as
                          their tab reports it: seen, report, present) and `canvas_act` (alone: create, update, delete, move and
-                         label on the stored shapes, apply, sizes guessed); who drew it (`meta.by`, the session's user, stamped by
+                         label on the stored shapes: apply, created, updated, sizes guessed); who drew it (`meta.by`, the session's user, stamped by
                          authorizeRecord and onCommittedChanges, except a shape that only grew to fit its label: grew);
                          serve (GET shapes, POST actions/look), connect; off by default
   blocked.js             `ask_person` posts an explicitly marked question; openQuestion reads the latest relevant message via server.js latestMessage: the question, unless a person has replied, used by server.js status and core.openQuestion; off by default

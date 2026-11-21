@@ -152,13 +152,8 @@ export function server(core) {
 			const state = await tx.doc(Title, threadId)
 			if (state.scheduled) return
 			state.scheduled = true
-			await tx.createTask(
-				AutoTitle,
-				{
-					conversation: entry.data.answer.conversation,
-				},
-				background(threadId),
-			)
+			const { conversation } = entry.data.answer
+			await tx.createTask(AutoTitle, { conversation }, background(threadId))
 		},
 	}
 }

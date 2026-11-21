@@ -101,14 +101,13 @@ export function server(core) {
 		const ids = asked.rename ? await core.threadIds() : []
 		return core.once(body.requestId, `bot ${asked.name}`, (tx) => write(tx, asked, ids))
 	}
-	async function remove(name) {
-		return core.commit(async (tx) => {
+	const remove = (name) =>
+		core.commit(async (tx) => {
 			const all = await tx.doc(Bots)
 			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
 			delete all[name]
 			return { name }
 		})
-	}
 
 	async function archiving(tx, threadId) {
 		const [name] = Object.entries(await tx.doc(Bots)).find(([, bot]) => bot.home === threadId) ?? []
@@ -145,10 +144,11 @@ export function server(core) {
 		execute: async (input, api) => {
 			const args = /** @type {any} */ (input)
 			const at = await core.home(api.conversationId)
-			const mine = at && (await bots())[at.name]
-			if (!mine || mine.home !== at.thread) throw new Error('Only a bot can, in its home thread')
+			const all = await bots()
+			if (!at || all[at.name]?.home !== at.thread)
+				throw new Error('Only a bot can, in its home thread')
 			const name = args.name ?? at.name
-			if (name !== at.name && (await bots())[name])
+			if (name !== at.name && all[name])
 				throw new Error(`${name} is another bot; it changes at its own home`)
 			const own = await core.agentOf(api.conversationId)
 			const asked = await change({

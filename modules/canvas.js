@@ -40,22 +40,14 @@ const ALONE = ['create', 'update', 'delete', 'move', 'label']
 
 /** The starter kit's shape types and tldraw's geo kinds, both ways (its convertFocusedShapeToTldrawShape) */
 const GEO = {
-	rectangle: 'rectangle',
-	ellipse: 'ellipse',
-	triangle: 'triangle',
-	diamond: 'diamond',
-	hexagon: 'hexagon',
+	...Object.fromEntries(
+		'rectangle ellipse triangle diamond hexagon cloud x-box check-box heart pentagon octagon star trapezoid'
+			.split(' ')
+			.map((same) => [same, same]),
+	),
 	pill: 'oval',
-	cloud: 'cloud',
-	'x-box': 'x-box',
-	'check-box': 'check-box',
-	heart: 'heart',
-	pentagon: 'pentagon',
-	octagon: 'octagon',
-	star: 'star',
 	'parallelogram-right': 'rhombus',
 	'parallelogram-left': 'rhombus-2',
-	trapezoid: 'trapezoid',
 	'fat-arrow-right': 'arrow-right',
 	'fat-arrow-left': 'arrow-left',
 	'fat-arrow-up': 'arrow-up',
@@ -120,8 +112,6 @@ export function server(core) {
 		})
 		/** Shapes a person changed whose `by` names someone else, until the room says so */
 		const touched = new Map()
-		/** @param {any} session the room's session, with who connected it in its meta */
-		const whose = (session) => session.meta.by
 		const room = new TLSocketRoom({
 			schema,
 			storage,
@@ -129,7 +119,7 @@ export function server(core) {
 			// to fit its label
 			authorizeRecord: {
 				shape: ({ session, type, prev, next }) => {
-					const by = whose(session)
+					const { by } = /** @type {any} */ (session).meta
 					if (type === 'create') return { ...next, meta: { ...next.meta, by } }
 					if (type === 'update' && next.meta?.by !== by && !grew(prev, next))
 						touched.set(next.id, by)
@@ -178,39 +168,33 @@ export function server(core) {
 		try {
 			const records = recordsOf(storage)
 			const all = { ...records }
-			const gone = new Set()
-			const touched = new Set()
 			const renamed = {}
 			const applied = actions.map((action) => {
 				const type = action?._type
 				if (!ALONE.includes(type)) return { _type: type, skipped: 'not one ade does' }
 				try {
-					for (const record of apply(action, all, by, renamed)) {
-						if (record.gone) {
-							delete all[record.id]
-							gone.add(record.id)
-						} else {
-							all[record.id] = record
-							touched.add(record.id)
-						}
-					}
+					for (const record of apply(action, all, by, renamed))
+						if (record.gone) delete all[record.id]
+						else all[record.id] = record
 					return { _type: type, ok: true }
 				} catch (error) {
 					return { _type: type, skipped: error.message }
 				}
 			})
+			const gone = Object.keys(records).filter((id) => !all[id])
+			const changed = Object.keys(all).filter((id) => all[id] !== records[id])
 			storage.transaction((txn) => {
 				for (const id of gone) txn.delete(id)
-				for (const id of touched) if (all[id]) txn.set(id, all[id])
+				for (const id of changed) txn.set(id, all[id])
 			})
 			await save()
 			const now = recordsOf(storage)
 			return {
 				applied,
-				shapes: [...touched]
+				shapes: changed
 					.filter((id) => now[id]?.typeName === 'shape')
 					.map((id) => blurry(simple(now[id], now))),
-				deleted: [...gone].filter((id) => id.startsWith('shape:')).map(short),
+				deleted: gone.filter((id) => id.startsWith('shape:')).map(short),
 				renamed,
 			}
 		} finally {
@@ -395,83 +379,29 @@ function anchored(anchor = 'top-left', { w = 0, h = 0 }) {
 	}
 }
 
+const shapeOf = (id, records) => {
+	if (records[`shape:${id}`]?.typeName !== 'shape') throw new Error(`no shape ${id}`)
+	return records[`shape:${id}`]
+}
+
 function apply(action, records, by, renamed) {
-	const page = Object.values(records)
-		.filter((record) => record.typeName === 'page')
-		.sort(byIndex)[0]
-	const shapeOf = (id) => {
-		if (records[`shape:${id}`]?.typeName !== 'shape') throw new Error(`no shape ${id}`)
-		return records[`shape:${id}`]
-	}
 	switch (action._type) {
-		case 'create': {
-			const shape = action.shape ?? {}
-			const top = Object.values(records)
-				.filter((record) => record.typeName === 'shape' && record.parentId === page.id)
-				.sort(byIndex)
-				.at(-1)?.index
-			const [index] = getIndicesAbove(top, 1)
-			const id = shape.shapeId && unique(shape.shapeId, records)
-			if (id !== shape.shapeId) renamed[shape.shapeId] = id
-			if (shape._type === 'arrow') {
-				if (!shape.fromId || !shape.toId)
-					throw new Error('an arrow joins two shapes: give fromId and toId')
-				return arrow(
-					{ from: shape.fromId, to: shape.toId, text: shape.text, color: shape.color, id },
-					page.id,
-					index,
-					records,
-					by,
-				)
-			}
-			const type = GEO[shape._type] ?? shape._type
-			if (!['note', 'text', ...Object.values(GEO)].includes(type))
-				throw new Error(`ade doesn't draw a ${shape._type}`)
-			return [
-				record(
-					{
-						...shape,
-						type,
-						id,
-						fill: FILLS[shape.fill],
-						w: shape.w ?? shape.maxWidth ?? undefined,
-					},
-					page.id,
-					index,
-					records,
-					by,
-				),
-			]
-		}
+		case 'create':
+			return created(action.shape ?? {}, records, by, renamed)
 		case 'update': {
 			const { shapeId, x, y, w, h, text, color, _type } = action.update ?? {}
-			shapeOf(shapeId)
-			return [
-				updated(
-					_type === 'arrow'
-						? { id: shapeId, text, color }
-						: { id: shapeId, x, y, w, h, text, color },
-					records,
-					by,
-				),
-			]
+			const change = _type === 'arrow' ? { text, color } : { x, y, w, h, text, color }
+			return [updated(shapeId, change, records, by)]
 		}
 		case 'label':
-			shapeOf(action.shapeId)
-			return [updated({ id: action.shapeId, text: action.text }, records, by)]
+			return [updated(action.shapeId, { text: action.text }, records, by)]
 		case 'move': {
-			const shape = shapeOf(action.shapeId)
-			const offset = anchored(action.anchor, sizeOf(shape))
-			return [
-				updated(
-					{ id: action.shapeId, x: action.x - offset.x, y: action.y - offset.y },
-					records,
-					by,
-				),
-			]
+			const offset = anchored(action.anchor, sizeOf(shapeOf(action.shapeId, records)))
+			const change = { x: action.x - offset.x, y: action.y - offset.y }
+			return [updated(action.shapeId, change, records, by)]
 		}
 		case 'delete': {
-			shapeOf(action.shapeId)
+			shapeOf(action.shapeId, records)
 			const gone = new Set([`shape:${action.shapeId}`])
 			for (let more = true; more;) {
 				more = false
@@ -567,8 +497,8 @@ function simple(shape, records) {
 		...(props.color && { color: props.color }),
 		...(shape.meta?.by && { by: shape.meta.by }),
 	}
+	const { x, y } = onPage(shape, records)
 	if (shape.type === 'arrow') {
-		const { x, y } = onPage(shape, records)
 		const ends = endsOf(shape, records)
 		const [start, end] = ['start', 'end'].map((terminal) =>
 			ends[terminal]
@@ -587,7 +517,6 @@ function simple(shape, records) {
 			...said,
 		}
 	}
-	const { x, y } = onPage(shape, records)
 	return {
 		id: short(shape.id),
 		type: shape.type === 'geo' ? props.geo : shape.type,
@@ -608,97 +537,45 @@ const overlaps = (shape, area) => {
 	return x <= area.x + area.w && x + w >= area.x && y <= area.y + area.h && y + h >= area.y
 }
 
-/** A fresh shape id from the agent's own, or a short random one; an id that's taken is an error, not an overwrite */
-function newId(id, records) {
-	const shapeId = `shape:${id ?? crypto.randomUUID().slice(0, 8)}`
-	if (records[shapeId]) throw new Error(`There is already a shape ${id}`)
-	return shapeId
-}
-
-const base = (id, x, y, index, parentId, by) => ({
-	id,
-	typeName: 'shape',
-	x,
-	y,
-	rotation: 0,
-	index,
-	parentId,
-	isLocked: false,
-	opacity: 1,
-	meta: { by },
-})
-
-function record({ type, x, y, w, h, text = '', color, fill, id }, parentId, index, records, by) {
-	if (typeof x !== 'number' || typeof y !== 'number') throw new Error(`A ${type} needs x and y`)
-	const geo = type
-	const richText = toRichText(text)
-	const props =
-		type === 'text'
-			? {
-					color: color ?? 'black',
-					size: 's',
-					font: 'draw',
-					textAlign: 'start',
-					w: w ?? 200,
-					richText,
-					scale: 1,
-					autoSize: w === undefined,
-				}
-			: type === 'note'
-				? {
-						color: color ?? 'yellow',
-						labelColor: 'black',
-						size: 's',
-						font: 'draw',
-						fontSizeAdjustment: 1,
-						align: 'middle',
-						verticalAlign: 'middle',
-						growY: 0,
-						url: '',
-						richText,
-						scale: w ? w / NOTE : 1,
-						textLastEditedBy: null,
-					}
-				: {
-						geo,
-						dash: 'draw',
-						url: '',
-						w: w ?? 100,
-						h: h ?? 100,
-						growY: 0,
-						scale: 1,
-						flipX: false,
-						flipY: false,
-						labelColor: 'black',
-						color: color ?? 'black',
-						fill: fill ?? 'none',
-						size: 's',
-						font: 'draw',
-						align: 'middle',
-						verticalAlign: 'middle',
-						richText,
-					}
-	const shape = {
-		...base(newId(id, records), x, y, index, parentId, by),
-		type: ['text', 'note'].includes(type) ? type : 'geo',
-		props,
+/** A new shape on top of the page: a geo, note or text, or an arrow joined to the two shapes it points between */
+function created(shape, records, by, renamed) {
+	const page = Object.values(records)
+		.filter((record) => record.typeName === 'page')
+		.sort(byIndex)[0]
+	const top = Object.values(records)
+		.filter((record) => record.typeName === 'shape' && record.parentId === page.id)
+		.sort(byIndex)
+		.at(-1)?.index
+	const id = shape.shapeId && unique(shape.shapeId, records)
+	if (id !== shape.shapeId) renamed[shape.shapeId] = id
+	const made = (type, x, y, props) => {
+		const made = {
+			id: `shape:${id ?? crypto.randomUUID().slice(0, 8)}`,
+			typeName: 'shape',
+			type,
+			x,
+			y,
+			rotation: 0,
+			index: getIndicesAbove(top, 1)[0],
+			parentId: page.id,
+			isLocked: false,
+			opacity: 1,
+			meta: { by },
+			props,
+		}
+		schema.types.shape.validate(made)
+		return made
 	}
-	schema.types.shape.validate(shape)
-	return shape
-}
-
-function arrow({ from, to, text = '', color, id }, parentId, index, records, by) {
-	const [start, end] = [from, to].map((end) => {
-		const shape = records[`shape:${end}`]
-		if (shape?.typeName !== 'shape') throw new Error(`No shape ${end} to point an arrow at`)
-		return shape
-	})
-	const head = middle(start, records),
-		tail = middle(end, records)
-	const shape = {
-		...base(newId(id, records), head.x, head.y, index, parentId, by),
-		type: 'arrow',
-		props: {
+	const { x, y, h, text = '', color } = shape
+	const w = shape.w ?? shape.maxWidth ?? undefined
+	const richText = toRichText(text)
+	if (shape._type === 'arrow') {
+		if (!shape.fromId || !shape.toId)
+			throw new Error('an arrow joins two shapes: give fromId and toId')
+		const [start, end] = [shape.fromId, shape.toId].map((end) => shapeOf(end, records))
+		const head = middle(start, records),
+			tail = middle(end, records)
+		const arrow = made('arrow', head.x, head.y, {
 			kind: 'arc',
 			labelColor: 'black',
 			color: color ?? 'black',
@@ -711,47 +588,99 @@ function arrow({ from, to, text = '', color, id }, parentId, index, records, by)
 			start: { x: 0, y: 0 },
 			end: { x: tail.x - head.x, y: tail.y - head.y },
 			bend: 0,
-			richText: toRichText(text),
+			richText,
 			labelPosition: 0.5,
 			scale: 1,
 			elbowMidPoint: 0.5,
-		},
+		})
+		const bindings = [
+			['start', start],
+			['end', end],
+		].map(([terminal, target]) => {
+			const binding = {
+				id: `binding:${crypto.randomUUID().slice(0, 8)}`,
+				typeName: 'binding',
+				type: 'arrow',
+				fromId: arrow.id,
+				toId: target.id,
+				props: {
+					terminal,
+					normalizedAnchor: { x: 0.5, y: 0.5 },
+					isExact: false,
+					isPrecise: false,
+					snap: 'none',
+				},
+				meta: {},
+			}
+			schema.types.binding.validate(binding)
+			return binding
+		})
+		return [arrow, ...bindings]
 	}
-	schema.types.shape.validate(shape)
-	const bindings = [
-		['start', start],
-		['end', end],
-	].map(([terminal, target]) => {
-		const binding = {
-			id: `binding:${crypto.randomUUID().slice(0, 8)}`,
-			typeName: 'binding',
-			type: 'arrow',
-			fromId: shape.id,
-			toId: target.id,
-			props: {
-				terminal,
-				normalizedAnchor: { x: 0.5, y: 0.5 },
-				isExact: false,
-				isPrecise: false,
-				snap: 'none',
-			},
-			meta: {},
-		}
-		schema.types.binding.validate(binding)
-		return binding
-	})
-	return [shape, ...bindings]
+	const type = GEO[shape._type] ?? shape._type
+	if (!['note', 'text', ...Object.values(GEO)].includes(type))
+		throw new Error(`ade doesn't draw a ${shape._type}`)
+	if (typeof x !== 'number' || typeof y !== 'number') throw new Error(`A ${type} needs x and y`)
+	if (type === 'text')
+		return [
+			made('text', x, y, {
+				color: color ?? 'black',
+				size: 's',
+				font: 'draw',
+				textAlign: 'start',
+				w: w ?? 200,
+				richText,
+				scale: 1,
+				autoSize: w === undefined,
+			}),
+		]
+	if (type === 'note')
+		return [
+			made('note', x, y, {
+				color: color ?? 'yellow',
+				labelColor: 'black',
+				size: 's',
+				font: 'draw',
+				fontSizeAdjustment: 1,
+				align: 'middle',
+				verticalAlign: 'middle',
+				growY: 0,
+				url: '',
+				richText,
+				scale: w ? w / NOTE : 1,
+				textLastEditedBy: null,
+			}),
+		]
+	return [
+		made('geo', x, y, {
+			geo: type,
+			dash: 'draw',
+			url: '',
+			w: w ?? 100,
+			h: h ?? 100,
+			growY: 0,
+			scale: 1,
+			flipX: false,
+			flipY: false,
+			labelColor: 'black',
+			color: color ?? 'black',
+			fill: FILLS[shape.fill] ?? 'none',
+			size: 's',
+			font: 'draw',
+			align: 'middle',
+			verticalAlign: 'middle',
+			richText,
+		}),
+	]
 }
 
 /**
  * A shape with what an agent changed: its place on the page, size, label or colour
- * @param {{id: string, x?: number, y?: number, w?: number, h?: number, text?: string, color?: string}} change
- * @param {Record<string, any>} records
- * @param {string} by
+ * @param {{x?: number, y?: number, w?: number, h?: number, text?: string, color?: string}} change
  */
-function updated({ id, x, y, w, h, text, color }, records, by) {
-	const shape = records[`shape:${id}`]
-	if (shape?.typeName !== 'shape') throw new Error(`No shape ${id}`)
+function updated(id, change, records, by) {
+	const { x, y, w, h, text, color } = change
+	const shape = shapeOf(id, records)
 	const at = onPage(shape, records)
 	const props = { ...shape.props }
 	if (w !== undefined || h !== undefined) {

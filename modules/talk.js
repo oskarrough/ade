@@ -73,41 +73,36 @@ export function server(core) {
 		execute: async (args, api, context) => {
 			const saved = await core.receipt(`post ${api.taskId}`, 'post')
 			if (saved) return saved.result
-			const { thread: from, name } = await home(api.conversationId)
+			const signal = context.abortSignal
+			const { thread: from, key, name } = await home(api.conversationId)
 			const thread =
 				(await resolveThread(args.thread)) ??
 				(Number(args.to?.match(/^(\d+)(?:\/|$)/)?.[1]) || undefined)
 			if (thread === from) throw new Error('That is your own thread; just answer')
+			const fresh = thread === undefined
 			/** A new thread says who should answer, by `to` or by @mentioning bots */
 			const asks =
-				thread === undefined && args.to === undefined
+				fresh && args.to === undefined
 					? mentioned(args.body, await core.botNames()).filter((bot) => bot !== name)
 					: []
-			if (thread === undefined && args.to === undefined && !asks.length)
+			if (fresh && args.to === undefined && !asks.length)
 				throw new Error(
 					'Say who should answer: a bot by name, or model@runner (e.g. provider/model:level@runner).',
 				)
 			if (/^\$\s/.test(args.body))
 				throw new Error('Run commands with your own bash tool, not as a post')
-			const title = thread === undefined ? args.title?.trim() || defaultTitle(args.body) : ''
-			if (thread !== undefined) await core.conversation(thread)
-			const explicit =
-				args.to === undefined
-					? undefined
-					: async () =>
-							args.to === 'nobody'
-								? []
-								: [await core.whom(thread, args.to, false, context.abortSignal)]
+			const title = fresh ? args.title?.trim() || defaultTitle(args.body) : ''
+			if (!fresh) await core.conversation(thread)
+			const row = fresh ? undefined : await core.thread(thread)
+			const ask = (bots) =>
+				Promise.all([...new Set(bots)].map((bot) => core.whom(undefined, bot, false, signal)))
 			/** A bot that's in the thread speaks there as itself, like a person in the room: no question from home, no answer back */
-			const member =
-				thread !== undefined &&
-				keyOf(name) !== AGENT &&
-				Boolean((await core.thread(thread)).agents[keyOf(name)])
+			const member = key !== AGENT && Boolean(row?.agents[key])
 			/**
 			 * A bot that starts a thread for two or more other bots, named by `to` or @mention, is in it from the first
 			 * message, as someone opening a group chat; a side question to one bot, a model or itself still asks from home.
 			 */
-			const bots = thread === undefined && keyOf(name) !== AGENT ? await core.botNames() : []
+			const bots = fresh && key !== AGENT ? await core.botNames() : []
 			const botNamed = (text) =>
 				bots.find(
 					(bot) => bot.toLowerCase() === text.replace(/^@/, '').replace(/\.+$/, '').toLowerCase(),
@@ -117,83 +112,41 @@ export function server(core) {
 				...mentioned(args.body, bots),
 			].filter((bot) => bot && bot !== name)
 			const opening = new Set(named).size > 1 && (args.to === undefined || botNamed(args.to))
-			if (member || opening) {
-				const { to, picked, direct } = member
-					? await core.recipients(
-							thread,
-							{ author: name, body: args.body },
-							{
-								explicit,
-								fallback: async () =>
-									(await core.lastAsked(thread)).filter((agent) => agent?.name !== name),
-							},
-						)
-					: {
-							to: await Promise.all(
-								[...new Set(named)].map((bot) =>
-									core.whom(undefined, bot, false, context.abortSignal),
-								),
-							),
-							picked: undefined,
-							direct: undefined,
-						}
-				const opener = opening ? await core.botAgent(name) : undefined
-				return core.once(`post ${api.taskId}`, 'post', async (tx) => {
-					context.abortSignal?.throwIfAborted()
-					const id = thread ?? (await core.startThread(tx, title, from))
-					await core.post(
-						tx,
-						id,
-						{
-							author: name,
-							body: args.body,
-							...(to.length ? { to } : {}),
-							...(picked ? { picked } : {}),
-						},
-						member ? { steer: true, member: true, direct } : { empty: true, steer: true, opener },
-					)
-					return {
-						output: [
-							{
-								type: 'text',
-								text: `${member ? 'Said in' : 'Started'} thread ${id}, where you're a member${to.length ? `, for ${to.map(writtenTo).join(', ')}` : ''}. Replies stay there, with your run in that thread; read it when you need them.`,
-							},
-						],
-						details: { thread: id },
-					}
-				})
-			}
-
-			const done = thread !== undefined && (await answered(thread, from))
+			const opener = opening ? await core.botAgent(name) : undefined
+			const done = !fresh && !member && (await answered(thread, from))
 			const asked =
-				thread === undefined
-					? undefined
-					: (await core.messages(from)).findLast(
-							(entry) => entry.data.from === thread && !entry.data.re && !done.has(entry.id),
-						)
+				done &&
+				(await core.messages(from)).findLast(
+					(entry) => entry.data.from === thread && !entry.data.re && !done.has(entry.id),
+				)
 			const askerKey = asked && keyOf(asked.data.author)
-			const asker =
-				asked &&
-				(await agentOf((await core.thread(thread)).agents[askerKey]?.conversation, askerKey))
+			const asker = asked && (await agentOf(row.agents[askerKey]?.conversation, askerKey))
 			/** An answer goes back to its asker; any other post to a thread asks the bots it @mentions there, or with no `to`, whom the director picks */
-			const { to, picked, direct } = await core.recipients(
-				thread,
-				{ author: name, body: args.body },
-				{
-					director: thread !== undefined && !asked,
-					explicit: asks.length
-						? () =>
-								Promise.all(
-									asks.map((bot) => core.whom(undefined, bot, false, context.abortSignal)),
-								)
-						: explicit,
-					fallback: async () => (asker ? [asker] : await core.lastAsked(thread)),
-				},
-			)
+			const { to, picked, direct } = opening
+				? { to: await ask(named) }
+				: await core.recipients(
+						thread,
+						{ author: name, body: args.body },
+						{
+							director: member || (!fresh && !asked),
+							explicit: asks.length
+								? () => ask(asks)
+								: args.to === undefined
+									? undefined
+									: async () =>
+											args.to === 'nobody' ? [] : [await core.whom(thread, args.to, false, signal)],
+							fallback: async () =>
+								asker
+									? [asker]
+									: (await core.lastAsked(thread)).filter(
+											(agent) => !member || agent?.name !== name,
+										),
+						},
+					)
 			/** Only a thread you started answers you on its own */
-			const child = thread === undefined || (await core.thread(thread)).parent === from
+			const child = fresh || row.parent === from
 			return core.once(`post ${api.taskId}`, 'post', async (tx) => {
-				context.abortSignal?.throwIfAborted()
+				signal?.throwIfAborted()
 				const id = thread ?? (await core.startThread(tx, title, from))
 				await core.post(
 					tx,
@@ -202,30 +155,23 @@ export function server(core) {
 						author: name,
 						body: args.body,
 						...(to.length ? { to } : {}),
-						from,
+						...(member || opening ? {} : { from }),
 						...(asked ? { re: [asked.id] } : {}),
 						...(picked ? { picked } : {}),
 					},
 					// Like a person's Enter, a post joins the run its agent is in, as answers coming back do
-					{ empty: thread === undefined, steer: true, direct },
+					{ empty: fresh, steer: true, direct, member, opener },
 				)
 				// An answer was said here too: its own thread shows it, and its agent never reads it back
 				if (asked) await core.post(tx, from, { author: name, body: args.body, re: [asked.id] })
 				const who = direct ? 'whom the director picks' : to.map(writtenTo).join(', ') || 'nobody'
-				if (asked)
-					return {
-						output: [{ type: 'text', text: `Answered thread ${id}'s question, for ${who}.` }],
-						details: { thread: id },
-					}
-				return {
-					output: [
-						{
-							type: 'text',
-							text: `Posted to thread ${id} for ${who}.${!to.length && !direct ? '' : child ? ' The answer will come to you here on its own; carry on, or end your turn with no text: any text you end with is posted.' : " It isn't your child, so an answer comes only if its agent posts back."}`,
-						},
-					],
-					details: { thread: id },
-				}
+				const text =
+					member || opening
+						? `${member ? 'Said in' : 'Started'} thread ${id}, where you're a member${to.length ? `, for ${to.map(writtenTo).join(', ')}` : ''}. Replies stay there, with your run in that thread; read it when you need them.`
+						: asked
+							? `Answered thread ${id}'s question, for ${who}.`
+							: `Posted to thread ${id} for ${who}.${!to.length && !direct ? '' : child ? ' The answer will come to you here on its own; carry on, or end your turn with no text: any text you end with is posted.' : " It isn't your child, so an answer comes only if its agent posts back."}`
+				return { output: [{ type: 'text', text }], details: { thread: id } }
 			})
 		},
 	})
@@ -257,42 +203,34 @@ export function server(core) {
 			const args = /** @type {any} */ (input)
 			const { thread: mine, name } = await home(api.conversationId)
 			const thread = await resolveThread(args.thread)
-			const lines = []
 			if (args.agent !== undefined) {
 				const [, at, agent = args.agent] = args.agent.match(/^(\d+)\/(.+)$/) ?? []
 				const text = await work(Number(at) || thread || mine, { ...args, agent })
 				return { output: [{ type: 'text', text }] }
 			}
-			if (args.thread === undefined && args.query === undefined) {
-				for (const row of await core.threadList(name)) {
-					const parts = [
-						`#${row.id} ${row.title}`,
-						row.parent && `child of #${row.parent}`,
-						row.agents.map((agent) => agent.name).join(' '),
-						row.status,
-						row.id === mine && '(yours)',
-					]
-					lines.push(parts.filter(Boolean).join(', '))
-				}
-			} else {
-				const query = args.query?.toLowerCase()
-				const found = (await core.messages(thread ?? mine)).filter(
-					(entry) => !query || said(entry).toLowerCase().includes(query),
-				)
-				for (const { id, data: message } of found.slice(-(args.last ?? 20))) {
-					lines.push(
-						`#${id} ${message.author}${message.from ? ` from thread ${message.from}` : ''}${message.to ? ` to ${message.to.join(', ')}` : ''}: ${message.body.slice(0, 2000)}`,
-					)
-				}
-			}
-			return {
-				output: [
-					{
-						type: 'text',
-						text: lines.join('\n') || (args.query ? 'No entry contains it.' : 'Nothing yet.'),
-					},
-				],
-			}
+			const query = args.query?.toLowerCase()
+			const lines =
+				args.thread === undefined && args.query === undefined
+					? (await core.threadList(name)).map((row) =>
+							[
+								`#${row.id} ${row.title}`,
+								row.parent && `child of #${row.parent}`,
+								row.agents.map((agent) => agent.name).join(' '),
+								row.status,
+								row.id === mine && '(yours)',
+							]
+								.filter(Boolean)
+								.join(', '),
+						)
+					: (await core.messages(thread ?? mine))
+							.filter((entry) => !query || said(entry).toLowerCase().includes(query))
+							.slice(-(args.last ?? 20))
+							.map(
+								({ id, data: message }) =>
+									`#${id} ${message.author}${message.from ? ` from thread ${message.from}` : ''}${message.to ? ` to ${message.to.join(', ')}` : ''}: ${message.body.slice(0, 2000)}`,
+							)
+			const text = lines.join('\n') || (args.query ? 'No entry contains it.' : 'Nothing yet.')
+			return { output: [{ type: 'text', text }] }
 		},
 	})
 
@@ -306,12 +244,11 @@ export function server(core) {
 				conversation,
 			]),
 		)
-		const names = candidates.map(([name]) => name)
 		const exact = candidates.filter(([name, key]) => name === agent || key === agent)
 		const found = exact.length ? exact : candidates.filter(([name]) => name.includes(agent))
 		if (found.length !== 1)
 			throw new Error(
-				`${found.length ? 'Several' : 'No'} agents in thread ${threadId} match ${agent}: ${(found.length ? found.map(([name]) => name) : names).join(', ') || 'none'}`,
+				`${found.length ? 'Several' : 'No'} agents in thread ${threadId} match ${agent}: ${(found.length ? found : candidates).map(([name]) => name).join(', ') || 'none'}`,
 			)
 		const [[shownName, , conversation]] = found
 		const lines = []

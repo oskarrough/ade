@@ -72,7 +72,8 @@ export async function server(core) {
 			state.last = reply.last
 			sent = true
 		}
-		for (let cursor; ;) {
+		let cursor
+		do {
 			const page = await core.commit((tx) =>
 				tx.scanEntries(
 					{ conversationId: conversation, minEntryId: state.last + 1, order: 'ascending' },
@@ -96,9 +97,8 @@ export async function server(core) {
 				sent = true
 			}
 			if (page.items.length) state.seen = page.items.at(-1).id
-			if (!page.next) break
 			cursor = page.next
-		}
+		} while (cursor)
 		if (!sent && state.titled !== title) await send([])
 		state.titled = title
 	}
@@ -252,8 +252,7 @@ export async function server(core) {
 					tx.scanEntries({ conversationId: threadId, order: 'ascending' }, 1),
 				)
 			).items
-			const from = first?.kind === SOURCE ? first.data : null
-			return { from }
+			return { from: first?.kind === SOURCE ? first.data : null }
 		}
 		if (body !== undefined) return bring(body, by)
 		const { name, cwd } = await folderOf(Object.fromEntries(query), by)

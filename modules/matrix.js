@@ -228,15 +228,15 @@ export function server(core) {
 	async function relay(message) {
 		const { id, room, root, author, body, asks } = message
 		const key = root !== id || asks ? root : room
-		const { threads } = await state()
-		if (!threads[key]) {
+		let thread = (await state()).threads[key]?.thread
+		if (thread === undefined) {
 			const first = root !== id && (await firstOf(message))
-			await core.commit(async (tx) => {
+			thread = await core.commit(async (tx) => {
 				const bridge = await tx.doc(MatrixBridge)
 				const roomThread =
 					bridge.threads[room]?.thread ??
 					(await keep(tx, bridge, room, room, '', `matrix ${rooms[room]}`))
-				if (key === room) return
+				if (key === room) return roomThread
 				if (root === id) await core.post(tx, roomThread, { author, body })
 				const thread = await keep(
 					tx,
@@ -256,17 +256,18 @@ export function server(core) {
 						.join('\n\n'),
 				})
 				if (first) await core.post(tx, thread, { author: first.author, body: first.body })
+				return thread
 			})
 		}
 		const asked = asks
 			? [(to ??= await address())]
 			: users.has(author)
-				? await core.lastAsked((await state()).threads[key].thread)
+				? await core.lastAsked(thread)
 				: []
-		await core.once(`matrix ${id}`, 'matrix', async (tx) =>
+		await core.once(`matrix ${id}`, 'matrix', (tx) =>
 			core.post(
 				tx,
-				(await tx.doc(MatrixBridge)).threads[key].thread,
+				thread,
 				{ author, body, ...(asked.length ? { to: asked } : {}) },
 				{ steer: true },
 			),
