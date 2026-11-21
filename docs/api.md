@@ -98,8 +98,8 @@ GET    /api/threads/:id/memory?zoom=id,n opens one line, as the agent's `zoom` d
 With `blocked` and `inbox` on:
 
 ```
-GET    /api/inbox                       [{thread, question}], newest first: each thread's open `ask_person` message
-POST   /api/threads/:id/inbox {dismiss}   hides that question (its message id) until the thread asks again
+GET    /api/inbox                       [{thread, question, asker}], newest first: each thread's open `ask_person` message, and the conversation of the agent that asked
+POST   /api/threads/:id/inbox {dismiss}   hides that question (its message id) until the thread asks again; `{dismissed: null}` if it's no longer the open one
 ```
 
 A question leaves the inbox once a person writes in its thread, the same moment the thread stops being blocked. A dismissed one stays blocked; it's only out of the inbox.

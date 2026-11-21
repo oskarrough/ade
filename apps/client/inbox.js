@@ -16,6 +16,7 @@ import {
 	inbox,
 	openThread,
 	server,
+	threadOf,
 	titleOf,
 } from './server.js'
 import { Body, links } from './thread.js'
@@ -63,6 +64,9 @@ function Question(props) {
 	const thread = untrack(() => props.item.thread)
 	const data = () => props.item.question.data
 	const bot = () => bots.some((bot) => bot.name === data().author)
+	/** The agent that asked, by its conversation, as the thread list has it now */
+	const asks = () =>
+		threadOf(thread)?.agents.find((agent) => agent.conversation === props.item.asker)?.to
 	return html`
 		<li class="question" data-thread=${thread}>
 			<small>
@@ -81,7 +85,7 @@ function Question(props) {
 				<${Loading}><${RecapLine} thread=${thread} /><//>
 			<//>
 			<${Body} data=${() => data()} />
-			<${Composer} thread=${() => thread} inbox />
+			<${Composer} thread=${() => thread} inbox asks=${asks} />
 			<div class="links">
 				<a href=${hrefOf(thread)} onClick=${(event) => followThread(event, thread)}>Open thread</a>
 				${' · '}

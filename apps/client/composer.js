@@ -119,9 +119,9 @@ export function Composer(props) {
 		},
 	)
 	const asking = () =>
-		directed(props.thread)
+		free()
 			? 'the thread'
-			: recipients(props.thread)
+			: whom()
 					.map((to) => recipientWords(to, props.thread).filter(Boolean).join(':'))
 					.join(' + ')
 	const [lines, setLines] = createSignal(false)
@@ -162,6 +162,9 @@ export function Composer(props) {
 	const open = () => !props.inbox && current() === props.thread
 	const active = () => props.inbox || open()
 	const enter = () => props.inbox || openThread(props.thread)
+	/** Whom it asks: in the inbox, the agent that asked, and no one until the thread's list knows it; never a guess from history */
+	const whom = () => (props.inbox ? [props.asks].filter(Boolean) : recipients(props.thread))
+	const free = () => !props.inbox && directed(props.thread)
 	createEffect(
 		() => [draft().draft, active()],
 		() => {
@@ -201,14 +204,14 @@ export function Composer(props) {
 			.filter((file) => file?.type.startsWith('image/'))
 	const submit = async (event) => {
 		event.preventDefault()
-		const free = directed(props.thread)
-		if (draft().sending || (!free && !recipients(props.thread).length)) return
+		const toDirector = free()
+		if (draft().sending || (!toDirector && !whom().length)) return
 		if (!draft().draft.trim() && !draft().images.length) return
 		const body = draft().draft,
 			images = snapshot(draft().images),
-			to = snapshot(recipients(props.thread))
+			to = snapshot(whom())
 		// A choice holds for one message, including the invitation that turns a solo thread into a group
-		if (props.thread) setCompose((store) => void delete store.picks[props.thread])
+		if (props.thread && !props.inbox) setCompose((store) => void delete store.picks[props.thread])
 		let id = props.thread
 		const key = id ?? 'new'
 		changeDraft((draft) => {
@@ -223,7 +226,7 @@ export function Composer(props) {
 			id ??= await createThread(defaultTitle(body))
 			await api(`/api/threads/${id}/entries`, {
 				body,
-				...(free ? {} : { to }),
+				...(toDirector ? {} : { to }),
 				steer: true,
 				...(images.length && { images }),
 			})
@@ -363,7 +366,7 @@ export function Composer(props) {
 					placeholder=${() =>
 						homeBot(props.thread)
 							? `Write to ${homeBot(props.thread).name}`
-							: recipients(props.thread).length
+							: whom().length
 								? 'Write a message'
 								: 'Pick a model below, then write'}
 					value=${() => draft().draft}
@@ -395,8 +398,7 @@ export function Composer(props) {
 						class="primary send"
 						title="Send"
 						aria-label="Send"
-						disabled=${() =>
-							draft().sending || (!directed(props.thread) && !recipients(props.thread).length)}
+						disabled=${() => draft().sending || (!free() && !whom().length)}
 					>
 						<${Icon} name="up" />
 					</button>
@@ -464,9 +466,9 @@ export function Composer(props) {
 					title=${() =>
 						(homeBot(props.thread)
 							? `The model ${homeBot(props.thread).name} runs as`
-							: directed(props.thread)
+							: free()
 								? 'The director picks the agent, bots, or nobody; pick one here to choose'
-								: recipients(props.thread).map(formatAgent).join(', ')) +
+								: whom().map(formatAgent).join(', ')) +
 						(folderOf(props.thread) ? `, in ${folderOf(props.thread)}` : '')}
 					onClick=${() => {
 						enter()
@@ -476,9 +478,9 @@ export function Composer(props) {
 				>
 					<span
 						><${Show}
-							when=${() => !directed(props.thread) && recipients(props.thread).length}
+							when=${() => !free() && whom().length}
 							fallback=${() => asking() || 'Pick a model'}
-							><${For} each=${() => recipients(props.thread)}
+							><${For} each=${() => whom()}
 								>${(to, index) => [
 									() => (index() ? ' + ' : agent(props.thread) ? where(props.thread) : ''),
 									() => recipientWords(to, props.thread)[0],

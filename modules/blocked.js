@@ -55,11 +55,13 @@ export function server(core) {
 				},
 			],
 		}),
-		/** The thread's open question: its newest `ask_person` message, unless a person has written since */
-		openQuestion: async (id, row) => {
+		/** The thread's open question: its newest `ask_person` message, unless a person has written since; with `tx`, read in that commit */
+		openQuestion: async (id, row, tx) => {
 			const latest = await core.latestMessage(
 				id,
 				(entry) => entry.data.waitingOnPerson || core.person(row, entry),
+				undefined,
+				tx,
 			)
 			return latest?.data.waitingOnPerson === true ? latest : undefined
 		},

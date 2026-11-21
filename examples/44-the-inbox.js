@@ -1,6 +1,8 @@
 /** MODULES=+blocked,+inbox: the questions agents ask wait in one inbox until you answer or dismiss them */
+import WebSocket from 'ws'
 import {
 	answered,
+	base,
 	api,
 	call,
 	check,
@@ -12,11 +14,11 @@ import {
 	until,
 } from './lib.js'
 
-await server({ MODULES: '+blocked,+inbox' })
+await server({ MODULES: '+blocked,+inbox,+bots' })
 await scriptedRunner('laptop', (request) => {
 	const last = request.messages.findLast((m) => m.role !== 'system')
 	if (last.role === 'toolResult') return say('asked')
-	const asked = text(last).match(/ask: (.*)/)?.[1]
+	const asked = text(last).match(/ask: ([^\n]*)\s*$/)?.[1]
 	return asked ? call('ask_person', { body: asked }) : say(`got: ${text(last)}`)
 })
 const thread = async (title) => (await api('POST', '/api/threads', { title })).json.id
@@ -66,4 +68,59 @@ check(
 	"the thread's next question shows again",
 	JSON.stringify(items),
 )
+
+// An answer from the inbox goes to the agent that asked: the item names its conversation
+await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@laptop' })
+const room = await thread('room')
+await api('POST', `/api/threads/${room}/entries`, { body: 'ask: tabs or spaces?', to: 'ada' })
+items = await until(async () =>
+	((list) => list.some((item) => item.thread === room) && list)(await inbox()),
+)
+const ada = (await api('GET', `/api/threads/${room}`)).json.agents.find((one) => one.name === 'ada')
+check(
+	items.find((item) => item.thread === room)?.asker === ada?.conversation,
+	'a question names the conversation of the agent that asked it, whom an answer goes to',
+	JSON.stringify([items, ada]),
+)
+await api('POST', `/api/threads/${room}/entries`, { body: 'tabs', to: 'ada' })
+await answered(room, 2)
+
+// A late dismissal of an older question leaves the newer one alone
+const late = await thread('late')
+await post(late, 'ask: A?')
+const first = await until(async () => (await inbox()).find((item) => item.thread === late))
+await post(late, 'ask: B?')
+await until(async () =>
+	(await inbox()).some((item) => item.thread === late && item.question.data.body === 'B?'),
+)
+const stale = await api('POST', `/api/threads/${late}/inbox`, { dismiss: first.question.id })
+check(
+	stale.json.dismissed === null &&
+		(await inbox()).some((item) => item.thread === late && item.question.data.body === 'B?'),
+	'dismissing a question that is no longer open hides nothing',
+	JSON.stringify([stale.json, await inbox()]),
+)
+await post(late, 'fine')
+await answered(late, 3)
+
+// A fork that inherits a question is in the inbox, and answering it there tells every page's socket
+const heard = []
+const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
+socket.onmessage = ({ data }) => heard.push(JSON.parse(String(data)))
+await new Promise((resolve) => (socket.onopen = resolve))
+const source = await thread('source')
+await post(source, 'ask: fork me?')
+const asked = await until(async () => (await inbox()).find((item) => item.thread === source))
+const { json: fork } = await api('POST', `/api/threads/${source}/fork`, { at: asked.question.id })
+const forked = await until(async () => (await inbox()).some((item) => item.thread === fork.id))
+await until(async () => heard.some((message) => message.changed?.includes('inbox')), 3000)
+heard.length = 0
+await api('POST', `/api/threads/${fork.id}/entries`, { body: 'no' })
+const told = await until(async () => heard.some((message) => message.changed?.includes('inbox')))
+check(
+	Boolean(forked && told) && !(await inbox()).some((item) => item.thread === fork.id),
+	"answering a fork's inherited question takes it out, and the socket names the inbox",
+	JSON.stringify([fork, heard, await inbox()]),
+)
+socket.close()
 done()

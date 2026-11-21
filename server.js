@@ -887,12 +887,14 @@ const withRoute = (entry, routes) => {
 		data: { ...entry.data, ...(to.length ? { to } : {}), ...(picked ? { picked } : {}) },
 	}
 }
-/** The newest matching message, stopping as soon as it is found rather than loading a thread. */
-async function latestMessage(id, matches, kind = KIND) {
-	const handle = await conversation(id)
+/** The newest matching message, stopping as soon as it is found rather than loading a thread; inside a commit, before its writes, with its `tx` */
+async function latestMessage(id, matches, kind = KIND, tx = undefined) {
+	const handle = tx ? undefined : await conversation(id)
 	let cursor
 	do {
-		const page = await handle.entries({ order: 'descending' }, 50, cursor, context)
+		const page = tx
+			? await tx.scanEntries({ conversationId: id, order: 'descending' }, 50, cursor)
+			: await handle.entries({ order: 'descending' }, 50, cursor, context)
 		const found = page.items.find((entry) => entry.kind === kind && matches(entry))
 		if (found) return found
 		cursor = page.next
@@ -1701,8 +1703,8 @@ const core = {
 	entries,
 	messages,
 	latestMessage,
-	/** With blocked on, a thread's open `ask_person` message, else undefined */
-	openQuestion: (id, row) => openQuestion?.(id, row),
+	/** With blocked on, a thread's open `ask_person` message, else undefined; inside a commit, before its writes, with its `tx` */
+	openQuestion: (id, row, tx) => openQuestion?.(id, row, tx),
 	lastAsked,
 	recipients,
 	instructionsOf: (name) => instructionsOf?.(name),
@@ -2175,12 +2177,27 @@ const place = (id, value) => {
 		hidden: Boolean(value.hidden),
 		dismissed: value.dismissed ?? null,
 		asked: before?.asked ?? false,
+		...(before?.checking && { checking: before.checking }),
 	}
 	placed.set(id, now)
 	for (const { conversation } of Object.values(value.agents ?? {}))
 		agentThreads.set(conversation, id)
+	// A new thread, a fork most of all, can start with a question it inherited: ask the one definition of an open question
+	if (!before) {
+		now.checking = true
+		askedIn(id)
+			.then((asked) => {
+				const at = placed.get(id)
+				if (asked || at.checking === 'moved') notify(['inbox'])
+				at.asked = asked
+			})
+			.catch(() => {})
+			.finally(() => delete placed.get(id).checking)
+	}
 	return { before, now }
 }
+/** Whether a question waits on a person in a thread, as the inbox and the thread's status read it */
+const askedIn = async (id) => Boolean(await openQuestion?.(id, await thread(id)))
 /** The list a thread's row is in, or both while it's not known yet */
 const listOf = (conversationId) => {
 	const at = placed.get(agentThreads.get(conversationId) ?? conversationId)
@@ -2207,6 +2224,8 @@ function listsOf({ changes }) {
 			const asks =
 				kind === KIND && at && (data?.waitingOnPerson || (at.asked && !byAgent(data ?? {})))
 			if (asks) at.asked = Boolean(data?.waitingOnPerson)
+			// While a new thread's question is still being looked up, a message there may answer it
+			else if (kind === KIND && at?.checking) at.checking = 'moved'
 			return [...listOf(conversationId), ...(asks ? ['inbox'] : [])]
 		}
 		if (change.type === 'task') {
@@ -2260,10 +2279,7 @@ function notify(lists) {
 	}, 100)
 }
 harness.observeCommits({ advance: (publication) => notify(listsOf(publication)), end: () => {} })
-for (const id of await threadIds()) {
-	const row = await thread(id)
-	place(id, row).now.asked = Boolean(await openQuestion?.(id, row))
-}
+for (const id of await threadIds()) place(id, await thread(id))
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
 const FIRST = 15
