@@ -27,6 +27,7 @@ import {
 	defineTask,
 	defineTool,
 	Harness,
+	InboxDoc,
 } from '@earendil-works/pi-durable'
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node'
@@ -220,6 +221,10 @@ const nobody = (serve) =>
 const KIND = 'ade.message'
 /** Whom the director picked for a message saved before it chose: `{message, to, picked}`, read as that message's own */
 const ROUTE = 'ade.route'
+/** A message its author took back before any agent read it: `{message}`; the message reads as `withdrawn` from then on */
+const WITHDRAWAL = 'ade.withdrawal'
+/** What a withdrawn message's queued input settles with */
+const WITHDRAWN = 'withdrawn'
 /** An agent's input in its conversation; `held` names the thread messages it gave */
 const DELIVERY = 'ade.delivery'
 /** How much of a `$ cmd`'s stdout and of its stderr is kept, from the end */
@@ -316,7 +321,11 @@ const Admit = defineTask({
 	phases: {
 		wait: ({ input: { after, turn } }, rt, ctx) =>
 			rt.commit(() => waiting([after?.admit, turn].filter(Boolean), 'ask'), ctx),
-		async ask({ id, conversationId: threadId, input: { agent, upTo, steer, turn } }, rt, ctx) {
+		async ask(
+			{ id, conversationId: threadId, input: { agent, upTo, steer, turn }, state },
+			rt,
+			ctx,
+		) {
 			await reachable(agent, rt.signal)
 			const row = await thread(threadId)
 			const { unseen, note } = recipientOf(row, agent)
@@ -357,6 +366,16 @@ const Admit = defineTask({
 			const handle = await rt.conversation(agent, ctx)
 			const entry = { kind: DELIVERY, data: { held } }
 			await rt.commit(async (tx) => {
+				// A message withdrawn while this read the thread has left `unseen`: read it again without
+				const left = recipientOf(await tx.doc(Thread, threadId), agent).unseen
+				if (held.some((id) => !left.includes(id)))
+					return {
+						status: 'running',
+						checkpoint: {
+							phase: 'ask',
+							again: (/** @type {any} */ (state).checkpoint.again ?? 0) + 1,
+						},
+					}
 				const submission = await handle.submit(tx, {
 					type: 'input',
 					content,
@@ -426,10 +445,8 @@ const Deliver = defineTask({
 	abort: ({ conversationId: threadId, input: { admit, agent } }, rt, ctx) =>
 		rt.commit(async (tx) => {
 			const submitted = /** @type {any} */ ((await tx.task(admit)).state.outcome?.result)
-			if (
-				submitted?.submission &&
-				(await tx.submissionByRequest(agent, String(admit)))?.entry === undefined
-			)
+			const record = submitted?.submission && (await tx.submissionByRequest(agent, String(admit)))
+			if (record && record.entry === undefined && record.reason !== WITHDRAWN)
 				await restore(tx, threadId, agent, submitted)
 			return finished('aborted')
 		}, ctx),
@@ -1067,14 +1084,32 @@ async function messages(id) {
 	await conversation(id)
 	return routed(await entries(id))
 }
-/** A thread's messages among its entries, each with the director's pick for it, once there is one */
+/**
+ * A thread's messages among its entries, each with the director's pick for it, once there is one; a withdrawn one keeps
+ * its place, so positions hold, but only its author and `withdrawn`
+ */
 function routed(entries, routes = new Map()) {
-	for (const entry of entries) if (entry.kind === ROUTE) routes.set(entry.data.message, entry.data)
+	for (const entry of entries)
+		if (entry.kind === ROUTE || entry.kind === WITHDRAWAL)
+			routes.set(entry.data.message, {
+				...routes.get(entry.data.message),
+				...(entry.kind === ROUTE ? entry.data : { withdrawn: true }),
+			})
 	return entries.filter((entry) => entry.kind === KIND).map((entry) => withRoute(entry, routes))
 }
 const withRoute = (entry, routes) => {
 	const route = routes.get(entry.id)
 	if (!route) return entry
+	if (route.withdrawn)
+		return {
+			...entry,
+			data: {
+				author: entry.data.author,
+				createdAt: entry.data.createdAt,
+				body: '',
+				withdrawn: true,
+			},
+		}
 	const { to, picked } = route
 	return {
 		...entry,
@@ -1368,7 +1403,7 @@ async function restore(tx, threadId, conversation, { held, note }) {
 
 async function outcome(threadId, agent, settled, mine) {
 	const done = settled.status === 'done'
-	if (!done && settled.reason === 'aborted') return []
+	if (!done && (settled.reason === 'aborted' || settled.reason === WITHDRAWN)) return []
 	const group = done
 		? (
 				await collect((cursor) =>
@@ -1435,7 +1470,7 @@ async function outcome(threadId, agent, settled, mine) {
 /** Posts what a settled input told; a submitted input Pi never placed gives its messages back */
 async function tell(tx, threadId, agent, settled, submitted, told) {
 	for (const { thread, data, steer } of told) await append(tx, thread, data, { steer })
-	if (submitted?.submission && settled.entry === undefined)
+	if (submitted?.submission && settled.entry === undefined && settled.reason !== WITHDRAWN)
 		await restore(tx, threadId, agent, submitted)
 }
 
@@ -1550,10 +1585,10 @@ async function threadView(id, reader, { after, last } = {}) {
 	return {
 		...(await threadRow(id, reader, await work())),
 		people: await people(id),
-		entries:
-			after === undefined && last === undefined
-				? await messages(id)
-				: await newest(handle, { after, last }),
+		entries: (after === undefined && last === undefined
+			? await messages(id)
+			: await newest(handle, { after, last })
+		).filter((entry) => !entry.data.withdrawn),
 	}
 }
 /** A thread's newest messages, read back from its end: those after `after`, or the newest `last`, with their picks */
@@ -1725,6 +1760,52 @@ async function withPick(id, result) {
 		to: route?.data.to ?? [],
 		...(route?.data.picked && { picked: route.data.picked }),
 	}
+}
+
+/**
+ * Takes back a message its author wrote while no agent has read it yet: each agent that still has it unseen, or queued
+ * in an input it hasn't picked up, loses it, and the thread keeps only that it was withdrawn. One commit, so an agent picks
+ * it up or never sees it. A queued input is withdrawn as Pi's own Submission.abort does, settled and out of its inbox, and
+ * whatever else it held is unseen again.
+ */
+async function withdraw(threadId, author, messageId) {
+	await conversation(threadId)
+	if (!Number.isSafeInteger(messageId)) throw new Error('entry is the id of your message')
+	return commit(async (tx) => {
+		const entry = await tx.entry(messageId)
+		if (entry?.kind !== KIND || entry.conversationId !== threadId)
+			throw new Error(`No message ${messageId} in this thread`)
+		if (entry.data.author !== author || !fresh(entry))
+			throw new Error('Only its author can take a message back')
+		const row = await tx.doc(Thread, threadId)
+		const taken = []
+		for (const recipient of Object.values(row.agents)) {
+			if (recipient.unseen.includes(messageId)) {
+				taken.push({ recipient })
+				continue
+			}
+			const inbox = await tx.doc(InboxDoc, recipient.conversation)
+			const item = inbox.items.find(
+				(item) => item.entry?.kind === DELIVERY && item.entry.data?.held?.includes(messageId),
+			)
+			if (!item) throw new Error('Already read: an agent has picked it up')
+			taken.push({ recipient, inbox, item })
+		}
+		for (const { recipient, inbox, item } of taken) {
+			const others = item ? item.entry.data.held.filter((id) => id !== messageId) : []
+			if (item) {
+				tx.settleSubmission(item.id, { status: 'unanswered', reason: WITHDRAWN })
+				inbox.items.splice(inbox.items.indexOf(item), 1)
+			}
+			recipient.unseen = [...new Set([...recipient.unseen, ...others])]
+				.filter((id) => id !== messageId)
+				.sort((left, right) => left - right)
+		}
+		row.unpicked = (row.unpicked ?? []).filter((id) => id !== messageId)
+		await tx.appendEntry(threadId, { kind: WITHDRAWAL, data: { message: messageId } })
+		for (const hook of withdrawn) await hook(tx, threadId, messageId)
+		return { withdrawn: messageId }
+	})
 }
 
 /** Images as pi's ImageContent, which models take inline; the composer shrinks them to fit */
@@ -2039,6 +2120,7 @@ const hook = (name) => {
 	return first?.[name]
 }
 const posted = modules.flatMap((module) => module.posted ?? [])
+const withdrawn = modules.flatMap((module) => module.withdrawn ?? [])
 /** Task kinds of modules' own work in a thread, counted as the thread working */
 const moduleWork = modules.flatMap((module) => module.work ?? [])
 const archiving = modules.flatMap((module) => module.archiving ?? [])
@@ -2224,6 +2306,10 @@ const routes = /** @type {[string, Function][]} */ ([
 		async (req, id) => archiveThread(id, (await input(req)).archived),
 	],
 	['POST /api/threads/:id/entries', async (req, id) => postEntry(id, user(req), await input(req))],
+	[
+		'POST /api/threads/:id/withdraw',
+		async (req, id) => withdraw(id, user(req), (await input(req)).entry),
+	],
 	['POST /api/threads/:id/fork', async (req, id) => forkThread(id, await input(req))],
 	['POST /api/threads/:id/title', async (req, id) => setTitle(id, await input(req))],
 	['POST /api/threads/:id/tools', async (req, id) => setTools(id, await input(req))],
@@ -2697,7 +2783,9 @@ async function rewatch(socket, id) {
 		for (const entry of fresh) sentMessages.set(entry.id, entry)
 		const again = entries
 			.filter(
-				(entry) => entry.kind === ROUTE && !fresh.some((one) => one.id === entry.data.message),
+				(entry) =>
+					(entry.kind === ROUTE || entry.kind === WITHDRAWAL) &&
+					!fresh.some((one) => one.id === entry.data.message),
 			)
 			.flatMap((entry) => {
 				const before = sentMessages.get(entry.data.message)

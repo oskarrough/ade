@@ -21,6 +21,8 @@ A message's `key`, 1 to 100 characters, dedupes it within its thread: a repeat w
 
 A bot that posts with its `post` tool into a thread it's in, or one it opens for other bots, speaks there as itself: its message carries `posted: true`, which marks it as an agent's, as `answer` does, so it never counts as a person's. Messages from before this have no mark.
 
+A message its author takes back leaves a withdrawal entry (`ade.withdrawal`, `{message}`). Reads leave the message out; the socket sends it again as `{author, createdAt, body: '', withdrawn: true}`, so a page drops it, and an agent's memory keeps its place as "(took back a message)".
+
 Every message carries `createdAt`, the ISO time the server wrote it; one brought in from a pi session keeps pi's time. Messages from before ade stamped them have none.
 
 With the `blocked` module on, the agent's `ask_person({body})` tool posts a message with `waitingOnPerson: true`. Thread views and lists return `status: "blocked"` until a person's next message, even if agents keep writing. This takes precedence over live work and unread-answer status. It is derived from messages, not stored separately. The tool returns at once, so the agent may carry on or end its turn; the CLI's `post` and `wait` stop waiting once only the question is left. A thread's `busy` says whether it has work whatever its status shows: an agent answering or waiting for its runner, a `$` command, a director pick. With a question open and a command running, it's `blocked` and `busy`, and `wait` waits for the command.
@@ -42,6 +44,7 @@ GET    /api/threads/:id                its row, people and messages; `?last=n` o
 GET    /api/threads/archived
 POST   /api/threads/:id/archive {archived}
 POST   /api/threads/:id/entries {body, to?, images?, steer?, key?}
+POST   /api/threads/:id/withdraw {entry}  takes back your message (its id) while no agent has read it: {withdrawn}, or an error once one has
 POST   /api/threads/:id/fork {at, title?}
 POST   /api/threads/:id/title {title}
 POST   /api/threads/:id/tools {tools}  as pi --tools takes them

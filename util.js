@@ -143,13 +143,15 @@ export const byAgent = (message) =>
 		message.posted,
 	)
 
-/** A message's text, with what its shell command gave */
+/** A message's text, with what its shell command gave; a withdrawn one says only that */
 export const written = (message) =>
-	`${message.body}${
-		message.shell
-			? `\n${[`exit ${message.shell.code ?? message.shell.error}`, message.shell.stdout, message.shell.stderr].filter(Boolean).join('\n')}`
-			: ''
-	}`
+	message.withdrawn
+		? '(took back a message)'
+		: `${message.body}${
+				message.shell
+					? `\n${[`exit ${message.shell.code ?? message.shell.error}`, message.shell.stdout, message.shell.stderr].filter(Boolean).join('\n')}`
+					: ''
+			}`
 
 /** A message as an agent reads it: inside a tag that names who wrote it, or, a person's when `plain`, as typed */
 export function said({ data: message }, plain = false) {

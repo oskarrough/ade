@@ -1,4 +1,4 @@
-/** A steer joins the answer being written, and another thread's post steers like a person's Enter; a stop withdraws the follow-ups queued behind it, and the next input carries them; a message waiting behind a run that fails still gets its answer */
+/** A steer joins the answer being written, and another thread's post steers like a person's Enter; a stop withdraws the follow-ups queued behind it, and the next input carries them; a message waiting behind a run that fails still gets its answer; a waiting message its author takes back never reaches the agent, and once read it can't be */
 import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux'
 import {
 	answered,
@@ -215,4 +215,58 @@ check(
 )
 check(failed.status !== 'working', 'the agent is not left working', failed.status)
 eve.close()
+
+/** A message waiting behind a run, taken back by its author, never reaches the agent and leaves the thread */
+const fay = await scriptedRunner('fay', (request) =>
+	request.messages.at(-1).role === 'user' && text(request.messages.at(-1)).includes('work')
+		? call('bash', { command: 'sleep 0.5' })
+		: say('fay answered'),
+)
+const toFay = { runner: 'fay', model: 'echo/echo' }
+const {
+	json: { id: taking },
+} = await api('POST', '/api/threads', { title: 'take back' })
+await api('POST', `/api/threads/${taking}/entries`, { body: 'work', to: toFay })
+check(
+	Boolean(
+		await until(
+			async () =>
+				(await api('GET', '/api/runners')).json.some(
+					(r) => r.name === 'fay' && r.calls.some((c) => c.what === 'exec'),
+				),
+			8000,
+			10,
+		),
+	),
+	'the agent is inside its tool call',
+)
+const regret = (await api('POST', `/api/threads/${taking}/entries`, { body: 'regret', to: toFay }))
+	.json.entry
+const kept = (await api('POST', `/api/threads/${taking}/entries`, { body: 'kept', to: toFay })).json
+	.entry
+const notMine = await api('POST', `/api/threads/${taking}/withdraw`, { entry: regret }, 'bo')
+check(notMine.status >= 400, "someone else can't take it back", JSON.stringify(notMine.json))
+const back = await api('POST', `/api/threads/${taking}/withdraw`, { entry: regret })
+check(
+	back.json.withdrawn === regret,
+	'its author takes it back while it waits',
+	JSON.stringify(back.json),
+)
+const after = (await answered(taking, 2)) ?? (await view(taking))
+const fayInputs = (await conversationOf(after, 'echo/echo@fay')).entries
+	.filter((e) => e.kind === 'ade.delivery')
+	.map((e) => text(e.model[0]))
+check(
+	!fayInputs.some((t) => t.includes('regret')) && fayInputs.some((t) => t.includes('kept')),
+	'the agent never reads it, and reads what came after',
+	JSON.stringify(fayInputs),
+)
+check(
+	!after.entries.some((e) => e.id === regret || e.data.body === 'regret'),
+	'the thread no longer shows it',
+	brief(after),
+)
+const late = await api('POST', `/api/threads/${taking}/withdraw`, { entry: kept })
+check(late.status >= 400, 'once read, it stays', JSON.stringify(late.json))
+fay.close()
 done()

@@ -14,6 +14,9 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused: Pause, only @mentions and named recipients; `direct` leaves that to the director's Pick task
   ask, route, ROUTE, routed         Admit/Deliver for whom a message asks; the director's pick saved after its message, read as its `to`/`picked`;
                                     `fresh`: a message that takes over its author's pending pick
+  withdraw, WITHDRAWAL              a message taken back by its author before any agent read it: out of `unseen` and the
+                                    agents' inboxes in one commit, a withdrawal entry routed reads as `withdrawn`;
+                                    modules' `withdrawn(tx, thread, message)` hook (memory rewrites its line)
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
   afterCommit                       best-effort work once a server commit is stored
   isWork, busy, workIn              what counts as a thread working (Deliver, Shell, modules' `work` kinds); whether a thread has
@@ -127,7 +130,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     rows                 projection: messages plus each agent's turns, a row for each lasting call (an ask, a bot change),
                          live turn, compaction cuts, folded memory lines
     Asked                in a bot's home, a question another thread asked it, a received `Cross` row; the bot's answer follows as its own Message (askedHere)
-    Message              one message: author, the director's pick, fork link, Body, Images; one that crossed threads is a `Cross` step row;
+    Message              one message: author, the director's pick, fork link (× instead while yours waits for a working agent, `waiting`), Body, Images; one that crossed threads is a `Cross` step row;
                          an answer to someone further up says whom (replyTo in rows); a Stop is one grey line naming who pressed it
     Body, threadLink     a message's markdown; a thread it mentions by title is a link that opens it
   run.js                 an agent's turns, from its own conversation

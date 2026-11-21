@@ -55,6 +55,9 @@ const kept = ({ data: message }) =>
 			? `${message.author} (agent${message.from ? `, ${message.re ? 'answering' : 'writing'} from thread ${message.from}` : ''})`
 			: message.author
 	}: ${written(message).replace(/\n/g, '\n  ')}`
+/** What memory keeps of a message: a withdrawn one only says it was */
+const keptOf = (entry, withdrawn) =>
+	kept(withdrawn.has(entry.id) ? { data: { author: entry.data.author, withdrawn: true } } : entry)
 const cut = (text) => {
 	let head = Buffer.from(text).subarray(0, LINE).toString()
 	while (bytes(head) > LINE) head = head.slice(0, -1)
@@ -295,19 +298,23 @@ export function server(core) {
 			/** Short message lines, which need no model: a backfill's up to its message, else its message's alone */
 			write: ({ conversationId: threadId, input }, rt, ctx) =>
 				inTurn(threadId, rt, async () => {
-					const { ids, have, long } = await indexOf(core, threadId)
+					const { ids, have, long, positions, withdrawn } = await indexOf(core, threadId)
 					const mine = input.backfill
 						? (id) => input.entry === undefined || id <= input.entry
 						: (id) => id === input.entry
-					const missing =
-						input.backfill || remembers(await core.thread(threadId))
+					/** A withdrawn message's line is written again, saying only that */
+					const missing = input.again
+						? positions.has(input.entry)
+							? [positions.get(input.entry)]
+							: []
+						: input.backfill || remembers(await core.thread(threadId))
 							? ids.flatMap((id, i) =>
 									mine(id) && !have.has(key(0, i)) && !long.has(i) ? [i] : [],
 								)
 							: []
 					const found = await core.commit(async (tx) => {
 						const read = []
-						for (const i of missing) read.push([i, kept(await tx.entry(ids[i]))])
+						for (const i of missing) read.push([i, keptOf(await tx.entry(ids[i]), withdrawn)])
 						return read
 					})
 					return rt.commit(async (tx) => {
@@ -324,10 +331,11 @@ export function server(core) {
 						const index = await indexOf(core, threadId)
 						const batch = remembers(await core.thread(threadId)) ? due(index, input) : []
 						if (!batch.length) return rt.commit(() => finished(), ctx)
-						const { ids, have } = index
+						const { ids, have, withdrawn } = index
 						const messages = await core.commit(async (tx) => {
 							const read = new Map()
-							for (const { l, i } of batch) if (!l) read.set(i, kept(await tx.entry(ids[i])))
+							for (const { l, i } of batch)
+								if (!l) read.set(i, keptOf(await tx.entry(ids[i]), withdrawn))
 							return read
 						})
 						const items = batch.map(({ l, i }) => {
@@ -567,6 +575,11 @@ export function server(core) {
 						await core.commit((tx) => tx.createTask(Line, { backfill: true }, background(row.id)))
 		},
 		posted,
+		/** A withdrawn message's line says only that it was */
+		withdrawn: async (tx, threadId, entry) => {
+			if (remembers(await core.threadIn(tx, threadId)))
+				await tx.createTask(Line, { entry, again: true }, background(threadId))
+		},
 		catchUp,
 		serve,
 		remembers: (row) => remembers(row),
@@ -591,6 +604,8 @@ export async function indexOf(core, threadId) {
 			positions: new Map(ids.map((id, at) => [id, at])),
 			have: new Map(),
 			long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
+			/** Messages their authors took back, whose lines say only that */
+			withdrawn: new Set(inherited?.withdrawn),
 			newest: 0,
 			/** Goes up with every line this index gains, its own or its parent's */
 			revision: 0,
@@ -633,7 +648,12 @@ export async function indexOf(core, threadId) {
 				index.positions.set(entry.id, index.ids.length)
 				index.ids.push(entry.id)
 			}
-			if (entry.kind === KIND && !index.have.has(key(entry.data.l, entry.data.i))) {
+			if (entry.kind === 'ade.withdrawal') index.withdrawn.add(entry.data.message)
+			// A message line written again, for a withdrawn message, replaces the one before
+			if (
+				entry.kind === KIND &&
+				(entry.data.l === 0 || !index.have.has(key(entry.data.l, entry.data.i)))
+			) {
 				index.have.set(key(entry.data.l, entry.data.i), entry.data)
 				index.revision++
 			}
