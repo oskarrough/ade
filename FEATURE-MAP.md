@@ -21,7 +21,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   reachable                         a message waits for its agent's runner, following the agent if it moves
   gone                              an agent's folder that no longer exists: it doesn't run, the thread says so
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
-  threadList, threadRow, threadView, people   what GET /api/threads returns; people kept per thread (writers), read once
+  threadList, threadRow, threadView, people   what GET /api/threads returns; people kept per thread (writers), read once;
+                                    newest, a thread's messages read back from its end (?last, ?after)
   listsOf, placed, listOf           which lists a commit moves: a thread's own list, the inbox only for a question asked, answered or dismissed
   forkThread, seenBy                forks
   compact, compactingAt             compaction now, or early
