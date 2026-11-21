@@ -46,12 +46,13 @@ export function server(core) {
 				},
 			],
 		}),
-		waitingOnPerson: async (id, row) => {
+		/** The thread's open question: its newest `ask_person` message, unless a person has written since */
+		openQuestion: async (id, row) => {
 			const latest = await core.latestMessage(
 				id,
 				(entry) => entry.data.waitingOnPerson || core.person(row, entry),
 			)
-			return latest?.data.waitingOnPerson === true
+			return latest?.data.waitingOnPerson === true ? latest : undefined
 		},
 	}
 }

@@ -179,6 +179,8 @@ const Thread = defineDoc({
 		memory: null,
 		/** The director's Pick task still deciding for this thread's newest message, which a newer one takes over */
 		pick: null,
+		/** With inbox on, the open question dismissed from it: its message id */
+		dismissed: null,
 	}),
 })
 const Receipts = defineDocFamily({
@@ -1150,7 +1152,7 @@ async function faulted({ task, reason }) {
 
 /** A thread's own status, or when idle, `done` or `error` for an answer its reader hasn't read; with no reader, anyone's read counts */
 async function status(id, row, busy, reader) {
-	if (await waitingOnPerson?.(id, row)) return 'blocked'
+	if (await openQuestion?.(id, row)) return 'blocked'
 	const { reads } = row
 	const now = busiest(busy.map((job) => job.status))
 	if (now !== 'idle') return now
@@ -1180,7 +1182,7 @@ async function people(id) {
 
 /** `homes`, each bot's home thread → its name, saves reading them for every row of a list */
 async function threadRow(id, reader, all, homes) {
-	const { reads, hidden, ...row } = await thread(id)
+	const { reads, hidden, dismissed: _, ...row } = await thread(id)
 	const busy = all.filter((job) => job.thread === id)
 	const agents = await agentsIn(row, busy)
 	return {
@@ -1588,6 +1590,8 @@ const core = {
 	entries,
 	messages,
 	latestMessage,
+	/** With blocked on, a thread's open `ask_person` message, else undefined */
+	openQuestion: (id, row) => openQuestion?.(id, row),
 	lastAsked,
 	recipients,
 	instructionsOf: (name) => instructionsOf?.(name),
@@ -1661,7 +1665,7 @@ const [
 	botNames,
 	homesOf,
 	expand,
-	waitingOnPerson,
+	openQuestion,
 ] = [
 	'direct',
 	'directing',
@@ -1674,7 +1678,7 @@ const [
 	'botNames',
 	'homesOf',
 	'expand',
-	'waitingOnPerson',
+	'openQuestion',
 ].map(hook)
 compactAt = hook('compactAt')
 const remembers = hook('remembers')

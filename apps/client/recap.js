@@ -73,7 +73,7 @@ export function Recap(props) {
 }
 
 /** A page's lines as topics: done or open, what it says, the messages behind it */
-const topicsOf = (page) =>
+export const topicsOf = (page) =>
 	page
 		.split('\n')
 		.map((line) => line.match(/^- \[([ x])\] (.*)$/))

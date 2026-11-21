@@ -129,7 +129,19 @@ export const [people, setPeople] = createStore({})
 const [current, setCurrent] = createSignal(Number(params.get('thread')) || null)
 export { current }
 
+/** Whether the inbox takes the threads' place; opening a thread leaves it */
+const [inboxOpen, setInboxOpen] = createSignal(params.has('inbox'))
+export { inboxOpen }
+export function openInbox() {
+	setInboxOpen(true)
+	drawer(null)
+	const next = new URL(location.href)
+	next.searchParams.set('inbox', '')
+	history.replaceState(null, '', next)
+}
+
 export function openThread(id) {
+	setInboxOpen(false)
 	setCurrent(id)
 	drawer(null)
 	history.replaceState(null, '', hrefOf(id))
@@ -145,6 +157,7 @@ export function followThread(event, id) {
 /** A thread's address: what a real link needs, so it can also be opened in a new tab or copied */
 export function hrefOf(id) {
 	const next = new URL(location.href)
+	next.searchParams.delete('inbox')
 	if (id) next.searchParams.set('thread', id)
 	else next.searchParams.delete('thread')
 	return next.pathname + next.search
@@ -163,6 +176,8 @@ export const {
 	runners,
 	server,
 	bots,
+	inbox,
+	dismiss,
 	threadOf,
 	family,
 	columns,
@@ -178,6 +193,8 @@ export const {
 	const [threads, setThreads] = createStore(cached('threads', []))
 	const [archivedThreads, setArchivedThreads] = createStore([])
 	const [runners, setRunners] = createStore(cached('runners', []))
+	/** The open questions agents asked, newest first, one per thread */
+	const [inbox, setInbox] = createStore(cached('inbox', []))
 	/** Each fetch keeps its row's identity when nothing in it changed, so a keyed `For` leaves it alone; an answer older than the one already shown is dropped */
 	const reloadServer = () =>
 		api('/api/server').then((data) => {
@@ -227,6 +244,42 @@ export const {
 			fetchedRunners = data
 			showRunners()
 		})
+	/** Questions you dismissed that the server hasn't confirmed; every fetch leaves them out until it does */
+	const dismissing = new Set()
+	let fetchedInbox = cached('inbox', [])
+	const showInbox = () =>
+		setInbox(
+			reconcile(
+				fetchedInbox.filter((item) => !dismissing.has(item.question.id)),
+				'thread',
+			),
+		)
+	const reloadInbox = () =>
+		reloadList(
+			'inbox',
+			(data) => {
+				fetchedInbox = data
+				showInbox()
+			},
+			'inbox',
+			untrack(server).modules.includes('inbox'),
+		)
+	/** A dismissed question leaves at once, then asks the server; a refusal puts it back and throws */
+	const dismiss = async (thread, question) => {
+		dismissing.add(question)
+		showInbox()
+		const settle = () => {
+			dismissing.delete(question)
+			showInbox()
+		}
+		try {
+			await api(`/api/threads/${thread}/inbox`, { dismiss: question })
+		} catch (failure) {
+			settle()
+			throw failure
+		}
+		await reloadInbox().finally(settle)
+	}
 	/** Changes to a thread's row (archived, title) that the server hasn't confirmed; both lists show them over every fetch until it does */
 	const pending = new Map()
 	let fetchedThreads = cached('threads', [])
@@ -305,9 +358,13 @@ export const {
 		reloadArchivedThreads()
 		reloadRunners()
 		reloadBots()
+		reloadInbox()
 	}
 	onSettled(() => {
-		reloadServer().then(reloadBots)
+		reloadServer().then(() => {
+			reloadBots()
+			reloadInbox()
+		})
 		reloadThreads()
 		reloadArchivedThreads()
 		reloadRunners()
@@ -351,6 +408,8 @@ export const {
 		runners,
 		server,
 		bots,
+		inbox,
+		dismiss,
 		threadOf,
 		family,
 		columns,

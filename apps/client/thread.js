@@ -992,7 +992,7 @@ const botColor = (name) => {
 export const links = { threadLink, botColor }
 
 /** What a message says: markdown, except a `$ cmd` and an error, which stay as written. A thread it mentions opens here. */
-const Body = (props) => html`
+export const Body = (props) => html`
 	<${Show}
 		when=${() => !props.data.shell && !props.data.error}
 		fallback=${html`<span class="body">${() => props.data.body}</span>`}

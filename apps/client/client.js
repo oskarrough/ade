@@ -9,6 +9,8 @@ import {
 	current,
 	drawer,
 	homeBot,
+	inboxOpen,
+	inbox,
 	params,
 	setChat,
 	titleOf,
@@ -97,10 +99,17 @@ function Client() {
 						type="button"
 						aria-pressed=${() => String(sideOf(current())?.key === 'details')}
 						style=${() => colorOf(homeBot(current())?.name ?? '')}
-						onClick=${() => toggleSide(current(), 'details')}
+						onClick=${() => inboxOpen() || toggleSide(current(), 'details')}
 					>
-						<${Dot} state=${() => threadOf(current())?.status} />
-						<span>${() => (current() ? titleOf(current()) : 'New thread')}</span>
+						<${Dot} state=${() => (inboxOpen() ? '' : threadOf(current())?.status)} />
+						<span
+							>${() =>
+								inboxOpen()
+									? `Inbox${inbox.length ? ` · ${inbox.length}` : ''}`
+									: current()
+										? titleOf(current())
+										: 'New thread'}</span
+						>
 					</button>
 				</header>
 				<${System} />

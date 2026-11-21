@@ -70,6 +70,15 @@ The `page` is a checklist of at most six lines, one per topic, newest last. A li
 
 It never says whether something is running right now; a thread's `status` does.
 
+With `blocked` and `inbox` on:
+
+```
+GET    /api/inbox                       [{thread, question}], newest first: each thread's open `ask_person` message
+POST   /api/threads/:id/inbox {dismiss}   hides that question (its message id) until the thread asks again
+```
+
+A question leaves the inbox once a person writes in its thread, the same moment the thread stops being blocked. A dismissed one stays blocked; it's only out of the inbox.
+
 The routes are in `server.js`, the runner protocol in [remote.js](../remote.js).
 
 The CLI is the same API from a terminal:

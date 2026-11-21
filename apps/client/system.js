@@ -1,7 +1,8 @@
 /** The client, server, threads and runners, with the routes between them. */
 import html from '@solidjs/html'
 import { createMemo, For, Loading, onSettled, Show } from 'solid-js'
-import { columns, connected, current, runners, threads, url } from './server.js'
+import { columns, connected, current, inboxOpen, runners, server, threads, url } from './server.js'
+import { Inbox } from './inbox.js'
 import { rowOf } from './agent.js'
 import { recipients } from './composer.js'
 import { Dot } from './dot.js'
@@ -88,7 +89,11 @@ export function System() {
 					<${ThreadList} />
 					<${ListEdge} />
 					<div class="threads">
-						<${For} each=${() => columns()}
+						<${Show} when=${() => inboxOpen() && server().modules.includes('inbox')}>
+							<${Inbox} />
+						<//>
+						<${For}
+							each=${() => (inboxOpen() && server().modules.includes('inbox') ? [] : columns())}
 							>${(id) => html`
 								<${Thread} id=${() => id} />
 								<${Show} when=${() => sideOf(id)}>

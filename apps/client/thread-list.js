@@ -1,4 +1,4 @@
-/** The same thread row in the list, its family, and a bot's other threads. */
+/** The same thread row in the list, its family, and a bot's other threads; its foot opens the inbox, or with that off, filters to blocked threads. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
 import { createSignal, For, Show } from 'solid-js'
@@ -10,6 +10,9 @@ import {
 	followThread,
 	homeBot,
 	hrefOf,
+	inbox,
+	inboxOpen,
+	openInbox,
 	openThread,
 	server,
 	threads,
@@ -49,7 +52,7 @@ export function ThreadList() {
 					<${NewRow}
 						label="Thread"
 						title="New thread"
-						current=${() => !current()}
+						current=${() => !current() && !inboxOpen()}
 						onPick=${(_e) => openThread(null)}
 					/>
 					<${Show} when=${() => server().modules.includes('bots')}>
@@ -89,7 +92,27 @@ export function ThreadList() {
 				</ul>
 			<//>
 			<footer class="list-foot">
-				<${Show} when=${() => server().modules.includes('blocked')}>
+				<${Show} when=${() => server().modules.includes('inbox')}>
+					<button
+						type="button"
+						class=${() => ['ghost small foot-toggle blocked-toggle', { some: inbox.length }]}
+						aria-pressed=${() => String(inboxOpen())}
+						aria-label=${() => (inbox.length ? `Inbox, ${inbox.length}` : 'Inbox')}
+						onClick=${() => {
+							setArchivedPage(false)
+							if (inboxOpen()) openThread(current())
+							else openInbox()
+						}}
+					>
+						<span>Inbox</span>
+						<${Show} when=${() => inbox.length}
+							><small class="count" aria-hidden="true">${() => inbox.length}</small><//
+						>
+					</button>
+				<//>
+				<${Show}
+					when=${() => server().modules.includes('blocked') && !server().modules.includes('inbox')}
+				>
 					<button
 						type="button"
 						class=${() => ['ghost small foot-toggle blocked-toggle', { some: blocked() }]}

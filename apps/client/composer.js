@@ -3,6 +3,7 @@
  * The draft's text, not its images, also lives in localStorage by thread id, so it survives a reload or closing the tab.
  * Asking a thread's agent as another model switches it. A pick is one model plus any bots; in a bot's home, it is the bot's model.
  * In a group thread, a message whose sender chose no one goes without `to`, and a choice holds for one message.
+ * The inbox mounts the same composer under each question (`inbox`): it sends as the thread's own would, without opening it.
  */
 import { defaultTitle } from './title.js'
 import { threadMention } from './markdown.js'
@@ -156,7 +157,10 @@ export function Composer(props) {
 		},
 	)
 	const touch = () => matchMedia('(pointer: coarse)').matches
-	const active = () => current() === props.thread
+	/** The open thread's composer; one in the inbox is live too, but answering there never opens the thread */
+	const open = () => !props.inbox && current() === props.thread
+	const active = () => props.inbox || open()
+	const enter = () => props.inbox || openThread(props.thread)
 	createEffect(
 		() => [draft().draft, active()],
 		() => {
@@ -167,7 +171,7 @@ export function Composer(props) {
 			})
 		},
 	)
-	createEffect(active, (on) => {
+	createEffect(open, (on) => {
 		if (!on) return
 		input.focus()
 		lend = (from) => {
@@ -274,7 +278,7 @@ export function Composer(props) {
 	}
 	return html`
 		<form
-			class=${() => ({ compose: active(), elsewhere: !active() })}
+			class=${() => ({ compose: open(), elsewhere: !active() })}
 			onSubmit=${submit}
 			onDragOver=${(event) => {
 				if ([...event.dataTransfer.types].includes('Files')) event.preventDefault()
@@ -283,11 +287,11 @@ export function Composer(props) {
 				const files = imagesIn(event.dataTransfer.files)
 				if (!files.length) return
 				event.preventDefault()
-				openThread(props.thread)
+				enter()
 				add(files)
 			}}
 		>
-			<${Show} when=${active}><${Notice} /><//>
+			<${Show} when=${open}><${Notice} /><//>
 			<${Show} when=${() => draft().images.length}>
 				<ul class="images" aria-label="Images to send">
 					<${For} each=${() => draft().images}
@@ -360,7 +364,7 @@ export function Composer(props) {
 								: 'Pick a model below, then write'}
 					value=${() => draft().draft}
 					onFocus=${() => {
-						if (!active()) openThread(props.thread)
+						if (!active()) enter()
 					}}
 					onPaste=${(event) => {
 						const files = imagesIn(event.clipboardData?.items)
@@ -401,7 +405,7 @@ export function Composer(props) {
 					title="Add images; you can also paste or drop them"
 					aria-label="Add images"
 					onClick=${(_e) => {
-						openThread(props.thread)
+						enter()
 						chooser.click()
 					}}
 				>
@@ -420,7 +424,7 @@ export function Composer(props) {
 				/>
 				<${Show}
 					when=${() =>
-						active() &&
+						open() &&
 						threads.some(
 							(thread) =>
 								thread.id === props.thread && ['working', 'blocked'].includes(thread.status),
@@ -444,7 +448,7 @@ export function Composer(props) {
 						title="How full the agent's context is"
 						ref=${(el) => (recallButton = el)}
 						onClick=${() => {
-							openThread(props.thread)
+							enter()
 							recall.togglePopover()
 						}}
 					>
@@ -466,7 +470,7 @@ export function Composer(props) {
 								: recipients(props.thread).map(formatAgent).join(', ')) +
 						(folderOf(props.thread) ? `, in ${folderOf(props.thread)}` : '')}
 					onClick=${() => {
-						openThread(props.thread)
+						enter()
 						anchor = box
 						picker.togglePopover()
 					}}

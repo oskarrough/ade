@@ -2152,3 +2152,24 @@ body.resizing {
 .recap .rows > li > svg.icon {
 	margin-inline: calc((var(--dot) - 14px) / 2);
 }
+
+/* The inbox: a column in the threads' place, a question per row, each with the thread's own composer under it. */
+.thread.inbox {
+	--compose-height: 0px;
+
+	> ul > li.question {
+		padding-bottom: var(--space-5);
+		border-bottom: 1px solid var(--line);
+
+		> .recap-line {
+			margin: 0 0 var(--space-2);
+			font-size: var(--text-small);
+			line-height: var(--text-small-line);
+		}
+
+		form {
+			width: 100%;
+			margin: var(--space-3) 0 0;
+		}
+	}
+}

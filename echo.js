@@ -37,12 +37,24 @@ const director = (request) => {
 		name ? `${name}: it's about ${personas[name].split(' ').pop()}s` : 'nobody: nothing for them',
 	)
 }
+/** A recap: one open line for the newest message it was shown */
+const recap = (request) => {
+	const [, at, who, said] =
+		[...text(request.messages.at(-1)).matchAll(/^\[(\d+)\] (\S+)[^:]*: (.*)$/gm)].at(-1) ?? []
+	return say(at ? `- [ ] ${who}: ${said.slice(0, 60)} [#${at}](#message-${at})` : '')
+}
 export const tryEcho = (request) => {
 	if (text(request.messages[0] ?? { content: '' }).startsWith('You choose who answers'))
 		return director(request)
+	if (text(request.messages[0] ?? { content: '' }).startsWith('# Recap')) return recap(request)
 	const latest = request.messages.at(-1)
 	if (latest.role === 'user' && text(latest).startsWith('bot '))
 		return call('bot', { instructions: text(latest).slice(4) })
+	// "ask <question>" asks the person, with blocked on
+	if (latest.role === 'user' && text(latest).startsWith('ask '))
+		return call('ask_person', { body: text(latest).slice(4) })
+	if (latest.role === 'toolResult' && latest.toolName === 'ask_person')
+		return say('Asked; waiting for your answer.')
 	const bot = bots(request)
 	if (bot) return bot
 	const last = request.messages.findLastIndex((m) => m.role === 'user')
