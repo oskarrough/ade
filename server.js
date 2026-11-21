@@ -177,6 +177,8 @@ const Thread = defineDoc({
 		tools: null,
 		/** With memory on, whether this thread remembers; null takes memory's default */
 		memory: null,
+		/** The director's Pick task still deciding for this thread's newest message, which a newer one takes over */
+		pick: null,
 	}),
 })
 const Receipts = defineDocFamily({
@@ -847,6 +849,11 @@ async function append(
 	const data = { createdAt: now(), ...message, ...(to ? { to: names } : {}) }
 	const prior =
 		!empty && names.some((name) => !row.agents[keyOf(name)]) ? await messageIds(tx, threadId) : []
+	// A fresh message, an @mention too, takes over the pick still pending; whoever it asks reads that message too
+	if (row.pick && fresh({ kind: KIND, data })) {
+		await supersede?.(tx, threadId, row.pick)
+		row.pick = null
+	}
 	const entry = await tx.appendEntry(threadId, { kind: KIND, data })
 	for (const hook of posted) await hook(tx, threadId, entry)
 	for (const [key, agent] of Object.entries(row.agents))
@@ -860,6 +867,7 @@ async function append(
 					body: message.body,
 				})
 			: undefined
+	if (pick) row.pick = pick
 	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
 }
 
@@ -904,14 +912,17 @@ async function ask(tx, row, threadId, upTo, to, { steer = false, prior = [] } = 
  * The director's pick for a saved message, inside its commit: the record that shows it on the message, then each
  * agent it picked gets the message as if it had asked them. A pick the author may not reach asks no one.
  */
-async function route(tx, threadId, messageId, { to, picked }, { steer = false } = {}) {
+async function route(tx, threadId, messageId, { to, picked }, { steer = false, pick } = {}) {
 	const { data } = await tx.entry(messageId)
+	// A newer message saved since takes over: this one asks no one, and whoever that one asks reads it too
+	if (await newerThan(tx, threadId, messageId)) [to, picked] = [[], undefined]
+	const row = await tx.doc(Thread, threadId)
+	if (row.pick === pick) row.pick = null
 	try {
 		await reach(to, data.author, await tx.doc(Runners))
 	} catch (error) {
 		;[to, picked] = [[], `Pick failed: ${error.message}`]
 	}
-	const row = await tx.doc(Thread, threadId)
 	const prior = to.some((one) => !row.agents[keyOf(writtenTo(one))])
 		? await messageIds(tx, threadId)
 		: []
@@ -920,6 +931,25 @@ async function route(tx, threadId, messageId, { to, picked }, { steer = false } 
 		data: { message: messageId, to: to.map(writtenTo), ...(picked ? { picked } : {}) },
 	})
 	await ask(tx, row, threadId, messageId, to, { steer, prior })
+	return { to: to.map(writtenTo), ...(picked ? { picked } : {}) }
+}
+
+/** A message someone wrote to the thread, not an agent's answer back or a command's output: one that takes over a pick */
+const fresh = ({ kind, data }) =>
+	kind === KIND && !data.answer && !data.error && !data.shell && !data.re
+
+/** Whether a fresh message came after `messageId`, reading back from the newest */
+async function newerThan(tx, threadId, messageId) {
+	let cursor
+	do {
+		const page = await tx.scanEntries({ conversationId: threadId, order: 'descending' }, 50, cursor)
+		for (const entry of page.items) {
+			if (entry.id <= messageId) return false
+			if (fresh(entry)) return true
+		}
+		cursor = page.next
+	} while (cursor)
+	return false
 }
 
 /**
@@ -1254,7 +1284,7 @@ async function recipients(
 /** No `to` asks the director in a group, or the last recipient in a solo chat or command. */
 async function postEntry(id, author, input) {
 	const saved = await receipt(input.requestId, `post ${id}`)
-	if (saved) return saved.result
+	if (saved) return withPick(id, saved.result)
 	await conversation(id)
 	const images = imageList(input.images)
 	const body = images ? (input.body ?? '').trim() : field(input.body, 'body')
@@ -1288,8 +1318,12 @@ async function postEntry(id, author, input) {
 					{ steer: input.steer === true, direct },
 				),
 	)
+	return withPick(id, result)
+}
+
+/** A post's answer once the director's pick for its message is in, as one with `to` says whom it asks; a retry too */
+async function withPick(id, result) {
 	if (!result.pick) return result
-	// The message is saved; the answer waits for the director's pick, as one with `to` says whom it asks
 	await harness.waitForTask(result.pick, context)
 	const route = /** @type {any} */ (
 		await latestMessage(id, (one) => one.data.message === result.entry, ROUTE)
@@ -1403,7 +1437,9 @@ async function setTools(id, { tools }) {
 
 /** Forks history, the agent and bots at `at`, but keeps the source's current thread-wide tools */
 async function forkThread(id, { at, title }) {
-	const shown = (await messages(id)).filter((entry) => entry.id <= Number(at))
+	await conversation(id)
+	// Picks made after the fork point stay behind with it
+	const shown = routed((await entries(id)).filter((entry) => entry.id <= Number(at)))
 	const answers = {}
 	const asked = new Set()
 	for (const { data } of shown) {
@@ -1536,7 +1572,8 @@ const core = {
 	waitForTask: (id, within = context) => harness.waitForTask(id, within),
 	post,
 	route,
-	ROUTE,
+	fresh,
+	abortTask: (id) => harness.abortTask(id, context),
 	/**
 	 * Tells each page watching a thread what a module is doing there, as it happens; nothing is kept. An event is
 	 * `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), others are the module's own.
@@ -1581,6 +1618,7 @@ const archiving = modules.flatMap((module) => module.archiving ?? [])
 const [
 	direct,
 	directing,
+	supersede,
 	turns,
 	reply,
 	catchUp,
@@ -1593,6 +1631,7 @@ const [
 ] = [
 	'direct',
 	'directing',
+	'supersede',
 	'turns',
 	'reply',
 	'catchUp',
@@ -2345,7 +2384,7 @@ async function saveSettings({ modules: wanted = {}, memory, director }) {
 			else if (next.director) delete next.director.model
 		}
 		/** Each number as given, checked as the director reads it; a default is left out of ade.json */
-		const fallbacks = { context: 20, timeout: 60, burst: 0 }
+		const fallbacks = { context: 20, timeout: 60, burst: 1.5 }
 		for (const [field, fallback] of Object.entries(fallbacks)) {
 			if (director[field] === undefined) continue
 			const value = Number(director[field])

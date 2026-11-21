@@ -11,11 +11,12 @@
  * The chooser is `director.model` in ade.json, `provider/model:thinking`, optionally @runner (else the thread's), with
  * DIRECTOR_MODEL winning over it. Left empty, it's Haiku or Luna with thinking off when the thread agent's runner lists
  * them (the first bot's in a bot-only group), else that agent's own model. `director.context` is how many recent
- * messages it reads (20) and `director.timeout` the seconds before a pick fails (60). `director.picks: false`
+ * messages it reads (20), `director.timeout` the seconds before a pick fails (60) and `director.burst` the quiet it waits for (1.5). `director.picks: false`
  * disables model picks. A failed pick asks the thread's agent and records why on the message; with no thread agent
  * it asks nobody and records the failure.
  */
-import { defineExtension, defineTask } from '@earendil-works/pi-durable'
+import { defineExtension, defineSignal, defineTask } from '@earendil-works/pi-durable'
+import { obj } from '@earendil-works/pi-schema'
 import { messageText } from '../remote.js'
 import {
 	AGENT,
@@ -25,7 +26,6 @@ import {
 	smallModel,
 	directorTimes,
 	finished,
-	background,
 } from '../util.js'
 
 export const on = true
@@ -57,8 +57,6 @@ export function server(core) {
 	const picks = own.picks !== false || Boolean(process.env.DIRECTOR_MODEL)
 	/** The messages it reads before the new one; how long before a pick gives way to the thread agent; the quiet it waits for */
 	const { context, timeoutMs, burstMs } = directorTimes(own)
-	/** Per thread, the newest message waiting for a pick, its wait, and the model call running for it */
-	const queues = new Map()
 	const tell = (threadId, event) => core.activity(threadId, { purpose: 'director', ...event })
 	let calls = 0
 
@@ -121,9 +119,9 @@ export function server(core) {
 
 	/**
 	 * Whom a saved message asks, `{to, picked}`: a model's pick over the messages before it, or on failure the thread's
-	 * agent. Null when `dropped` cancels it for a newer message.
+	 * agent. Pi's `signal` ending it (a stop, a restart) throws, so the task decides again or ends.
 	 */
-	async function pick(threadId, entry, dropped) {
+	async function pick(threadId, entry, stopped) {
 		const all = await core.messages(threadId)
 		const at = all.findIndex((one) => one.id === entry)
 		const message = all[at].data
@@ -161,7 +159,7 @@ export function server(core) {
 				)
 		chooser.thinkingLevel ??= 'off'
 		const timeout = AbortSignal.timeout(timeoutMs)
-		const signal = AbortSignal.any([timeout, dropped])
+		const signal = AbortSignal.any([timeout, stopped])
 		const call = ++calls
 		const started = Date.now()
 		const model = writtenTo(chooser)
@@ -189,7 +187,7 @@ export function server(core) {
 				signal,
 			)
 		} catch (error) {
-			if (dropped.aborted) return (ended('dropped', error.tokens), null)
+			if (stopped.aborted) throw (ended('stopped', error.tokens), error)
 			ended(timeout.aborted ? 'timeout' : 'error', error.tokens)
 			console.error(`director: thread ${threadId}: ${error.message}`)
 			const agent = here.find((agent) => !agent.name)
@@ -205,82 +203,85 @@ export function server(core) {
 		return { to, picked: decided.reason }
 	}
 
-	/** What a message folded into a newer one's pick asks: no one, since that pick covers it */
-	const folded = { to: [], picked: 'A later message came; one pick covers both.' }
+	/** A newer message saved in the thread wakes its pending pick, which then asks no one */
+	const Superseded = defineSignal({ name: 'ade.superseded', version: 1, schema: obj({}) })
 
 	/**
-	 * Queues a saved message for its thread's pick and answers its `{to, picked}`. It waits `burstMs` of quiet; a newer
-	 * message ends that wait or cancels the running call, and this one is folded into the newer one's pick.
+	 * In the commit that saves a newer message, before it's written: the thread's pending pick is woken to ask no one.
+	 * One already calling its model is aborted once this commit is in, which cuts the call short; either way its
+	 * route, committed after the newer message, asks no one.
 	 */
-	function ping(threadId, entry) {
-		return new Promise((resolve) => {
-			const queue = queues.get(threadId) ?? {}
-			queues.set(threadId, queue)
-			// Resumed after a restart, an older message finds a newer one already queued
-			if (queue.newest && queue.newest.entry > entry) return resolve(folded)
-			if (queue.newest) {
-				tell(threadId, {
-					kind: 'dropped',
-					entry: queue.newest.entry,
-					for: entry,
-					running: Boolean(queue.dropped),
-				})
-				queue.dropped?.abort()
-				queue.newest.resolve(folded)
-			}
-			const mine = (queue.newest = { entry, resolve })
-			clearTimeout(queue.timer)
-			if (burstMs) tell(threadId, { kind: 'wait', entry, ms: burstMs })
-			queue.timer = setTimeout(async () => {
-				const dropped = (queue.dropped = new AbortController())
-				const routed = await pick(threadId, entry, dropped.signal).catch((error) => {
-					console.error(`director: thread ${threadId}: ${error.message}`)
-					return { to: [], picked: `Pick failed: ${error.message}` }
-				})
-				if (queue.newest !== mine) return
-				queues.delete(threadId)
-				tell(threadId, {
-					kind: 'picked',
-					entry,
-					to: routed.to.map(writtenTo),
-					reason: routed.picked,
-				})
-				resolve(routed)
-			}, burstMs)
-		})
+	async function supersede(tx, threadId, pick) {
+		const task = /** @type {any} */ (await tx.task(pick))
+		// A pick past its wait has had its key expire, so the signal comes back closed; that one is calling its model
+		const delivered = await tx.signal(pick, Superseded, 'superseded', {})
+		const running = task?.state?.status === 'running'
+		if (delivered !== 'delivered' && !running) return
+		tell(threadId, { kind: 'dropped', entry: task?.input?.entry })
+		if (running) setImmediate(() => core.abortTask(pick).catch((error) => console.error(error)))
 	}
 
-	/** A saved message's pick, durable: it resumes after a restart, and the thread's stop ends it asking no one */
+	/** Tells the Director tab what the committed route asks, after the runner check and any newer message */
+	const picked = (threadId, entry, route) =>
+		tell(threadId, { kind: 'picked', entry, to: route.to, reason: route.picked })
+
+	/**
+	 * A saved message's pick, part of its thread's work: it sleeps `burst` (durably; a newer message's signal wakes it
+	 * early to ask no one), then calls the model in its own phase on Pi's signal, then commits the route, which checks
+	 * again for a newer message. The thread's stop aborts it; a restart picks up where it was.
+	 */
 	const Pick = defineTask({
 		name: 'ade.pick',
 		version: 1,
-		initial: () => ({ phase: 'pick' }),
+		initial: () => ({ phase: burstMs ? 'wait' : 'call' }),
 		phases: {
-			async pick({ conversationId: threadId, input: { entry, steer } }, rt, ctx) {
-				const routed = await ping(threadId, entry)
+			wait: ({ conversationId: threadId, input: { entry } }, rt, ctx) => {
+				tell(threadId, { kind: 'wait', entry, ms: burstMs })
 				return rt.commit(
-					async (tx) => (await core.route(tx, threadId, entry, routed, { steer }), finished()),
+					() => ({
+						status: 'sleeping',
+						until: rt.now() + burstMs,
+						signals: [Superseded.key('superseded')],
+						checkpoint: { phase: 'call' },
+					}),
 					ctx,
 				)
 			},
+			async call({ id, conversationId: threadId, input: { entry, steer }, state }, rt, ctx) {
+				const routed =
+					state.wake?.reason === 'signal' ? { to: [] } : await pick(threadId, entry, rt.signal)
+				let route
+				await rt.commit(async (tx) => {
+					route = await core.route(tx, threadId, entry, routed, { steer, pick: id })
+					return finished()
+				}, ctx)
+				picked(threadId, entry, route)
+			},
 		},
-		abort: ({ conversationId: threadId, input: { entry, steer } }, rt, ctx) =>
-			rt.commit(async (tx) => {
-				await core.route(
+		abort: async ({ id, conversationId: threadId, input: { entry, steer } }, rt, ctx) => {
+			let route
+			await rt.commit(async (tx) => {
+				route = await core.route(
 					tx,
 					threadId,
 					entry,
-					{ to: [], picked: 'Stopped before the director picked.' },
-					{ steer },
+					{ to: [], picked: 'Stopped before the director picked.' }, // a newer message makes it ask no one, quietly
+					{ steer, pick: id },
 				)
 				return finished('aborted')
-			}, ctx),
+			}, ctx)
+			picked(threadId, entry, route)
+		},
 	})
 
-	/** In the commit that saves a message the director picks for, its Pick task */
+	/** In the commit that saves a message the director picks for, its Pick task, part of the thread's work */
 	const directing = (tx, threadId, entry, { steer = false, author = '', body = '' } = {}) => {
 		tell(threadId, { kind: 'message', entry, author, body: (body ?? '').slice(0, SAID) })
-		return tx.createTask(Pick, { entry, steer }, background(threadId))
+		return tx.createTask(
+			Pick,
+			{ entry, steer },
+			{ ownership: { kind: 'conversation' }, conversationId: threadId },
+		)
 	}
 
 	/** How many answers in a row end the thread, with no one else writing since */
@@ -339,6 +340,7 @@ export function server(core) {
 	return {
 		direct,
 		directing,
+		supersede,
 		turns: true,
 		/** The model it picks with as written (DIRECTOR_MODEL's when set), empty for Haiku or Luna on each thread's runner */
 		settings: {

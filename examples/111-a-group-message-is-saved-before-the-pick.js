@@ -1,8 +1,11 @@
-/** A group message is in the thread before the director picks; its pick comes after, on that message. A newer message cancels a running pick and one pick covers both. */
+/** A group message is in the thread before the director picks; its pick comes after, on that message. A newer message cancels a running pick and one pick covers both, as does an @mention. */
+import { writeFileSync } from 'node:fs'
+import path from 'node:path'
 import {
 	answered,
 	api,
 	check,
+	configDir,
 	done,
 	say,
 	scriptedRunner,
@@ -12,6 +15,8 @@ import {
 	view,
 } from './lib.js'
 
+// A second of quiet: room for the @mention below to land before the pick starts
+writeFileSync(path.join(configDir, 'ade.json'), JSON.stringify({ director: { burst: 1 } }))
 await server({ MODULES: '+bots,-auto-title,-memory' })
 const { id } = (await api('POST', '/api/threads', { title: 'saved first' })).json
 /** What the thread held when each pick began, and what each pick read */
@@ -57,10 +62,22 @@ check(
 )
 const older = await byBody('hold this one')
 check(
-	!held.json.to?.length && !older?.data.to && Boolean(older?.data.picked),
-	'the older message asks no one and says one pick covered it',
+	!held.json.to?.length && !older?.data.to && !older?.data.picked,
+	'the older message asks no one and says nothing; the newer pick covers it',
 	JSON.stringify(older),
 )
 await answered(id, 3)
 release?.(say('Jeroen: too late'))
+
+const free = post('who knows?')
+await until(async () => byBody('who knows?'))
+const mention = await post('@Jeroen you first')
+const waited = await free
+check(
+	!picks.some((pick) => pick.body === 'who knows?') &&
+		!waited.json.to?.length &&
+		mention.json.to?.[0] === 'Jeroen',
+	'an @mention while a message waits for its pick takes it over: only the bot it asks answers',
+	JSON.stringify({ picks: picks.map((pick) => pick.body), waited: waited.json }),
+)
 done()

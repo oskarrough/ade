@@ -95,7 +95,7 @@ function said(event, bodyOf) {
 		case 'dropped':
 			return `Dropped the pick for ${quote(bodyOf(event.entry))}: a newer message came`
 		case 'picked':
-			return `${event.to.length ? `Picked ${event.to.join(', ')}` : 'Picked nobody'}: ${event.reason}`
+			return `${event.to.length ? `Picked ${event.to.join(', ')}` : 'Picked nobody'}${event.reason ? `: ${event.reason}` : ', a newer message took over'}`
 		case 'call': {
 			const tokens = event.tokens ? `, ${event.tokens} tokens` : ''
 			return {
@@ -103,7 +103,7 @@ function said(event, bodyOf) {
 				ok: `${event.model} answered in ${seconds(event.ms)}${tokens}`,
 				timeout: `${event.model} timed out after ${seconds(event.ms)}`,
 				error: `${event.model} failed after ${seconds(event.ms)}${tokens}`,
-				dropped: `${event.model} was cancelled after ${seconds(event.ms)}`,
+				stopped: `${event.model} was stopped after ${seconds(event.ms)}`,
 			}[event.outcome]
 		}
 		default:

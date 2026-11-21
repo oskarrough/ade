@@ -65,7 +65,7 @@ export function smallModel(to, runners, thinkingLevel) {
 }
 /** The director's numbers in ade.json, in seconds there, as whole milliseconds; out of range throws, so a typo never
  * makes a timer fire at once. Left out, each takes its default. */
-export function directorTimes({ context = 20, timeout = 60, burst = 0 } = {}) {
+export function directorTimes({ context = 20, timeout = 60, burst = 1.5 } = {}) {
 	const within = (value, least, most, says) => {
 		if (typeof value !== 'number' || !(value >= least && value <= most)) throw new Error(says)
 		return value

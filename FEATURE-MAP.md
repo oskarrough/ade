@@ -11,7 +11,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   address, whom, modelOn, reach     whom a `to` asks, on which runner and model
   recipients                       director → explicit recipient → thread agent in groups / last-asked in solo chats and commands
   post, append, postEntry           write a message and hand it to each agent it asks; `direct` leaves that to the director's Pick task
-  ask, route, ROUTE, routed         Admit/Deliver for whom a message asks; the director's pick saved after its message, read as its `to`/`picked`
+  ask, route, ROUTE, routed         Admit/Deliver for whom a message asks; the director's pick saved after its message, read as its `to`/`picked`;
+                                    `fresh`/newerThan: a newer message takes over a pending pick
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
   outcome, tell, restore, faulted   what a finished delivery posts back (a bot's answer asks whom direct says), or a failure says
@@ -49,10 +50,10 @@ modules/
                          instructions a new bot is created with, from then on hers to rewrite
   context.js             AGENTS.md, skills and the folder's path (cwd) from the runner;
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
-  director.js            the `direct` hook: @mentions ask that bot, a free group message is saved and gets a Pick task (`directing`);
-                         one queue per thread (ping): `burst` quiet, then a small model picks the thread's agent, bots or nobody (pick, decide),
-                         a newer message cancels it and folds the older one in, a failure falls back to the thread agent; activity events
-                         for the Director tab; settings model, context, timeout, burst (saveSettings in server.js, director row in settings.js);
+  director.js            the `direct` hook: @mentions ask that bot, a free group message is saved and gets a Pick task (`directing`),
+                         part of the thread's work: a durable `burst` sleep, then a small model picks the thread's agent, bots or nobody
+                         (pick, decide), then the route commit; a newer fresh message signals or aborts it (`supersede`, Thread's `pick`)
+                         and route() folds it; a failure falls back to the thread agent; activity events for the Director tab; settings model, context, timeout, burst (saveSettings in server.js, director row in settings.js);
                          those asked take turns (`turns`); a bot's answer @mentioning a bot asks it, resting
                          after three bot answers in a row (botTurns); tells bots to @mention, not post (section)
   recap.js               a thread's recap, a checklist of `- [x]`/`- [ ]` lines: WRITER (the prompt), Recap doc, Write task (one writer,
