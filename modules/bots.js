@@ -23,26 +23,12 @@ const Bots = defineDoc({
 
 export function server(core) {
 	const bots = () => core.commit(async (tx) => JSON.parse(JSON.stringify(await tx.doc(Bots))))
-	/** Each bot's name → when it last answered, in any thread, as an ISO time; never answered is `null` */
-	async function lastAnswered() {
-		const times = {}
-		await Promise.all(
-			(await core.threadIds()).map(async (id) => {
-				for (const { data } of await core.messages(id))
-					if (data.answer && data.createdAt && (times[data.author] ?? '') < data.createdAt)
-						times[data.author] = data.createdAt
-			}),
-		)
-		return times
-	}
-	const list = async () => {
-		const times = await lastAnswered()
-		return Object.entries(await bots()).map(([name, bot]) => ({
+	const list = async () =>
+		Object.entries(await bots()).map(([name, bot]) => ({
 			name,
 			...bot,
-			answeredAt: times[name] ?? null,
+			answeredAt: bot.answeredAt ?? null,
 		}))
-	}
 
 	/** How a bot talks until it writes its own words: the instructions a new bot starts with */
 	const voice =
@@ -225,5 +211,11 @@ export function server(core) {
 		botNames,
 		homesOf,
 		extension: defineExtension({ name: 'ade.bots', tools: [bot], sections: [section] }),
+		/** A bot's answer, here or anywhere it's asked, stamps when: the moment the sidebar sorts bots by */
+		async posted(tx, threadId, entry) {
+			if (!entry.data.answer) return
+			const all = await tx.doc(Bots)
+			if (all[entry.data.author]) all[entry.data.author].answeredAt = entry.data.createdAt
+		},
 	}
 }
