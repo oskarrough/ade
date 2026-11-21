@@ -548,6 +548,11 @@ agent-memory {
 			&.turn {
 				color: var(--mute);
 
+				/* Named, a run opens its agent's block, the way a new speaker's message does */
+				&.named {
+					margin-top: var(--space-5);
+				}
+
 				summary > small {
 					display: inline;
 					margin: 0;

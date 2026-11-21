@@ -12,7 +12,7 @@ import {
 } from 'solid-js'
 import { colorOf, entries, homeBot, threadOf, titleOf } from './server.js'
 import { Cross } from './thread.js'
-import { authorLabel, doing, messageText, shortLabel, touched } from './agent.js'
+import { authorLabel, doing, messageText, touched } from './agent.js'
 import { Stamp } from './time.js'
 
 /**
@@ -58,15 +58,20 @@ export function Turn(props) {
 			.join(' · ')
 	}
 	const said = () => messageText(live()?.message)
+	/** Its agent's name above it, as a message has, unless the row above is already theirs */
+	const named = () => props.above !== props.agent.name
 	return html`
-		<li class=${() => ({ turn: true, live: !!props.live })}>
+		<li class=${() => ({ turn: true, live: !!props.live, named: named() })}>
+			<${Show} when=${named}>
+				<small class="name" title=${() => props.agent.name}
+					><span style=${() => colorOf(props.agent.name)}
+						>${() => authorLabel(props.agent.name)}</span
+					></small
+				>
+			<//>
 			<details onToggle=${(event) => setOpen(event.currentTarget.open)}>
 				<summary>
-					<small>
-						<${Show} when=${() => props.above !== props.agent.name}
-							><span>${() => authorLabel(props.agent.name)}</span>${' · '}<//
-						><span class="now">${line}</span>
-					</small>
+					<small><span class="now">${line}</span></small>
 				</summary>
 				<${Show} when=${open}>
 					<ol
@@ -488,8 +493,8 @@ function Fold(props) {
 }
 
 /**
- * A bot rewriting itself, on its own row: ✎, its name in its colour, what changed; opened, each one as a word diff of
- * old against new.
+ * A bot rewriting itself, on its own row, one line: its name, what it updated; opened, each one as a word diff of old
+ * against new.
  */
 export function Changed(props) {
 	const [diffWords, setDiffWords] = createSignal()
@@ -510,18 +515,14 @@ export function Changed(props) {
 			(error) => setFailed(`Couldn't load the diff from esm.sh: ${error.message}`),
 		)
 	}
+	const said = () => `${props.agent.name} updated their ${changedOf(props.step).join(' and ')}`
 	return html`
 		<li class="elsewhere">
 			<ol class="steps">
-				<li class="call changed">
+				<li class="call changed plain">
 					<details onToggle=${opened}>
-						<summary
-							title=${() => `${props.agent.name} changed its ${changedOf(props.step).join(' and ')}`}
-						>
-							<span class="tool" style=${() => colorOf(props.agent.name)}
-								>${() => shortLabel(props.agent.name)}</span
-							>
-							<span class="in">${() => changedOf(props.step).join(' · ')}</span>
+						<summary>
+							<span class="in">${said}</span>
 						</summary>
 						<div class="whole">
 							<${Show} when=${failed}>${() => html`<p class="failed">${failed}</p>`}<//>
@@ -551,7 +552,6 @@ export function Changed(props) {
 					</details>
 				</li>
 			</ol>
-			<${Stamp} time=${() => props.time} />
 		</li>
 	`
 }
