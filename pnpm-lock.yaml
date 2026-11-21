@@ -31,14 +31,14 @@ importers:
         specifier: ^1.6.0
         version: 1.6.0
       '@solidjs/html':
-        specifier: 2.0.0-rc.20
-        version: 2.0.0-rc.20(@solidjs/web@2.0.0-rc.20(solid-js@2.0.0-rc.20))
+        specifier: 2.0.1
+        version: 2.0.1(@solidjs/web@2.0.3(solid-js@2.0.3))
       '@solidjs/signals':
-        specifier: 2.0.0-rc.20
-        version: 2.0.0-rc.20
+        specifier: 2.0.3
+        version: 2.0.3
       '@solidjs/web':
-        specifier: 2.0.0-rc.20
-        version: 2.0.0-rc.20(solid-js@2.0.0-rc.20)
+        specifier: 2.0.3
+        version: 2.0.3(solid-js@2.0.3)
       '@tldraw/sync-core':
         specifier: 5.6.1
         version: 5.6.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -55,8 +55,8 @@ importers:
         specifier: ^1.13.0
         version: 1.13.0
       solid-js:
-        specifier: 2.0.0-rc.20
-        version: 2.0.0-rc.20
+        specifier: 2.0.3
+        version: 2.0.3
       ws:
         specifier: 8.21.0
         version: 8.21.0
@@ -617,21 +617,21 @@ packages:
     resolution: {integrity: sha512-lCA6QG22dPk9ecHbv91jDQZsmtPUjdS1aE2Il6NNPqe7DrYc0dZQi6DhcESk2KYXH2sp5xbAcGdYMZDFnuzA2A==}
     engines: {node: '>=18.0.0'}
 
-  '@solidjs/html@2.0.0-rc.20':
-    resolution: {integrity: sha512-cvbbNZFbjasNC3Jpg3IAK/gDQR1Xq1/TIGEFMDRqAv5Vw+cJO1/HgNLuJ/FWVd5u9MYXhCgdfNmc1TzZo4XOrA==}
+  '@solidjs/html@2.0.1':
+    resolution: {integrity: sha512-9tCCCUBkqyUonWX9rJW/hJwH2HJjI5I1X9MEhM4epFSNcTaCb8Iw2UCQi2Y204+8B9mQumI6WWa8Idik3V9fug==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
-      '@solidjs/web': ^2.0.0-rc.20
+      '@solidjs/web': ^2.0.3
 
-  '@solidjs/signals@2.0.0-rc.20':
-    resolution: {integrity: sha512-BIL5dKm0dAtPGsCEuLSNw60spDbmYG5QFK+aHUxPIgPLweA8IeJKd62DiqqqU/jqX0x39ty31GoP1n+ZINkrcg==}
+  '@solidjs/signals@2.0.3':
+    resolution: {integrity: sha512-M6+kiJflqSvJRHRcmdsdIXpPLPkQrY817zWKKfxZ3z3ZRE5eEtddtWPrDXY4IM1Wz3zAqG+3Fx/HQIkAtpRwnA==}
     engines: {node: '>=22.12.0'}
 
-  '@solidjs/web@2.0.0-rc.20':
-    resolution: {integrity: sha512-ACGUZ1XBNxiHnWW274na+1JZfuIhiS/BN5XM72wVKNYSopR/NyjVPR4O/nvshtbYlEk1lKJ9d1uBaXDaz6ddYg==}
+  '@solidjs/web@2.0.3':
+    resolution: {integrity: sha512-XYl9JGOtQ8yJSZRnd6uC+5gYXsYvnIRNxhn89m+F1v6D4d4ZFdTJY2Lq/8XJ3YcjckkCrK/mNfd3kIiqqgnG7w==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
-      solid-js: ^2.0.0-rc.20
+      solid-js: ^2.0.3
 
   '@stablelib/base64@1.0.1':
     resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
@@ -1304,14 +1304,14 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
-  seroval-plugins@1.7.0:
-    resolution: {integrity: sha512-WM4rArfPtLZriTuxC5DBvNulEwAaRcjNe/dkMOEesOcuvXf5nEwKf5Bw3AT92WHohqcc45+57GdtsCuBTI0mjw==}
+  seroval-plugins@1.8.0:
+    resolution: {integrity: sha512-96vBb12rDvPPwdKUgWw1op3fGq8AVBFOr0IllbnM72yR5J9WWXF18cQ4g1XfDO7HCyh2dt70P3XdtyRayP8FWg==}
     engines: {node: '>=20'}
     peerDependencies:
-      seroval: ^1.0
+      seroval: ^1.8.0
 
-  seroval@1.7.0:
-    resolution: {integrity: sha512-FU+LUkmDzWNsJ6oubZFN3dGPKny53DRhPJG6nftEaXDL8MIn19+kEE1Gvc+63Go+qPOwVUlKIdKhsu2HN6tksw==}
+  seroval@1.8.2:
+    resolution: {integrity: sha512-zmMxi/9MdLK1MKazLmIP6Rk39RuK0Xydd+QHeOYntS37olJeTjB3+nwVj4ce/ZWiZJeRhcO5htfxt0mUzQBscQ==}
     engines: {node: '>=20'}
 
   shebang-command@2.0.0:
@@ -1325,8 +1325,8 @@ packages:
   signal-exit@3.0.7:
     resolution: {integrity: sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ==}
 
-  solid-js@2.0.0-rc.20:
-    resolution: {integrity: sha512-FxaEI7LHupehFoR9j2CfJAGCoRgiKgeNlzii4szUS6lnD8RkpdtvX1k6WFG71vl5bskXRRsmEQVAXsbIemQOuw==}
+  solid-js@2.0.3:
+    resolution: {integrity: sha512-XOHstv+GAJjfcSGZU9xfX5q6Mbqmv72IcdWh2JuMx3KvBbfpQPdy/Yl00A1ouk7A0etjqhNe799CPdr6i7koWg==}
     engines: {node: '>=22.12.0'}
 
   standardwebhooks@1.3.0:
@@ -2008,17 +2008,18 @@ snapshots:
     dependencies:
       tslib: 2.9.1
 
-  '@solidjs/html@2.0.0-rc.20(@solidjs/web@2.0.0-rc.20(solid-js@2.0.0-rc.20))':
+  '@solidjs/html@2.0.1(@solidjs/web@2.0.3(solid-js@2.0.3))':
     dependencies:
-      '@solidjs/web': 2.0.0-rc.20(solid-js@2.0.0-rc.20)
+      '@solidjs/web': 2.0.3(solid-js@2.0.3)
 
-  '@solidjs/signals@2.0.0-rc.20': {}
+  '@solidjs/signals@2.0.3': {}
 
-  '@solidjs/web@2.0.0-rc.20(solid-js@2.0.0-rc.20)':
+  '@solidjs/web@2.0.3(solid-js@2.0.3)':
     dependencies:
-      seroval: 1.7.0
-      seroval-plugins: 1.7.0(seroval@1.7.0)
-      solid-js: 2.0.0-rc.20
+      csstype: 3.2.4
+      seroval: 1.8.2
+      seroval-plugins: 1.8.0(seroval@1.8.2)
+      solid-js: 2.0.3
 
   '@stablelib/base64@1.0.1': {}
 
@@ -2661,11 +2662,11 @@ snapshots:
 
   semver@7.8.6: {}
 
-  seroval-plugins@1.7.0(seroval@1.7.0):
+  seroval-plugins@1.8.0(seroval@1.8.2):
     dependencies:
-      seroval: 1.7.0
+      seroval: 1.8.2
 
-  seroval@1.7.0: {}
+  seroval@1.8.2: {}
 
   shebang-command@2.0.0:
     dependencies:
@@ -2675,12 +2676,11 @@ snapshots:
 
   signal-exit@3.0.7: {}
 
-  solid-js@2.0.0-rc.20:
+  solid-js@2.0.3:
     dependencies:
-      '@solidjs/signals': 2.0.0-rc.20
-      csstype: 3.2.4
-      seroval: 1.7.0
-      seroval-plugins: 1.7.0(seroval@1.7.0)
+      '@solidjs/signals': 2.0.3
+      seroval: 1.8.2
+      seroval-plugins: 1.8.0(seroval@1.8.2)
 
   standardwebhooks@1.3.0:
     dependencies:
