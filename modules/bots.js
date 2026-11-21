@@ -192,7 +192,7 @@ export function server(core) {
 					(home
 						? "You're new: you have no instructions yet. Find out with the person here who you are, and write it down with your bot tool."
 						: ''),
-				`You are the bot ${at.name}, one person in every thread you're in.${where.length ? ` You're also in thread${where.length > 1 ? 's' : ''} ${where.join(', ')}; read one when it matters, and post to one to speak there yourself.` : ''}`,
+				`You are the bot ${at.name}, one person in every thread you're in.${where.length ? ` You're also in thread${where.length > 1 ? 's' : ''} ${where.join(', ')}; ${core.modulesOn?.includes('recap') ? "check one's recap to see where it stands, read it for detail, " : 'read one when it matters, '}and post to one to speak there yourself.` : ''}`,
 				others.length &&
 					agent.tools.some((tool) => tool.name === 'post') &&
 					`The other bot${others.length > 1 ? 's are' : ' is'} ${others.join(', ')}: post with \`to\` set to a name to ask one.`,

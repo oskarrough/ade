@@ -75,6 +75,7 @@ export async function load(end, core, settings) {
 	const theirs = (name) => !name.includes('/') && !(name in defaults)
 	if (end === 'server' && on.some(theirs)) throw new Error(`no module named ${on.find(theirs)}`)
 	on = on.filter((name) => !theirs(name))
+	core.modulesOn = on
 	const modules = []
 	for (const name of on) {
 		const own = name.includes('/')
