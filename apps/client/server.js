@@ -199,10 +199,12 @@ export const {
 } = createRoot(() => {
 	const [server, setServer] = createSignal(cached('server', DEFAULT_SERVER))
 	const [bots, setBots] = createStore(cached('bots', []))
-	const [threads, setThreads] = createStore(cached('threads', []))
+	/** The rows this page last saw, shown the way a fetch's are until one lands */
+	const shownAtStart = listed(cached('threads', []))
+	const [threads, setThreads] = createStore(shownAtStart.open)
 	const [archivedThreads, setArchivedThreads] = createStore([])
 	/** Both lists as plain rows, set with every fetch: a scan of the whole list reads this one signal instead of every row's fields */
-	const [threadRows, setThreadRows] = createSignal({ open: cached('threads', []), archived: [] })
+	const [threadRows, setThreadRows] = createSignal(shownAtStart)
 	const [runners, setRunners] = createStore(cached('runners', []))
 	/** The open questions agents asked, newest first, one per thread */
 	const [inbox, setInbox] = createStore(cached('inbox', []))
@@ -300,8 +302,7 @@ export const {
 		const rows = [...fetchedThreads, ...fetchedArchived.filter((row) => !fresh.has(row.id))]
 			.map((row) => (pending.has(row.id) ? { ...row, ...pending.get(row.id) } : row))
 			.sort((a, b) => b.id - a.id)
-		const open = withFamilies(rows.filter((row) => !row.archived))
-		const archived = rows.filter((row) => row.archived)
+		const { open, archived } = listed(rows)
 		setThreads(reconcile(open, 'id'))
 		setArchivedThreads(reconcile(archived, 'id'))
 		setThreadRows({ open, archived })
@@ -477,7 +478,16 @@ export const colorOf = (name, property = 'color') => {
 	const hue = hueOf(name)
 	return hue === undefined ? '' : `${property}: ${paint(hue)}`
 }
-export const forkedFrom = (thread) => thread?.conversation?.parent?.conversationId
+export function forkedFrom(thread) {
+	return thread?.conversation?.parent?.conversationId
+}
+/** Rows as both lists show them: the open ones each with its family, and the archived */
+function listed(rows) {
+	return {
+		open: withFamilies(rows.filter((row) => !row.archived)),
+		archived: rows.filter((row) => row.archived),
+	}
+}
 /**
  * Each row with its `family`: its root, through parents and forks among these rows, then all beneath it, each with its
  * depth, breadth first; members share one array
