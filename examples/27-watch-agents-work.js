@@ -189,6 +189,11 @@ check(
 	'a burst of 250 messages arrives whole, each once',
 	`${notes?.length ?? said(first.heard).length}`,
 )
+check(
+	first.heard.filter((m) => m.people).length <= 3,
+	'who is in the thread comes again only when it changes, not with every message',
+	`${first.heard.filter((m) => m.people).length} of ${first.heard.length}`,
+)
 first.close()
 
 await kill(srv, 'SIGKILL')

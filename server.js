@@ -2670,8 +2670,15 @@ async function rewatch(socket, id) {
 	)
 	const messages = await handle.watch(context)
 	if (!keep(messages)) return
-	/** Who's there changes with a message, or a read */
-	const present = async () => ({ people: await people(id) })
+	/** Who's there changes with a message, or a read: said first, then only when it changed */
+	let toldPeople
+	const present = async () => {
+		const now = await people(id)
+		const said = JSON.stringify(now)
+		if (said === toldPeople) return {}
+		toldPeople = said
+		return { people: now }
+	}
 	const only = (entries) => entries.filter((entry) => entry.kind === KIND)
 	/** Messages with the director's picks, and a message sent before whose pick just came, again */
 	const routes = new Map()
@@ -2697,7 +2704,13 @@ async function rewatch(socket, id) {
 	const thread = await told(
 		handle,
 		messages,
-		async (entries, more) => send({ entries: withPicks(entries), ...more, ...(await present()) }),
+		async (entries, more) => {
+			const shown = withPicks(entries)
+			const changed = await present()
+			// After the first, a batch with no message in it, like a memory line, says nothing a page shows
+			if (shown.length || 'earlier' in more || changed.people)
+				send({ entries: shown, ...more, ...changed })
+		},
 		{ enough: page(Infinity, FIRST) },
 	)
 	/** The oldest message the browser has, or 0 once it has them all, which its agents' turns reach back to */
@@ -2776,7 +2789,8 @@ async function rewatch(socket, id) {
 	row.start(async (call) => {
 		if (call.kind === 'failed') throw call.error
 		await follow(call.value.agents)
-		send(await present())
+		const changed = await present()
+		if (changed.people) send(changed)
 	})
 }
 /**
