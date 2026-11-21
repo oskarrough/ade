@@ -828,6 +828,10 @@ agent-memory {
 				white-space: nowrap;
 				opacity: 0;
 			}
+			/* Taking back a message you sent while it waits is there until an agent reads it, without a hover */
+			.fork.withdraw {
+				opacity: 1;
+			}
 		}
 	}
 

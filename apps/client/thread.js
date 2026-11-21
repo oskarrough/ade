@@ -264,7 +264,23 @@ export function Thread(props) {
 			const answers = new Set(
 				turns.flatMap((row) => (row.turn ? row.turn.steps.map((step) => answerOf(step)?.id) : [])),
 			)
-			const shown = all.filter((entry) => !answers.has(entry.id))
+			const shown = all.filter((entry) => !answers.has(entry.id) && !entry.data.withdrawn)
+			// Your message sent while an agent works waits for it to pick it up, and until then you can take it back
+			const agents = latest(thread)?.agents ?? []
+			const working = agents.some((agent) => doing[props.id]?.[agent.conversation]?.run)
+			const handedUpTo = Math.max(
+				-1,
+				...agents.flatMap((agent) => [
+					...(perConversation(agent.conversation).turns().at(-1)?.held ?? []),
+					...(doing[props.id]?.[agent.conversation]?.delivery?.held ?? []),
+				]),
+			)
+			const waiting = ({ id, sending, data }) =>
+				working &&
+				!sending &&
+				id > handedUpTo &&
+				data.author === me() &&
+				!(data.answer || data.error || data.shell || data.from || data.wake || data.stopped)
 			// What a turn changed beyond itself, each on its own row after it: an ask, with its answer, or a bot rewriting itself
 			const lasting = turns
 				.filter((row) => row.turn)
@@ -354,6 +370,7 @@ export function Thread(props) {
 				time: timeOf(entry),
 				sent: sentTo(entry),
 				replyTo: replyTo.get(entry.id),
+				waiting: waiting(entry),
 			}))
 			// One cut line, the newest compaction's; what the agent reads as lines folds into them, unless opened from it
 			const newest = cut()
@@ -775,6 +792,7 @@ export function Thread(props) {
 										sent=${() => row().sent}
 										above=${() => row().above}
 										replyTo=${() => row().replyTo}
+										waiting=${() => row().waiting}
 									/>
 								`}
 							>
@@ -941,7 +959,18 @@ function Message(props) {
 				`}<//
 			>
 			<${Stamp} time=${() => props.time} />
-			<${Show} when=${() => !props.entry.sending}>
+			<${Show} when=${() => props.waiting}>
+				<button
+					class="ghost small fork withdraw"
+					aria-label="Take back this message"
+					title="Take it back: no agent has read it yet"
+					onClick=${(_e) =>
+						api(`/api/threads/${props.thread}/withdraw`, { entry: props.entry.id }).catch(report)}
+				>
+					<${Icon} name="close" />
+				</button>
+			<//>
+			<${Show} when=${() => !props.entry.sending && !props.waiting}>
 				<button
 					class="small fork"
 					title="A new thread from this message"
