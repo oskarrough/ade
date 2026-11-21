@@ -29,12 +29,12 @@
 		"README.md"
 	],
 	"dependencies": {
-		"@earendil-works/chord": "^1.5.2",
-		"@earendil-works/pi-ai": "^1.5.2",
-		"@earendil-works/pi-codemode": "^1.5.2",
-		"@earendil-works/pi-coding-agent": "^1.5.2",
-		"@earendil-works/pi-durable": "^1.5.2",
-		"@earendil-works/pi-schema": "^1.5.2",
+		"@earendil-works/chord": "^1.6.0",
+		"@earendil-works/pi-ai": "^1.6.0",
+		"@earendil-works/pi-codemode": "^1.6.0",
+		"@earendil-works/pi-coding-agent": "^1.6.0",
+		"@earendil-works/pi-durable": "^1.6.0",
+		"@earendil-works/pi-schema": "^1.6.0",
 		"@solidjs/html": "2.0.0-rc.20",
 		"@solidjs/signals": "2.0.0-rc.20",
 		"@solidjs/web": "2.0.0-rc.20",
