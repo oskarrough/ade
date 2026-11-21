@@ -19,6 +19,7 @@ import {
 	titleOf,
 } from './server.js'
 import { Body, links } from './thread.js'
+import { authorLabel } from './agent.js'
 import { Composer } from './composer.js'
 import { topicsOf } from './recap.js'
 import { inline } from './markdown.js'
@@ -51,7 +52,7 @@ export function Inbox() {
 					${(item) => html`<${Question} item=${() => item()} />`}
 				<//>
 				<${Show} when=${() => !inbox.length}>
-					<li class="mute">Nothing waiting on you.</li>
+					<li class="mute">No open questions</li>
 				<//>
 			</ul>
 		</article>
@@ -74,9 +75,9 @@ function Question(props) {
 					onClick=${(event) => followThread(event, thread)}
 					>${() => titleOf(thread)}</a
 				>
-				<${Show} when=${bot}>
-					${' · '}<span style=${() => colorOf(data().author)}>${() => data().author}</span>
-				<//>
+				${' · '}<span title=${() => data().author} style=${() => colorOf(data().author)}
+					>${() => authorLabel(data().author)}</span
+				>
 				${' · '}<${Stamp} time=${() => data().createdAt && Date.parse(data().createdAt)} />
 			</small>
 			<${Show} when=${() => server().modules.includes('recap')}>
