@@ -504,6 +504,7 @@ agent-memory {
 			white-space: pre-wrap;
 			overflow-wrap: anywhere;
 			position: relative;
+			transition: background 1.5s ease-out;
 
 			&:first-child {
 				margin-top: var(--space-3);
@@ -557,8 +558,7 @@ agent-memory {
 			}
 
 			&.handed {
-				box-shadow: inset 2px 0 var(--pick);
-				background: color-mix(in srgb, var(--pick) 7%, Canvas);
+				background: color-mix(in srgb, var(--pick) 12%, Canvas);
 			}
 
 			/* What the agent reads instead of the messages above: its first line, quiet as a run line; opened, the whole of it at a message's size, on the thread's lines. */
