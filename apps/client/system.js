@@ -121,7 +121,7 @@ export function System() {
 
 function ListEdge() {
 	const list = (el) => el.parentElement.querySelector('.thread-list')
-	/** As narrow as the list's foot lets it: Blocked, every runner's count and the gear on one line */
+	/** As narrow as the list's foot lets it: Inbox, every runner's count and the gear on one line */
 	const least = (edge) => {
 		const foot = list(edge).querySelector('.list-foot')
 		if (!foot) return 160
@@ -133,7 +133,7 @@ function ListEdge() {
 	}
 	const fit = (edge, px) => Math.max(Math.round(Math.min(px, 640, innerWidth / 2)), least(edge))
 	let edge
-	/** A width saved narrower than the foot needs, or one a new runner or Blocked outgrew, goes up to it */
+	/** A width saved narrower than the foot needs, or one a new runner or Inbox outgrew, goes up to it */
 	const raise = () => {
 		// Hidden on a phone, where the list is a drawer of its own width
 		if (!edge?.offsetParent) return

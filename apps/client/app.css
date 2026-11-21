@@ -1619,7 +1619,7 @@ connect-runner {
 	}
 }
 
-/* The list's foot: blocked, runners, then settings at its end. */
+/* The list's foot: inbox, runners, then settings at its end. */
 .list-foot {
 	position: sticky;
 	bottom: 0;
@@ -1652,8 +1652,8 @@ button.foot-toggle {
 		flex: 0 1 auto;
 	}
 
-	/* Blocked stays muted with nothing blocked; with some, its words go ink and a count sits beside them, like an unread count. */
-	&.blocked-toggle {
+	/* Inbox stays muted with nothing in it; with some, its words go ink and a count sits beside them, like an unread count. */
+	&.inbox-toggle {
 		gap: var(--space-1);
 
 		&.some {
@@ -2079,7 +2079,7 @@ body.resizing {
 	.list-foot {
 		margin: auto calc(-1 * var(--space-2)) 0;
 		padding-inline: var(--space-2);
-		/* Clear of the home indicator, which would otherwise sit under Blocked, the runner count and the gear; no taller than that when there's no indicator to clear. */
+		/* Clear of the home indicator, which would otherwise sit under Inbox, the runner count and the gear; no taller than that when there's no indicator to clear. */
 		padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
 	}
 

@@ -62,7 +62,7 @@ export const tryEcho = (request) => {
 	const latest = request.messages.at(-1)
 	if (latest.role === 'user' && text(latest).startsWith('bot '))
 		return call('bot', { instructions: text(latest).slice(4) })
-	// "ask <question>" asks the person, with blocked on
+	// "ask <question>" asks the person, with inbox on
 	if (latest.role === 'user' && text(latest).startsWith('ask '))
 		return call('ask_person', { body: text(latest).slice(4) })
 	if (latest.role === 'toolResult' && latest.toolName === 'ask_person')

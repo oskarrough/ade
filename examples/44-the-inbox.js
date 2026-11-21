@@ -1,4 +1,4 @@
-/** MODULES=+blocked,+inbox: the questions agents ask wait in one inbox until you answer or dismiss them */
+/** MODULES=+inbox: the questions agents ask wait in one inbox until you answer or dismiss them */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import WebSocket from 'ws'
@@ -17,7 +17,7 @@ import {
 	repo,
 } from './lib.js'
 
-await server({ MODULES: '+blocked,+inbox,+bots' })
+await server({ MODULES: '+inbox,+bots' })
 await scriptedRunner('laptop', (request) => {
 	const last = request.messages.findLast((m) => m.role !== 'system')
 	if (last.role === 'toolResult') return say('asked')

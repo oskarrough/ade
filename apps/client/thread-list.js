@@ -1,4 +1,4 @@
-/** The same thread row in the list, its family, and a bot's other threads; its foot opens the inbox, or with that off, filters to blocked threads, and offers a reload once ade has changed since the page loaded. */
+/** The same thread row in the list, its family, and a bot's other threads; its foot opens the inbox, and offers a reload once ade has changed since the page loaded. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
 import { createSignal, For, Show } from 'solid-js'
@@ -29,8 +29,6 @@ import { BotItem, NewBot } from './bot.js'
 export function ThreadList() {
 	const [creating, setCreating] = createSignal(false)
 	const [archivedPage, setArchivedPage] = createSignal(false)
-	const [blockedOnly, setBlockedOnly] = createSignal(false)
-	const blocked = () => threadRows().open.filter((thread) => thread.status === 'blocked').length
 	/** Most recently answered first, anywhere, not only at home; a bot that's never answered sits last, oldest-made first */
 	const sortedBots = () =>
 		[...bots].sort((a, b) =>
@@ -85,11 +83,7 @@ export function ThreadList() {
 					<${For}
 						each=${() =>
 							threadRows()
-								.open.filter((row) =>
-									blockedOnly()
-										? row.status === 'blocked'
-										: !homeBot(row.id) && !threadOf(row.parent),
-								)
+								.open.filter((row) => !homeBot(row.id) && !threadOf(row.parent))
 								.map((row) => threadOf(row.id))
 								.filter(Boolean)}
 					>
@@ -107,19 +101,6 @@ export function ThreadList() {
 				</ul>
 			<//>
 			<footer class="list-foot">
-				<${Show}
-					when=${() => server().modules.includes('blocked') && !server().modules.includes('inbox')}
-				>
-					<${Counted}
-						word="Blocked"
-						count=${blocked}
-						pressed=${blockedOnly}
-						onClick=${(_e) => {
-							setArchivedPage(false)
-							setBlockedOnly((value) => !value)
-						}}
-					/>
-				<//>
 				<${Settings} />
 				<${RunnerList} />
 				<${Show} when=${behind}>
@@ -149,7 +130,7 @@ function Counted(props) {
 	return html`
 		<button
 			type="button"
-			class=${() => ['ghost small foot-toggle blocked-toggle', { some: props.count }]}
+			class=${() => ['ghost small foot-toggle inbox-toggle', { some: props.count }]}
 			aria-pressed=${() => String(props.pressed)}
 			aria-label=${() => (props.count ? `${props.word}, ${props.count}` : props.word)}
 			onClick=${(event) => props.onClick(event)}

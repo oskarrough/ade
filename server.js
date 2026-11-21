@@ -2049,7 +2049,7 @@ const core = {
 	entries,
 	messages,
 	latestMessage,
-	/** With blocked on, a thread's open `ask_person` message, else undefined; inside a commit, before its writes, with its `tx` */
+	/** With inbox on, a thread's open `ask_person` message, else undefined; inside a commit, before its writes, with its `tx` */
 	openQuestion: (id, row, tx) => openQuestion?.(id, row, tx),
 	lastAsked,
 	recipients,

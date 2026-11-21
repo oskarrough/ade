@@ -93,8 +93,7 @@ modules/
                          label on the stored shapes: apply, created, updated, sizes guessed); who drew it (`meta.by`, the session's user, stamped by
                          authorizeRecord and onCommittedChanges, except a shape that only grew to fit its label: grew);
                          serve (GET shapes, POST actions/look), connect; off by default
-  blocked.js             `ask_person` posts an explicitly marked question; openQuestion reads the latest relevant message via server.js latestMessage: the question, unless a person has replied, used by server.js status and core.openQuestion; off by default
-  inbox.js               every thread's open question, newest first (questions, over core.openQuestion), serve (GET /api/inbox,
+  inbox.js               `ask_person` posts an explicitly marked question; openQuestion reads the latest relevant message via server.js latestMessage: the question, unless a person has replied, used by server.js status and core.openQuestion; every thread's open question, newest first (questions, over openQuestion), serve (GET /api/inbox,
                          POST a dismissal, kept as the Thread doc's `dismissed`); off by default
   wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
                          sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and on the
@@ -164,7 +163,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          metered and Metered, the $ on a model billed per token (the runner's `metered` providers, less its `free` models)
   runner.js              runner list, a runner's agents, ConnectRunner
   bot.js                 a bot's settings, its threads row, new bot; botThreads shares its own/elsewhere lists
-  thread-list.js         the thread list, its family rows, the Blocked filter (including children and bot homes), or with inbox on, the Inbox toggle
+  thread-list.js         the thread list, its family rows (including children and bot homes), and with inbox on, the Inbox toggle
   wake.js                Wakes, the thread's pending wakes above the composer as one-line `.notice` lines (`.line`, open on click) with × (refetched on connect and on
                          each `wake` activity its socket hears, heardWake);
                          WakeSet, a wake call's row in the chat (run.js LASTING); WokeLine under a message a wake posted
@@ -232,8 +231,8 @@ Where a feature lives:
 - Runners and keys: remote.js, runner.js, server.js mintKey/revoke/upgrade, client runner.js.
 - Forks: server.js forkThread/seenBy, client server.js fork, thread.js Message (fork link).
 - `$ cmd`: server.js Shell, printed, shells.
-- Status dots: server.js status/busiest, client dot.js. Explicit questions waiting on a person: modules/blocked.js, util.js byAgent.
-- The inbox: modules/inbox.js (over blocked's openQuestion), client inbox.js, server.js inbox/dismiss/inboxOpen, thread-list.js (its toggle), system.js (in the threads' place), composer.js `inbox`.
+- Status dots: server.js status/busiest, client dot.js. Explicit questions waiting on a person: modules/inbox.js openQuestion, util.js byAgent.
+- The inbox: modules/inbox.js (`ask_person`, openQuestion, questions), client inbox.js, server.js inbox/dismiss/inboxOpen, thread-list.js (its toggle), system.js (in the threads' place), composer.js `inbox`.
 - Pi session files, both ways: modules/pi-sessions.js; the runner's messages are `pi-session`, `pi-session-list` and `pi-session-read` in remote.js serveRunner, shipped with the runner through RUNNER_FILES; cli.js `import`.
 - Wakes: modules/wake.js, util.js byAgent/said (`wake` marks the message), client wake.js, composer.js (the strip), thread.js (rows, WokeLine), time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, client settings.js.
