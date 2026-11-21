@@ -1,5 +1,5 @@
 /**
- * The inbox: every question agents asked you with `ask_person`, newest first, in the threads' place. Each shows its
+ * The inbox: every open question agents asked with `ask_person`, shared by everyone on the server, newest first, in the threads' place. Each shows its
  * thread, who asked, when, the thread's recap line, and the question as the thread shows it; you answer under it with
  * the thread's own composer, open the thread, or dismiss it until that thread asks again.
  */
@@ -7,7 +7,6 @@ import html from '@solidjs/html'
 import { createMemo, For, Loading, onSettled, refresh, Show, untrack } from 'solid-js'
 import {
 	api,
-	bots,
 	colorOf,
 	current,
 	dismiss,
@@ -32,7 +31,7 @@ export function Inbox() {
 		<article class="thread current inbox" aria-label="Inbox">
 			<header>
 				<h2 class="title">
-					<button type="button" class="ghost thread-name" title="Questions agents asked you">
+					<button type="button" class="ghost thread-name" title="Open questions agents asked">
 						<span>${() => (inbox.length ? `Inbox · ${inbox.length}` : 'Inbox')}</span>
 					</button>
 				</h2>
