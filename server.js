@@ -61,6 +61,7 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {number[]} [re]  What it answers: messages here, or with `from`, posts there.
  * @property {{ conversation: import("@earendil-works/pi-durable").ConversationId, entry: number }} [answer]  The agent's entry it copies.
  * @property {true} [waitingOnPerson]  An agent's explicit question, open until a person next writes.
+ * @property {true} [posted]  A bot's own post in a thread it's in, or opens, with its post tool: an agent's, as its answers are.
  * @property {number} [wake]  The wake that posted it: an agent's own note, back to it when its time came.
  * @property {true} [error]  The agent gave no answer.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
@@ -937,6 +938,7 @@ async function post(tx, threadId, message, options = {}) {
 		by = `@${(await agentOf(recipient.conversation, message.author, tx)).runner}`
 	}
 	await reach(message.to ?? [], by, await tx.doc(Runners))
+	if (options.member || options.opener) message = { ...message, posted: true }
 	const entry = await append(tx, threadId, message, options)
 	/** A bot that opens a thread joins it after its first message, which it has said and so never reads back */
 	if (options.opener) {
