@@ -67,17 +67,17 @@ export function server(core) {
 			page: '',
 			through: 0,
 			writtenAt: '',
-			writing: false,
+			taskId: null,
 			again: false,
 		}),
 	})
-	const read = (threadId) => core.commit(async (tx) => view(await tx.doc(Recap, threadId)))
-	const view = ({ page, through, writtenAt, writing }) => ({
-		page,
-		through,
-		writtenAt,
-		writing,
-	})
+	const read = (threadId) => core.commit((tx) => view(tx, threadId))
+	/** `writing` comes from the stored task's own live state, not a flag that could outlive it */
+	async function view(tx, threadId) {
+		const { page, through, writtenAt, taskId } = await tx.doc(Recap, threadId)
+		const task = taskId && (await tx.task(taskId))
+		return { page, through, writtenAt, writing: !!task && task.state.status !== 'terminal' }
+	}
 
 	async function writerOf(threadId, signal) {
 		if (chosen) {
@@ -243,33 +243,36 @@ export function server(core) {
 							checkpoint: { phase: 'write', round: round + 1 },
 						}
 					}
-					doc.writing = false
 					doc.again = false
 					return finished()
 				}, ctx)
 			},
 		},
-		abort: (task, rt, ctx) =>
-			rt.commit(async (tx) => {
-				const doc = await tx.doc(Recap, task.conversationId)
-				doc.writing = false
-				return finished('aborted')
-			}, ctx),
+		// The task's own terminal state is `writing`'s source; nothing in the conversation doc needs clearing on abort
+		abort: (task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
 	})
 
 	/** Thread → when a client last fetched its page with `?open`; who's looking needs no store */
 	const looking = new Map()
 	const looked = (threadId) => Date.now() - (looking.get(threadId) ?? 0) < LOOKING
 
-	/** A rewrite, or one more round of the one running; the task when this started one */
-	async function ask(tx, threadId) {
+	/** A rewrite, or one more round of the one already running; always the task id, so a second caller can join it */
+	async function ask(tx, threadId, { fresh = false } = {}) {
 		const doc = await tx.doc(Recap, threadId)
-		if (doc.writing) {
+		const live = doc.taskId && (await tx.task(doc.taskId))
+		if (live && live.state.status !== 'terminal') {
 			doc.again = true
-			return undefined
+			return doc.taskId
 		}
-		doc.writing = true
-		return tx.createTask(Write, {}, background(threadId))
+		// From scratch: the page forgets what it read, so the next one is written from the messages alone
+		if (fresh) {
+			doc.page = ''
+			doc.through = 0
+		}
+		doc.again = false
+		const task = await tx.createTask(Write, {}, background(threadId))
+		doc.taskId = task
+		return task
 	}
 
 	async function serve(threadId, query, body) {
@@ -285,19 +288,8 @@ export function server(core) {
 				await core.commit((tx) => ask(tx, threadId))
 			return read(threadId)
 		}
-		const task = await core.commit(async (tx) => {
-			const doc = await tx.doc(Recap, threadId)
-			// From scratch: the page forgets what it read, so the next one is written from the messages alone
-			if (body.fresh === true && !doc.writing) {
-				doc.page = ''
-				doc.through = 0
-			}
-			return ask(tx, threadId)
-		})
-		if (task) await core.waitForTask(task)
-		else
-			for (let doc = await read(threadId); doc.writing; doc = await read(threadId))
-				await new Promise((resolve) => setTimeout(resolve, 200))
+		const task = await core.commit((tx) => ask(tx, threadId, { fresh: body.fresh === true }))
+		await core.waitForTask(task)
 		return read(threadId)
 	}
 
