@@ -1040,16 +1040,11 @@ async function outcome(threadId, agent, settled, mine) {
 				).flatMap((entry) => entry.data.held)
 			: mine,
 	)
-	const all = await messages(threadId)
-	const held = all.filter((entry) => ids.has(entry.id))
+	const held = (await messages(threadId)).filter((entry) => ids.has(entry.id))
 	/** A thread answers the thread that started it on its own; a post from anywhere else gets an answer only through `post` */
 	const { parent } = await thread(threadId)
 	const asks = held.filter((entry) => entry.data.from && !entry.data.re)
-	/** If this turn already posted its answer back (the `post` tool, mid-turn), its self-copy here carries `re`: skip carrying this ask again */
-	const selfReplied = new Set(
-		all.filter((entry) => entry.data.author === name).flatMap((entry) => entry.data.re ?? []),
-	)
-	const posts = asks.filter((entry) => entry.data.from === parent && !selfReplied.has(entry.id))
+	const posts = asks.filter((entry) => entry.data.from === parent)
 	const re = held
 		.filter((entry) => !asks.includes(entry) || posts.includes(entry))
 		.filter((entry) => entry.data.to?.some((name) => keyOf(name) === key))
