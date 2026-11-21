@@ -1,11 +1,13 @@
-/** The same thread row in the list, its family, and a bot's other threads; its foot opens the inbox, or with that off, filters to blocked threads. */
+/** The same thread row in the list, its family, and a bot's other threads; its foot opens the inbox, or with that off, filters to blocked threads, and offers a reload once ade has changed since the page loaded. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
 import { createSignal, For, Show } from 'solid-js'
 import {
 	archivedThreads,
 	archiveThread,
+	behind,
 	bots,
+	changes,
 	current,
 	followThread,
 	homeBot,
@@ -127,6 +129,23 @@ export function ThreadList() {
 						<span>Blocked</span>
 						<${Show} when=${() => blocked()}
 							><small class="count" aria-hidden="true">${() => blocked()}</small><//
+						>
+					</button>
+				<//>
+				<${Show} when=${behind}>
+					<button
+						type="button"
+						class="ghost small foot-toggle"
+						aria-label=${() =>
+							changes().length ? `Update, ${changes().length} commits` : 'Update'}
+						title=${() =>
+							changes().join('\n') ||
+							'ade changed since this page loaded; reloading keeps your thread and draft'}
+						onClick=${(_e) => location.reload()}
+					>
+						<span>Update</span>
+						<${Show} when=${() => changes().length}
+							><small class="count" aria-hidden="true">${() => changes().length}</small><//
 						>
 					</button>
 				<//>

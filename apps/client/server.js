@@ -184,6 +184,8 @@ export const {
 	threadRows,
 	runners,
 	server,
+	behind,
+	changes,
 	bots,
 	inbox,
 	dismiss,
@@ -209,11 +211,35 @@ export const {
 	/** The open questions agents asked, newest first, one per thread */
 	const [inbox, setInbox] = createStore(cached('inbox', []))
 	/** Each fetch keeps its row's identity when nothing in it changed, so a keyed `For` leaves it alone; an answer older than the one already shown is dropped */
+	/** The `client` and `commit` of the first answer this page got: what it was loaded with */
+	let loadedWith, loadedAt
 	const reloadServer = () =>
 		api('/api/server').then((data) => {
+			loadedWith ??= data.client
+			loadedAt ??= data.commit
 			setServer(data)
 			cache('server', data)
 		})
+	/** Whether a reload would bring newer client files or a server that changed since this page loaded */
+	const behind = createMemo(() => {
+		const now = server().client
+		return Boolean(loadedWith && now && now !== loadedWith)
+	})
+	/** The subjects of the commits since the one this page loaded on, newest first; none when the server isn't a checkout */
+	const [changes, setChanges] = createSignal([])
+	createEffect(
+		() => behind() && server().commit,
+		(commit) => {
+			if (!commit || !loadedAt || commit === loadedAt) {
+				setChanges([])
+				return
+			}
+			api(`/api/changes?since=${loadedAt}`).then(
+				({ commits }) => setChanges(commits),
+				() => setChanges([]),
+			)
+		},
+	)
 	const answered = {}
 	const reloadList = (path, show, cacheKey = path, enabled = true) => {
 		const asked = performance.now()
@@ -357,6 +383,7 @@ export const {
 		await (list === 'bots' ? reloadBots() : reloadRunners()).finally(settle)
 	}
 	const reloads = {
+		server: reloadServer,
 		threads: reloadThreads,
 		archived: reloadArchivedThreads,
 		runners: reloadRunners,
@@ -420,6 +447,8 @@ export const {
 		archivedThreads,
 		runners,
 		server,
+		behind,
+		changes,
 		bots,
 		inbox,
 		dismiss,
