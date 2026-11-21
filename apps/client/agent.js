@@ -35,8 +35,10 @@ export const writtenTo = (to) =>
 export const formatAgent = (to) =>
 	`${to.name ? `${to.name}=` : ''}${writtenTo({ ...to, name: undefined })}`
 
-/** A person's name without the `~` the server marks people with, or any other author as it is */
-const unmarked = (author) => (author?.startsWith('~') ? author.slice(1) : (author ?? ''))
+/** A person's name without the `~` the server marks people with, nor the `+github` after their login; any other
+ * author as it is */
+const unmarked = (author) =>
+	author?.startsWith('~') ? author.slice(1).replace(/\+.*$/, '') : (author ?? '')
 
 /** An author as a message shows it: a person's or bot's name, or an agent written out, older `provider/id` ones too */
 export const authorLabel = (author) =>

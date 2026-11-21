@@ -1,4 +1,5 @@
-/** One dot everywhere: on, working or blocked; and a switch, a row whose dot says on or off */
+/** One dot everywhere: on, working or blocked, or a thread's unread answer, `done` or `error`; and a switch, a row
+ * whose dot says on or off */
 import html from '@solidjs/html'
 
 export const Dot = (props) => html`
@@ -10,6 +11,8 @@ export const Dot = (props) => html`
 				on: props.state === 'on',
 				working: props.state === 'working',
 				blocked: props.state === 'blocked',
+				done: props.state === 'done',
+				error: props.state === 'error',
 			},
 		]}
 	></span>

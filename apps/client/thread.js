@@ -336,12 +336,41 @@ export function Thread(props) {
 				}
 				return answer ? [question, answer] : [question]
 			})
+			/**
+			 * Whom each answer replies to, when it isn't the message right above it nor the newest one someone wrote: the
+			 * author of the newest message its turn was handed. One pass, each agent's turns walked once in step.
+			 */
+			const replyTo = new Map()
+			const walked = new Map()
+			const turnOf = ({ conversation, entry }) => {
+				const turns = perConversation(conversation).turns()
+				let at = walked.get(conversation) ?? -1
+				while (at + 1 < turns.length && turns[at + 1].delivery < entry) at++
+				walked.set(conversation, at)
+				return turns[at]
+			}
+			let previous, written
+			for (const entry of all) {
+				const { answer, from, author } = entry.data
+				const turn = answer && !from ? turnOf(answer) : undefined
+				const replied = turn?.held.length ? byId.get(Math.max(...turn.held)) : undefined
+				if (
+					replied &&
+					replied.data.author !== author &&
+					replied !== previous &&
+					replied !== written
+				)
+					replyTo.set(entry.id, replied.data.author)
+				previous = entry
+				if (!entry.data.answer && !entry.data.error) written = entry
+			}
 			const said = shown.map((entry) => ({
 				key: entry.id,
 				entry,
 				at: entry.id,
 				time: timeOf(entry),
 				sent: sentTo(entry),
+				replyTo: replyTo.get(entry.id),
 			}))
 			// One cut line, the newest compaction's; what the agent reads as lines folds into them, unless opened from it
 			const newest = cut()
@@ -854,6 +883,7 @@ export function Thread(props) {
 																	: positions().get(row().entry.id)}
 															sent=${() => row().sent}
 															above=${() => row().above}
+															replyTo=${() => row().replyTo}
 														/>
 													`}
 												>
@@ -881,10 +911,15 @@ export function Thread(props) {
 	`
 }
 
-/** A message's or run's author, above it, in their colour */
+/** A message's or run's author, above it, in their colour; an answer to someone further up says whom */
 export const Name = (props) => html`
 	<small title=${() => props.author}
-		><span style=${() => colorOf(props.author)}>${() => authorLabel(props.author)}</span></small
+		><span style=${() => colorOf(props.author)}>${() => authorLabel(props.author)}</span
+		><${Show} when=${() => props.replyTo}
+			>${' to '}<span style=${() => colorOf(props.replyTo)}
+				>${() => shortLabel(props.replyTo)}</span
+			><//
+		></small
 	>
 `
 
@@ -903,18 +938,30 @@ function Message(props) {
 				handed: litIn(props.thread, props.entry.id),
 				elsewhere: crossed(),
 				failed: !!data().error,
-				mine: !elsewhere() && data().author === me(),
-				same: !crossed() && data().author !== me() && props.above === data().author,
+				mine: !elsewhere() && data().author === me() && !data().stopped,
+				same:
+					!crossed() &&
+					data().author !== me() &&
+					props.above === data().author &&
+					!props.replyTo &&
+					!data().stopped,
 			})}
 		>
 			<${Show}
 				when=${crossed}
 				fallback=${html`
-					<${Name} author=${() => data().author} />
-					<${Show} when=${person} fallback=${html`<${Body} data=${() => data()} />`}>
-						<${Clamp}><${Body} data=${() => data()} /><//>
+					<${Show}
+						when=${() => !data().stopped}
+						fallback=${html`<div class="links mute" title="Stop ended the thread's work">
+							${() => `stopped by ${shortLabel(data().author)}`}
+						</div>`}
+					>
+						<${Name} author=${() => data().author} replyTo=${() => props.replyTo} />
+						<${Show} when=${person} fallback=${html`<${Body} data=${() => data()} />`}>
+							<${Clamp}><${Body} data=${() => data()} /><//>
+						<//>
+						<${Images} images=${() => data().images} />
 					<//>
-					<${Images} images=${() => data().images} />
 				`}
 			>
 				<ol class="steps">
