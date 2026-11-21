@@ -154,7 +154,7 @@ async function post() {
 				.map((agent) => agent.to?.runner)
 			if (blocked.join() !== waiting && (waiting = blocked.join()))
 				console.error(`waiting for ${waiting}, offline…`)
-			if (!['working', 'blocked'].includes(view.status)) return
+			if (!going(view)) return
 			if ((await changes.next()).done)
 				throw new Error('Server disconnected while waiting for the answer')
 		}
@@ -163,6 +163,11 @@ async function post() {
 		socket?.close()
 	}
 }
+
+/** Still going: an agent works or waits for its runner; a thread that only waits on a person's answer is settled */
+const going = (view) =>
+	view.status === 'working' ||
+	(view.status === 'blocked' && view.agents.some((agent) => agent.status !== 'idle'))
 
 const commands = {
 	post,
@@ -187,7 +192,7 @@ const commands = {
 			await once(socket, 'open')
 			for (;;) {
 				const view = await api('GET', `/api/threads/${id}`)
-				if (!['working', 'blocked'].includes(view.status)) {
+				if (!going(view)) {
 					const asked = view.entries.findLast((entry) => entry.data.to?.length)?.id ?? 0
 					const after = flags.after ? Number(flags.after) : asked
 					return view.entries.filter((entry) => entry.id > after).forEach(show)

@@ -61,7 +61,7 @@ So, what's different about this one? Not much, but it adds patterns I've found u
 - a short recap per thread says where it stands (`recap`, off by default)
 - a canvas per thread that people and agents draw on together, with tldraw (`canvas`, off by default)
 - move threads to and from pi (`pi-sessions`, off by default)
-- agents explicitly ask for your answer; the thread stays blocked until you write (`blocked`, off by default)
+- agents leave you questions only you can answer, and carry on meanwhile; the thread waits on you until you write (`blocked`, off by default)
 - one inbox for every question agents ask you, answered right there (`inbox`, off by default, with `blocked`)
 
 In a group (the thread's agent plus bots, at least two), leave `to` out to let the director choose who answers, or nobody. The message is saved at once; the director's pick comes after and shows on it as its `to` and `picked`. `@name` asks that bot for one message; the next unaddressed message goes to the director again. People don't count toward the group. Solo chats and `$` commands keep the last recipient.
@@ -70,7 +70,7 @@ Each thread has one queue. A message waits `burst` seconds of quiet, then one mo
 
 The chooser is a small model on the thread agent's runner (the first bot's in a bot-only group): Haiku for Anthropic or Claude Code agents, Luna otherwise, with thinking off; if the runner doesn't list it, the agent's own model with thinking off. Settings' director row, or `director` in ade.json, changes it: `model` as `provider/model:thinking`, optionally `@runner` (`DIRECTOR_MODEL` wins over it); `context`, how many recent messages it reads (20, up to 200); `timeout`, the seconds before a pick fails (60, 0.1 to 600); and `burst`, the quiet it waits for after the last message (1.5 seconds, 0 to 60). After the timeout, an error, or an invalid pick, the thread's agent answers instead. The message's `picked` line says the pick failed; bot-only groups report the failure without asking anyone. `director.picks: false` disables model picks without restoring sticky group recipients.
 
-With `blocked` on, `ask_person` posts the agent's question in the thread. Its message carries `waitingOnPerson: true`; the latest marked question stays open until any person posts a message after it. Agent messages and reads do not clear it, and restarts keep it. The sidebar's Blocked filter lists blocked threads, including child threads and bot homes; the same dot also marks threads waiting for an offline runner.
+With `blocked` on, `ask_person` posts the agent's question in the thread and returns at once: the agent goes on with what doesn't depend on the answer, or ends its turn, and your reply reaches it as an ordinary message. Its message carries `waitingOnPerson: true`; the latest marked question stays open until any person posts a message after it, and a newer question replaces an older open one. Agent messages and reads do not clear it, and restarts keep it. The sidebar's Blocked filter lists blocked threads, including child threads and bot homes; the same dot also marks threads waiting for an offline runner.
 
 With `inbox` on too, the sidebar's Inbox takes the Blocked filter's place: every open question, newest first, with its thread, who asked, when, and the recap's line when `recap` is on. You answer under the question as you would in its thread, and it leaves the inbox; Dismiss hides it until that thread asks again, on every device.
 
