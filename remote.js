@@ -198,7 +198,11 @@ export function createRunners({ onChange }) {
 		if (was === 'online')
 			for (const pending of calls.values())
 				if (pending.runner === connection.name)
-					pending.reject(new Error(`runner ${connection.name}: connection lost`))
+					pending.reject(
+						new Error(
+							`runner ${connection.name}: connection lost; the command may have partially run, check its effects before retrying`,
+						),
+					)
 		return true
 	}
 
