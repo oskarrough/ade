@@ -129,6 +129,16 @@ func (Desktop) SetServer(raw string) error {
 
 // The offline page: shown when the server can't be reached, it checks again
 // every two seconds and goes back to the page you were on once it answers.
+var tryNow = make(chan struct{}, 1)
+
+// TryNow checks the server at once rather than at the next two seconds.
+func (Desktop) TryNow() {
+	select {
+	case tryNow <- struct{}{}:
+	default:
+	}
+}
+
 var offline struct {
 	sync.Mutex
 	waiting bool
@@ -158,7 +168,10 @@ func waitForServer(target string) {
 	page := strings.ReplaceAll(offlinePage, "{{server}}", html.EscapeString(origin))
 	mygo.RunOnMain(func() { win.Page().LoadHTML(page, "") })
 	for !reachable() {
-		time.Sleep(2 * time.Second)
+		select {
+		case <-time.After(2 * time.Second):
+		case <-tryNow:
+		}
 	}
 	offline.Lock()
 	offline.waiting = false

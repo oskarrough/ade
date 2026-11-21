@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- The page for a server that's down has a Try now button, which checks at once instead of at the next try.
+
 ## 0.1.0
 
 - ade in its own window, with its own name and icon, around any ade server: localhost or a Tailscale address.

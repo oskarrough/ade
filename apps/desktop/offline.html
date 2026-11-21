@@ -79,6 +79,9 @@
 			button {
 				cursor: pointer;
 			}
+			.actions {
+				margin-top: 1rem;
+			}
 			output {
 				display: block;
 				margin-top: 0.5rem;
@@ -94,6 +97,7 @@
 				Nothing answers at <code>{{server}}</code>. Trying again every few seconds; the page comes
 				back by itself.
 			</p>
+			<p class="actions"><button type="button" id="try">Try now</button></p>
 			<details>
 				<summary>Use another server</summary>
 				<form>
@@ -104,6 +108,7 @@
 			</details>
 		</main>
 		<script>
+			document.querySelector('#try').addEventListener('click', () => mygo.call('Desktop.TryNow'))
 			document.querySelector('form').addEventListener('submit', (event) => {
 				event.preventDefault()
 				const out = document.querySelector('output')
