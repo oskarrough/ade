@@ -86,7 +86,7 @@ const firstLine = (text) =>
 
 /** Each asked thread's first message, the question, and its answer if it had one yet, for the home of the bot it asks; `null` when it isn't one */
 const [questions, setQuestions] = createRoot(() => createStore({}, { shallow: true }))
-/** Each asked thread's status when it was last fetched; an unanswered one is fetched again when that moves */
+/** Each asked thread's latest look, with its status then; an unanswered one is looked at again when that moves */
 const fetched = new Map()
 
 export function Thread(props) {
@@ -113,10 +113,13 @@ export function Thread(props) {
 		(seen) => {
 			for (const [id, status] of seen.map((key) => key.split(' '))) {
 				const settled = questions[id] === null || questions[id]?.answer
-				if (settled || fetched.get(id) === status) continue
-				fetched.set(id, status)
+				if (settled || fetched.get(id)?.status === status) continue
+				const look = { status }
+				fetched.set(id, look)
 				api(`/api/threads/${id}`)
 					.then((view) => {
+						// A look that a newer one overtook would write what it saw over what that one found
+						if (fetched.get(id) !== look) return
 						const first = view.entries[0]
 						// Asked a moment ago, its question may not be in yet; the next look asks again
 						if (!first) return fetched.delete(id)
@@ -315,21 +318,30 @@ export function Thread(props) {
 				...lines,
 				...(newest ? [newest] : []),
 			].sort((one, other) => one.at - other.at)
-			// A new day, or an hour gone by, between two messages that both have their time, opens with a line saying so
+			// A new day, or an hour gone by, between two messages that both have their time, opens with a line saying so; before
+			// the run that opens the answer's block, when one does
 			let before
-			for (const row of rows) {
+			for (const [index, row] of rows.entries()) {
 				if (!row.entry) continue
 				row.break = breakOf(before?.time, row.time)
 				before = row
+				const run = rows[index - 1]
+				if (row.break && (run?.turn || run?.live) && run.agent?.name === row.entry.data.author)
+					[run.break, row.break] = [row.break, undefined]
 			}
 			// A message or run line names its author only when it isn't the last one's that wasn't yours, or one before a break: your own are marked by where they sit.
-			// A run's name goes above its line, so the answer under it, being the same agent's, goes unnamed
+			// A run's name goes above its line, so the answer under it, being the same agent's, goes unnamed. Only rows that name
+			// their speaker carry it: an ask or a memory line leaves the last one as it was
 			let last
 			for (const row of rows) {
 				if (row.break) last = undefined
 				row.above = last
-				const author = row.entry ? !row.entry.data.from && row.entry.data.author : row.agent?.name
-				if (author !== me) last = author
+				const author = row.entry
+					? !row.entry.data.from && row.entry.data.author
+					: row.turn || row.live
+						? row.agent?.name
+						: null
+				if (author !== null && author !== me) last = author
 			}
 			// A row that didn't change is handed back as the same object, so the diff skips it and an update costs the rows it touched
 			const next = new Map()
@@ -733,10 +745,7 @@ export function Thread(props) {
 									<${Show}
 										when=${() => !row().changed}
 										fallback=${() => html`
-											<${Changed}
-												step=${() => row().changed}
-												agent=${() => row().agent}
-											/>
+											<${Changed} step=${() => row().changed} agent=${() => row().agent} />
 										`}
 									>
 										<${Show}
@@ -802,6 +811,13 @@ export function Thread(props) {
 	`
 }
 
+/** A message's or run's author, above it, in their colour */
+export const Name = (props) => html`
+	<small title=${() => props.author}
+		><span style=${() => colorOf(props.author)}>${() => authorLabel(props.author)}</span></small
+	>
+`
+
 function Message(props) {
 	const data = () => props.entry.data
 	const elsewhere = () => data().from && data().from !== props.thread
@@ -830,11 +846,7 @@ function Message(props) {
 			<${Show}
 				when=${crossed}
 				fallback=${html`
-					<small title=${() => data().author}
-						><span style=${() => colorOf(data().author)}
-							>${() => authorLabel(data().author)}</span
-						></small
-					>
+					<${Name} author=${() => data().author} />
 					<${Show} when=${person} fallback=${html`<${Body} data=${() => data()} />`}>
 						<${Clamp}><${Body} data=${() => data()} /><//>
 					<//>

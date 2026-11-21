@@ -491,7 +491,7 @@ agent-memory {
 			}
 
 			/* One rhythm on the baseline: a new speaker's message opens a block two baselines down; what follows inside it sits one baseline down. */
-			&:is(.turn, .exchange, .elsewhere) {
+			&:is(.exchange, .elsewhere) {
 				margin-top: var(--space-3);
 			}
 
@@ -547,11 +547,6 @@ agent-memory {
 			/* A turn: one line of what the agent did, live while it works; open, each step in order, as a transcript. */
 			&.turn {
 				color: var(--mute);
-
-				/* Named, a run opens its agent's block, the way a new speaker's message does */
-				&.named {
-					margin-top: var(--space-5);
-				}
 
 				summary > small {
 					display: inline;

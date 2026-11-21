@@ -10,9 +10,9 @@ import {
 	onSettled,
 	Show,
 } from 'solid-js'
-import { colorOf, entries, homeBot, threadOf, titleOf } from './server.js'
-import { Cross } from './thread.js'
-import { authorLabel, doing, messageText, touched } from './agent.js'
+import { entries, homeBot, threadOf, titleOf } from './server.js'
+import { Cross, Name } from './thread.js'
+import { doing, messageText, touched } from './agent.js'
 
 /**
  * A turn's line. While its agent works, the step it's in now, and below it the last few steps and the words coming in;
@@ -60,14 +60,8 @@ export function Turn(props) {
 	/** Its agent's name above it, as a message has, unless the row above is already theirs */
 	const named = () => props.above !== props.agent.name
 	return html`
-		<li class=${() => ({ turn: true, live: !!props.live, named: named() })}>
-			<${Show} when=${named}>
-				<small class="name" title=${() => props.agent.name}
-					><span style=${() => colorOf(props.agent.name)}
-						>${() => authorLabel(props.agent.name)}</span
-					></small
-				>
-			<//>
+		<li class=${() => ({ turn: true, live: !!props.live, same: !named() })}>
+			<${Show} when=${named}><${Name} author=${() => props.agent.name} /><//>
 			<details onToggle=${(event) => setOpen(event.currentTarget.open)}>
 				<summary>
 					<small><span class="now">${line}</span></small>
