@@ -1,7 +1,7 @@
 /** `pnpm perf`: how fast ade reads Oskar's real store, numbers only, to run before and after a change.
  * It copies ~/.local/share/ade/ade.sqlite (or DB_PATH) into .work/perf/, never touching the live one, starts a scratch
  * server on the copy with --no-runner and its own config (the live ade.json's modules plus inbox), and prints three tables:
- *   server  each read the client makes, timed cold and warm, with the SQLite rows and statements it took; a post to the
+ *   server  each read the client makes, timed cold and warm, with the SQLite rows and statements it took and its size; a post to the
  *           biggest thread while scripted runs and list reads go on
  *   socket  what one page open on the biggest thread hears per minute while three scripted runs happen: socket
  *           messages, and the list fetches they set off
@@ -184,10 +184,10 @@ async function measure() {
 	await take()
 	for (const [label, route] of reads) {
 		const times = []
-		let counted
+		let counted, size
 		for (let round = 0; round < 4; round++) {
 			const begun = performance.now()
-			await api('GET', route)
+			size = JSON.stringify(await api('GET', route)).length
 			times.push(performance.now() - begun)
 			counted = await take()
 		}
@@ -197,6 +197,7 @@ async function measure() {
 			warm: median(times.slice(1)),
 			rows: counted.rows,
 			statements: counted.statements,
+			size,
 			top: counted.top,
 		})
 	}
@@ -346,8 +347,15 @@ async function measure() {
 		`store: ${size} entries, biggest thread ${big} with ${biggest.n} messages; server up in ${startup} ms`,
 		'',
 		table(
-			['server', 'first ms', 'warm ms', 'rows', 'statements'],
-			serverRows.map((row) => [row.label, ms(row.first), ms(row.warm), row.rows, row.statements]),
+			['server', 'first ms', 'warm ms', 'rows', 'statements', 'KB'],
+			serverRows.map((row) => [
+				row.label,
+				ms(row.first),
+				ms(row.warm),
+				row.rows,
+				row.statements,
+				Math.round(row.size / 1024),
+			]),
 		),
 		`post to ${big} under load: median ${ms(median(posts))} ms, worst ${ms(Math.max(...posts))} ms`,
 	]
