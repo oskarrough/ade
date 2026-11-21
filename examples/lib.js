@@ -1,7 +1,7 @@
 /** What every example shares */
 import WebSocket from 'ws'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createModels } from '@earendil-works/pi-ai/models'
@@ -34,9 +34,24 @@ for (const name of [
 export const repo = path.resolve(import.meta.dirname, '..')
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** The first server asks for port 0 and says which it got; later ones, restarts, keep it, and Serve's listener's */
+/**
+ * The first server asks for a port below the system's ephemeral range and says which it got; later ones, restarts,
+ * keep it, and Serve's listener's. Not port 0: that comes from the ephemeral range, which every outgoing connection
+ * draws on too, and with examples running side by side one of them took a restarting server's port in the moment it
+ * was free, so the server moved to the next one and the example's requests failed.
+ */
 export let base
+const ephemeral = (() => {
+	try {
+		return Number(
+			readFileSync('/proc/sys/net/ipv4/ip_local_port_range', 'utf8').trim().split(/\s+/)[0],
+		)
+	} catch {
+		return 32768
+	}
+})()
 let port = 0
+const firstPort = () => 10000 + Math.floor(Math.random() * Math.max(1000, ephemeral - 10002))
 export let servePort = 0
 /** The owner, as the server names them: whoever asks from its own machine */
 export let owner
@@ -75,8 +90,8 @@ export function start(file, args = [], env = {}, cwd = tmp) {
 		cwd,
 		env: {
 			...process.env,
-			PORT: String(port),
-			SERVE_PORT: String(servePort),
+			PORT: String(port || firstPort()),
+			...(servePort ? { SERVE_PORT: String(servePort) } : {}),
 			HOST: '127.0.0.1',
 			DB_PATH: db,
 			XDG_CONFIG_HOME: tmp,
