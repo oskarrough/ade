@@ -3,17 +3,30 @@
  * message asks whom a model picks, or nobody. People don't count. On by default; MODULES=-director turns it off.
  * A bot's answer can @mention another bot, resting after three answers in a row until someone else writes.
  *
+ * A message the director picks for is saved first; its Pick task decides after, and writes the pick as the message's
+ * route. Each thread has one queue: a message waits `director.burst` seconds of quiet, then one model call picks for
+ * it, reading the messages before it. A newer message in the meantime, or while that call runs, cancels it and folds
+ * the older message into its own pick. Each page watching the thread hears all of it as `activity`, kept nowhere.
+ *
  * The chooser is `director.model` in ade.json, `provider/model:thinking`, optionally @runner (else the thread's), with
  * DIRECTOR_MODEL winning over it. Left empty, it's Haiku or Luna with thinking off when the thread agent's runner lists
  * them (the first bot's in a bot-only group), else that agent's own model. `director.context` is how many recent
- * messages it reads (20), `director.timeout` the seconds before a pick fails (60), and `director.burst` the seconds it
- * waits for another message first (0): a message that comes within them takes over the pick, and the one before asks
- * no one. `director.picks: false` disables model picks. A failed pick asks the thread's agent and records why on the
- * message; with no thread agent it asks nobody and records the failure.
+ * messages it reads (20) and `director.timeout` the seconds before a pick fails (60). `director.picks: false`
+ * disables model picks. A failed pick asks the thread's agent and records why on the message; with no thread agent
+ * it asks nobody and records the failure.
  */
-import { defineExtension } from '@earendil-works/pi-durable'
+import { defineExtension, defineTask } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { AGENT, agentTo, writtenTo, mentioned, smallModel, directorTimes } from '../util.js'
+import {
+	AGENT,
+	agentTo,
+	writtenTo,
+	mentioned,
+	smallModel,
+	directorTimes,
+	finished,
+	background,
+} from '../util.js'
 
 export const on = true
 
@@ -22,8 +35,6 @@ const SAID = 600
 const PERSONA = 300
 /** How many bot answers in a row, with no one else writing, before a bot's @mention summons no one */
 const REST = 3
-/** A message the director routed that never got saved, because its post failed, stops holding the next after this */
-const UNSAVED = 5000
 
 const RULES = `You choose who answers a new message in a group chat: one or more candidates, or nobody.
 
@@ -44,21 +55,18 @@ export function server(core) {
 	const own = core.config?.director ?? {}
 	const name = process.env.DIRECTOR_MODEL || own.model
 	const picks = own.picks !== false || Boolean(process.env.DIRECTOR_MODEL)
-	/** The messages it reads before the new one; how long before a pick gives way to the thread agent; how long it waits for more */
+	/** The messages it reads before the new one; how long before a pick gives way to the thread agent; the quiet it waits for */
 	const { context, timeoutMs, burstMs } = directorTimes(own)
-	/**
-	 * Per thread, people's messages it has routed or is routing that aren't saved yet, oldest first. Each waits for the
-	 * one before it to be saved, so they land in the order they came and a pick reads only what came before it.
-	 */
-	const lines = new Map()
+	/** Per thread, the newest message waiting for a pick, its wait, and the model call running for it */
+	const queues = new Map()
+	const tell = (threadId, event) => core.activity(threadId, { purpose: 'director', ...event })
+	let calls = 0
 
 	/**
-	 * The one judgment: given the recent messages, the new one and who could answer, `{names, reason}` with the
-	 * candidates it picks in the order they answer, none for nobody; throws when it cannot choose.
+	 * The one judgment: given the recent messages, the new one and who could answer, `{names, reason, tokens}` with
+	 * the candidates it picks in the order they answer, none for nobody; throws when it cannot choose.
 	 */
-	async function decide({ said, message, candidates }, chooser, signal) {
-		await core.runners.online(chooser.runner, signal)
-		const to = await core.address(chooser, false, signal)
+	async function decide({ said, message, candidates }, to, signal) {
 		const model = core.models.getModel(`runner:${to.runner}`, to.model)
 		const ask = [
 			'Conversation (newest last):',
@@ -84,6 +92,7 @@ export function server(core) {
 		)
 		if (reply.stopReason === 'error' || reply.stopReason === 'aborted')
 			throw new Error(reply.errorMessage ?? reply.stopReason)
+		const tokens = reply.usage?.totalTokens
 		const [, picked = '', reason] = messageText(reply).match(/^\s*([^:\n]+?)\s*:\s*(.+)/) ?? []
 		const known = (name) =>
 			[...candidates.map((candidate) => candidate.name), 'nobody'].find(
@@ -91,15 +100,34 @@ export function server(core) {
 			)
 		const names = [...new Set(picked.split(/\s*(?:,|&|\band\b)\s*/).map(known))]
 		if (!names.length || names.some((name) => !name) || !reason)
-			throw new Error('the chooser returned no valid pick')
+			throw Object.assign(new Error('the chooser returned no valid pick'), { tokens })
 		return {
 			names: names.includes('nobody') ? [] : names,
 			reason: reason.trim(),
+			tokens,
 		}
 	}
 
-	/** Whom a group message that names no one asks; a failed pick goes to the thread agent, never the last bot. */
-	async function pick(threadId, message, here, setup) {
+	/** The thread's agents, and those of them who could answer a message by `author` */
+	async function agentsOf(threadId, author) {
+		const { agents } = await core.thread(threadId)
+		const participants = (
+			await Promise.all(
+				Object.entries(agents).map(([key, agent]) => core.agentOf(agent.conversation, key)),
+			)
+		).filter(Boolean)
+		return { participants, here: participants.filter((agent) => agent.name !== author) }
+	}
+
+	/**
+	 * Whom a saved message asks, `{to, picked}`: a model's pick over the messages before it, or on failure the thread's
+	 * agent. Null when `dropped` cancels it for a newer message.
+	 */
+	async function pick(threadId, entry, dropped) {
+		const all = await core.messages(threadId)
+		const at = all.findIndex((one) => one.id === entry)
+		const message = all[at].data
+		const { participants, here } = await agentsOf(threadId, message.author)
 		const candidates = await Promise.all(
 			here.map(async (agent) => {
 				if (!agent.name)
@@ -118,10 +146,12 @@ export function server(core) {
 				}
 			}),
 		)
-		const said = (await core.messages(threadId))
+		const said = all
+			.slice(0, at)
 			.filter((entry) => !entry.data.shell)
 			.slice(-context)
 			.map(({ data }) => ({ author: data.author, body: (data.body ?? '').slice(0, SAID) }))
+		const setup = participants.find((agent) => !agent.name) ?? participants[0]
 		const chooser = name
 			? agentTo(name.includes('@') ? name : `${name}@${setup.runner}`)
 			: smallModel(
@@ -130,58 +160,127 @@ export function server(core) {
 					'off',
 				)
 		chooser.thinkingLevel ??= 'off'
-		const signal = AbortSignal.timeout(timeoutMs)
+		const timeout = AbortSignal.timeout(timeoutMs)
+		const signal = AbortSignal.any([timeout, dropped])
+		const call = ++calls
+		const started = Date.now()
+		const model = writtenTo(chooser)
+		tell(threadId, { kind: 'call', call, entry, model, outcome: 'running' })
+		const ended = (outcome, tokens) =>
+			tell(threadId, {
+				kind: 'call',
+				call,
+				entry,
+				model,
+				ms: Date.now() - started,
+				tokens,
+				outcome,
+			})
 		let decided
 		try {
+			await core.runners.online(chooser.runner, signal)
 			decided = await decide(
-				{ said, message: { ...message, body: message.body.slice(0, SAID) }, candidates },
-				chooser,
+				{
+					said,
+					message: { author: message.author, body: (message.body ?? '').slice(0, SAID) },
+					candidates,
+				},
+				await core.address(chooser, false, signal),
 				signal,
 			)
 		} catch (error) {
+			if (dropped.aborted) return (ended('dropped', error.tokens), null)
+			ended(timeout.aborted ? 'timeout' : 'error', error.tokens)
 			console.error(`director: thread ${threadId}: ${error.message}`)
 			const agent = here.find((agent) => !agent.name)
 			return {
 				to: agent ? [agent] : [],
-				picked: `Pick failed: ${signal.aborted ? 'the chooser timed out' : 'the chooser could not choose'}. ${agent ? "The thread's agent answers." : 'No thread agent to answer; @mention a bot.'}`,
+				picked: `Pick failed: ${timeout.aborted ? 'the chooser timed out' : 'the chooser could not choose'}. ${agent ? "The thread's agent answers." : 'No thread agent to answer; @mention a bot.'}`,
 			}
 		}
+		ended('ok', decided.tokens)
 		const to = decided.names.map((name) =>
 			here.find((agent) => (name === AGENT ? !agent.name : agent.name === name)),
 		)
 		return { to, picked: decided.reason }
 	}
 
-	/** Waits `burstMs` for a newer message: true when one with no @mention came and takes over the pick */
-	async function waitForMore(place) {
-		if (place.hurried === undefined)
-			await /** @type {Promise<void>} */ (
-				new Promise((resolve) => {
-					const timer = setTimeout(resolve, burstMs)
-					place.wake = () => (clearTimeout(timer), resolve())
+	/** What a message folded into a newer one's pick asks: no one, since that pick covers it */
+	const folded = { to: [], picked: 'A later message came; one pick covers both.' }
+
+	/**
+	 * Queues a saved message for its thread's pick and answers its `{to, picked}`. It waits `burstMs` of quiet; a newer
+	 * message ends that wait or cancels the running call, and this one is folded into the newer one's pick.
+	 */
+	function ping(threadId, entry) {
+		return new Promise((resolve) => {
+			const queue = queues.get(threadId) ?? {}
+			queues.set(threadId, queue)
+			// Resumed after a restart, an older message finds a newer one already queued
+			if (queue.newest && queue.newest.entry > entry) return resolve(folded)
+			if (queue.newest) {
+				tell(threadId, {
+					kind: 'dropped',
+					entry: queue.newest.entry,
+					for: entry,
+					running: Boolean(queue.dropped),
 				})
-			)
-		return place.hurried ?? false
+				queue.dropped?.abort()
+				queue.newest.resolve(folded)
+			}
+			const mine = (queue.newest = { entry, resolve })
+			clearTimeout(queue.timer)
+			if (burstMs) tell(threadId, { kind: 'wait', entry, ms: burstMs })
+			queue.timer = setTimeout(async () => {
+				const dropped = (queue.dropped = new AbortController())
+				const routed = await pick(threadId, entry, dropped.signal).catch((error) => {
+					console.error(`director: thread ${threadId}: ${error.message}`)
+					return { to: [], picked: `Pick failed: ${error.message}` }
+				})
+				if (queue.newest !== mine) return
+				queues.delete(threadId)
+				tell(threadId, {
+					kind: 'picked',
+					entry,
+					to: routed.to.map(writtenTo),
+					reason: routed.picked,
+				})
+				resolve(routed)
+			}, burstMs)
+		})
 	}
 
-	/** A routed message is saved, or given up on: the next in its thread's line goes on */
-	function settle(threadId, place) {
-		const line = lines.get(threadId)
-		if (!line?.includes(place)) return
-		line.splice(line.indexOf(place), 1)
-		if (!line.length) lines.delete(threadId)
-		place.saved()
-	}
+	/** A saved message's pick, durable: it resumes after a restart, and the thread's stop ends it asking no one */
+	const Pick = defineTask({
+		name: 'ade.pick',
+		version: 1,
+		initial: () => ({ phase: 'pick' }),
+		phases: {
+			async pick({ conversationId: threadId, input: { entry, steer } }, rt, ctx) {
+				const routed = await ping(threadId, entry)
+				return rt.commit(
+					async (tx) => (await core.route(tx, threadId, entry, routed, { steer }), finished()),
+					ctx,
+				)
+			},
+		},
+		abort: ({ conversationId: threadId, input: { entry, steer } }, rt, ctx) =>
+			rt.commit(async (tx) => {
+				await core.route(
+					tx,
+					threadId,
+					entry,
+					{ to: [], picked: 'Stopped before the director picked.' },
+					{ steer },
+				)
+				return finished('aborted')
+			}, ctx),
+	})
 
-	/** Saving a person's message lets the one after it in the line go on */
-	function posted(_tx, threadId, entry) {
-		if (entry.data.answer) return
-		const place = lines
-			.get(threadId)
-			?.find(
-				(place) => place.author === entry.data.author && place.body === (entry.data.body ?? ''),
-			)
-		if (place) settle(threadId, place)
+	/** In the commit that saves a message the director picks for, its Pick task */
+	const directing = (tx, threadId, entry, { steer = false, author = '', body = '' } = {}) => {
+		tell(threadId, { kind: 'message', entry, author, body: (body ?? '').slice(0, SAID) })
+		return tx.createTask(Pick, { entry, steer }, background(threadId))
 	}
 
 	/** How many answers in a row end the thread, with no one else writing since */
@@ -192,56 +291,29 @@ export function server(core) {
 	}
 
 	/**
-	 * Whom a message asks, `{to, picked?}`, or undefined to leave it to its own `to` or whom the thread asked last.
-	 * `free` is a message that names no one, which picks may answer. An `answer`, a bot's last words, asks only the
-	 * bots it @mentions, and no one once bots have answered `REST` times in a row.
+	 * Whom a message asks before it's saved: `{to, picked?}`, `{direct: true}` when the director picks once it's saved,
+	 * or undefined to leave it to its own `to` or whom the thread asked last. `free` is a message that names no one.
+	 * An `answer`, a bot's last words, asks only the bots it @mentions, and no one once bots have answered `REST` times
+	 * in a row.
 	 */
 	async function direct(threadId, message, free) {
-		if (message.answer) return route(threadId, message, free)
-		const place = {
-			author: message.author,
-			body: message.body,
-			/** A newer message ends this one's burst wait: one with no @mention takes over the pick, any other lets it pick now */
-			hurry: (fold) => {
-				place.hurried ??= fold
-				place.wake?.()
-			},
-		}
-		place.done = new Promise((resolve) => (place.saved = resolve))
-		const line = lines.get(threadId) ?? []
-		lines.set(threadId, line)
-		const before = line.at(-1)
-		line.push(place)
-		try {
-			return await route(threadId, message, free, place, before)
-		} finally {
-			setTimeout(() => settle(threadId, place), UNSAVED).unref?.()
-		}
-	}
-
-	/**
-	 * Whom a message asks, `{to, picked?}`, or undefined to leave it to its own `to` or whom the thread asked last.
-	 * `free` is a message that names no one, which picks may answer. An `answer`, a bot's last words, asks only the
-	 * bots it @mentions, and no one once bots have answered `REST` times in a row.
-	 */
-	async function route(threadId, message, free, place = undefined, before = undefined) {
-		const { agents } = await core.thread(threadId)
-		const participants = (
-			await Promise.all(
-				Object.entries(agents).map(([key, agent]) => core.agentOf(agent.conversation, key)),
-			)
-		).filter(Boolean)
-		const here = participants.filter((agent) => agent.name !== message.author)
+		const { participants, here } = await agentsOf(threadId, message.author)
 		const named = mentioned(
 			message.body,
 			here.filter((agent) => agent.name).map((agent) => agent.name),
 		).map((name) => here.find((agent) => agent.name === name))
 		if (message.answer)
 			return named.length && (await botTurns(threadId)) + 1 < REST ? { to: named } : undefined
-		const takesOver = free && !named.length && participants.length >= 2 && picks
-		before?.hurry(takesOver)
-		await before?.done
-		if (named.length) return { to: named }
+		if (named.length) {
+			if (participants.length > 1)
+				tell(threadId, {
+					kind: 'mention',
+					author: message.author,
+					body: (message.body ?? '').slice(0, SAID),
+					to: named.map(writtenTo),
+				})
+			return { to: named }
+		}
 		if (!free || participants.length < 2) return undefined
 		if (!picks) {
 			const agent = here.find((agent) => !agent.name)
@@ -250,17 +322,7 @@ export function server(core) {
 				picked: "Model picks are off; ask the thread's agent or @mention a bot.",
 			}
 		}
-		if (burstMs && (await waitForMore(place)))
-			return {
-				to: [],
-				picked: 'Another message came right after; the director picks for both there.',
-			}
-		return pick(
-			threadId,
-			message,
-			here,
-			participants.find((agent) => !agent.name) ?? participants[0],
-		)
+		return { direct: true }
 	}
 
 	/** A bot learns the in-thread way to hand over, so it doesn't post the question to a side thread */
@@ -276,8 +338,8 @@ export function server(core) {
 
 	return {
 		direct,
+		directing,
 		turns: true,
-		posted,
 		/** The model it picks with as written (DIRECTOR_MODEL's when set), empty for Haiku or Luna on each thread's runner */
 		settings: {
 			picks,
@@ -286,6 +348,6 @@ export function server(core) {
 			timeout: timeoutMs / 1000,
 			burst: burstMs / 1000,
 		},
-		extension: defineExtension({ name: 'ade.director', sections: [section] }),
+		extension: defineExtension({ name: 'ade.director', sections: [section], tasks: [Pick] }),
 	}
 }

@@ -83,7 +83,7 @@ export { connected }
 export const [newThreadTools, setNewThreadTools] = createSignal(null)
 /** The last key this page made, {name, connect}: the key is shown once, so it outlives the form that asked */
 export const [minted, setMinted] = createSignal(null)
-/** Each thread's messages. They never change once written, so the store is shallow: a read tracks the thread's list, not each message's fields */
+/** Each thread's messages. A message comes again only when something is added to it, like the director's pick, so the store is shallow: a read tracks the thread's list, not each message's fields */
 export const [entries, setEntries] = createStore({}, { shallow: true })
 /** Whether a thread has messages before the ones on screen, which come a page at a time as you scroll up */
 export const [earlier, setEarlier] = createStore({})
@@ -117,8 +117,10 @@ export const merged = (list, more) => {
 		back.splice(at, 1)
 		return false
 	})
+	// A message sent again carries what came after it, like the director's pick: the new copy replaces the old
+	const again = new Map(more.map((entry) => [entry.id, entry]))
 	return [
-		...list.filter((entry) => !entry.sending),
+		...list.filter((entry) => !entry.sending).map((entry) => again.get(entry.id) ?? entry),
 		...more.filter((entry) => !have.has(entry.id)),
 		...waiting,
 	]

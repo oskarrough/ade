@@ -98,7 +98,7 @@ export function server(core) {
 				keyOf(name) !== AGENT &&
 				Boolean((await core.thread(thread)).agents[keyOf(name)])
 			if (member) {
-				const { to, picked } = await core.recipients(
+				const { to, picked, direct } = await core.recipients(
 					thread,
 					{ author: name, body: args.body },
 					{
@@ -124,7 +124,7 @@ export function server(core) {
 							...(to.length ? { to } : {}),
 							...(picked ? { picked } : {}),
 						},
-						{ steer: true, member: true },
+						{ steer: true, member: true, direct },
 					)
 					return {
 						output: [
@@ -187,7 +187,7 @@ export function server(core) {
 				asked &&
 				(await agentOf((await core.thread(thread)).agents[askerKey]?.conversation, askerKey))
 			/** An answer goes back to its asker; any other post to a thread asks the bots it @mentions there, or with no `to`, whom the director picks */
-			const { to, picked } = await core.recipients(
+			const { to, picked, direct } = await core.recipients(
 				thread,
 				{ author: name, body: args.body },
 				{
@@ -223,11 +223,11 @@ export function server(core) {
 						...(picked ? { picked } : {}),
 					},
 					// Like a person's Enter, a post joins the run its agent is in, as answers coming back do
-					{ empty: thread === undefined, steer: true },
+					{ empty: thread === undefined, steer: true, direct },
 				)
 				// An answer was said here too: its own thread shows it, and its agent never reads it back
 				if (asked) await core.post(tx, from, { author: name, body: args.body, re: [asked.id] })
-				const who = to.map(writtenTo).join(', ') || 'nobody'
+				const who = direct ? 'whom the director picks' : to.map(writtenTo).join(', ') || 'nobody'
 				if (asked)
 					return {
 						output: [{ type: 'text', text: `Answered thread ${id}'s question, for ${who}.` }],
@@ -237,7 +237,7 @@ export function server(core) {
 					output: [
 						{
 							type: 'text',
-							text: `Posted to thread ${id} for ${who}.${!to.length ? '' : child ? ' The answer will come to you here on its own; carry on, or end your turn with no text: any text you end with is posted.' : " It isn't your child, so an answer comes only if its agent posts back."}`,
+							text: `Posted to thread ${id} for ${who}.${!to.length && !direct ? '' : child ? ' The answer will come to you here on its own; carry on, or end your turn with no text: any text you end with is posted.' : " It isn't your child, so an answer comes only if its agent posts back."}`,
 						},
 					],
 					details: { thread: id },

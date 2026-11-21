@@ -129,6 +129,8 @@ if (port) while (!(await free(port))) port++
 // ── Docs and tasks ────────────────────────────────────────────────────────
 
 const KIND = 'ade.message'
+/** Whom the director picked for a message saved before it chose: `{message, to, picked}`, read as that message's own */
+const ROUTE = 'ade.route'
 /** An agent's input in its conversation; `held` names the thread messages it gave */
 const DELIVERY = 'ade.delivery'
 /** How much of a `$ cmd`'s stdout and of its stderr is kept, from the end */
@@ -762,15 +764,29 @@ async function entries(id) {
 }
 async function messages(id) {
 	await conversation(id)
-	return (await entries(id)).filter((entry) => entry.kind === KIND)
+	return routed(await entries(id))
+}
+/** A thread's messages among its entries, each with the director's pick for it, once there is one */
+function routed(entries, routes = new Map()) {
+	for (const entry of entries) if (entry.kind === ROUTE) routes.set(entry.data.message, entry.data)
+	return entries.filter((entry) => entry.kind === KIND).map((entry) => withRoute(entry, routes))
+}
+const withRoute = (entry, routes) => {
+	const route = routes.get(entry.id)
+	if (!route) return entry
+	const { to, picked } = route
+	return {
+		...entry,
+		data: { ...entry.data, ...(to.length ? { to } : {}), ...(picked ? { picked } : {}) },
+	}
 }
 /** The newest matching message, stopping as soon as it is found rather than loading a thread. */
-async function latestMessage(id, matches) {
+async function latestMessage(id, matches, kind = KIND) {
 	const handle = await conversation(id)
 	let cursor
 	do {
 		const page = await handle.entries({ order: 'descending' }, 50, cursor, context)
-		const found = page.items.find((entry) => entry.kind === KIND && matches(entry))
+		const found = page.items.find((entry) => entry.kind === kind && matches(entry))
 		if (found) return found
 		cursor = page.next
 	} while (cursor)
@@ -816,42 +832,59 @@ async function post(tx, threadId, message, options = {}) {
 	return entry
 }
 
-/** Already-authorized answers return to their askers; new requests enter through post. */
+/**
+ * Already-authorized answers return to their askers; new requests enter through post. `direct` leaves whom it asks to
+ * the director, which picks after this commit; `pick` is the task that does.
+ */
 async function append(
 	tx,
 	threadId,
 	{ to = undefined, ...message },
-	{ steer = false, empty = false } = {},
+	{ steer = false, empty = false, direct = false } = {},
 ) {
 	const row = await tx.doc(Thread, threadId)
 	const names = (to ?? []).map(writtenTo)
 	const data = { createdAt: now(), ...message, ...(to ? { to: names } : {}) }
 	const prior =
-		!empty && names.some((name) => !row.agents[keyOf(name)])
-			? (
-					await collect((cursor) =>
-						tx.scanEntries({ conversationId: threadId, order: 'ascending' }, 500, cursor),
-					)
-				)
-					.filter((entry) => entry.kind === KIND)
-					.map((entry) => entry.id)
-			: []
+		!empty && names.some((name) => !row.agents[keyOf(name)]) ? await messageIds(tx, threadId) : []
 	const entry = await tx.appendEntry(threadId, { kind: KIND, data })
 	for (const hook of posted) await hook(tx, threadId, entry)
 	for (const [key, agent] of Object.entries(row.agents))
 		if (!ownAnswer({ data }, key)) agent.unseen.push(entry.id)
-	/** With `turns`, those it asks answer one after another, in the order named */
+	await ask(tx, row, threadId, entry.id, to ?? [], { steer, prior })
+	const pick =
+		direct && directing
+			? await directing(tx, threadId, entry.id, {
+					steer,
+					author: message.author,
+					body: message.body,
+				})
+			: undefined
+	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
+}
+
+/** Every message's id in a thread, oldest first, which a new agent hasn't seen */
+const messageIds = async (tx, threadId) =>
+	(
+		await collect((cursor) =>
+			tx.scanEntries({ conversationId: threadId, order: 'ascending' }, 500, cursor),
+		)
+	)
+		.filter((entry) => entry.kind === KIND)
+		.map((entry) => entry.id)
+
+/** Each agent `to` names gets a Deliver task for all it hasn't seen up to `upTo`; with `turns`, one after another */
+async function ask(tx, row, threadId, upTo, to, { steer = false, prior = [] } = {}) {
 	let turn
-	for (const [index, name] of names.entries()) {
-		const key = keyOf(name)
+	for (const one of to) {
+		const key = keyOf(writtenTo(one))
 		if (!row.agents[key]) {
-			row.agents[key] = await newAgent(tx, threadId, [...prior, entry.id])
-			await setUp(tx, row.agents[key].conversation, threadId, to[index])
-		} else await reconfigure(tx, row.agents[key], to[index])
+			row.agents[key] = await newAgent(tx, threadId, [...prior, upTo])
+			await setUp(tx, row.agents[key].conversation, threadId, one)
+		} else await reconfigure(tx, row.agents[key], one)
 		const recipient = row.agents[key]
 		const { conversation: agent, unseen, admission: after } = recipient
 		if (!unseen.length) continue
-		const upTo = entry.id
 		const admit = await tx.createTask(
 			Admit,
 			{ agent, upTo, steer, ...(after ? { after } : {}), ...(turn ? { turn } : {}) },
@@ -865,7 +898,28 @@ async function append(
 		recipient.admission = { admit, deliver }
 		if (turns) turn = deliver
 	}
-	return { entry: entry.id, to: names }
+}
+
+/**
+ * The director's pick for a saved message, inside its commit: the record that shows it on the message, then each
+ * agent it picked gets the message as if it had asked them. A pick the author may not reach asks no one.
+ */
+async function route(tx, threadId, messageId, { to, picked }, { steer = false } = {}) {
+	const { data } = await tx.entry(messageId)
+	try {
+		await reach(to, data.author, await tx.doc(Runners))
+	} catch (error) {
+		;[to, picked] = [[], `Pick failed: ${error.message}`]
+	}
+	const row = await tx.doc(Thread, threadId)
+	const prior = to.some((one) => !row.agents[keyOf(writtenTo(one))])
+		? await messageIds(tx, threadId)
+		: []
+	await tx.appendEntry(threadId, {
+		kind: ROUTE,
+		data: { message: messageId, to: to.map(writtenTo), ...(picked ? { picked } : {}) },
+	})
+	await ask(tx, row, threadId, messageId, to, { steer, prior })
 }
 
 /**
@@ -1166,13 +1220,17 @@ const once = (requestId, command, work) =>
 		return result
 	})
 
-/** The director first, then an explicit recipient. Only solo chats and commands reuse the last recipient. */
+/**
+ * The director first, then an explicit recipient. Only solo chats and commands reuse the last recipient. `direct`
+ * means the director picks once the message is saved: post it with `{direct}`.
+ */
 async function recipients(
 	id,
 	message,
 	{ explicit, fallback = () => lastAsked(id), director = true } = {},
 ) {
 	const directed = director && (await direct?.(id, message, explicit === undefined))
+	if (directed?.direct) return { to: [], direct: true }
 	if (directed) return directed
 	if (explicit) return { to: await explicit() }
 	if (director) {
@@ -1201,7 +1259,7 @@ async function postEntry(id, author, input) {
 	const images = imageList(input.images)
 	const body = images ? (input.body ?? '').trim() : field(input.body, 'body')
 	const command = !images && body.match(/^\$\s+([\s\S]+)/)?.[1]
-	const { to, picked } = await recipients(
+	const { to, picked, direct } = await recipients(
 		id,
 		{ author, body },
 		{
@@ -1213,7 +1271,7 @@ async function postEntry(id, author, input) {
 	if (command) await reach(to, author, await known())
 	if (!command && to.filter((to) => !to.name).length > 1)
 		throw new Error('A thread has one agent: ask one model here, plus any bots')
-	return once(input.requestId, `post ${id}`, async (tx) =>
+	const result = await once(input.requestId, `post ${id}`, async (tx) =>
 		command
 			? (await tx.createTask(Shell, { author, command, to: to[0] }, { ...own, conversationId: id }),
 				{ command, to: to[0] })
@@ -1227,9 +1285,20 @@ async function postEntry(id, author, input) {
 						...(to.length ? { to } : {}),
 						...(picked ? { picked } : {}),
 					},
-					{ steer: input.steer === true },
+					{ steer: input.steer === true, direct },
 				),
 	)
+	if (!result.pick) return result
+	// The message is saved; the answer waits for the director's pick, as one with `to` says whom it asks
+	await harness.waitForTask(result.pick, context)
+	const route = /** @type {any} */ (
+		await latestMessage(id, (one) => one.data.message === result.entry, ROUTE)
+	)
+	return {
+		...result,
+		to: route?.data.to ?? [],
+		...(route?.data.picked && { picked: route.data.picked }),
+	}
 }
 
 /** Images as pi's ImageContent, which models take inline; the composer shrinks them to fit */
@@ -1466,6 +1535,16 @@ const core = {
 	/** `within` is a caller's own context, such as a hook's, so its cancellation ends the wait */
 	waitForTask: (id, within = context) => harness.waitForTask(id, within),
 	post,
+	route,
+	ROUTE,
+	/**
+	 * Tells each page watching a thread what a module is doing there, as it happens; nothing is kept. An event is
+	 * `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), others are the module's own.
+	 */
+	activity: (threadId, event) => {
+		const sent = JSON.stringify({ thread: threadId, activity: { at: Date.now(), ...event } })
+		for (const socket of clients) if (socket.pages?.id === threadId) socket.send(sent)
+	},
 	seenBy,
 	commit,
 	once,
@@ -1501,6 +1580,7 @@ const posted = modules.flatMap((module) => module.posted ?? [])
 const archiving = modules.flatMap((module) => module.archiving ?? [])
 const [
 	direct,
+	directing,
 	turns,
 	reply,
 	catchUp,
@@ -1512,6 +1592,7 @@ const [
 	waitingOnPerson,
 ] = [
 	'direct',
+	'directing',
 	'turns',
 	'reply',
 	'catchUp',
@@ -1904,13 +1985,29 @@ async function rewatch(socket, id) {
 	/** Who's there changes with a message, or a read */
 	const present = async () => ({ people: await people(id) })
 	const only = (entries) => entries.filter((entry) => entry.kind === KIND)
+	/** Messages with the director's picks, and a message sent before whose pick just came, again */
+	const routes = new Map()
+	const sentMessages = new Map()
+	const withPicks = (entries) => {
+		const fresh = routed(entries, routes)
+		for (const entry of fresh) sentMessages.set(entry.id, entry)
+		const again = entries
+			.filter(
+				(entry) => entry.kind === ROUTE && !fresh.some((one) => one.id === entry.data.message),
+			)
+			.flatMap((entry) => {
+				const before = sentMessages.get(entry.data.message)
+				return before ? [withRoute(before, routes)] : []
+			})
+		return [...fresh, ...again]
+	}
 	/** Its newest page of messages, at least PAGE of them, or all there are */
 	const page = (after) => (entries) =>
 		only(entries).filter((entry) => entry.id < after).length >= PAGE
 	const thread = await told(
 		handle,
 		messages,
-		async (entries, more) => send({ entries: only(entries), ...more, ...(await present()) }),
+		async (entries, more) => send({ entries: withPicks(entries), ...more, ...(await present()) }),
 		{ enough: page(Infinity) },
 	)
 	/** The oldest message the browser has, or 0 once it has them all, which its agents' turns reach back to */
@@ -1927,7 +2024,7 @@ async function rewatch(socket, id) {
 				const entries = await back(covers(from()))
 				if (entries.length) send({ agent, older: true, entries })
 			}
-			send({ older: true, earlier: older.earlier, entries: only(older.entries) })
+			send({ older: true, earlier: older.earlier, entries: withPicks(older.entries) })
 		},
 	}
 	/** By conversation, which stays as an agent switches model or runner */
