@@ -165,6 +165,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
 scripts/
   try.js                 scratch server beside a real runner in the caller’s folder, using echo/try
   page-spy.js            browser init script: fetches, socket frames, stalls
+  solid-attribution.js   browser init script: Solid's attribution engine, for cost warnings and costs()
   vendor-canvas-agent.js refreshes canvas_act's actions schema from tldraw's agent starter kit
   replay-pi.js           replays pi sessions into a thread, to try memory
 examples/all.js          the suite: every numbered example but the bench, half the cores at once, a timeout each
