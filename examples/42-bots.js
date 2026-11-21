@@ -157,6 +157,15 @@ check(
 	'a bot knows the other bots by name, and asks one with post',
 	JSON.stringify([side, prompt.laptop]),
 )
+const [askedWren] = (await api('GET', `/api/threads/${wren.home}/bots?asked=${side.id}`)).json
+check(
+	askedWren?.thread === side.id &&
+		askedWren.question?.data.author === 'ada' &&
+		askedWren.answer?.data.author === 'wren' &&
+		askedWren.answer.data.re.includes(askedWren.question.id),
+	"a bot's home reads the threads that asked her in one request: each one's question and her answer",
+	JSON.stringify(askedWren),
+)
 
 // In her home, the composer asks her with her settings: a new runner there moves her, in place, and she is told
 const atHome = (await api('GET', `/api/threads/${home}`)).json.agents[0]

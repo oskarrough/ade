@@ -122,31 +122,39 @@ export function Thread(props) {
 				other.agents[0].name === bot.name,
 		)
 	})
-	// Fetched once, and again while unanswered each time the asked thread's status moves, as it does when the answer lands
+	// Fetched once, and again while unanswered each time the asked thread's status moves, as it does when the answer lands:
+	// every thread that moved in one read
 	createEffect(
 		() =>
 			askedHere()
 				.filter((other) => questions[other.id] !== null && !questions[other.id]?.answer)
 				.map((other) => `${other.id} ${other.status}`),
 		(seen) => {
+			const looks = new Map()
 			for (const [id, status] of seen.map((key) => key.split(' '))) {
 				if (fetched.get(id)?.status === status) continue
 				const look = { status }
 				fetched.set(id, look)
-				api(`/api/threads/${id}`)
-					.then((view) => {
-						// A look that a newer one overtook would write what it saw over what that one found
-						if (fetched.get(id) !== look) return
-						const first = view.entries[0]
-						// Asked a moment ago, its question may not be in yet; the next look asks again
-						if (!first) return fetched.delete(id)
-						const answer = view.entries.find((entry) => entry.data.re?.includes(first.id))
-						setQuestions((all) => {
-							all[id] = first.data.from ? { question: first, answer } : null
-						})
-					})
-					.catch(report)
+				looks.set(id, look)
 			}
+			if (!looks.size) return
+			api(`/api/threads/${props.id}/bots?asked=${[...looks.keys()].join(',')}`)
+				.then((found) => {
+					for (const { thread, question, answer } of found) {
+						const id = String(thread)
+						// A look that a newer one overtook would write what it saw over what that one found
+						if (fetched.get(id) !== looks.get(id)) continue
+						// Asked a moment ago, its question may not be in yet; the next look asks again
+						if (!question) {
+							fetched.delete(id)
+							continue
+						}
+						setQuestions((all) => {
+							all[id] = question.data.from ? { question, answer: answer ?? undefined } : null
+						})
+					}
+				})
+				.catch(report)
 		},
 	)
 	const [unfolded, setUnfolded] = createSignal(false)

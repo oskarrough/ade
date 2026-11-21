@@ -88,8 +88,22 @@ export function server(core) {
 		return JSON.parse(JSON.stringify({ name, ...all[name] }))
 	}
 
+	/** For a bot's home, each thread that asked her: its question, its first message, and her answer to it, once there is one */
+	const askedHome = (ids) =>
+		Promise.all(
+			ids.map(async (thread) => {
+				const messages = await core.messages(thread)
+				const question = messages[0] ?? null
+				const answer =
+					(question && messages.find((entry) => entry.data.re?.includes(question.id))) ?? null
+				return { thread, question, answer }
+			}),
+		)
 	async function serve(id, query, body) {
-		if (id !== undefined) throw new Error('Bots live at /api/bots')
+		if (id !== undefined && body === undefined && query.has('asked'))
+			return askedHome(query.get('asked').split(',').filter(Boolean).map(Number))
+		if (id !== undefined)
+			throw new Error('Bots live at /api/bots; a home reads the threads that asked with ?asked=1,2')
 		if (body === undefined) return list()
 		const asked = await change(body)
 		const ids = asked.rename ? await core.threadIds() : []
