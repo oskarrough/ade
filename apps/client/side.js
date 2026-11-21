@@ -19,7 +19,7 @@ const PAGES = [
 	},
 ]
 /** A thread's pages: its details always, the rest once it exists and their modules are on */
-export const pagesOf = (id) =>
+const pagesOf = (id) =>
 	PAGES.filter(
 		(page) =>
 			page.key === 'details' ||

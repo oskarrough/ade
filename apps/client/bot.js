@@ -16,6 +16,7 @@ import {
 	paint,
 	reloadBots,
 	reloadThreads,
+	saveBot,
 	threadOf,
 	threadRows,
 } from './server.js'
@@ -90,8 +91,8 @@ export function BotSettings(props) {
 		if (next === props.bot.name) return
 		try {
 			if (bots.some((bot) => bot.name === next)) throw new Error(`${next} is another bot`)
-			await api('/api/bots', { name: props.bot.name, rename: next })
-			await Promise.all([reloadBots(), reloadThreads()])
+			await saveBot(props.bot.name, { rename: next })
+			await reloadThreads()
 		} catch (failure) {
 			field.value = props.bot.name
 			report(failure)
@@ -99,10 +100,7 @@ export function BotSettings(props) {
 	}
 	const holder = (hue) =>
 		bots.find((bot) => bot.name !== props.bot.name && hueOf(bot.name) === hue)?.name
-	const setColor = (color) =>
-		api('/api/bots', { name: props.bot.name, color })
-			.then(() => reloadBots())
-			.catch(report)
+	const setColor = (color) => saveBot(props.bot.name, { color }).catch(report)
 	// Of its hundreds, the ones happening now or needing a hand; an unread answer already shows its dot in the thread list
 	const active = createMemo(() =>
 		own().filter((thread) => ['working', 'blocked', 'error'].includes(thread.status)),
@@ -138,10 +136,7 @@ export function BotSettings(props) {
 				placeholder="Who it is, in its words or yours"
 				value=${() => instructions()}
 				onInput=${(event) => setInstructions(event.currentTarget.value)}
-				onChange=${() =>
-					api('/api/bots', { name: props.bot.name, instructions: instructions() })
-						.then(() => reloadBots())
-						.catch(report)}
+				onChange=${() => saveBot(props.bot.name, { instructions: instructions() }).catch(report)}
 			></textarea>
 			<h3>Model</h3>
 			<button

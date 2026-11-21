@@ -200,17 +200,12 @@ export const {
 	removeRow,
 } = createRoot(() => {
 	const [server, setServer] = createSignal(cached('server', DEFAULT_SERVER))
-	const [bots, setBots] = createStore(cached('bots', []))
 	/** The rows this page last saw, shown the way a fetch's are until one lands */
 	const shownAtStart = listed(cached('threads', []))
 	const [threads, setThreads] = createStore(shownAtStart.open)
 	const [archivedThreads, setArchivedThreads] = createStore([])
 	/** Both lists as plain rows, set with every fetch: a scan of the whole list reads this one signal instead of every row's fields */
 	const [threadRows, setThreadRows] = createSignal(shownAtStart)
-	const [runners, setRunners] = createStore(cached('runners', []))
-	/** The open questions agents asked, newest first, one per thread */
-	const [inbox, setInbox] = createStore(cached('inbox', []))
-	/** Each fetch keeps its row's identity when nothing in it changed, so a keyed `For` leaves it alone; an answer older than the one already shown is dropped */
 	/** The `client` and `commit` of the first answer this page got: what it was loaded with */
 	let loadedWith, loadedAt
 	const reloadServer = () =>
@@ -250,75 +245,60 @@ export const {
 			if (cacheKey) cache(cacheKey, data)
 		})
 	}
-	/** Rows you removed that the server hasn't confirmed, by list; every fetch leaves them out until it does */
-	const leaving = { bots: new Set(), runners: new Set() }
-	let fetchedBots = cached('bots', [])
-	let fetchedRunners = cached('runners', [])
-	const showBots = () =>
-		setBots(
-			reconcile(
-				fetchedBots.filter((bot) => !leaving.bots.has(bot.name)),
-				'name',
-			),
-		)
-	const showRunners = () =>
-		setRunners(
-			reconcile(
-				fetchedRunners.filter((runner) => !leaving.runners.has(runner.name)),
-				'name',
-			),
-		)
-	const reloadBots = () =>
-		reloadList(
-			'bots',
-			(data) => {
-				fetchedBots = data
-				showBots()
-			},
-			'bots',
-			untrack(server).modules.includes('bots'),
-		)
-	const reloadRunners = () =>
-		reloadList('runners', (data) => {
-			fetchedRunners = data
-			showRunners()
-		})
-	/** Questions you dismissed that the server hasn't confirmed; every fetch leaves them out until it does */
-	const dismissing = new Set()
-	let fetchedInbox = cached('inbox', [])
-	const showInbox = () =>
-		setInbox(
-			reconcile(
-				fetchedInbox.filter((item) => !dismissing.has(item.question.id)),
-				'thread',
-			),
-		)
-	const reloadInbox = () =>
-		reloadList(
-			'inbox',
-			(data) => {
-				fetchedInbox = data
-				showInbox()
-			},
-			'inbox',
-			untrack(server).modules.includes('inbox'),
-		)
-	/** A dismissed question leaves at once, then asks the server; a refusal puts it back and throws */
-	const dismiss = async (thread, question) => {
-		dismissing.add(question)
-		showInbox()
+	/** Shows a change at once, then asks the server; a refusal takes it back and throws, else it holds until the next fetch confirms it */
+	const optimistically = async (apply, undo, show, request, reload) => {
+		apply()
+		show()
 		const settle = () => {
-			dismissing.delete(question)
-			showInbox()
+			undo()
+			show()
 		}
 		try {
-			await api(`/api/threads/${thread}/inbox`, { dismiss: question })
+			await request()
 		} catch (failure) {
 			settle()
 			throw failure
 		}
-		await reloadInbox().finally(settle)
+		await reload().finally(settle)
 	}
+	/** A list keyed by `key`, fetched only while its module is on, minus the rows you removed that the server hasn't confirmed */
+	const removable = (path, key, module, idOf = (row) => row[key]) => {
+		const [rows, setRows] = createStore(cached(path, []))
+		const removing = new Set()
+		let fetched = cached(path, [])
+		const show = () =>
+			setRows(
+				reconcile(
+					fetched.filter((row) => !removing.has(idOf(row))),
+					key,
+				),
+			)
+		const reload = () =>
+			reloadList(
+				path,
+				(data) => {
+					fetched = data
+					show()
+				},
+				path,
+				!module || untrack(server).modules.includes(module),
+			)
+		const remove = (id, request) =>
+			optimistically(
+				() => removing.add(id),
+				() => removing.delete(id),
+				show,
+				request,
+				reload,
+			)
+		return { rows, reload, remove }
+	}
+	const botList = removable('bots', 'name', 'bots')
+	const runnerList = removable('runners', 'name')
+	/** The open questions agents asked, newest first, one per thread */
+	const inboxList = removable('inbox', 'thread', 'inbox', (item) => item.question.id)
+	const dismiss = (thread, question) =>
+		inboxList.remove(question, () => api(`/api/threads/${thread}/inbox`, { dismiss: question }))
 	/** Changes to a thread's row (archived, title) that the server hasn't confirmed; both lists show them over every fetch until it does */
 	const pending = new Map()
 	let fetchedThreads = cached('threads', [])
@@ -348,57 +328,35 @@ export const {
 			},
 			null,
 		)
-	/** Shows a change to a thread's row at once, then asks the server; a refusal puts the row back and throws */
-	const changeThread = async (id, change, request) => {
+	const changeThread = (id, change, request) => {
 		const mine = { ...pending.get(id), ...change }
-		pending.set(id, mine)
-		showThreads()
-		const settle = () => {
-			if (pending.get(id) === mine) pending.delete(id)
-			showThreads()
-		}
-		try {
-			await request()
-		} catch (failure) {
-			settle()
-			throw failure
-		}
-		await Promise.all([reloadThreads(), reloadArchivedThreads()]).finally(settle)
+		return optimistically(
+			() => pending.set(id, mine),
+			() => pending.get(id) === mine && pending.delete(id),
+			showThreads,
+			request,
+			() => Promise.all([reloadThreads(), reloadArchivedThreads()]),
+		)
 	}
-	/** Takes a bot or runner row away at once, then asks the server; a refusal puts it back and throws */
-	const removeRow = async (list, name, request) => {
-		const show = list === 'bots' ? showBots : showRunners
-		leaving[list].add(name)
-		show()
-		const settle = () => {
-			leaving[list].delete(name)
-			show()
-		}
-		try {
-			await request()
-		} catch (failure) {
-			settle()
-			throw failure
-		}
-		await (list === 'bots' ? reloadBots() : reloadRunners()).finally(settle)
-	}
+	const removeRow = (list, name, request) =>
+		(list === 'bots' ? botList : runnerList).remove(name, request)
 	const reloads = {
 		server: reloadServer,
 		threads: reloadThreads,
 		archived: reloadArchivedThreads,
-		runners: reloadRunners,
-		bots: reloadBots,
-		inbox: reloadInbox,
+		runners: runnerList.reload,
+		bots: botList.reload,
+		inbox: inboxList.reload,
 	}
 	/** Every list, once the socket is open, so no change slips between a fetch and the socket; bots and inbox wait for the modules */
 	const reload = () => {
 		reloadServer().then(() => {
-			reloadBots()
-			reloadInbox()
+			botList.reload()
+			inboxList.reload()
 		})
 		reloadThreads()
 		reloadArchivedThreads()
-		reloadRunners()
+		runnerList.reload()
 	}
 	/** The socket names the lists that changed; a reconnect may have missed some, so it fetches them all */
 	const changed = (message) => message.changed?.forEach((list) => reloads[list]?.())
@@ -445,12 +403,12 @@ export const {
 	return {
 		threads,
 		archivedThreads,
-		runners,
+		runners: runnerList.rows,
 		server,
 		behind,
 		changes,
-		bots,
-		inbox,
+		bots: botList.rows,
+		inbox: inboxList.rows,
 		dismiss,
 		threadOf,
 		threadRows,
@@ -459,7 +417,7 @@ export const {
 		closeColumn,
 		reloadThreads,
 		reloadArchivedThreads,
-		reloadBots,
+		reloadBots: botList.reload,
 		changeThread,
 		removeRow,
 	}
@@ -479,6 +437,9 @@ export function archiveThread(id, archived) {
 }
 export const renameThread = (id, title) =>
 	changeThread(id, { title }, () => api(`/api/threads/${id}/title`, { title }))
+/** Changes a bot, then shows it changed */
+export const saveBot = (name, change) =>
+	api('/api/bots', { name, ...change }).then(() => reloadBots())
 export const forgetBot = (name) =>
 	removeRow('bots', name, () => api(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE'))
 export const revokeRunner = (name) =>

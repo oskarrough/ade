@@ -37,11 +37,8 @@ export function Settings() {
 	const overridden = (name) => server().settings?.overrides.includes(name)
 	const editable = () => draft.state === ''
 	const on = (module) => draft.modules[module.name] ?? module.on
-	const model = () => draft.model ?? server().settings?.memory.model ?? ''
-	const compactAt = () => draft.compactAt ?? server().settings?.memory.compactAt ?? 100000
-	const botsVoice = () => draft.botsVoice ?? server().settings?.bots?.voice ?? ''
-	/** A director option as it will be saved: the draft's, else the server's */
-	const directs = (field) => draft.director[field] ?? server().settings?.director?.[field]
+	const model = () => setting('memory', 'model')
+	const directs = (field) => setting('director', field)
 	const directorOption = (field, label, unit, least) =>
 		html`<div class="option compact-option">
 			<span>${label}</span>
@@ -69,8 +66,7 @@ export function Settings() {
 	const choose = (to) =>
 		setDraft((store) => {
 			const chosen = to.model ? formatAgent(to) : ''
-			if (picking() === 'director') store.director.model = chosen
-			else store.model = chosen
+			store[picking() === 'director' ? 'director' : 'memory'].model = chosen
 		})
 	const chosen = () => agentTo(picking() === 'director' ? directs('model') : model())
 	const save = busy(async () => {
@@ -78,15 +74,15 @@ export function Settings() {
 		try {
 			const { restarts } = await api('/api/settings', {
 				modules: snapshot(draft.modules),
-				...(Object.keys(memoryChanges()).length && { memory: memoryChanges() }),
-				...(Object.keys(directorChanges()).length && { director: directorChanges() }),
-				...(Object.keys(botsChanges()).length && { bots: botsChanges() }),
+				...Object.fromEntries(
+					SECTIONS.map((section) => [section, changesIn(section)]).filter(
+						([, changed]) => Object.keys(changed).length,
+					),
+				),
 			})
 			setDraft((store) => {
 				store.modules = {}
-				store.director = {}
-				for (const field of MEMORY_FIELDS) store[field] = undefined
-				store.botsVoice = undefined
+				for (const section of SECTIONS) store[section] = {}
 				store.state = restarts ? 'restarting' : 'stopped'
 			})
 		} catch (error) {
@@ -282,11 +278,11 @@ export function Settings() {
 												step="10"
 												aria-label="Compacts past, in thousands of tokens"
 												disabled=${() => !editable()}
-												value=${() => Math.round(compactAt() / 1000)}
+												value=${() => Math.round(setting('memory', 'compactAt') / 1000)}
 												onChange=${(event) => {
 													const thousands = Number(event.currentTarget.value)
 													if (thousands > 0)
-														setDraft((store) => void (store.compactAt = thousands * 1000))
+														setDraft((store) => void (store.memory.compactAt = thousands * 1000))
 												}}
 											/>
 											<span>k tokens</span>
@@ -304,9 +300,9 @@ export function Settings() {
 											rows="6"
 											aria-label="Shared bot instructions"
 											disabled=${() => !editable()}
-											value=${() => botsVoice()}
+											value=${() => setting('bots', 'voice')}
 											onInput=${(event) =>
-												setDraft((store) => void (store.botsVoice = event.currentTarget.value))}
+												setDraft((store) => void (store.bots.voice = event.currentTarget.value))}
 										></textarea>
 									</div>
 								<//>
@@ -366,45 +362,23 @@ const shown = (text) => {
 	return to.runner ? writtenTo(to) : writtenTo({ ...to, runner: '' }).slice(0, -1)
 }
 
-/** Changes not saved yet, kept if the settings close before saving */
+/** Changes not saved yet, kept if the settings close before saving: module switches, then each section's fields */
 const [draft, setDraft] = createRoot(() =>
-	createStore({
-		modules: {},
-		model: undefined,
-		compactAt: undefined,
-		director: {},
-		botsVoice: undefined,
-		state: '',
-	}),
+	createStore({ modules: {}, memory: {}, director: {}, bots: {}, state: '' }),
 )
-const MEMORY_FIELDS = ['model', 'compactAt']
-/** Memory's fields that differ from what the server runs */
-const memoryChanges = () =>
+const SECTIONS = ['memory', 'director', 'bots']
+/** What the server runs for a field it may leave unset */
+const DEFAULTS = { memory: { model: '', compactAt: 100000 }, director: {}, bots: { voice: '' } }
+const running = (section, field) =>
+	server().settings?.[section]?.[field] ?? DEFAULTS[section][field]
+/** A field as it will be saved: the draft's, else the server's */
+const setting = (section, field) => draft[section][field] ?? running(section, field)
+/** A section's fields that differ from what the server runs */
+const changesIn = (section) =>
 	Object.fromEntries(
-		MEMORY_FIELDS.filter(
-			(field) =>
-				draft[field] !== undefined &&
-				draft[field] !==
-					(field === 'model'
-						? (server().settings?.memory.model ?? '')
-						: (server().settings?.memory.compactAt ?? 100000)),
-		).map((field) => [field, draft[field]]),
+		Object.entries(draft[section]).filter(([field, value]) => value !== running(section, field)),
 	)
-/** The director's fields that differ from what the server runs */
-const directorChanges = () =>
-	Object.fromEntries(
-		Object.entries(draft.director).filter(
-			([field, value]) => value !== server().settings?.director?.[field],
-		),
-	)
-/** The shared bot voice, when it differs from what the server runs */
-const botsChanges = () =>
-	draft.botsVoice !== undefined && draft.botsVoice !== (server().settings?.bots?.voice ?? '')
-		? { voice: draft.botsVoice }
-		: {}
-/** How many switches, memory, director and bots fields differ from what the server runs */
+/** How many switches and fields differ from what the server runs */
 const changes = () =>
 	Object.keys(draft.modules).length +
-	Object.keys(memoryChanges()).length +
-	Object.keys(directorChanges()).length +
-	Object.keys(botsChanges()).length
+	SECTIONS.reduce((count, section) => count + Object.keys(changesIn(section)).length, 0)

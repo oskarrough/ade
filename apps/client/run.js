@@ -290,43 +290,41 @@ export function heard(conversation, entries, { whole, older, cut } = {}) {
 }
 
 /**
- * Where an agent's newest compaction cuts, as the thread's message ids: the first message of the first delivery the agent still reads whole.
+ * Where an agent's newest compaction cuts, as the thread's message ids, or `null`: the first message of the first delivery the agent still reads whole.
  * Older compactions are history the agent no longer reads, so they don't show. `memory` is whether the summary is the thread's memory lines, or Pi's own.
  */
-export function cutsOf(conversation) {
-	const cut = compactions[conversation]
-	return (cut ? [cut] : []).flatMap((entry) => {
-		const { first } = entry
-		const summary = messageText(entry.model?.[0]) || ''
-		// With memory the summary is its lines, `id+n|text`; otherwise it is Pi's own text
-		const lines = [...summary.matchAll(/^(\d+)\+(\d+)\|(.*)$/gm)].map((line) => ({
-			key: `${conversation}:${line[1]}+${line[2]}`,
-			at: Number(line[1]),
-			n: Number(line[2]),
-			text: line[3],
-		}))
-		for (let index = lines.length - 1; index >= 0; index--) {
-			const line = lines[index]
-			if (!line.text.includes('not summarized yet')) continue
-			const next = lines[index + 1]
-			if (next?.text.includes('not summarized yet') && line.at + line.n === next.at) {
-				line.n += next.n
-				lines.splice(index + 1, 1)
-			}
-			line.text = `messages ${line.at}–${line.at + line.n - 1} not summarized yet`
+export function cutOf(conversation) {
+	const entry = compactions[conversation]
+	if (!entry) return null
+	const { first } = entry
+	const summary = messageText(entry.model?.[0]) || ''
+	// With memory the summary is its lines, `id+n|text`; otherwise it is Pi's own text
+	const lines = [...summary.matchAll(/^(\d+)\+(\d+)\|(.*)$/gm)].map((line) => ({
+		key: `${conversation}:${line[1]}+${line[2]}`,
+		at: Number(line[1]),
+		n: Number(line[2]),
+		text: line[3],
+	}))
+	for (let index = lines.length - 1; index >= 0; index--) {
+		const line = lines[index]
+		if (!line.text.includes('not summarized yet')) continue
+		const next = lines[index + 1]
+		if (next?.text.includes('not summarized yet') && line.at + line.n === next.at) {
+			line.n += next.n
+			lines.splice(index + 1, 1)
 		}
-		return [
-			{
-				key: `${conversation}:cut:${entry.id}`,
-				id: entry.id,
-				at: first - 0.5,
-				memory: lines.length > 0,
-				lines: lines.length
-					? lines
-					: [{ key: `${conversation}:summary:${entry.id}`, at: 0, n: first, text: summary }],
-			},
-		]
-	})
+		line.text = `messages ${line.at}–${line.at + line.n - 1} not summarized yet`
+	}
+	return {
+		key: `${conversation}:cut:${entry.id}`,
+		cut: true,
+		id: entry.id,
+		at: first - 0.5,
+		memory: lines.length > 0,
+		lines: lines.length
+			? lines
+			: [{ key: `${conversation}:summary:${entry.id}`, at: 0, n: first, text: summary }],
+	}
 }
 
 /** A conversation cut into turns: each begins with a delivery and holds the calls, results and words that follow it */
@@ -412,7 +410,7 @@ export function timesOf(conversation) {
 }
 
 export const newestCut = (cuts) =>
-	cuts.reduce((best, cut) => (!best || cut.id > best.id ? cut : best), null)
+	cuts.reduce((best, cut) => (cut && (!best || cut.id > best.id) ? cut : best), null)
 
 /**
  * The tool calls that change something lasting beyond the run, by name, each with whether a finished call did: these get

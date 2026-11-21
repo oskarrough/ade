@@ -17,6 +17,8 @@ import { ThreadList } from './thread-list.js'
 import { Wires } from './wires.js'
 import { QuoteButton } from './quote.js'
 
+const SIDE_PAGES = { canvas: Canvas, director: Director, recap: Recap }
+
 export function System() {
 	const shown = createMemo(() => columns().map(threadOf).filter(Boolean))
 	const agents = createMemo(() =>
@@ -99,14 +101,7 @@ export function System() {
 								<${Show} when=${() => sideOf(id)}>
 									<${SideEdge} />
 									<${Show} when=${() => sideOf(id)?.key} keyed>
-										${(key) =>
-											key === 'canvas'
-												? html`<${Canvas} id=${id} />`
-												: key === 'director'
-													? html`<${Director} id=${id} />`
-													: key === 'recap'
-														? html`<${Recap} id=${id} />`
-														: html`<${DetailsPage} id=${id} />`}
+										${(key) => html`<${SIDE_PAGES[key] ?? DetailsPage} id=${id} />`}
 									<//>
 									<${SideEdge} after />
 								<//>

@@ -10,7 +10,7 @@ const HOUR = 3_600_000
 /** Midnight before `time`, local */
 const dayOf = (time) => new Date(time).setHours(0, 0, 0, 0)
 /** 14:32, whatever the locale's habit */
-export const clockOf = (time) =>
+const clockOf = (time) =>
 	new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 
 /** now, 4m, 2h today; before today, the clock time */

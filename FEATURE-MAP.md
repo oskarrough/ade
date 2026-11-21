@@ -113,9 +113,10 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   checker declarations for browser-only CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
   client.js              root: just the chat, or the live system around it
-  server.js              the server as the client sees it: api, watch, lists (threads, runners, bots), fetched once the socket opens; withFamilies, each thread's family from parent and forks,
+  server.js              the server as the client sees it: api, watch, lists (threads, runners, bots, inbox), fetched once the socket opens; withFamilies, each thread's family from parent and forks,
                          threadOf, current, openThread, fork, entries store, earlier and loadEarlier (the page before, or all)
-                         changeThread/removeRow: archive, unarchive, rename, forget a bot and revoke a runner show at once, put the row back if the server refuses
+                         optimistically: archive, rename, dismiss, forget a bot and revoke a runner show at once, put the row back if the server refuses
+                         (changeThread; removable, a list whose rows you can take away)
                          me, who the server takes this page for (GET /api/server's `me`), only to mark your messages; a `#key=` link
                          trades the owner key for a cookie (POST /api/me) and leaves the address
   thread.js              one thread on screen
@@ -126,17 +127,17 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          live turn, compaction cuts, folded memory lines
     Asked                in a bot's home, a question another thread asked it, a received `Cross` row; the bot's answer follows as its own Message (askedHere)
     Message              one message: author, the director's pick, fork link, Body, Images; one that crossed threads is a `Cross` step row;
-                         an answer to someone further up says whom (replyToOf in rows); a Stop is one grey line naming who pressed it
+                         an answer to someone further up says whom (replyTo in rows); a Stop is one grey line naming who pressed it
     Body, threadLink     a message's markdown; a thread it mentions by title is a link that opens it
   run.js                 an agent's turns, from its own conversation
     heard, conversations the conversation entries the socket brings
-    turnsOf, cutsOf      a conversation cut into turns, and where its newest compaction cut it, as the socket's `cut` says (compactions)
+    turnsOf, cutOf       a conversation cut into turns, and where its newest compaction cut it, as the socket's `cut` says (compactions)
     timesOf              when its deliveries went out and its entries were written: dates messages from before createdAt
     summary              a closed turn's one line ("edited 2 files · 1 command")
     Exchange             an ask's own row in the asking thread: a sent `Cross` row, then the answer as a received one
     answersIn, answerOf  a post step's answer from the thread it asked
     LASTING, lastingOf   the tool calls that change something beyond the run, each its own row: posts that ask, `bot` rewrites,
-                         canvas_act (canvas.js CanvasRow)
+                         canvas_act (canvas.js CanvasRow), wake (wake.js WakeSet)
     Changed              a bot rewriting itself: ✎, its name, what changed; opened, a word diff of old against new (the call's details.before; jsdiff from esm.sh on first open, wordDiff), unchanged stretches folded into ⋯ (Fold)
     Turn, Step, Call     a turn's line, opened into steps
     handedStep, light, litIn   the handed step as a count (none for the one message above); opened, it lights those messages
@@ -179,9 +180,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   recap.js               the side column's Recap tab: the recap as rows (topicsOf, Topic), a check when done, else a dot that works
                          while a thread it names is working; Page, whose #message-N links scroll the thread there; the refresh icon pulses while it's rewritten
   side.js                the side column: its pages (pagesOf: details, recap, canvas, director when on and the thread is a group), which one each thread shows
+                         (sideOf, openSide, toggleSide), its tabs (PageTabs); system.js puts the page beside the thread
   director.js            the side column's Director tab: the director's activity events as rows (heardActivity, said), kept on this page only
-                         (sideOf, openSide, toggleSide), its tabs (PageTabs);
-                         system.js puts the page beside the thread
   agent-memory.js        memory popover and compaction view for the visible thread
   icons.js               Icon: the client's stroke icons (up, back, plus, close, next, check, again, settings), one viewBox and weight
   title.js               defaultTitle shared by new-thread client paths, CLI, post and auto-title
@@ -223,7 +223,7 @@ Where a feature lives:
 - Live work you watch: server.js work/doing/watch, client agent.js doing, run.js Turn.
 - Recaps: modules/recap.js, client recap.js, side.js (its tab and header button), thread.js (data-message), system.js (the column).
 - Canvas: modules/canvas.js (rooms, tools, the socket, the actions' schema in apps/client/canvas/agent), client canvas.js (fitLabels), server.js upgrade (a module's `connect` takes /api/threads/:id/<module> sockets), client canvas.js, side.js PageTabs, system.js (which page the column shows).
-- Memory and compaction: modules/memory.js, server.js compact/compactingAt, client agent-memory.js, thread.js rows (cuts, folded lines), run.js cutsOf.
+- Memory and compaction: modules/memory.js, server.js compact/compactingAt, client agent-memory.js, thread.js rows (cuts, folded lines), run.js cutOf.
 - Bots: modules/bots.js (DEFAULT_VOICE, voice, settings), client bot.js, composer.js PickerBot, client server.js homeBot/botAgent, client settings.js (the bots row's textarea); a bot's colour is server.js `colorOf` (its picked `color` hue, else by the order bots were made), picked in bot.js `BotSettings` `.colors`.
 - Runners and keys: remote.js, runner.js, server.js mintKey/revoke/upgrade, client runner.js.
 - Forks: server.js forkThread/seenBy, client server.js fork, thread.js Message (fork link).

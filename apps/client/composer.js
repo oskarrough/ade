@@ -32,8 +32,8 @@ import {
 	homeBot,
 	loadEarlier,
 	openThread,
-	reloadBots,
 	runners,
+	saveBot,
 	sending,
 	server,
 	threadRows,
@@ -865,10 +865,7 @@ const setPick = (to, bots, thread = current(), held = false) =>
 /** Choosing a model replaces the agent's pick and keeps the bots; in a bot's home, it is the bot's own model */
 export function choose(to, always = true, thread = current()) {
 	const bot = homeBot(thread)
-	if (bot)
-		return api('/api/bots', { name: bot.name, to: { ...to, name: undefined } })
-			.then(() => reloadBots())
-			.catch(report)
+	if (bot) return saveBot(bot.name, { to: { ...to, name: undefined } }).catch(report)
 	if (always || agent(thread)?.runner === to.runner)
 		setPick(to, snapshot(askedBots(thread)), thread)
 	else setCompose((store) => void (store.settings[to.runner] = to))

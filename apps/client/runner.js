@@ -2,7 +2,7 @@
 import html from '@solidjs/html'
 import { createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
 import { api, minted, revokeRunner, runners, setMinted, threadRows } from './server.js'
-import { rowOf, doing, lastToolCall, modelsOf, thinkingWord } from './agent.js'
+import { rowOf, lastToolCall, modelsOf, thinkingWord } from './agent.js'
 import { choose, configure, recipients, toFor } from './composer.js'
 import { placePopover } from './popover.js'
 import { Panes } from './panes.js'
@@ -117,10 +117,7 @@ const dotOf = (runner) =>
 function AgentRow(props) {
 	const agents = () => props.agents.filter((agent) => rowOf(agent.to) === rowOf(props.to))
 	const status = () => props.runner.agents?.[rowOf(props.to)] ?? 'idle'
-	const call = () =>
-		agents()
-			.map((agent) => lastToolCall(doing[agent.thread]?.[agent.conversation]))
-			.find(Boolean)
+	const call = () => lastToolCall(agents())
 	return html`
 		<li data-agent=${() => rowOf(props.to)}>
 			${() => props.children}
@@ -189,10 +186,7 @@ function RunnerItem(props) {
 	const work = createMemo(() => asking('working'))
 	/** Threads asking it while it's away */
 	const waiting = createMemo(() => [...new Set(asking('blocked').map((work) => work.title))])
-	const call = () =>
-		work()
-			.map((agent) => lastToolCall(doing[agent.thread]?.[agent.conversation]))
-			.find(Boolean)
+	const call = () => lastToolCall(work())
 	const revoke = busy(async () => {
 		const { name } = props.runner
 		await revokeRunner(name)

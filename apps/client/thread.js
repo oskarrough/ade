@@ -15,6 +15,8 @@ import {
 	reconcile,
 	runWithOwner,
 	Show,
+	Switch,
+	Match,
 	untrack,
 } from 'solid-js'
 import {
@@ -50,7 +52,7 @@ import {
 	answersIn,
 	Changed,
 	conversations,
-	cutsOf,
+	cutOf,
 	Exchange,
 	heard,
 	lastingOf,
@@ -172,7 +174,7 @@ export function Thread(props) {
 			runWithOwner(owner, () =>
 				memos.set(conversation, {
 					turns: createMemo(() => turnsOf(conversation)),
-					cuts: createMemo(() => cutsOf(conversation)),
+					cut: createMemo(() => cutOf(conversation)),
 					times: createMemo(() => timesOf(conversation)),
 				}),
 			)
@@ -186,11 +188,7 @@ export function Thread(props) {
 	/** The newest compaction's cut, once the messages on screen reach it */
 	const cut = createMemo(() => {
 		const newest = newestCut(
-			(latest(thread)?.agents ?? []).flatMap((agent) =>
-				perConversation(agent.conversation)
-					.cuts()
-					.map((cut) => ({ ...cut, cut: true })),
-			),
+			(latest(thread)?.agents ?? []).map((agent) => perConversation(agent.conversation).cut()),
 		)
 		return newest && newest.at >= start() ? newest : null
 	})
@@ -274,26 +272,11 @@ export function Thread(props) {
 					lastingOf(row.turn.steps).map((step, index) => {
 						const at = row.at + (index + 1) / 1000
 						const time = step.result.time
-						if (step.name === 'canvas_act')
+						const kind = { canvas_act: 'drew', wake: 'wake', post: 'ask' }[step.name] ?? 'changed'
+						if (kind !== 'ask')
 							return {
 								key: `${row.key}:${step.name}:${step.key}`,
-								drew: step,
-								agent: row.agent,
-								at,
-								time,
-							}
-						if (step.name === 'wake')
-							return {
-								key: `${row.key}:${step.name}:${step.key}`,
-								wake: step,
-								agent: row.agent,
-								at,
-								time,
-							}
-						if (step.name !== 'post')
-							return {
-								key: `${row.key}:${step.name}:${step.key}`,
-								changed: step,
+								[kind]: step,
 								agent: row.agent,
 								at,
 								time,
@@ -778,127 +761,102 @@ export function Thread(props) {
 							<${Show} when=${() => row().break}>
 								<${Break} kind=${() => row().break} time=${() => row().time} />
 							<//>
-							<${Show}
-								when=${() => !row().cut && !row().line}
+							<${Switch}
 								fallback=${() => html`
-									<${Show}
-										when=${() => row().cut}
-										fallback=${() => html`
-											<li
-												class="line"
-												title=${() => `messages ${row().at} to ${row().at + row().n - 1}`}
-											>
-												<details>
-													<summary
-														onClick=${() => {
-															if (row().text.includes('not summarized yet'))
-																api(
-																	`/api/threads/${props.id}/memory?zoom=${row().at},${row().n}`,
-																).then((opened) =>
-																	setOpenedGaps((all) => {
-																		all[row().key] =
-																			opened.message ??
-																			opened.lines.map((line) => line.text).join('\n')
-																	}),
-																)
-														}}
-													>
-														<small>${() => firstLine(row().text)}</small>
-													</summary>
-													<div
-														class="body markdown"
-														innerHTML=${() => markdown(stripSummaryTag(openedGaps[row().key] ?? (row().text.includes('not summarized yet') ? 'Opening…' : row().text)), links)}
-													/>
-												</details>
-											</li>
-										`}
-									>
-										<li class="cut mute">
-											<button type="button" onClick=${() => setUnfolded((on) => !on)}>
-												${() =>
-													(unfolded() ? 'fold again: ' : 'unfold: ') +
-													(row().memory
-														? 'above here the agent reads the memory lines'
-														: 'above here the agent reads a summary')}
-											</button>
-										</li>
-									<//>
+									<${Message}
+										time=${() => row().time}
+										thread=${() => row().thread ?? props.id}
+										entry=${() => row().entry}
+										forks=${() => forks()}
+										at=${() =>
+											earlier[props.id] || row().thread
+												? undefined
+												: positions().get(row().entry.id)}
+										sent=${() => row().sent}
+										above=${() => row().above}
+										replyTo=${() => row().replyTo}
+									/>
 								`}
 							>
-								<${Show}
-									when=${() => !row().drew}
-									fallback=${() => html`
-										<${CanvasRow}
-											time=${() => row().time}
-											step=${() => row().drew}
-											agent=${() => row().agent}
-											thread=${() => props.id}
-										/>
-									`}
-								>
-									<${Show}
-										when=${() => !row().changed && !row().wake}
-										fallback=${() =>
-											row().wake
-												? html`<${WakeSet} step=${() => row().wake} agent=${() => row().agent} />`
-												: html`<${Changed}
-														step=${() => row().changed}
-														agent=${() => row().agent}
-													/>`}
+								<${Match} when=${() => row().cut}>
+									<li class="cut mute">
+										<button type="button" onClick=${() => setUnfolded((on) => !on)}>
+											${() =>
+												(unfolded() ? 'fold again: ' : 'unfold: ') +
+												(row().memory
+													? 'above here the agent reads the memory lines'
+													: 'above here the agent reads a summary')}
+										</button>
+									</li>
+								<//>
+								<${Match} when=${() => row().line}>
+									<li
+										class="line"
+										title=${() => `messages ${row().at} to ${row().at + row().n - 1}`}
 									>
-										<${Show}
-											when=${() => !row().asked}
-											fallback=${() => html`
-												<${Asked}
-													time=${() => row().time}
-													thread=${() => row().asked}
-													question=${() => row().question}
-												/>
-											`}
-										>
-											<${Show}
-												when=${() => !row().ask}
-												fallback=${() => html`
-													<${Exchange}
-														time=${() => row().time}
-														thread=${() => props.id}
-														step=${() => row().ask}
-														agent=${() => row().agent}
-														answer=${() => row().answer}
-														back=${() => row().back}
-													/>
-												`}
+										<details>
+											<summary
+												onClick=${() => {
+													if (row().text.includes('not summarized yet'))
+														api(`/api/threads/${props.id}/memory?zoom=${row().at},${row().n}`).then(
+															(opened) =>
+																setOpenedGaps((all) => {
+																	all[row().key] =
+																		opened.message ??
+																		opened.lines.map((line) => line.text).join('\n')
+																}),
+														)
+												}}
 											>
-												<${Show}
-													when=${() => row().turn || row().live}
-													fallback=${() => html`
-														<${Message}
-															time=${() => row().time}
-															thread=${() => row().thread ?? props.id}
-															entry=${() => row().entry}
-															forks=${() => forks()}
-															at=${() =>
-																earlier[props.id] || row().thread
-																	? undefined
-																	: positions().get(row().entry.id)}
-															sent=${() => row().sent}
-															above=${() => row().above}
-															replyTo=${() => row().replyTo}
-														/>
-													`}
-												>
-													<${Turn}
-														time=${() => row().time}
-														thread=${() => props.id}
-														agent=${() => row().agent}
-														turn=${() => row().turn}
-														live=${() => row().live}
-														above=${() => row().above}
-													/>
-												<//>
-											<//>
-										<//>
-									<//>
+												<small>${() => firstLine(row().text)}</small>
+											</summary>
+											<div
+												class="body markdown"
+												innerHTML=${() => markdown(stripSummaryTag(openedGaps[row().key] ?? (row().text.includes('not summarized yet') ? 'Opening…' : row().text)), links)}
+											/>
+										</details>
+									</li>
+								<//>
+								<${Match} when=${() => row().drew}>
+									<${CanvasRow}
+										time=${() => row().time}
+										step=${() => row().drew}
+										agent=${() => row().agent}
+										thread=${() => props.id}
+									/>
+								<//>
+								<${Match} when=${() => row().wake}>
+									<${WakeSet} step=${() => row().wake} agent=${() => row().agent} />
+								<//>
+								<${Match} when=${() => row().changed}>
+									<${Changed} step=${() => row().changed} agent=${() => row().agent} />
+								<//>
+								<${Match} when=${() => row().asked}>
+									<${Asked}
+										time=${() => row().time}
+										thread=${() => row().asked}
+										question=${() => row().question}
+									/>
+								<//>
+								<${Match} when=${() => row().ask}>
+									<${Exchange}
+										time=${() => row().time}
+										thread=${() => props.id}
+										step=${() => row().ask}
+										agent=${() => row().agent}
+										answer=${() => row().answer}
+										back=${() => row().back}
+									/>
+								<//>
+								<${Match} when=${() => row().turn || row().live}>
+									<${Turn}
+										time=${() => row().time}
+										thread=${() => props.id}
+										agent=${() => row().agent}
+										turn=${() => row().turn}
+										live=${() => row().live}
+										above=${() => row().above}
+									/>
 								<//>
 							<//>
 						`}<//

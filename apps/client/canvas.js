@@ -56,7 +56,7 @@ const editors = new Map()
 const waiting = new Map()
 
 /** Opens a thread's canvas on an area of it, or just opens it */
-export function showOnCanvas(id, box) {
+function showOnCanvas(id, box) {
 	openSide(id, 'canvas')
 	if (!box) return
 	const editor = editors.get(id)

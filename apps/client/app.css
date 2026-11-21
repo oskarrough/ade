@@ -1,27 +1,23 @@
 /* The app: the chat fills the window. The walkthrough, when it's on, lays its story over this. */
 
 /* The two lists that scroll: a thin bar, quiet until you touch it. */
-.thread-list > ul,
-.thread > ul {
+:is(.thread-list, .thread) > ul {
 	overscroll-behavior: contain;
 	scrollbar-width: thin;
 	scrollbar-color: var(--edge) transparent;
 }
 
-.thread-list > ul::-webkit-scrollbar,
-.thread > ul::-webkit-scrollbar {
+:is(.thread-list, .thread) > ul::-webkit-scrollbar {
 	width: 6px;
 	height: 6px;
 }
 
-.thread-list > ul::-webkit-scrollbar-thumb,
-.thread > ul::-webkit-scrollbar-thumb {
+:is(.thread-list, .thread) > ul::-webkit-scrollbar-thumb {
 	background: var(--edge);
 	border-radius: 99px;
 }
 
-.thread-list > ul::-webkit-scrollbar-track,
-.thread > ul::-webkit-scrollbar-track {
+:is(.thread-list, .thread) > ul::-webkit-scrollbar-track {
 	background: none;
 }
 
@@ -1155,16 +1151,20 @@ agent-memory {
 	}
 }
 
-/* Its instructions are written like a message: the composer's box, growing with what's in it, up to a dozen lines, then it scrolls so Threads stays in view. */
-.thread-details .instructions {
+/* Instructions are written like a message: the composer's box, growing with what's in it, up to a dozen lines, then it scrolls so what's under it stays in view. */
+.thread-details .instructions,
+.popover:has(> .panes) .options > textarea {
 	display: block;
-	width: calc(100% - 2 * var(--space-2));
 	box-sizing: border-box;
 	field-sizing: content;
 	min-height: 4lh;
 	max-height: 12lh;
 	overflow-y: auto;
 	resize: none;
+}
+
+.thread-details .instructions {
+	width: calc(100% - 2 * var(--space-2));
 }
 
 .thread-details #members {
@@ -1205,8 +1205,7 @@ agent-memory {
 		background: var(--tint);
 	}
 
-	.thread-list > ul > li:hover:not(.current, :active),
-	.thread-family > li:hover:not(.current, :active) {
+	:is(.thread-list > ul, .thread-family) > li:hover:not(.current, :active) {
 		background: var(--step);
 	}
 
@@ -1482,17 +1481,9 @@ agent-memory {
 		flex-wrap: wrap;
 	}
 
-	/* Like .thread-details .instructions: grows with what's typed, up to a few lines, then scrolls */
 	.options > textarea {
-		display: block;
 		width: 100%;
-		box-sizing: border-box;
-		field-sizing: content;
 		margin-top: var(--space-2);
-		min-height: 4lh;
-		max-height: 12lh;
-		overflow-y: auto;
-		resize: none;
 	}
 
 	.compact-option {

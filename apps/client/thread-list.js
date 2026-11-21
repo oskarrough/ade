@@ -62,22 +62,16 @@ export function ThreadList() {
 					<//>
 				</ul>
 				<${Show} when=${() => server().modules.includes('inbox')}>
-					<button
-						type="button"
-						class=${() => ['ghost small foot-toggle blocked-toggle', { some: inbox.length }]}
-						aria-pressed=${() => String(inboxOpen())}
-						aria-label=${() => (inbox.length ? `Inbox, ${inbox.length}` : 'Inbox')}
-						onClick=${() => {
+					<${Counted}
+						word="Inbox"
+						count=${() => inbox.length}
+						pressed=${inboxOpen}
+						onClick=${(_e) => {
 							setArchivedPage(false)
 							if (inboxOpen()) openThread(current())
 							else openInbox()
 						}}
-					>
-						<span>Inbox</span>
-						<${Show} when=${() => inbox.length}
-							><small class="count" aria-hidden="true">${() => inbox.length}</small><//
-						>
-					</button>
+					/>
 				<//>
 				<${Show} when=${() => server().modules.includes('bots')}>
 					<h2>Bots</h2>
@@ -116,21 +110,15 @@ export function ThreadList() {
 				<${Show}
 					when=${() => server().modules.includes('blocked') && !server().modules.includes('inbox')}
 				>
-					<button
-						type="button"
-						class=${() => ['ghost small foot-toggle blocked-toggle', { some: blocked() }]}
-						aria-pressed=${() => String(blockedOnly())}
-						aria-label=${() => (blocked() ? `Blocked, ${blocked()}` : 'Blocked')}
-						onClick=${() => {
+					<${Counted}
+						word="Blocked"
+						count=${blocked}
+						pressed=${blockedOnly}
+						onClick=${(_e) => {
 							setArchivedPage(false)
 							setBlockedOnly((value) => !value)
 						}}
-					>
-						<span>Blocked</span>
-						<${Show} when=${() => blocked()}
-							><small class="count" aria-hidden="true">${() => blocked()}</small><//
-						>
-					</button>
+					/>
 				<//>
 				<${Show} when=${behind}>
 					<button
@@ -153,6 +141,24 @@ export function ThreadList() {
 				<${Settings} />
 			</footer>
 		</nav>
+	`
+}
+
+/** A foot toggle whose count sits beside its word, like an unread count; with some, its word goes ink */
+function Counted(props) {
+	return html`
+		<button
+			type="button"
+			class=${() => ['ghost small foot-toggle blocked-toggle', { some: props.count }]}
+			aria-pressed=${() => String(props.pressed)}
+			aria-label=${() => (props.count ? `${props.word}, ${props.count}` : props.word)}
+			onClick=${(event) => props.onClick(event)}
+		>
+			<span>${() => props.word}</span>
+			<${Show} when=${() => props.count}
+				><small class="count" aria-hidden="true">${() => props.count}</small><//
+			>
+		</button>
 	`
 }
 

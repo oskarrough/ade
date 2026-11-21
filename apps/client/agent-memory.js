@@ -12,7 +12,7 @@ import {
 	untrack,
 } from 'solid-js'
 import { api, connected, current, entries, server, threadOf } from './server.js'
-import { cutsOf, newestCut, plural } from './run.js'
+import { cutOf, newestCut, plural } from './run.js'
 
 /**
  * What compaction did to this thread's agent, as a tape of the thread: the part before the newest cut faint, one segment per memory line,
@@ -32,9 +32,7 @@ export function Compaction() {
 
 function CompactionOf(props) {
 	const cut = createMemo(() =>
-		newestCut(
-			(threadOf(props.thread)?.agents ?? []).flatMap((agent) => cutsOf(agent.conversation)),
-		),
+		newestCut((threadOf(props.thread)?.agents ?? []).map((agent) => cutOf(agent.conversation))),
 	)
 	const messages = () => entries[props.thread] ?? []
 	const older = () => (cut() ? messages().filter((entry) => entry.id < cut().at).length : 0)

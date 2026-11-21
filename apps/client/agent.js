@@ -60,10 +60,15 @@ export const messageText = (message) =>
 		.map((block) => block.text)
 		.join('')
 
-export const lastToolCall = (doing) => {
-	const tool = doing?.run && doing.tools.at(-1)
-	return tool ? `${tool.name} ${touched(tool.args) ?? ''}`.trim() : ''
-}
+/** The tool call the first of these agents still running is on, as a line: `bash ls` */
+export const lastToolCall = (agents) =>
+	agents
+		.map((agent) => {
+			const work = doing[agent.thread]?.[agent.conversation]
+			const tool = work?.run && work.tools.at(-1)
+			return tool ? `${tool.name} ${touched(tool.args) ?? ''}`.trim() : ''
+		})
+		.find(Boolean)
 
 export const touched = (args = {}) =>
 	args.command ?? args.path ?? args.pattern ?? args.query ?? args.code ?? args.body
