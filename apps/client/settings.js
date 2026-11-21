@@ -39,10 +39,7 @@ export function Settings() {
 	const model = () => draft.model ?? server().settings?.memory.model ?? ''
 	const compactAt = () => draft.compactAt ?? server().settings?.memory.compactAt ?? 100000
 	/** A director option as it will be saved: the draft's, else the server's */
-	const directs = (field) =>
-		field === 'model' && overridden('DIRECTOR_MODEL')
-			? server().settings?.director?.picks
-			: (draft.director[field] ?? server().settings?.director?.[field])
+	const directs = (field) => draft.director[field] ?? server().settings?.director?.[field]
 	const directorOption = (field, label, unit, least) =>
 		html`<div class="option compact-option">
 			<span>${label}</span>
@@ -80,7 +77,7 @@ export function Settings() {
 			const { restarts } = await api('/api/settings', {
 				modules: snapshot(draft.modules),
 				...(Object.keys(memoryChanges()).length && { memory: memoryChanges() }),
-				...(Object.keys(draft.director).length && { director: snapshot(draft.director) }),
+				...(Object.keys(directorChanges()).length && { director: directorChanges() }),
 			})
 			setDraft((store) => {
 				store.modules = {}
@@ -261,7 +258,7 @@ export function Settings() {
 												title=${() => model() || 'Haiku or Luna on each thread’s runner'}
 												onClick=${(event) => setPicking('memory')}
 											>
-												${() => (model() ? writtenTo(agentTo(model())) : 'Haiku or Luna')}
+												${() => (model() ? shown(model()) : 'Haiku or Luna')}
 											</button>
 										</div>
 										<div class="option compact-option">
@@ -298,8 +295,7 @@ export function Settings() {
 												title=${() => directs('model') || 'Haiku or Luna on each thread’s runner'}
 												onClick=${(event) => setPicking('director')}
 											>
-												${() =>
-													directs('model') ? writtenTo(agentTo(directs('model'))) : 'Haiku or Luna'}
+												${() => (directs('model') ? shown(directs('model')) : 'Haiku or Luna')}
 											</button>
 										</div>
 										${directorOption('context', 'Reads the last', 'messages', 1)}
@@ -316,6 +312,12 @@ export function Settings() {
 	`
 }
 
+/** A chosen model as a button shows it; one with no runner of its own runs on each thread's */
+const shown = (text) => {
+	const to = agentTo(text)
+	return to.runner ? writtenTo(to) : writtenTo({ ...to, runner: '' }).slice(0, -1)
+}
+
 /** Changes not saved yet, kept if the settings close before saving */
 const [draft, setDraft] = createRoot(() =>
 	createStore({
@@ -327,15 +329,27 @@ const [draft, setDraft] = createRoot(() =>
 	}),
 )
 const MEMORY_FIELDS = ['model', 'compactAt']
+/** Memory's fields that differ from what the server runs */
 const memoryChanges = () =>
 	Object.fromEntries(
-		MEMORY_FIELDS.filter((field) => draft[field] !== undefined).map((field) => [
-			field,
-			draft[field],
-		]),
+		MEMORY_FIELDS.filter(
+			(field) =>
+				draft[field] !== undefined &&
+				draft[field] !==
+					(field === 'model'
+						? (server().settings?.memory.model ?? '')
+						: (server().settings?.memory.compactAt ?? 100000)),
+		).map((field) => [field, draft[field]]),
+	)
+/** The director's fields that differ from what the server runs */
+const directorChanges = () =>
+	Object.fromEntries(
+		Object.entries(draft.director).filter(
+			([field, value]) => value !== server().settings?.director?.[field],
+		),
 	)
 /** How many switches, memory and director fields differ from what the server runs */
 const changes = () =>
 	Object.keys(draft.modules).length +
 	Object.keys(memoryChanges()).length +
-	Object.keys(draft.director).length
+	Object.keys(directorChanges()).length

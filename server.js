@@ -42,6 +42,7 @@ import {
 	byAgent,
 	speaker,
 	finished,
+	directorTimes,
 } from './util.js'
 import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
 
@@ -2246,21 +2247,12 @@ async function saveSettings({ modules: wanted = {}, memory, director }) {
 			if (model) next.director = { ...next.director, model }
 			else if (next.director) delete next.director.model
 		}
-		/** Each number, its least value and its default, which ade.json leaves out */
-		const numbers = {
-			context: { least: 1, fallback: 20, says: 'the director reads at least 1 message' },
-			timeout: { least: 1, fallback: 60, says: 'the director gives a pick at least 1 second' },
-			burst: { least: 0, fallback: 0, says: 'the director waits 0 seconds or more' },
-		}
-		for (const [field, { least, fallback, says }] of Object.entries(numbers)) {
+		/** Each number as given, checked as the director reads it; a default is left out of ade.json */
+		const fallbacks = { context: 20, timeout: 60, burst: 0 }
+		for (const [field, fallback] of Object.entries(fallbacks)) {
 			if (director[field] === undefined) continue
 			const value = Number(director[field])
-			if (
-				!Number.isFinite(value) ||
-				value < least ||
-				(field === 'context' && !Number.isInteger(value))
-			)
-				throw new Error(says)
+			directorTimes({ [field]: value })
 			if (value === fallback) delete next.director?.[field]
 			else next.director = { ...next.director, [field]: value }
 		}

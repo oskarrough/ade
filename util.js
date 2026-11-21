@@ -63,6 +63,23 @@ export function smallModel(to, runners, thinkingLevel) {
 			: 'openai-codex/gpt-6-luna'
 	return runners[to.runner]?.models?.[model] ? { runner: to.runner, model, thinkingLevel } : to
 }
+/** The director's numbers in ade.json, in seconds there, as whole milliseconds; out of range throws, so a typo never
+ * makes a timer fire at once. Left out, each takes its default. */
+export function directorTimes({ context = 20, timeout = 60, burst = 0 } = {}) {
+	const within = (value, least, most, says) => {
+		if (typeof value !== 'number' || !(value >= least && value <= most)) throw new Error(says)
+		return value
+	}
+	if (!Number.isInteger(context))
+		throw new Error('director.context is a whole number of messages, 1 to 200')
+	return {
+		context: within(context, 1, 200, 'director.context is a whole number of messages, 1 to 200'),
+		timeoutMs: Math.round(
+			within(timeout, 0.1, 600, 'director.timeout is 0.1 to 600 seconds') * 1000,
+		),
+		burstMs: Math.round(within(burst, 0, 60, 'director.burst is 0 to 60 seconds') * 1000),
+	}
+}
 /** A person's name as one line of printable text, so no author can write a speaker line of their own */
 export const speaker = (name) =>
 	[

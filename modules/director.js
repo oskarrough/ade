@@ -13,7 +13,7 @@
  */
 import { defineExtension } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { AGENT, agentTo, writtenTo, mentioned, smallModel } from '../util.js'
+import { AGENT, agentTo, writtenTo, mentioned, smallModel, directorTimes } from '../util.js'
 
 export const on = true
 
@@ -22,6 +22,8 @@ const SAID = 600
 const PERSONA = 300
 /** How many bot answers in a row, with no one else writing, before a bot's @mention summons no one */
 const REST = 3
+/** A message the director routed that never got saved, because its post failed, stops holding the next after this */
+const UNSAVED = 5000
 
 const RULES = `You choose who answers a new message in a group chat: one or more candidates, or nobody.
 
@@ -42,12 +44,13 @@ export function server(core) {
 	const own = core.config?.director ?? {}
 	const name = process.env.DIRECTOR_MODEL || own.model
 	const picks = own.picks !== false || Boolean(process.env.DIRECTOR_MODEL)
-	/** The messages it reads before the new one; seconds before a pick gives way to the thread agent; seconds it waits for more */
-	const context = own.context ?? 20
-	const timeout = own.timeout ?? 60
-	const burst = own.burst ?? 0
-	/** Per thread, the waiting message's hand-off: a newer message calls it, and the waiting one asks no one */
-	const waiting = new Map()
+	/** The messages it reads before the new one; how long before a pick gives way to the thread agent; how long it waits for more */
+	const { context, timeoutMs, burstMs } = directorTimes(own)
+	/**
+	 * Per thread, people's messages it has routed or is routing that aren't saved yet, oldest first. Each waits for the
+	 * one before it to be saved, so they land in the order they came and a pick reads only what came before it.
+	 */
+	const lines = new Map()
 
 	/**
 	 * The one judgment: given the recent messages, the new one and who could answer, `{names, reason}` with the
@@ -127,7 +130,7 @@ export function server(core) {
 					'off',
 				)
 		chooser.thinkingLevel ??= 'off'
-		const signal = AbortSignal.timeout(timeout * 1000)
+		const signal = AbortSignal.timeout(timeoutMs)
 		let decided
 		try {
 			decided = await decide(
@@ -149,17 +152,36 @@ export function server(core) {
 		return { to, picked: decided.reason }
 	}
 
-	/** Waits `burst` seconds for another message in the thread; true when one came and takes over the pick */
-	function newer(threadId) {
-		waiting.get(threadId)?.()
-		return new Promise((resolve) => {
-			const handOff = () => (clearTimeout(timer), resolve(true))
-			const timer = setTimeout(() => {
-				if (waiting.get(threadId) === handOff) waiting.delete(threadId)
-				resolve(false)
-			}, burst * 1000)
-			waiting.set(threadId, handOff)
-		})
+	/** Waits `burstMs` for a newer message: true when one with no @mention came and takes over the pick */
+	async function waitForMore(place) {
+		if (place.hurried === undefined)
+			await /** @type {Promise<void>} */ (
+				new Promise((resolve) => {
+					const timer = setTimeout(resolve, burstMs)
+					place.wake = () => (clearTimeout(timer), resolve())
+				})
+			)
+		return place.hurried ?? false
+	}
+
+	/** A routed message is saved, or given up on: the next in its thread's line goes on */
+	function settle(threadId, place) {
+		const line = lines.get(threadId)
+		if (!line?.includes(place)) return
+		line.splice(line.indexOf(place), 1)
+		if (!line.length) lines.delete(threadId)
+		place.saved()
+	}
+
+	/** Saving a person's message lets the one after it in the line go on */
+	function posted(_tx, threadId, entry) {
+		if (entry.data.answer) return
+		const place = lines
+			.get(threadId)
+			?.find(
+				(place) => place.author === entry.data.author && place.body === (entry.data.body ?? ''),
+			)
+		if (place) settle(threadId, place)
 	}
 
 	/** How many answers in a row end the thread, with no one else writing since */
@@ -175,6 +197,34 @@ export function server(core) {
 	 * bots it @mentions, and no one once bots have answered `REST` times in a row.
 	 */
 	async function direct(threadId, message, free) {
+		if (message.answer) return route(threadId, message, free)
+		const place = {
+			author: message.author,
+			body: message.body,
+			/** A newer message ends this one's burst wait: one with no @mention takes over the pick, any other lets it pick now */
+			hurry: (fold) => {
+				place.hurried ??= fold
+				place.wake?.()
+			},
+		}
+		place.done = new Promise((resolve) => (place.saved = resolve))
+		const line = lines.get(threadId) ?? []
+		lines.set(threadId, line)
+		const before = line.at(-1)
+		line.push(place)
+		try {
+			return await route(threadId, message, free, place, before)
+		} finally {
+			setTimeout(() => settle(threadId, place), UNSAVED).unref?.()
+		}
+	}
+
+	/**
+	 * Whom a message asks, `{to, picked?}`, or undefined to leave it to its own `to` or whom the thread asked last.
+	 * `free` is a message that names no one, which picks may answer. An `answer`, a bot's last words, asks only the
+	 * bots it @mentions, and no one once bots have answered `REST` times in a row.
+	 */
+	async function route(threadId, message, free, place = undefined, before = undefined) {
 		const { agents } = await core.thread(threadId)
 		const participants = (
 			await Promise.all(
@@ -188,6 +238,9 @@ export function server(core) {
 		).map((name) => here.find((agent) => agent.name === name))
 		if (message.answer)
 			return named.length && (await botTurns(threadId)) + 1 < REST ? { to: named } : undefined
+		const takesOver = free && !named.length && participants.length >= 2 && picks
+		before?.hurry(takesOver)
+		await before?.done
 		if (named.length) return { to: named }
 		if (!free || participants.length < 2) return undefined
 		if (!picks) {
@@ -197,7 +250,7 @@ export function server(core) {
 				picked: "Model picks are off; ask the thread's agent or @mention a bot.",
 			}
 		}
-		if (burst && (await newer(threadId)))
+		if (burstMs && (await waitForMore(place)))
 			return {
 				to: [],
 				picked: 'Another message came right after; the director picks for both there.',
@@ -224,12 +277,14 @@ export function server(core) {
 	return {
 		direct,
 		turns: true,
+		posted,
+		/** The model it picks with as written (DIRECTOR_MODEL's when set), empty for Haiku or Luna on each thread's runner */
 		settings: {
-			picks: picks ? name || true : false,
-			model: own.model ?? '',
+			picks,
+			model: name ?? '',
 			context,
-			timeout,
-			burst,
+			timeout: timeoutMs / 1000,
+			burst: burstMs / 1000,
 		},
 		extension: defineExtension({ name: 'ade.director', sections: [section] }),
 	}
