@@ -177,6 +177,8 @@ const Thread = defineDoc({
 		tools: null,
 		/** With memory on, whether this thread remembers; null takes memory's default */
 		memory: null,
+		/** The director's Pick task still deciding for this thread's newest message, which a newer one takes over */
+		pick: null,
 	}),
 })
 const Receipts = defineDocFamily({
@@ -503,7 +505,20 @@ for (const signal of ['SIGINT', 'SIGTERM'])
 const known = async () => (await harness.snapshot(Runners, context)) ?? {}
 const keys = async () => (await harness.snapshot(Keys, context)) ?? {}
 const thread = (id) => harness.snapshot(Thread, id, context)
-const commit = (fn) => harness.commit(async (tx) => fn(tx), context)
+/** Each commit's work for once it's stored, best-effort: a commit that throws runs none of it */
+const afterCommits = new WeakMap()
+const commit = async (fn) => {
+	const after = []
+	const result = await harness.commit(async (tx) => {
+		after.length = 0
+		afterCommits.set(tx, after)
+		return fn(tx)
+	}, context)
+	for (const run of after) run()
+	return result
+}
+/** Runs `run` once the commit `tx` belongs to is stored; outside the server's own commits, never */
+const afterCommit = (tx, run) => afterCommits.get(tx)?.push(run)
 const conversation = async (id) => {
 	const found = (await thread(id)) && (await harness.conversation(id, context))
 	if (!found) throw Object.assign(new Error('Thread not found'), { status: 404 })
@@ -696,24 +711,35 @@ const busiest = (statuses) =>
  * @returns {Promise<{ thread: number, conversation?: number, runner: string, row?: string, status: string }[]>}
  */
 async function work() {
-	const live = (await harness.inspect(context)).tasks.filter(({ record }) =>
+	const tasks = (await harness.inspect(context)).tasks
+	const live = tasks.filter(({ record }) =>
 		[Deliver.definition.name, Shell.definition.name].includes(record.kind),
 	)
-	return Promise.all(
-		live.map(async ({ record }) => {
-			const task = /** @type {any} */ (record)
-			const shell = task.kind === Shell.definition.name
-			const to = shell ? task.input.to : await agentOf(task.input.agent)
-			return {
-				thread: task.conversationId,
-				...(shell
-					? {}
-					: { conversation: task.input.agent, row: to && (to.name ?? `${to.model}@${to.runner}`) }),
-				runner: to?.runner,
-				status: to && runners.isOnline(to.runner) ? 'working' : 'blocked',
-			}
-		}),
-	)
+	/** A module's own work in a thread, like the director's pick, keeps it working and its Stop in reach */
+	const own = tasks
+		.filter(({ record }) => moduleWork.includes(record.kind))
+		.map(({ record }) => ({ thread: record.conversationId, runner: undefined, status: 'working' }))
+	return [
+		...own,
+		...(await Promise.all(
+			live.map(async ({ record }) => {
+				const task = /** @type {any} */ (record)
+				const shell = task.kind === Shell.definition.name
+				const to = shell ? task.input.to : await agentOf(task.input.agent)
+				return {
+					thread: task.conversationId,
+					...(shell
+						? {}
+						: {
+								conversation: task.input.agent,
+								row: to && (to.name ?? `${to.model}@${to.runner}`),
+							}),
+					runner: to?.runner,
+					status: to && runners.isOnline(to.runner) ? 'working' : 'blocked',
+				}
+			}),
+		)),
+	]
 }
 
 /** @returns {Promise<Agent[]>} */
@@ -847,6 +873,11 @@ async function append(
 	const data = { createdAt: now(), ...message, ...(to ? { to: names } : {}) }
 	const prior =
 		!empty && names.some((name) => !row.agents[keyOf(name)]) ? await messageIds(tx, threadId) : []
+	// A fresh message, an @mention too, takes over the pick still pending; whoever it asks reads that message too
+	if (row.pick && fresh({ kind: KIND, data })) {
+		await supersede?.(tx, threadId, row.pick)
+		row.pick = null
+	}
 	const entry = await tx.appendEntry(threadId, { kind: KIND, data })
 	for (const hook of posted) await hook(tx, threadId, entry)
 	for (const [key, agent] of Object.entries(row.agents))
@@ -860,6 +891,7 @@ async function append(
 					body: message.body,
 				})
 			: undefined
+	if (pick) row.pick = pick
 	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
 }
 
@@ -904,16 +936,17 @@ async function ask(tx, row, threadId, upTo, to, { steer = false, prior = [] } = 
  * The director's pick for a saved message, inside its commit: the record that shows it on the message, then each
  * agent it picked gets the message as if it had asked them. A pick the author may not reach asks no one.
  */
-async function route(tx, threadId, messageId, { to, picked }, { steer = false } = {}) {
+async function route(tx, threadId, messageId, { to, picked }, { steer = false, pick } = {}) {
 	const { data } = await tx.entry(messageId)
 	// A newer message saved since takes over: this one asks no one, and whoever that one asks reads it too
 	if (await newerThan(tx, threadId, messageId)) [to, picked] = [[], undefined]
+	const row = await tx.doc(Thread, threadId)
+	if (row.pick === pick) row.pick = null
 	try {
 		await reach(to, data.author, await tx.doc(Runners))
 	} catch (error) {
 		;[to, picked] = [[], `Pick failed: ${error.message}`]
 	}
-	const row = await tx.doc(Thread, threadId)
 	const prior = to.some((one) => !row.agents[keyOf(writtenTo(one))])
 		? await messageIds(tx, threadId)
 		: []
@@ -1315,10 +1348,17 @@ async function postEntry(id, author, input) {
 /** A post's answer once the director's pick for its message is in, as one with `to` says whom it asks; a retry too */
 async function withPick(id, result) {
 	if (!result.pick) return result
-	await harness.waitForTask(result.pick, context)
+	const { state } = await harness.waitForTask(result.pick, context)
 	const route = /** @type {any} */ (
 		await latestMessage(id, (one) => one.data.message === result.entry, ROUTE)
 	)
+	// A pick that ended without saving a route failed; an empty `to` alone would read as a chosen silence
+	if (!route)
+		return {
+			...result,
+			to: [],
+			picked: `Pick failed: the director's pick ${state.outcome.status}${state.outcome.error ? ` (${state.outcome.error.message})` : ''}.`,
+		}
 	return {
 		...result,
 		to: route?.data.to ?? [],
@@ -1564,6 +1604,8 @@ const core = {
 	post,
 	route,
 	fresh,
+	afterCommit,
+	abortTask: (id) => harness.abortTask(id, context),
 	/**
 	 * Tells each page watching a thread what a module is doing there, as it happens; nothing is kept. An event is
 	 * `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), others are the module's own.
@@ -1604,10 +1646,13 @@ const hook = (name) => {
 	return first?.[name]
 }
 const posted = modules.flatMap((module) => module.posted ?? [])
+/** Task kinds of modules' own work in a thread, counted as the thread working */
+const moduleWork = modules.flatMap((module) => module.work ?? [])
 const archiving = modules.flatMap((module) => module.archiving ?? [])
 const [
 	direct,
 	directing,
+	supersede,
 	turns,
 	reply,
 	catchUp,
@@ -1620,6 +1665,7 @@ const [
 ] = [
 	'direct',
 	'directing',
+	'supersede',
 	'turns',
 	'reply',
 	'catchUp',
