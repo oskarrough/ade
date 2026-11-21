@@ -90,7 +90,7 @@ export const [earlier, setEarlier] = createStore({})
 /** Each watched thread's way to ask for its page before the ones it has, or all of them; answers once they're in */
 export const pagers = new Map()
 export const loadEarlier = (thread, all = false) =>
-	earlier[thread] ? (pagers.get(thread)?.(all) ?? Promise.resolve()) : Promise.resolve()
+	earlier[thread] || all ? (pagers.get(thread)?.(all) ?? Promise.resolve()) : Promise.resolve()
 /** Your message shows the moment you send it, marked `sending`, after the thread's last, until its socket brings the server's copy; `drop` takes it back when the send failed */
 export function sending(thread, data) {
 	const entry = {

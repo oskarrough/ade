@@ -87,8 +87,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          threadOf, current, openThread, fork, entries store, earlier and loadEarlier (the page before, or all)
                          changeThread/removeRow: archive, unarchive, rename, forget a bot and revoke a runner show at once, put the row back if the server refuses
   thread.js              one thread on screen
-    Thread               subscribes to the thread over /ws, keeps its messages, follows the bottom (follow), asks for the
-                         page before near the top (nearTop) and holds the view still as it lands (hold)
+    Thread               subscribes to the thread over /ws, keeps its messages, follows the bottom (follow), lays out only its
+                         newest SHOWN rows (onScreen, shownFrom) and the rows above, then the page before, near the top (nearTop),
+                         holding the view still as they land (hold)
     rows                 projection: messages plus each agent's turns, a row for each lasting call (an ask, a bot change),
                          live turn, compaction cuts, folded memory lines
     Asked                in a bot's home, a question another thread asked it, a received `Cross` row; the bot's answer follows as its own Message (askedHere)

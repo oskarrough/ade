@@ -15,6 +15,7 @@ import {
 	reconcile,
 	runWithOwner,
 	Show,
+	untrack,
 } from 'solid-js'
 import {
 	api,
@@ -88,6 +89,8 @@ const firstLine = (text) =>
 const [questions, setQuestions] = createRoot(() => createStore({}, { shallow: true }))
 /** Each asked thread's latest look, with its status then; an unanswered one is looked at again when that moves */
 const fetched = new Map()
+/** Rows a thread opens on; as many more come each time you scroll near the top */
+const SHOWN = 40
 
 export function Thread(props) {
 	const thread = createMemo(() => threadOf(props.id))
@@ -182,10 +185,15 @@ export function Thread(props) {
 		)
 		return newest && newest.at >= start() ? newest : null
 	})
-	/** Scrolled near the top, the page before comes, unless what's above is folded into memory lines */
+	/** Scrolled near the top, the rows above come, then the page before, unless what's above is folded into memory lines */
 	const nearTop = () => {
-		if (list && list.scrollTop < list.clientHeight && earlier[props.id] && (!cut() || unfolded()))
-			loadEarlier(props.id)
+		if (!list || list.scrollTop >= list.clientHeight) return
+		const top = rows.findIndex((row) => row.at >= (shownFrom() ?? -Infinity))
+		if (top > 0) {
+			hold()
+			return setShownFrom(rows[Math.max(0, top - SHOWN)].at)
+		}
+		if (earlier[props.id] && (!cut() || unfolded())) loadEarlier(props.id)
 	}
 	const rows = createProjection(
 		() => {
@@ -378,6 +386,23 @@ export function Thread(props) {
 	const ready = () =>
 		!!entries[props.id] &&
 		(thread()?.agents ?? []).every((agent) => conversations[agent.conversation])
+	/**
+	 * Where the rows on screen start, by `at`: a thread opens on its newest SHOWN rows, and those above come in as you
+	 * scroll up, so a long thread costs its end, not all it has. `null` until the first rows are laid out.
+	 */
+	const [shownFrom, setShownFrom] = createSignal(null)
+	const onScreen = createMemo(() => {
+		if (!ready()) return []
+		const from = shownFrom() ?? rows.at(-SHOWN)?.at ?? -Infinity
+		return rows.filter((row) => row.at >= from)
+	})
+	/** Once the first rows are laid out, where they start stays put: a message landing below adds a row instead of moving the top */
+	createEffect(
+		() => ready() && rows.length,
+		(count) => {
+			if (count && untrack(shownFrom) === null) setShownFrom(rows.at(-SHOWN)?.at ?? -Infinity)
+		},
+	)
 	const titleClick = () =>
 		current() !== props.id ? openThread(props.id) : toggleSide(props.id, 'details')
 	let list,
@@ -408,6 +433,9 @@ export function Thread(props) {
 				answered()
 			}
 			pagers.set(id, (all) => {
+				// Asked for all of it, every row shows, even those already here
+				if (all) setShownFrom(-Infinity)
+				if (!earlier[id]) return Promise.resolve()
 				if (asking) return asking.then(() => all && loadEarlier(id, true))
 				if (!socket || socket.readyState !== socket.OPEN) return Promise.resolve()
 				asking = new Promise((resolve) => (answered = () => resolve(undefined)))
@@ -415,6 +443,7 @@ export function Thread(props) {
 				return asking
 			})
 			stuck = true
+			setShownFrom(null)
 			sent = null
 			if (room) room.style.height = '0px'
 			markRead(id)
@@ -694,7 +723,7 @@ export function Thread(props) {
 								`Talk to ${homeBot(props.id).name} and find out who it is.`}
 						</li>
 					<//>
-					<${For} each=${() => (ready() ? rows : [])} keyed=${(row) => row.key}
+					<${For} each=${onScreen} keyed=${(row) => row.key}
 						>${(row) => html`
 							<${Show} when=${() => row().break}>
 								<${Break} kind=${() => row().break} time=${() => row().time} />
