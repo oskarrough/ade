@@ -1,11 +1,18 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
-import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import {
+	appendFileSync,
+	existsSync,
+	readFileSync,
+	rmSync,
+	watch as watchFiles,
+	writeFileSync,
+} from 'node:fs'
+import { readdir, readFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
@@ -1873,6 +1880,10 @@ const routes = /** @type {[string, Function][]} */ ([
 		async (req) => ({
 			port,
 			file,
+			/** What a reload of the page would get; a page loaded with another is behind */
+			client,
+			/** The commit the server's checkout is on, when it runs from one; null for an install */
+			commit: (await git('rev-parse', 'HEAD')) || null,
 			/** Who the server takes the asker to be, for showing; it proves nothing */
 			me: user(req),
 			modules: modules.map((module) => module.name),
@@ -1939,6 +1950,15 @@ const routes = /** @type {[string, Function][]} */ ([
 			return runners.call(name, { op: 'available' }, {})
 		},
 	],
+	[
+		'GET /api/changes',
+		async (_req, _id, url) => {
+			const since = url.searchParams.get('since') ?? ''
+			if (!/^[\da-f]{7,40}$/.test(since)) return { commits: [] }
+			const log = await git('log', '--format=%s', `${since}..HEAD`)
+			return { commits: log ? log.split('\n') : [] }
+		},
+	],
 	['GET /runner/bundle', () => bundle],
 	['GET /api/threads', (req) => threadList(user(req))],
 	['GET /api/threads/archived', (req) => threadList(user(req), true)],
@@ -2000,6 +2020,50 @@ const routes = /** @type {[string, Function][]} */ ([
 	new RegExp(`^${key.replace(':id', String.raw`(\d+)`).replace(':name', '([^/]+)')}$`),
 	handle,
 ])
+
+/**
+ * What a reload of the page would get, as a short hash: the client's files as they are now, and the server's own code as
+ * it started. A page compares it with the one it loaded with, so it knows when it is behind; a change to the client's
+ * files names `server` on every socket.
+ */
+const hashOf = async (dir, recursive, pattern = /\.\w+$/) => {
+	const names = (await readdir(dir, { recursive })).filter((name) => pattern.test(name)).sort()
+	const hash = createHash('sha256')
+	for (const name of names)
+		hash.update(name).update(await readFile(path.join(dir, name)).catch(() => ''))
+	return hash.digest('hex')
+}
+const clientDir = path.join(import.meta.dirname, 'apps/client')
+const serverCode = createHash('sha256')
+	.update(await hashOf(import.meta.dirname, false, /\.js$/))
+	.update(await hashOf(path.join(import.meta.dirname, 'modules'), true, /\.js$/))
+	.digest('hex')
+const clientVersion = async () =>
+	createHash('sha256')
+		.update(serverCode)
+		.update(await hashOf(clientDir, true))
+		.digest('hex')
+		.slice(0, 12)
+let client = await clientVersion()
+let rehashing
+/** Unref'd, so watching never keeps a stopping server alive */
+watchFiles(clientDir, { recursive: true }, () => {
+	clearTimeout(rehashing)
+	rehashing = setTimeout(async () => {
+		const now = await clientVersion()
+		if (now === client) return
+		client = now
+		notify(['server'])
+	}, 150)
+}).unref()
+
+/** git in the server's own folder; '' when it isn't a checkout, git is missing or the command fails */
+const git = (...args) =>
+	new Promise((resolve) =>
+		execFile('git', ['-C', import.meta.dirname, ...args], { timeout: 5000 }, (error, out) =>
+			resolve(error ? '' : out.trim()),
+		),
+	)
 
 /** The client: apps/client/client.html at /, and every module and stylesheet beside it */
 const types = {
