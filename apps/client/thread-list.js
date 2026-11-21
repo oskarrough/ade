@@ -27,6 +27,19 @@ export function ThreadList() {
 	const [blockedOnly, setBlockedOnly] = createSignal(false)
 	const blocked = () =>
 		threads.filter((thread) => !thread.archived && thread.status === 'blocked').length
+	/** Most recently answered first, anywhere, not only at home; a bot that's never answered sits last, oldest-made first */
+	const sortedBots = () =>
+		[...bots].sort((a, b) =>
+			a.answeredAt && b.answeredAt
+				? a.answeredAt < b.answeredAt
+					? 1
+					: -1
+				: a.answeredAt
+					? -1
+					: b.answeredAt
+						? 1
+						: a.home - b.home,
+		)
 	return html`
 		<nav class="thread-list" aria-label="Threads">
 			<${Show}
@@ -41,7 +54,7 @@ export function ThreadList() {
 							fallback=${html`<${NewRow} label="New bot" onPick=${(_e) => setCreating(true)} />`}
 							><${NewBot} onDone=${(_e) => setCreating(false)}
 						/><//>
-						<${For} each=${() => bots}>${(bot) => html`<${BotItem} bot=${() => bot} />`}<//>
+						<${For} each=${sortedBots}>${(bot) => html`<${BotItem} bot=${() => bot} />`}<//>
 					</ul>
 					<h2>Threads</h2>
 				<//>

@@ -69,7 +69,7 @@ check(
 )
 
 await post(home, 'be a pirate', 'ada')
-await answered(home, 2)
+v = await answered(home, 2)
 const ownAt = (await api('GET', `/api/threads/${home}`)).json.agents[0].conversation
 const rewrote = (await api('GET', `/api/conversations/${ownAt}`)).json.entries.find(
 	(e) => e.kind === 'pi.tool-result' && e.model[0].toolName === 'bot',
@@ -79,10 +79,18 @@ check(
 	'rewriting herself, her bot call keeps what she was before, so a thread can show old against new',
 	JSON.stringify(rewrote),
 )
+const atHomeAlready = answers(v).at(-1).data.createdAt
+check(
+	(await bots()).find((b) => b.name === 'ada')?.answeredAt === atHomeAlready,
+	'answeredAt follows her latest answer so far, at home',
+	JSON.stringify(await bots()),
+)
+
 const shed = await thread('shed')
 await post(shed, 'build it?', 'ada')
 v = await answered(shed)
 const ada = v.agents.find((a) => a.name === 'ada')
+const answeredAway = answers(v)[0]?.data.createdAt
 check(
 	(await bots()).find((b) => b.name === 'ada')?.instructions === 'Answer like a pirate.' &&
 		ada?.to.runner === 'laptop' &&
@@ -91,6 +99,11 @@ check(
 		prompt.laptop.includes(`${home} \\"ada\\" (home)`),
 	'at home she writes her own instructions; asked elsewhere, she joins with them and knows her home',
 	JSON.stringify([await bots(), ada, prompt.laptop]),
+)
+check(
+	(await bots()).find((b) => b.name === 'ada')?.answeredAt === answeredAway,
+	'answeredAt follows her latest answer anywhere, not only her home',
+	JSON.stringify(await bots()),
 )
 
 await post(shed, 'be a pirate', 'ada')

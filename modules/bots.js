@@ -23,7 +23,26 @@ const Bots = defineDoc({
 
 export function server(core) {
 	const bots = () => core.commit(async (tx) => JSON.parse(JSON.stringify(await tx.doc(Bots))))
-	const list = async () => Object.entries(await bots()).map(([name, bot]) => ({ name, ...bot }))
+	/** Each bot's name → when it last answered, in any thread, as an ISO time; never answered is `null` */
+	async function lastAnswered() {
+		const times = {}
+		await Promise.all(
+			(await core.threadIds()).map(async (id) => {
+				for (const { data } of await core.messages(id))
+					if (data.answer && data.createdAt && (times[data.author] ?? '') < data.createdAt)
+						times[data.author] = data.createdAt
+			}),
+		)
+		return times
+	}
+	const list = async () => {
+		const times = await lastAnswered()
+		return Object.entries(await bots()).map(([name, bot]) => ({
+			name,
+			...bot,
+			answeredAt: times[name] ?? null,
+		}))
+	}
 
 	/** How a bot talks until it writes its own words: the instructions a new bot starts with */
 	const voice =
