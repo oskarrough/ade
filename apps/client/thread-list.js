@@ -16,7 +16,7 @@ import {
 	openThread,
 	server,
 	threadOf,
-	threads,
+	threadRows,
 } from './server.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
@@ -28,8 +28,7 @@ export function ThreadList() {
 	const [creating, setCreating] = createSignal(false)
 	const [archivedPage, setArchivedPage] = createSignal(false)
 	const [blockedOnly, setBlockedOnly] = createSignal(false)
-	const blocked = () =>
-		threads.filter((thread) => !thread.archived && thread.status === 'blocked').length
+	const blocked = () => threadRows().open.filter((thread) => thread.status === 'blocked').length
 	/** Most recently answered first, anywhere, not only at home; a bot that's never answered sits last, oldest-made first */
 	const sortedBots = () =>
 		[...bots].sort((a, b) =>
@@ -71,13 +70,14 @@ export function ThreadList() {
 				<ul>
 					<${For}
 						each=${() =>
-							threads.filter(
-								(thread) =>
-									!thread.archived &&
-									(blockedOnly()
-										? thread.status === 'blocked'
-										: !homeBot(thread.id) && !threadOf(thread.parent)),
-							)}
+							threadRows()
+								.open.filter((row) =>
+									blockedOnly()
+										? row.status === 'blocked'
+										: !homeBot(row.id) && !threadOf(row.parent),
+								)
+								.map((row) => threadOf(row.id))
+								.filter(Boolean)}
 					>
 						${(thread) => html`<${ThreadItem} thread=${() => thread} />`}
 					<//>

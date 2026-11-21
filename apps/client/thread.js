@@ -18,7 +18,6 @@ import {
 } from 'solid-js'
 import {
 	api,
-	archivedThreads,
 	bots,
 	closeColumn,
 	colorOf,
@@ -40,7 +39,7 @@ import {
 	setEarlier,
 	setEntries,
 	setPeople,
-	threads,
+	threadRows,
 	titleOf,
 	watch,
 	threadOf,
@@ -108,25 +107,27 @@ export function Thread(props) {
 	/** Each message's position in the thread, from 0, as memory and the recap count them */
 	const positions = createMemo(() => new Map(messages().map((entry, at) => [entry.id, at])))
 	/** In a bot's home, the threads others asked it in: it's their one agent, and they started outside its family. A room has more than one. */
-	const children = createMemo(() =>
-		homeBot(props.id) ? threads.filter((other) => other.parent !== null) : [],
-	)
 	const askedHere = createMemo(() => {
 		const bot = homeBot(props.id)
 		if (!bot) return []
 		const family = new Set((thread()?.family ?? []).map((member) => member.id))
-		return children().filter(
+		return threadRows().open.filter(
 			(other) =>
-				!family.has(other.id) && other.agents.length === 1 && other.agents[0].name === bot.name,
+				other.parent !== null &&
+				!family.has(other.id) &&
+				other.agents.length === 1 &&
+				other.agents[0].name === bot.name,
 		)
 	})
 	// Fetched once, and again while unanswered each time the asked thread's status moves, as it does when the answer lands
 	createEffect(
-		() => askedHere().map((other) => `${other.id} ${other.status}`),
+		() =>
+			askedHere()
+				.filter((other) => questions[other.id] !== null && !questions[other.id]?.answer)
+				.map((other) => `${other.id} ${other.status}`),
 		(seen) => {
 			for (const [id, status] of seen.map((key) => key.split(' '))) {
-				const settled = questions[id] === null || questions[id]?.answer
-				if (settled || fetched.get(id)?.status === status) continue
+				if (fetched.get(id)?.status === status) continue
 				const look = { status }
 				fetched.set(id, look)
 				api(`/api/threads/${id}`)
@@ -987,8 +988,8 @@ const Asked = (props) => html`
 const byTitle = createRoot(() =>
 	createMemo(() => {
 		const titled = new Map()
-		for (const row of [...threads, ...archivedThreads])
-			if (!titled.has(row.title)) titled.set(row.title, row)
+		const { open, archived } = threadRows()
+		for (const row of [...open, ...archived]) if (!titled.has(row.title)) titled.set(row.title, row)
 		return titled
 	}),
 )

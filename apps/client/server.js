@@ -173,6 +173,7 @@ export function drawer(which) {
 export const {
 	threads,
 	archivedThreads,
+	threadRows,
 	runners,
 	server,
 	bots,
@@ -192,6 +193,8 @@ export const {
 	const [bots, setBots] = createStore(cached('bots', []))
 	const [threads, setThreads] = createStore(cached('threads', []))
 	const [archivedThreads, setArchivedThreads] = createStore([])
+	/** Both lists as plain rows, set with every fetch: a scan of the whole list reads this one signal instead of every row's fields */
+	const [threadRows, setThreadRows] = createSignal({ open: cached('threads', []), archived: [] })
 	const [runners, setRunners] = createStore(cached('runners', []))
 	/** The open questions agents asked, newest first, one per thread */
 	const [inbox, setInbox] = createStore(cached('inbox', []))
@@ -289,20 +292,13 @@ export const {
 		const rows = [...fetchedThreads, ...fetchedArchived.filter((row) => !fresh.has(row.id))]
 			.map((row) => (pending.has(row.id) ? { ...row, ...pending.get(row.id) } : row))
 			.sort((a, b) => b.id - a.id)
-		setThreads(
-			reconcile(
-				rows
-					.filter((row) => !row.archived)
-					.map((row) => (row.family ? row : { ...row, family: [{ id: row.id, depth: 0 }] })),
-				'id',
-			),
-		)
-		setArchivedThreads(
-			reconcile(
-				rows.filter((row) => row.archived),
-				'id',
-			),
-		)
+		const open = rows
+			.filter((row) => !row.archived)
+			.map((row) => (row.family ? row : { ...row, family: [{ id: row.id, depth: 0 }] }))
+		const archived = rows.filter((row) => row.archived)
+		setThreads(reconcile(open, 'id'))
+		setArchivedThreads(reconcile(archived, 'id'))
+		setThreadRows({ open, archived })
 	}
 	const reloadThreads = () =>
 		reloadList('threads', (data) => {
@@ -382,8 +378,11 @@ export const {
 			() => setConnected(false),
 		)
 	})
-	/** Threads by id, built once per list change, so a lookup tracks one memo instead of every row */
-	const byId = createMemo(() => new Map(threads.map((thread) => [thread.id, thread])))
+	/** Threads by id, rebuilt only when a fetch shows the list; rows change nowhere else, so the store's rows are read untracked */
+	const byId = createMemo(() => {
+		threadRows()
+		return untrack(() => new Map(threads.map((thread) => [thread.id, thread])))
+	})
 	const threadOf = (id) => byId().get(id)
 	/** The open thread's family, as the server sends it: one thread until the list has it, `[null]` for a new one */
 	const family = createMemo(() =>
@@ -418,6 +417,7 @@ export const {
 		inbox,
 		dismiss,
 		threadOf,
+		threadRows,
 		family,
 		columns,
 		closeColumn,

@@ -16,8 +16,8 @@ import {
 	paint,
 	reloadBots,
 	reloadThreads,
-	threads,
 	threadOf,
+	threadRows,
 } from './server.js'
 import { formatAgent } from './agent.js'
 import { agent, openPicker } from './composer.js'
@@ -31,15 +31,16 @@ const familyOf = (bot) => new Set((threadOf(bot.home)?.family ?? []).map((member
 /** Its own threads without the home, and the unarchived threads it joins elsewhere. */
 export function botThreads(bot) {
 	const family = familyOf(bot)
-	const own = threads.filter((thread) => thread.id !== bot.home && family.has(thread.id))
-	const elsewhere = threads.filter(
-		(thread) =>
-			thread.id !== bot.home &&
-			!family.has(thread.id) &&
-			!thread.archived &&
-			thread.agents.some((agent) => agent.name === bot.name),
-	)
-	return { own, elsewhere }
+	const own = [...family].filter((id) => id !== bot.home).sort((a, b) => b - a)
+	const elsewhere = threadRows()
+		.open.filter(
+			(row) =>
+				row.id !== bot.home &&
+				!family.has(row.id) &&
+				row.agents.some((agent) => agent.name === bot.name),
+		)
+		.map((row) => row.id)
+	return { own: own.map(threadOf).filter(Boolean), elsewhere: elsewhere.map(threadOf) }
 }
 
 export function BotItem(props) {

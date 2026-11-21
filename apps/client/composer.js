@@ -36,7 +36,7 @@ import {
 	runners,
 	sending,
 	server,
-	threads,
+	threadRows,
 	threadOf,
 } from './server.js'
 import { agentTo, formatAgent } from './agent.js'
@@ -723,8 +723,10 @@ const mentionsFor = (query, thread) => {
 	const starts = (words) => words.toLowerCase().startsWith(typed)
 	const matching = homeBot(thread) ? [] : bots.filter((bot) => starts(bot.name))
 	const titled = typed
-		? threads
-				.filter((row) => row.id !== thread && row.title && row.title.split(/[^\w.-]+/).some(starts))
+		? threadRows()
+				.open.filter(
+					(row) => row.id !== thread && row.title && row.title.split(/[^\w.-]+/).some(starts),
+				)
 				.slice(0, 8)
 		: []
 	return [

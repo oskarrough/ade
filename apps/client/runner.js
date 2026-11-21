@@ -1,7 +1,7 @@
 /** Runners show their agents and choose whom the composer asks. */
 import html from '@solidjs/html'
 import { createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
-import { api, minted, revokeRunner, runners, setMinted, threads } from './server.js'
+import { api, minted, revokeRunner, runners, setMinted, threadRows } from './server.js'
 import { rowOf, doing, lastToolCall, modelsOf, thinkingWord } from './agent.js'
 import { choose, configure, recipients, toFor } from './composer.js'
 import { placePopover } from './popover.js'
@@ -138,8 +138,8 @@ export function RunnerList() {
 	const online = () => runners.filter((runner) => runner.online).length
 	/** Agents working or waiting, read once for every row: a thread's status turns with its agents', so idle threads are skipped whole */
 	const active = createMemo(() =>
-		threads
-			.filter((thread) => thread.status === 'working' || thread.status === 'blocked')
+		threadRows()
+			.open.filter((thread) => thread.status === 'working' || thread.status === 'blocked')
 			.flatMap((thread) =>
 				thread.agents
 					.filter((agent) => agent.status !== 'idle')
