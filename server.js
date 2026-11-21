@@ -1206,9 +1206,14 @@ async function threadRow(id, reader, all, homes) {
 const threadList = async (reader, archived = false) => {
 	const busy = await work()
 	const homes = (await homesOf?.()) ?? {}
-	const rows = (
-		await Promise.all((await threadIds()).map((id) => threadRow(id, reader, busy, homes)))
-	).filter((row) => Boolean(row.archived) === archived)
+	/** Only the threads this list shows get a row, since a row reads its thread's entries for its status */
+	const ids = await threadIds()
+	const shown = await Promise.all(
+		ids.map(async (id) => Boolean((await thread(id)).hidden) === archived),
+	)
+	const rows = await Promise.all(
+		ids.filter((_, index) => shown[index]).map((id) => threadRow(id, reader, busy, homes)),
+	)
 	if (archived) return rows
 	const byId = new Map(rows.map((row) => [row.id, row]))
 	const parentOf = (row) => row.parent ?? row.conversation?.parent?.conversationId
