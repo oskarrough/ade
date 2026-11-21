@@ -58,9 +58,9 @@ The test: a friend gets the install instructions and their data file and gets ru
 
 No hosted pilot. Hosting versus audience comes back up only if people still won't set up a server once it's easy.
 
-## Schedules
+## Waking a thread
 
-A bot or thread should wake on a timer or a routine without anyone posting to it; that's a core primitive, not a module. arbe's scheduler is the reference to port from, built on Pi Durable's stored sleeps.
+One primitive: wake a thread when something happens, without anyone posting to it, built on Pi Durable's stored sleeps and signals. Three triggers. A time: an agent scheduling itself ("check CI in 5 minutes") or a recurring routine. Another thread finishing: a review that opens once its fix lands, the dependency idea from Vercel Board. An outside event, the last and optional piece: a push or an email, with MCP Events one possible source. arbe's scheduler is the reference to port from.
 
 ## Parts bin
 
