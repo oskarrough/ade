@@ -642,6 +642,11 @@ agent-memory {
 						display: none;
 					}
 
+					/* The bot-instructions sentence is the row's only text, so it stays up while the diff below it is open. */
+					&.plain > details[open] > summary .in {
+						display: unset;
+					}
+
 					.whole {
 						color: var(--ink);
 						font-size: var(--text-small);

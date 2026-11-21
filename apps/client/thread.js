@@ -736,7 +736,6 @@ export function Thread(props) {
 											<${Changed}
 												step=${() => row().changed}
 												agent=${() => row().agent}
-												time=${() => row().time}
 											/>
 										`}
 									>
