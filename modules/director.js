@@ -328,23 +328,19 @@ export function server(core) {
 	 * (`on: false`) stays as long, so a beat sent before it but arriving after, with a `seq` no higher, is ignored.
 	 */
 	const typists = new Map()
-	/** Drops what's run out, in every thread, and threads with nothing left */
-	function sweep() {
-		const now = Date.now()
-		for (const [threadId, here] of typists) {
-			for (const [person, beat] of here) if (beat.until <= now) here.delete(person)
-			if (!here.size) typists.delete(threadId)
-		}
+	/** A person's beat or stop in a thread, while it lasts */
+	const beatOf = (threadId, person) => {
+		const beat = typists.get(threadId)?.get(person)
+		return beat && beat.until > Date.now() ? beat : undefined
 	}
 	/** Who's typing in a thread now, until when */
-	const typingIn = (threadId) => {
-		sweep()
-		return new Map(
-			[...(typists.get(threadId) ?? [])]
-				.filter(([, beat]) => beat.on)
+	const typingIn = (threadId) =>
+		new Map(
+			[...(typists.get(threadId)?.keys() ?? [])]
+				.map((person) => [person, beatOf(threadId, person)])
+				.filter(([, beat]) => beat?.on)
 				.map(([person, beat]) => [person, beat.until]),
 		)
-	}
 
 	/** Wakes each of the thread's pending picks, one commit each, since a signal is a write and the next read must come first */
 	async function nudgeAll(threadId) {
@@ -354,11 +350,10 @@ export function server(core) {
 
 	/** A person's beat, or their stop: a stop wakes the thread's held picks; if that fails, they're typing again, so a retry can */
 	async function typing(threadId, person, on, seq = 0) {
-		sweep()
 		const here = typists.get(threadId) ?? new Map()
-		const last = here.get(person)
+		const last = beatOf(threadId, person)
 		if (last && seq && seq <= last.seq) return
-		const was = last?.on && last.until > Date.now()
+		const was = last?.on
 		typists.set(
 			threadId,
 			here.set(person, { until: Date.now() + TYPING, seq: seq || last?.seq || 0, on }),
@@ -374,7 +369,7 @@ export function server(core) {
 
 	/** Once the commit that saves someone's message is stored: they've stopped typing, and held picks go on */
 	function sent(tx, threadId, person) {
-		const last = typists.get(threadId)?.get(person)
+		const last = beatOf(threadId, person)
 		if (!last?.on) return
 		core.afterCommit(tx, () => {
 			typing(threadId, person, false, last.seq).catch((error) => console.error(error))

@@ -73,7 +73,7 @@ modules/
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
   director.js            the `direct` hook: @mentions ask that bot; a free message in a group, or with one agent and two people
                          writing (core.authors), is saved with a Pick task (`directing`), one pending per author (Thread `picks`);
-                         Pick's wait phase sleeps the burst then holds while anyone types (typing, typingIn, sent, Nudge signal),
+                         Pick's wait phase sleeps the burst then holds while anyone types (typing, beatOf, typingIn, sent, Nudge signal),
                          its call phase picks one candidate or nobody with a confidence (pick, decide: Jev with TYPESAFE_API_KEY,
                          else the chooser model's JSON); the author's next message supersedes it (covers); a paused thread skips it;
                          activity events for the Director tab; settings model, context, timeout, burst
