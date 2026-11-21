@@ -280,6 +280,15 @@ agent-memory {
 	> li {
 		flex: none;
 	}
+
+	/* +Thread, +Bot: the plus against its word */
+	.row {
+		gap: 0;
+	}
+
+	.plus {
+		width: auto;
+	}
 }
 
 :is(.thread-list > ul, .thread-family) > li {

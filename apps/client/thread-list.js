@@ -47,12 +47,13 @@ export function ThreadList() {
 			>
 				<ul class="new-rows">
 					<${NewRow}
-						label="New thread"
+						label="Thread"
+						title="New thread"
 						current=${() => !current()}
 						onPick=${(_e) => openThread(null)}
 					/>
 					<${Show} when=${() => server().modules.includes('bots')}>
-						<${NewRow} label="New bot" onPick=${(_e) => setCreating(true)} />
+						<${NewRow} label="Bot" title="New bot" onPick=${(_e) => setCreating(true)} />
 					<//>
 				</ul>
 				<${Show} when=${() => server().modules.includes('bots')}>
@@ -136,7 +137,13 @@ function ArchivedPage(props) {
 function NewRow(props) {
 	return html`
 		<li class=${() => ['new', { current: props.current }]}>
-			<button type="button" class="row" onClick=${() => props.onPick()}>
+			<button
+				type="button"
+				class="row"
+				title=${() => props.title}
+				aria-label=${() => props.title}
+				onClick=${() => props.onPick()}
+			>
 				<span class="plus" aria-hidden="true"><${Icon} name="plus" /></span>
 				<span>${() => props.label}</span>
 			</button>
