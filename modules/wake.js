@@ -8,9 +8,10 @@
  * once on start; a recurring one skips the slots it missed. The thread shows its pending wakes above the composer
  * (serve), where × cancels one; archiving the thread cancels them all.
  *
- * A wake `after` thread N sleeps on a signal instead of a time. Whenever the thread lists change, and once on start,
- * settle signals each such wake whose thread has no work left (no agent answering or waiting for its runner, no `$ cmd`,
- * no director pick); one set while N is already idle fires at once.
+ * A wake `after` thread N sleeps on a signal instead of a time. When the server hears a thread's work end (`ended`),
+ * and once on start, settle signals each such wake whose thread has no work left (core.busy: no agent answering or
+ * waiting for its runner, no `$ cmd`, no director pick); one set while N is already idle fires at once. Every change to a
+ * wake tells the pages watching its thread (`wake` activity), which fetch its wakes again.
  */
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
@@ -64,18 +65,25 @@ export function server(core) {
 			.sort((left, right) => (left.at ?? Infinity) - (right.at ?? Infinity))
 	}
 
-	/** Wakes each wake whose thread has no work left; a signal it already has comes back `duplicate`, which is fine */
-	async function settle() {
+	/**
+	 * Wakes each wake after `threadId`, or after any thread, whose thread has no work left; a signal it already has comes
+	 * back `duplicate`, which is fine
+	 */
+	async function settle(threadId) {
 		// A wake just set may not sleep yet; Pi keeps a signal that comes first
 		const waiting = [...(await sleeping()), ...(await sleeping(undefined, 'pending'))].filter(
-			(record) => record.input.after !== undefined,
+			(record) =>
+				record.input.after !== undefined &&
+				(threadId === undefined || record.input.after === threadId),
 		)
-		if (!waiting.length) return
-		const working = new Set((await core.work()).map((job) => job.thread))
-		for (const record of waiting)
-			if (!working.has(record.input.after)) await core.signal(record.id, Ended, 'ended', {})
+		const idle = new Map()
+		for (const record of waiting) {
+			const after = record.input.after
+			if (!idle.has(after)) idle.set(after, !(await core.busy(after)))
+			if (idle.get(after)) await core.signal(record.id, Ended, 'ended', {})
+		}
 	}
-	const settling = () => settle().catch((error) => console.error(error))
+	const settling = (threadId) => settle(threadId).catch((error) => console.error(error))
 
 	/**
 	 * Cancels one of the thread's wakes, and says what came of it: `{cancelled}`, or `{fired}` for a one-off that went off
@@ -194,7 +202,7 @@ export function server(core) {
 					background(at.thread),
 				),
 			)
-			if (when.after !== undefined) settling()
+			if (when.after !== undefined) settling(when.after)
 			const others = (await pending(at.thread)).filter((one) => one.id !== id)
 			return {
 				output: [
@@ -249,8 +257,12 @@ export function server(core) {
 	return {
 		serve,
 		archiving,
-		start: settling,
-		changed: (lists) => lists.includes('threads') && settling(),
+		start: () => settling(),
+		ended: settling,
+		/** A wake set, gone to sleep again, fired or cancelled: the pages on its thread fetch its wakes again */
+		taskChanged: ({ kind, conversationId }) =>
+			kind === Wake.definition.name &&
+			core.activity(conversationId, { purpose: 'wake', kind: 'changed' }),
 		extension: defineExtension({
 			name: 'ade.wake',
 			tools: [wake],

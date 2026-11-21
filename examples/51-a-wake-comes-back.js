@@ -2,7 +2,9 @@
  * MODULES=+wake: an agent's wake comes back to it after a restart, survives Stop, and × cancels one; a wake `after`
  * another thread comes back once that thread's work ends, or at once if it has none
  */
+import WebSocket from 'ws'
 import {
+	base,
 	answered,
 	answers,
 	api,
@@ -128,5 +130,46 @@ check(
 	'neither is pending any more',
 	JSON.stringify(await wakesIn(review)),
 )
+
+// A thread that's archived still ends its work, and the wake after it hears that
+const shelved = await thread('shelved')
+await api('POST', `/api/threads/${shelved}/archive`, { archived: true })
+await postIn(shelved, 'work 3s')
+await until(async () => (await view(shelved)).status === 'working')
+await postIn(review, `wake after ${shelved} check the shelved one`)
+const shelvedWoke = await until(
+	async () =>
+		(await view(review)).entries.find(
+			(entry) => entry.data.wake && entry.data.body === 'check the shelved one',
+		),
+	15000,
+)
+check(
+	Boolean(shelvedWoke) && !(await view(shelved)).busy,
+	'a wake after an archived thread comes back once its work ends',
+	JSON.stringify((await view(review)).entries.at(-1)?.data),
+)
+
+// A page watching the thread hears a wake cancelled elsewhere
+await answered(review, 5)
+const heard = []
+const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
+socket.onmessage = ({ data }) => heard.push(JSON.parse(String(data)))
+await new Promise((resolve) => (socket.onopen = resolve))
+socket.send(JSON.stringify({ watch: review }))
+await postIn(review, 'wake 1h later still')
+const later = await until(async () => (await wakesIn(review))[0])
+heard.length = 0
+await api('POST', `/api/threads/${review}/wake`, { cancel: later.id })
+check(
+	Boolean(
+		await until(async () =>
+			heard.some((message) => message.thread === review && message.activity?.purpose === 'wake'),
+		),
+	),
+	'cancelling a wake tells the pages watching its thread',
+	JSON.stringify(heard.slice(0, 5)),
+)
+socket.close()
 
 done()

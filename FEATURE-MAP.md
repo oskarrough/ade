@@ -15,6 +15,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
                                     `fresh`/newerThan: a newer message takes over a pending pick
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
   afterCommit, moduleWork           best-effort work once a server commit is stored; modules' task kinds that count as a thread working
+  busy, endings                     whether a thread has work (a view's `busy`, cli.js going, wake); a thread's last work task ending
+                                    calls modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`
   core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
   core.signal                       a signal to a sleeping task (wake's Ended)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
@@ -83,8 +85,8 @@ modules/
   inbox.js               every thread's open question, newest first (questions, over core.openQuestion), serve (GET /api/inbox,
                          POST a dismissal, kept as the Thread doc's `dismissed`); off by default
   wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
-                         sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and when the
-                         thread lists change, over core.work), pending (the thread's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake),
+                         sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and on the
+                         server's `ended`, over core.busy), taskChanged tells the thread's pages (`wake` activity), pending (the thread's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake),
                          archiving cancels them; duration parses 5m, 1h30m; off by default
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal
@@ -143,7 +145,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   runner.js              runner list, a runner's agents, ConnectRunner
   bot.js                 a bot's settings, its threads row, new bot; botThreads shares its own/elsewhere lists
   thread-list.js         the thread list, its family rows, the Blocked filter (including children and bot homes), or with inbox on, the Inbox toggle
-  wake.js                Wakes, the thread's pending wakes above the composer as `.notice` lines with × (refetched as its status moves);
+  wake.js                Wakes, the thread's pending wakes above the composer as `.notice` lines with × (refetched on connect and on
+                         each `wake` activity its socket hears, heardWake);
                          WakeSet, a wake call's row in the chat (run.js LASTING); WokeLine under a message a wake posted
   inbox.js               Inbox, in the threads' place while open (server.js inboxOpen/openInbox; system.js): a `.thread.inbox` column whose
                          rows (Question) hold the thread link, who asked and when, the recap's newest open line (RecapLine, recap.js topicsOf),

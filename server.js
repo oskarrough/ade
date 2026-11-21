@@ -823,6 +823,9 @@ async function work() {
 	]
 }
 
+/** Whether a thread has work: an agent answering or waiting for its runner, a `$ cmd`, a module's own, like a pick */
+const busy = async (threadId) => (await work()).some((job) => job.thread === threadId)
+
 /** @returns {Promise<Agent[]>} */
 async function agentsIn(row, busy) {
 	return Promise.all(
@@ -1296,6 +1299,8 @@ async function threadRow(id, reader, all, homes) {
 		readers: Object.keys(reads),
 		agents,
 		shells: [...shells.values()].filter((run) => run.threadId === id),
+		/** Whether it has work, whatever its status shows: an open question doesn't hide a running command */
+		busy: busy.length > 0,
 		status: await status(id, { ...row, reads }, busy, reader),
 		conversation: await storage.conversation(id, context),
 	}
@@ -1687,6 +1692,7 @@ const core = {
 	/** A thread's doc inside a commit, where a snapshot would wait for the commit itself */
 	threadIn: (tx, id) => tx.doc(Thread, id),
 	work,
+	busy,
 	busiest,
 	person,
 	models,
@@ -2278,7 +2284,46 @@ function notify(lists) {
 		for (const module of modules) module.changed?.(changed)
 	}, 100)
 }
-harness.observeCommits({ advance: (publication) => notify(listsOf(publication)), end: () => {} })
+/** Each thread's work tasks seen live since start, so the end of its last one is heard */
+const workIn = new Map()
+/** Threads whose work tasks one stored commit ended; each module's `ended` hears once it has no work left */
+function endings({ changes }) {
+	const ended = new Set()
+	for (const change of changes) {
+		if (change.type !== 'task') continue
+		const {
+			id,
+			kind,
+			state: { status },
+			conversationId,
+		} = change.value
+		if (![Deliver.definition.name, Shell.definition.name, ...moduleWork].includes(kind)) continue
+		const tasks = workIn.get(conversationId) ?? new Set()
+		if (status !== 'terminal') workIn.set(conversationId, tasks.add(id))
+		else if ((tasks.delete(id), !tasks.size)) {
+			// One live since before start ends here too; `busy` makes sure
+			workIn.delete(conversationId)
+			ended.add(conversationId)
+		}
+	}
+	return ended
+}
+const taskChanged = modules.flatMap((module) => module.taskChanged ?? [])
+const ended = modules.flatMap((module) => module.ended ?? [])
+harness.observeCommits({
+	advance: (publication) => {
+		notify(listsOf(publication))
+		for (const change of publication.changes)
+			if (change.type === 'task') for (const hook of taskChanged) hook(change.value)
+		for (const threadId of endings(publication))
+			busy(threadId)
+				.then(async (working) => {
+					if (!working) for (const hook of ended) await hook(threadId)
+				})
+				.catch((error) => console.error(error))
+	},
+	end: () => {},
+})
 for (const id of await threadIds()) place(id, await thread(id))
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */

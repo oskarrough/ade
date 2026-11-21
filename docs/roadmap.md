@@ -62,7 +62,7 @@ No hosted pilot. Hosting versus audience comes back up only if people still won'
 
 One primitive: wake a thread when something happens, without anyone posting to it, built on Pi Durable's stored sleeps and signals. Three triggers. A time: an agent scheduling itself ("check CI in 5 minutes") or a recurring routine. Another thread finishing: a review that opens once its fix lands, the dependency idea from Vercel Board. An outside event, the last and optional piece: a push or an email, with MCP Events one possible source. arbe's scheduler is the reference to port from.
 
-Two of the three have landed as the `wake` module. A time: `wake({in, every, note})`, a background stored sleep per wake that posts the note back to its agent, survives restarts and Stop, and shows above the composer with × to cancel. Another thread finishing: `wake({after: N, note})` sleeps on a signal the module sends once thread N has no work left, checked whenever the thread lists change and on start; it fires at once if N is already idle. Outside events stay last.
+Two of the three have landed as the `wake` module. A time: `wake({in, every, note})`, a background stored sleep per wake that posts the note back to its agent, survives restarts and Stop, and shows above the composer with × to cancel. Another thread finishing: `wake({after: N, note})` sleeps on a signal the module sends once thread N has no work left, when the server hears that thread's last work task end, archived or not, and on start; it fires at once if N is already idle. Outside events stay last.
 
 ## Parts bin
 
