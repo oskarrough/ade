@@ -422,7 +422,8 @@ function printed(
 // ── State, Pi harness and snapshots ───────────────────────────────────────
 
 const clients = new Set()
-const runners = createRunners({ onChange: () => notify(['runners']) })
+/** A runner's calls show in no list; one ending may let an outdated runner update */
+const runners = createRunners({ onChange: () => nudge() })
 /** Waits woken by every change; set before Pi resumes tasks that wait */
 const changes = new Set()
 /** What each running `$ cmd` has printed so far */
@@ -2022,6 +2023,8 @@ const docLists = {
 }
 /** Each thread's place, kept from its doc as it changes: archived or not, its dismissed question, and whether a question waits on a person */
 const placed = new Map()
+/** The work tasks the lists have heard start and not yet end */
+const live = new Set()
 /** Each agent's thread, by the agent's conversation */
 const agentThreads = new Map()
 const place = (id, value) => {
@@ -2064,12 +2067,16 @@ function listsOf({ changes }) {
 			if (asks) at.asked = Boolean(data?.waitingOnPerson)
 			return [...listOf(conversationId), ...(asks ? ['inbox'] : [])]
 		}
-		if (change.type === 'task')
-			return [Deliver.definition.name, Shell.definition.name, ...moduleWork].includes(
-				change.value.kind,
-			)
-				? [...listOf(change.value.conversationId), 'runners']
-				: []
+		if (change.type === 'task') {
+			// A thread or runner works while its task lives: only the task's start and end move a list
+			const { id, kind, status, conversationId } = change.value
+			const runs = [Deliver.definition.name, Shell.definition.name].includes(kind)
+			if (!runs && !moduleWork.includes(kind)) return []
+			if (status === 'terminal') live.delete(id)
+			else if (live.has(id)) return []
+			else live.add(id)
+			return [...listOf(conversationId), ...(runs ? ['runners'] : [])]
+		}
 		if (change.type === 'submission') return []
 		const { kind } = change.record
 		if (kind === 'ade.thread') {
