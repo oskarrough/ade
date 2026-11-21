@@ -327,31 +327,62 @@ export function server(core) {
 		return [...(task.input.covers ?? []), task.input.entry]
 	}
 
-	/** Who's typing in each thread, until when: a heartbeat lasts `TYPING`; kept only in memory */
+	/**
+	 * Who's typing in each thread: by person, `{until, seq, on}`, kept only in memory. A beat lasts `TYPING`; a stop
+	 * (`on: false`) stays as long, so a beat sent before it but arriving after, with a `seq` no higher, is ignored.
+	 */
 	const typists = new Map()
-	const typingIn = (threadId) => {
+	/** Drops what's run out, in every thread, and threads with nothing left */
+	function sweep() {
 		const now = Date.now()
+		for (const [threadId, here] of typists) {
+			for (const [person, beat] of here) if (beat.until <= now) here.delete(person)
+			if (!here.size) typists.delete(threadId)
+		}
+	}
+	/** Who's typing in a thread now, until when */
+	const typingIn = (threadId) => {
+		sweep()
+		return new Map(
+			[...(typists.get(threadId) ?? [])]
+				.filter(([, beat]) => beat.on)
+				.map(([person, beat]) => [person, beat.until]),
+		)
+	}
+
+	/** Wakes each of the thread's pending picks, one commit each, since a signal is a write and the next read must come first */
+	async function nudgeAll(threadId) {
+		for (const pick of Object.values((await core.thread(threadId)).picks ?? {}))
+			await core.commit((tx) => nudge(tx, pick))
+	}
+
+	/** A person's beat, or their stop: a stop wakes the thread's held picks; if that fails, they're typing again, so a retry can */
+	async function typing(threadId, person, on, seq = 0) {
+		sweep()
 		const here = typists.get(threadId) ?? new Map()
-		for (const [person, until] of here) if (until <= now) here.delete(person)
-		return here
+		const last = here.get(person)
+		if (last && seq && seq <= last.seq) return
+		const was = last?.on && last.until > Date.now()
+		typists.set(
+			threadId,
+			here.set(person, { until: Date.now() + TYPING, seq: seq || last?.seq || 0, on }),
+		)
+		if (on || !was) return
+		try {
+			await nudgeAll(threadId)
+		} catch (error) {
+			here.set(person, last)
+			throw error
+		}
 	}
 
-	/** A person typing, or not any more: a stop wakes the thread's held picks */
-	async function typing(threadId, person, on) {
-		const here = typingIn(threadId)
-		typists.set(threadId, here)
-		if (on) return void here.set(person, Date.now() + TYPING)
-		if (!here.delete(person)) return
-		await core.commit(async (tx) => {
-			for (const pick of Object.values((await core.threadIn(tx, threadId)).picks ?? {}))
-				await nudge(tx, pick)
+	/** Once the commit that saves someone's message is stored: they've stopped typing, and held picks go on */
+	function sent(tx, threadId, person) {
+		const last = typists.get(threadId)?.get(person)
+		if (!last?.on) return
+		core.afterCommit(tx, () => {
+			typing(threadId, person, false, last.seq).catch((error) => console.error(error))
 		})
-	}
-
-	/** In the commit that saves someone's message, before it's written: they've stopped typing */
-	async function sent(tx, threadId, person, picks) {
-		if (!typingIn(threadId).delete(person)) return
-		for (const pick of picks) await nudge(tx, pick)
 	}
 
 	/** Tells the Director tab what the committed route asks, after the runner check and any newer message */
@@ -371,7 +402,7 @@ export function server(core) {
 					: await pick(threadId, entry, covers, rt.signal)
 		let route
 		await rt.commit(async (tx) => {
-			route = await core.route(tx, threadId, entry, routed, { steer, pick: id })
+			route = await core.route(tx, threadId, entry, routed, { steer, pick: id, covers })
 			return finished()
 		}, ctx)
 		picked(threadId, entry, route, routed.confidence)
@@ -424,7 +455,11 @@ export function server(core) {
 			},
 			call,
 		},
-		abort: async ({ id, conversationId: threadId, input: { entry, steer } }, rt, ctx) => {
+		abort: async (
+			{ id, conversationId: threadId, input: { entry, steer, covers = [] } },
+			rt,
+			ctx,
+		) => {
 			let route
 			await rt.commit(async (tx) => {
 				route = await core.route(
@@ -432,7 +467,7 @@ export function server(core) {
 					threadId,
 					entry,
 					{ to: [], picked: 'Stopped before the director picked.' }, // the author's newer message makes it ask no one, quietly
-					{ steer, pick: id },
+					{ steer, pick: id, covers },
 				)
 				return finished('aborted')
 			}, ctx)

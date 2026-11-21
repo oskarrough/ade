@@ -204,7 +204,16 @@ export function Composer(props) {
 			.filter((file) => file?.type.startsWith('image/'))
 	const submit = async (event) => {
 		event.preventDefault()
-		const toDirector = free()
+		// A thread you didn't choose for asks whom the server decides, so its rules (one agent, Pause) hold
+		const toDirector =
+			free() ||
+			Boolean(
+				props.thread &&
+				!props.inbox &&
+				!homeBot(props.thread) &&
+				(!pick(props.thread) || pick(props.thread).held) &&
+				here(props.thread).length,
+			)
 		if (draft().sending || (!toDirector && !whom().length)) return
 		if (!draft().draft.trim() && !draft().images.length) return
 		const body = draft().draft,
@@ -387,6 +396,7 @@ export function Composer(props) {
 								snapshot(agent(props.thread)),
 								snapshot(askedBots(props.thread)),
 								props.thread,
+								true,
 							)
 						changeDraft((draft) => {
 							draft.draft = event.currentTarget.value
@@ -676,16 +686,20 @@ const emptyDraft = { draft: '', images: [], sending: false }
  * that you stopped once it's empty. Sending ends it on the server.
  */
 let beat = { thread: null, at: 0 }
+/** Each beat and stop carries a number that only grows, so a late beat never outlives the stop sent after it */
+let seq = Date.now()
 function typed(thread, text) {
 	if (!thread) return
 	const typing = Boolean(text.trim())
 	if (typing && beat.thread === thread && Date.now() - beat.at < 2000) return
 	if (!typing && beat.thread !== thread) return
 	beat = typing ? { thread, at: Date.now() } : { thread: null, at: 0 }
-	api(`/api/threads/${thread}/typing`, { typing }).catch(() => {})
+	api(`/api/threads/${thread}/typing`, { typing, seq: ++seq }).catch(() => {})
 }
-/** Sending ends your typing on the server; the next keystroke starts a new beat */
-const sentTyping = () => (beat = { thread: null, at: 0 })
+/** Sending ends your typing: the server ends it with the message too, and this stop outranks any beat still on its way */
+const sentTyping = () => {
+	if (beat.thread) typed(beat.thread, '')
+}
 
 /** Each mounted composer's textarea, by thread id ('new' for one with none yet), so a quote from its message list can reach it */
 const textareas = new Map()
@@ -842,9 +856,10 @@ const where = (thread) => {
 /** What a runner's controls show: the agent asked, if it runs there, else what was last chosen there */
 export const toFor = (runner, thread = current()) =>
 	agent(thread)?.runner === runner.name ? agent(thread) : fallback(runner)
-const setPick = (to, bots, thread = current()) =>
+/** `held` marks a pick made only to keep the label still while you type, not one you chose */
+const setPick = (to, bots, thread = current(), held = false) =>
 	setCompose((store) => {
-		store.picks[thread ?? 'new'] = { agent: to, bots }
+		store.picks[thread ?? 'new'] = { agent: to, bots, ...(held && { held }) }
 		if (to && !to.name) store.settings[to.runner] = to
 	})
 /** Choosing a model replaces the agent's pick and keeps the bots; in a bot's home, it is the bot's own model */

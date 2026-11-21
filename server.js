@@ -218,6 +218,7 @@ const nobody = (serve) =>
 // ── Docs and tasks ────────────────────────────────────────────────────────
 
 const KIND = 'ade.message'
+const PAUSED = 'Paused: only @mentions and named recipients get an answer.'
 /** Whom the director picked for a message saved before it chose: `{message, to, picked}`, read as that message's own */
 const ROUTE = 'ade.route'
 /** An agent's input in its conversation; `held` names the thread messages it gave */
@@ -270,6 +271,8 @@ const Thread = defineDoc({
 		picks: {},
 		/** Only @mentions and named recipients get an answer while it's on */
 		paused: false,
+		/** Messages waiting for the director's pick: no agent takes them as context until it's routed them */
+		unpicked: [],
 		/** With inbox on, the open question dismissed from it: its message id */
 		dismissed: null,
 	}),
@@ -319,7 +322,10 @@ const Admit = defineTask({
 			const row = await thread(threadId)
 			const { unseen, note } = recipientOf(row, agent)
 			/** Its turn comes after the answer before it, so it takes that answer, and whatever was said meanwhile */
-			const held = turn ? unseen : unseen.filter((id) => id <= upTo)
+			const waiting = new Set(row.unpicked ?? [])
+			const held = (turn ? unseen : unseen.filter((id) => id <= upTo)).filter(
+				(id) => !waiting.has(id),
+			)
 			if (!held.length) return rt.commit(() => finished('completed', { held }), ctx)
 			/** A folder renamed or deleted under the agent: it doesn't run there, and what it was asked waits for another folder */
 			const missing = await gone(agent, rt.signal)
@@ -1097,24 +1103,29 @@ async function append(
 	tx,
 	threadId,
 	{ to = undefined, ...message },
-	{ steer = false, empty = false, direct = false } = {},
+	{ steer = false, empty = false, direct = false, unlessPaused = false } = {},
 ) {
 	const row = await tx.doc(Thread, threadId)
+	// A solo thread's message, decided outside this commit, asks no one if the thread was paused meanwhile
+	if (unlessPaused && row.paused) [to, message] = [undefined, { ...message, picked: PAUSED }]
 	const names = (to ?? []).map(writtenTo)
 	const data = { createdAt: now(), ...message, ...(to ? { to: names } : {}) }
 	const prior =
 		!empty && names.some((name) => !row.agents[keyOf(name)]) ? await messageIds(tx, threadId) : []
 	row.picks ??= {}
+	row.unpicked ??= []
 	/** The author's own earlier messages a pick still pending covered, which their new message's pick covers now */
 	let covers = []
 	if (fresh({ kind: KIND, data })) {
-		// The author's next message, an @mention too, takes over their pick still pending; whoever it asks reads the older one
-		if (row.picks[message.author]) {
+		// The author's next message takes over their pick still pending if it makes a pick of its own, or asks someone
+		// who then reads the older one; one that asks no one leaves it be
+		if (row.picks[message.author] && (direct || names.length)) {
 			covers = (await supersede?.(tx, threadId, row.picks[message.author])) ?? []
 			delete row.picks[message.author]
+			if (!direct) row.unpicked = row.unpicked.filter((id) => !covers.includes(id))
 		}
-		// Having sent, they're no longer typing: picks held for them go on
-		await sent?.(tx, threadId, message.author, Object.values(row.picks))
+		// Having sent, they're no longer typing: once this commit is stored, picks held for them go on
+		sent?.(tx, threadId, message.author)
 	}
 	const entry = await tx.appendEntry(threadId, { kind: KIND, data })
 	for (const hook of posted) await hook(tx, threadId, entry)
@@ -1130,7 +1141,10 @@ async function append(
 					covers,
 				})
 			: undefined
-	if (pick) row.picks[message.author] = pick
+	if (pick) {
+		row.picks[message.author] = pick
+		row.unpicked = [...new Set([...row.unpicked, ...covers, entry.id])]
+	}
 	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
 }
 
@@ -1175,13 +1189,26 @@ async function ask(tx, row, threadId, upTo, to, { steer = false, prior = [] } = 
  * The director's pick for a saved message, inside its commit: the record that shows it on the message, then each
  * agent it picked gets the message as if it had asked them. A pick the author may not reach asks no one.
  */
-async function route(tx, threadId, messageId, { to, picked }, { steer = false, pick } = {}) {
+async function route(
+	tx,
+	threadId,
+	messageId,
+	{ to, picked },
+	{ steer = false, pick, covers = [] } = {},
+) {
 	const { data } = await tx.entry(messageId)
-	// The author's newer message saved since takes over: this one asks no one, and whoever that one asks reads it too
-	if (await newerThan(tx, threadId, messageId, data.author)) [to, picked] = [[], undefined]
 	const row = await tx.doc(Thread, threadId)
 	row.picks ??= {}
-	if (row.picks[data.author] === pick) delete row.picks[data.author]
+	if (row.picks[data.author] !== pick)
+		// The author's newer message took over: this one asks no one, and whatever took over reads it
+		[to, picked] = [[], undefined]
+	else {
+		delete row.picks[data.author]
+		// Its messages are free to be read now, whoever it asks
+		row.unpicked = (row.unpicked ?? []).filter((id) => id !== messageId && !covers.includes(id))
+		// Paused while the chooser ran: it starts no reply
+		if (row.paused && to.length) [to, picked] = [[], PAUSED]
+	}
 	try {
 		await reach(to, data.author, await tx.doc(Runners))
 	} catch (error) {
@@ -1207,20 +1234,6 @@ const fresh = ({ kind, data }) =>
 	!data.re &&
 	!data.wake &&
 	!data.stopped
-
-/** Whether `author` wrote a fresh message after `messageId`, reading back from the newest */
-async function newerThan(tx, threadId, messageId, author) {
-	let cursor
-	do {
-		const page = await tx.scanEntries({ conversationId: threadId, order: 'descending' }, 50, cursor)
-		for (const entry of page.items) {
-			if (entry.id <= messageId) return false
-			if (fresh(entry) && /** @type {any} */ (entry.data).author === author) return true
-		}
-		cursor = page.next
-	} while (cursor)
-	return false
-}
 
 /**
  * An agent asked with another model, thinking, runner or folder changes in place, as in pi, and is told when it moves
@@ -1577,7 +1590,7 @@ async function recipients(
 	if (directed?.mention) return { ...directed, to: and(directed.to) }
 	// Paused, only @mentions and named recipients get an answer
 	if (director && !explicit && !joining.length && (await thread(id)).paused)
-		return { to: [], picked: 'Paused: only @mentions and named recipients get an answer.' }
+		return { to: [], picked: PAUSED }
 	// Naming a bot that isn't here asks it, so the message isn't free for the director to pick for
 	if (directed?.direct) return joining.length ? { to: joining } : { to: [], direct: true }
 	if (directed) return { ...directed, to: and(directed.to) }
@@ -1598,7 +1611,7 @@ async function recipients(
 			}
 		}
 	}
-	return { to: await fallback() }
+	return { to: await fallback(), solo: director && !explicit }
 }
 
 /** The known bots a message @mentions that aren't in the thread yet: naming one invites it, as picking it from the
@@ -1618,7 +1631,7 @@ async function postEntry(id, author, input) {
 	const images = imageList(input.images)
 	const body = images ? (input.body ?? '').trim() : field(input.body, 'body')
 	const command = !images && body.match(/^\$\s+([\s\S]+)/)?.[1]
-	const { to, picked, direct } = await recipients(
+	const { to, picked, direct, solo } = await recipients(
 		id,
 		{ author, body },
 		{
@@ -1644,7 +1657,7 @@ async function postEntry(id, author, input) {
 						...(to.length ? { to } : {}),
 						...(picked ? { picked } : {}),
 					},
-					{ steer: input.steer === true, direct },
+					{ steer: input.steer === true, direct, unlessPaused: solo },
 				),
 	)
 	return withPick(id, result)
@@ -2178,8 +2191,8 @@ const routes = /** @type {[string, Function][]} */ ([
 		'POST /api/threads/:id/typing',
 		async (req, id) => {
 			await conversation(id)
-			const { typing: on } = await input(req)
-			await typing?.(id, user(req), on === true)
+			const { typing: on, seq } = await input(req)
+			await typing?.(id, user(req), on === true, Number.isSafeInteger(seq) ? seq : 0)
 			return { typing: on === true }
 		},
 	],
