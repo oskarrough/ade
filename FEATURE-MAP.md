@@ -30,7 +30,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
                                     newest, a thread's messages read back from its end (?last, ?after)
   recent, older, back, conversationRecord   each thread's newest entries and record kept as commits land, its older ones read
                                     once; `back` looks newest first through both, for status and latestMessage (openQuestion)
-  harnessSettings                   Pi's settings, worked out once per change of models
+  harnessSettings, provide          Pi's settings, worked out once per change of models (provide, a runner's models as Pi's provider)
   listsOf, placed, listOf, recheck  which lists a commit moves: a thread's own list; the inbox when a thread's open question
                                     comes or goes (recheck, over openQuestion) or is dismissed
   forkThread, seenBy                forks

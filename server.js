@@ -561,30 +561,23 @@ registry.install(
 )
 registry.install(defineExtension({ name: 'ade', tasks: [Anchor, Admit, Deliver, Shell] }))
 /**
- * Pi's settings, worked out again only when a runner's models change: Pi asks for them on every document it reads, and
- * going through every model for compactingAt each time was most of what a thread list cost
- * @type {{ providers: readonly unknown[], compactAt: number | undefined, value: any }}
+ * Pi's settings, worked out again only when a runner's models or compactAt change (`provide`): Pi asks for them on
+ * every document it reads, and going through every model for compactingAt each time was most of what a list cost
  */
-let settingsFor = { providers: [], compactAt: undefined, value: undefined }
-function harnessSettings() {
-	const providers = models.getProviders()
-	if (
-		settingsFor.value &&
-		settingsFor.compactAt === compactAt &&
-		providers.length === settingsFor.providers.length &&
-		providers.every((provider, index) => provider === settingsFor.providers[index])
-	)
-		return settingsFor.value
-	const value = {
+let harnessed
+const harnessSettings = () =>
+	(harnessed ??= {
 		afterFailedRun: /** @type {const} */ ('continue'),
 		/** RESTART_LIMIT=n: how many crashes in a row end a task; Pi's own limit unless set */
 		...(Number(process.env.RESTART_LIMIT) >= 1 && {
 			restartLimit: Number(process.env.RESTART_LIMIT),
 		}),
 		...(compactAt && { compaction: compactingAt(compactAt) }),
-	}
-	settingsFor = { providers, compactAt, value }
-	return value
+	})
+/** A runner's models, as Pi's provider `runner:<name>` */
+const provide = (name, runnerModels) => {
+	models.setProvider(runnerProvider(runners, name, runnerModels))
+	harnessed = undefined
 }
 
 const storage = await openNodeSqliteStorage(file)
@@ -850,7 +843,7 @@ async function modelOn(name, runner, asked, signal, useDefaultThinking) {
 		await commit(async (tx) => {
 			;(await tx.doc(Runners))[name].models[ref] = model
 		})
-		models.setProvider(runnerProvider(runners, name, (await known())[name].models))
+		provide(name, (await known())[name].models)
 	}
 	const level = thinkingLevel ?? (useDefaultThinking ? defaultThinkingLevel : undefined)
 	return { model: ref, ...(level ? { thinkingLevel: level } : {}) }
@@ -2026,9 +2019,9 @@ const [
 	'openQuestion',
 ].map(hook)
 compactAt = hook('compactAt')
+harnessed = undefined
 const remembers = hook('remembers')
-for (const [name, runner] of Object.entries(await known()))
-	models.setProvider(runnerProvider(runners, name, runner.models))
+for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
 harness.resume()
 for (const module of modules) await module.start?.()
 
@@ -2976,8 +2969,7 @@ async function upgrade(req, raw, head, serve = false) {
 		if (connection.phase !== 'closed') all[name] = runner
 	})
 	if (connection.phase === 'closed') return
-	if (!models.getProvider(`runner:${name}`))
-		models.setProvider(runnerProvider(runners, name, resolved))
+	if (!models.getProvider(`runner:${name}`)) provide(name, resolved)
 	listen(runners.receive)
 	runners.connect(connection, (text) => socket.send(text))
 	notify(WORK)
