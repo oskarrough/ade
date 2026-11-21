@@ -172,6 +172,16 @@ async function post() {
 	}
 }
 
+/** The newest message in a thread that asked someone, looked for back from its end, twice as far each time; 0 for none */
+async function lastAsk(id) {
+	for (let last = 50; ; last *= 2) {
+		const { entries } = await api('GET', `/api/threads/${id}?last=${last}`)
+		const asked = entries.findLast((entry) => entry.data.to?.length)
+		if (asked) return asked.id
+		if (entries.length < last) return 0
+	}
+}
+
 /** Still going: the thread has work (an agent answering or waiting for its runner, a command); a question alone settles it */
 const going = (view) => view.busy
 
@@ -203,12 +213,8 @@ const commands = {
 			for (;;) {
 				const view = await api('GET', `/api/threads/${id}?last=0`)
 				if (!going(view)) {
-					// What came after the newest message that asked someone, found among the latest
-					const after = flags.after
-						? Number(flags.after)
-						: ((await api('GET', `/api/threads/${id}?last=200`)).entries.findLast(
-								(entry) => entry.data.to?.length,
-							)?.id ?? 0)
+					// What came after the newest message that asked someone
+					const after = flags.after ? Number(flags.after) : await lastAsk(id)
 					return (await api('GET', `/api/threads/${id}?after=${after}`)).entries.forEach(show)
 				}
 				if ((await changes.next()).done) throw new Error('Server disconnected while waiting')

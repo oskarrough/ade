@@ -133,6 +133,20 @@ check(
 	JSON.stringify([waited, after]),
 )
 
+// Far behind 210 newer messages, the ask that wait prints after is still found
+const busy = (await api('POST', '/api/threads', { title: 'busy' })).json.id
+await cli('post', '--thread', String(busy), '--to', 'echo/echo@laptop', 'the old ask')
+for (let k = 0; k < 210; k++)
+	await api('POST', `/api/threads/${busy}/entries`, { body: `note ${k}`, to: null })
+const behind = await cli('wait', String(busy))
+check(
+	!/→[^\n]*\nthe old ask/.test(behind) &&
+		behind.includes('heard: the old ask') &&
+		behind.includes('note 209'),
+	'wait finds the newest ask however far back it is, and prints only what came after it',
+	behind.slice(0, 300),
+)
+
 const runners = await cli('runners')
 check(
 	runners.includes('laptop online') && runners.includes('desk online'),
