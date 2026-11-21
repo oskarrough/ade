@@ -2089,12 +2089,6 @@ body.resizing {
 	gap: var(--space-1);
 }
 
-/* A thread's recap, and while it's rewritten, the refresh icon breathing like a live turn. */
-.recap button.writing > svg.icon {
-	--blink-low: 0.55;
-	animation: blink 2.4s ease-in-out infinite;
-}
-
 /* A canvas takes the column's whole height and more of its width; tldraw draws everything inside its board. */
 .side.canvas {
 	flex-basis: var(--side-width, 44rem);

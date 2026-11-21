@@ -15,7 +15,7 @@ import { api, connected, server, setChat } from './server.js'
 import { ModelPicker } from './model-picker.js'
 import { Panes } from './panes.js'
 import { agentTo, formatAgent, writtenTo } from './agent.js'
-import { report } from './notice.js'
+import { busy, Busy } from './busy.js'
 import { placePopover } from './popover.js'
 import { Switch } from './dot.js'
 import { markdown } from './markdown.js'
@@ -74,7 +74,7 @@ export function Settings() {
 			else store.model = chosen
 		})
 	const chosen = () => agentTo(picking() === 'director' ? directs('model') : model())
-	const save = async () => {
+	const save = busy(async () => {
 		setDraft((store) => void (store.state = 'saving'))
 		try {
 			const { restarts } = await api('/api/settings', {
@@ -90,9 +90,9 @@ export function Settings() {
 			})
 		} catch (error) {
 			setDraft((store) => void (store.state = ''))
-			report(error)
+			throw error
 		}
-	}
+	})
 	// The page reconnects on its own; once the server is back, the panel is ready for the next change
 	createEffect(connected, (up) => {
 		if (up && untrack(() => draft.state !== 'saving' && draft.state !== ''))
@@ -145,21 +145,27 @@ export function Settings() {
 						</p>
 					<//>
 					<${Show}
-						when=${() => draft.state === ''}
+						when=${() => draft.state === '' || draft.state === 'saving'}
 						fallback=${html`<p class="mute" role="status">
 							${() =>
-								draft.state === 'saving'
-									? 'Saving…'
-									: draft.state === 'restarting'
-										? 'Saved. The server is restarting; this page reconnects on its own.'
-										: 'Saved, and the server stopped: it can’t restart itself here. Start it again with node server.js.'}
+								draft.state === 'restarting'
+									? 'Saved. The server is restarting; this page reconnects on its own.'
+									: 'Saved, and the server stopped: it can’t restart itself here. Start it again with node server.js.'}
 						</p>`}
 					>
-						<button type="button" class="save" disabled=${() => !changes()} onClick=${save}>
-							${() =>
-								changes()
-									? `${changes()} ${changes() === 1 ? 'change' : 'changes'} · Save and restart`
-									: 'Save and restart'}
+						<button
+							type="button"
+							class="save"
+							disabled=${() => !changes()}
+							aria-busy=${() => save.state() === 'busy'}
+							onClick=${(_event) => save()}
+						>
+							<${Busy} state=${save.state}
+								>${() =>
+									changes()
+										? `${changes()} ${changes() === 1 ? 'change' : 'changes'} · Save and restart`
+										: 'Save and restart'}<//
+							>
 						</button>
 					<//>
 				`}

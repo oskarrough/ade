@@ -8,6 +8,7 @@ import { placePopover } from './popover.js'
 import { Panes } from './panes.js'
 import { report } from './notice.js'
 import { Sure } from './sure.js'
+import { busy, Busy } from './busy.js'
 import { Dot } from './dot.js'
 
 export function Runner(props) {
@@ -163,15 +164,11 @@ function RunnerItem(props) {
 		work()
 			.map((agent) => lastToolCall(doing[agent.thread]?.[agent.conversation]))
 			.find(Boolean)
-	const revoke = async (_e) => {
+	const revoke = busy(async () => {
 		const { name } = props.runner
-		try {
-			await revokeRunner(name)
-			if (minted()?.name === name) setMinted(null)
-		} catch (failure) {
-			report(failure)
-		}
-	}
+		await revokeRunner(name)
+		if (minted()?.name === name) setMinted(null)
+	})
 	return html`
 		<li>
 			<${Dot} state=${() => dotOf(props.runner)} />
@@ -198,8 +195,8 @@ function RunnerItem(props) {
 						? " It's the server's own runner, so it's back when the server restarts, unless it starts with --no-runner."
 						: '')}
 				ask="revoke?"
-				onConfirm=${revoke}
-				>revoke<//
+				onConfirm=${(_event) => revoke()}
+				><${Busy} state=${revoke.state}>revoke<//><//
 			>
 		</li>
 	`
@@ -209,26 +206,24 @@ function RunnerItem(props) {
 export function ConnectRunner(props) {
 	const [name, setName] = createSignal(props.name ?? '')
 	const [error, setError] = createSignal('')
-	const [busy, setBusy] = createSignal(false)
 	const [copied, setCopied] = createSignal(false)
 	// A new key for an online runner cuts it off, so the button asks first, in its own words.
 	const [cutting, setCutting] = createSignal(false)
 	const existing = () => runners.find((runner) => runner.name === name().trim())
-	const submit = async (event) => {
-		event.preventDefault()
-		if (existing()?.online && !cutting()) return setCutting(true)
-		setCutting(false)
-		setBusy(true)
-		setError('')
-		try {
+	const add = busy(
+		async () => {
+			setError('')
 			setMinted(await api('/api/runners', { name: name().trim() }))
 			setName('')
 			setCopied(false)
-		} catch (failure) {
-			setError(failure.message)
-		} finally {
-			setBusy(false)
-		}
+		},
+		{ onError: (failure) => setError(failure.message) },
+	)
+	const submit = (event) => {
+		event.preventDefault()
+		if (existing()?.online && !cutting()) return setCutting(true)
+		setCutting(false)
+		add()
 	}
 	const copy = () =>
 		navigator.clipboard
@@ -260,8 +255,14 @@ export function ConnectRunner(props) {
 						setCutting(false)
 					}}
 				/>
-				<button type="submit" disabled=${() => busy()} onBlur=${(_e) => setCutting(false)}>
-					${() => (cutting() ? 'Cut it off?' : existing() ? 'New key' : 'Add runner')}
+				<button
+					type="submit"
+					aria-busy=${() => add.state() === 'busy'}
+					onBlur=${(_e) => setCutting(false)}
+				>
+					<${Busy} state=${add.state}
+						>${() => (cutting() ? 'Cut it off?' : existing() ? 'New key' : 'Add runner')}<//
+					>
 				</button>
 			</form>
 			<${Show} when=${cutting}>

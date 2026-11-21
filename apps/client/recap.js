@@ -2,17 +2,17 @@
  * A thread's recap, as a column beside it: a checklist of where the thread stands, a row per topic, its links
  * scrolling the thread to the message behind it. A topic that names a thread whose agent is running right now shows
  * that thread's working dot, as the thread list does; the recap itself never says what's running. The column being open is what keeps the recap written; while it's rewritten,
- * the refresh button's icon pulses.
+ * the refresh button's icon turns.
  */
 import html from '@solidjs/html'
-import { createMemo, createSignal, For, onSettled, refresh, Show, untrack } from 'solid-js'
+import { createMemo, For, onSettled, refresh, Show, untrack } from 'solid-js'
 import { openSide, PageTabs } from './side.js'
 import { Panes } from './panes.js'
 import { Icon } from './icons.js'
 import { Dot } from './dot.js'
 import { api, followThread, loadEarlier, threadOf } from './server.js'
 import { inline } from './markdown.js'
-import { report } from './notice.js'
+import { busy, Busy } from './busy.js'
 import { links } from './thread.js'
 
 export function Recap(props) {
@@ -24,19 +24,13 @@ export function Recap(props) {
 		const timer = setInterval(() => refresh(page), 5000)
 		return () => clearInterval(timer)
 	})
-	const [asked, setAsked] = createSignal(false)
-	const writing = () => asked() || page().writing
-	const rewrite = async () => {
-		setAsked(true)
-		try {
-			await api(`/api/threads/${id}/recap`, {})
-			refresh(page)
-		} catch (error) {
-			report(error)
-		} finally {
-			setAsked(false)
-		}
-	}
+	const rewrite = busy(async () => {
+		await api(`/api/threads/${id}/recap`, {})
+		refresh(page)
+	})
+	// Turning while this column asked, or while the recap is rewritten after an answer
+	const state = () => rewrite.state() || (page().writing ? 'busy' : '')
+	const writing = () => state() === 'busy'
 	return html`
 		<aside class="side recap" aria-label="Recap">
 			<${Panes}
@@ -44,13 +38,13 @@ export function Recap(props) {
 				head=${html`<${PageTabs} id=${id} />`}
 				actions=${html`<button
 					type="button"
-					class=${() => (writing() ? 'ghost small writing' : 'ghost small')}
+					class="ghost small"
 					aria-label=${() => (writing() ? 'Writing the recap' : 'Write it now')}
 					title=${() => (writing() ? 'Writing…' : 'Write the recap now')}
-					disabled=${() => asked()}
+					aria-busy=${() => writing()}
 					onClick=${(_event) => rewrite()}
 				>
-					<${Icon} name="again" />
+					<${Busy} state=${state}><${Icon} name="again" /><//>
 				</button>`}
 				onClose=${(_event) => openSide(id, null)}
 			>
