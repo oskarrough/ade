@@ -29,7 +29,7 @@ import {
 } from '@earendil-works/pi-durable/tools'
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode'
 import { CodemodeSandbox } from '@earendil-works/pi-codemode'
-import { about, builtIn, dataDir, load, readConfig } from './modules.js'
+import { about, builtIn, dataDir, load, loadEnvFile, readConfig } from './modules.js'
 import { DEFAULT_VOICE } from './modules/bots.js'
 import { WebSocketServer } from 'ws'
 import {
@@ -75,6 +75,9 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  */
 
 // ── Start-up: store lock and port ─────────────────────────────────────────
+
+/** Secrets like TYPESAFE_API_KEY and MATRIX_TOKEN, if set there; a shell var still wins */
+const envFile = loadEnvFile()
 
 /** One store, whatever the port */
 const file = process.env.DB_PATH || path.join(dataDir(), 'ade.sqlite')
@@ -2932,6 +2935,7 @@ for (const host of process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1'])
 			const urls = addresses.map((address) => `http://${address}:${listening.port}`)
 			console.log(`${'ade'.padEnd(11)}${urls.join('\n           ')}`)
 			say('data', tilde(file))
+			if (envFile) say('env', tilde(envFile))
 			say(
 				'modules',
 				[

@@ -1,8 +1,20 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+
+/** $XDG_CONFIG_HOME/ade/.env, loaded into process.env at start-up if it exists; a shell var wins. Returns its path once loaded, otherwise nothing. */
+export function loadEnvFile() {
+	const file = path.join(
+		process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
+		'ade',
+		'.env',
+	)
+	if (!existsSync(file)) return undefined
+	process.loadEnvFile(file)
+	return file
+}
 
 /** Default store and log folder: $XDG_DATA_HOME/ade */
 export function dataDir() {
