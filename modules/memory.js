@@ -69,10 +69,8 @@ const span = (line) => ({
 	n: 2 ** line.l,
 	text: line.text,
 })
-export const rendered = (line) => {
-	const { id, n, text } = span(line)
-	return `${id}+${n}|${text}`
-}
+const show = ({ id, n, text }) => `${id}+${n}|${text}`
+export const rendered = (line) => show(span(line))
 
 const WRITER = `# Lines
 
@@ -182,93 +180,29 @@ export function server(core) {
 	}
 
 	/**
-	 * Keep positions, which messages are too long to be their own line, and summaries, never message bodies. Later
-	 * writes read only new entries and their own messages.
-	 */
-	const indexes = new Map()
-	async function indexOf(threadId) {
-		let index = indexes.get(threadId)
-		if (!index) {
-			const { parent } = await core.commit((tx) => tx.conversation(threadId))
-			const inherited = parent && (await indexOf(parent.conversationId))
-			const ids = inherited ? inherited.ids.filter((id) => id <= parent.at) : []
-			index = {
-				ids,
-				positions: new Map(ids.map((id, at) => [id, at])),
-				have: new Map(),
-				long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
-				newest: 0,
-				/** Goes up with every line this index gains, its own or its parent's */
-				revision: 0,
-				/** A fork's parent, and the parent's revision its lines were last copied at */
-				parent: parent?.conversationId,
-				inheritedAt: -1,
-				/** Messages the fork shares with its parent: lines over them come from the parent too */
-				shared: ids.length,
-			}
-			indexes.set(threadId, index)
-		}
-		// A fork takes the lines its parent has written since over the messages they share
-		if (index.parent !== undefined) {
-			const inherited = await indexOf(index.parent)
-			if (inherited.revision !== index.inheritedAt) {
-				for (const [coordinates, line] of inherited.have)
-					if ((line.i + 1) * 2 ** line.l <= index.shared && !index.have.has(coordinates)) {
-						index.have.set(coordinates, line)
-						index.revision++
-					}
-				index.inheritedAt = inherited.revision
-			}
-		}
-		let cursor
-		do {
-			const page = await core.commit((tx) =>
-				tx.scanEntries(
-					{
-						conversationId: threadId,
-						minEntryId: index.newest + 1,
-						order: 'ascending',
-					},
-					500,
-					cursor,
-				),
-			)
-			for (const entry of page.items) {
-				if (entry.kind === 'ade.message' && !index.positions.has(entry.id)) {
-					if (bytes(kept(entry)) > LINE) index.long.add(index.ids.length)
-					index.positions.set(entry.id, index.ids.length)
-					index.ids.push(entry.id)
-				}
-				if (entry.kind === KIND && !index.have.has(key(entry.data.l, entry.data.i))) {
-					index.have.set(key(entry.data.l, entry.data.i), entry.data)
-					index.revision++
-				}
-			}
-			cursor = page.next
-			if (!cursor) index.newest = page.items.at(-1)?.id ?? index.newest
-		} while (cursor)
-		return index
-	}
-
-	/**
 	 * One batch per thread at a time, including after a server restart. Compaction's batches go ahead of background
 	 * ones, so it waits at most for the batch already running; an aborted task leaves the queue at once.
 	 */
 	const queues = new Map()
-	function inTurn(threadId, work, { urgent = false, signal = undefined } = {}) {
+	function inTurn(threadId, rt, work, urgent = false) {
 		return new Promise((resolve, reject) => {
 			const queue = queues.get(threadId) ?? { running: false, waiting: [] }
 			queues.set(threadId, queue)
-			const turn = { work, resolve, reject, urgent }
+			const turn = {
+				work: () => (rt.signal.throwIfAborted(), work()),
+				resolve,
+				reject,
+				urgent,
+			}
 			const at = urgent ? queue.waiting.findIndex((other) => !other.urgent) : -1
 			queue.waiting.splice(at < 0 ? queue.waiting.length : at, 0, turn)
-			signal?.addEventListener(
+			rt.signal.addEventListener(
 				'abort',
 				() => {
 					const index = queue.waiting.indexOf(turn)
 					if (index < 0) return
 					queue.waiting.splice(index, 1)
-					reject(signal.reason)
+					reject(rt.signal.reason)
 				},
 				{ once: true },
 			)
@@ -320,17 +254,8 @@ export function server(core) {
 		return ready.filter((line) => line.l === ready[0]?.l).slice(0, BATCH)
 	}
 
-	const STATUSES = ['pending', 'running', 'waiting', 'sleeping']
-	async function liveFills(tx, threadId) {
-		const live = []
-		for (const status of STATUSES)
-			live.push(
-				...(await collect((cursor) =>
-					tx.scanTasks({ conversationId: threadId, kind: 'ade.line', status }, 500, cursor),
-				)),
-			)
-		return live.filter((task) => task.input.fill)
-	}
+	const append = (tx, threadId, l, i, text) =>
+		tx.appendEntry(threadId, { kind: KIND, data: { l, i, text, size: bytes(text) } })
 
 	/**
 	 * Starts a fill unless a live one covers it; the task to wait for, or nothing when no line is missing
@@ -338,22 +263,26 @@ export function server(core) {
 	 * @param {{fill: 'leaves' | 'cut', upTo: number, budget?: number}} need
 	 */
 	async function demand(threadId, { fill, upTo, budget }) {
-		const index = await indexOf(threadId)
+		const index = await indexOf(core, threadId)
 		upTo = Math.min(upTo, index.ids.length)
 		if (!due(index, { fill, upTo, budget }).length) return undefined
 		return core.commit(async (tx) => {
-			const same = (await liveFills(tx, threadId)).find(({ input }) =>
+			// A line task never waits or sleeps
+			const live = []
+			for (const status of /** @type {const} */ (['pending', 'running']))
+				live.push(
+					...(await collect((cursor) =>
+						tx.scanTasks({ conversationId: threadId, kind: 'ade.line', status }, 500, cursor),
+					)),
+				)
+			const same = live.find(({ input }) =>
 				fill === 'leaves'
 					? input.fill === fill && input.upTo >= upTo
 					: input.fill === fill && input.upTo === upTo && input.budget === budget,
 			)
 			return (
 				same?.id ??
-				tx.createTask(
-					Line,
-					{ fill, upTo, ...(fill === 'cut' ? { budget } : {}) },
-					background(threadId),
-				)
+				tx.createTask(Line, { fill, upTo, ...(fill === 'cut' && { budget }) }, background(threadId))
 			)
 		})
 	}
@@ -361,72 +290,38 @@ export function server(core) {
 	const Line = defineTask({
 		name: 'ade.line',
 		version: 1,
-		initial: ({ backfill, fill }) =>
-			fill ? { phase: 'fill', round: 0 } : { phase: backfill ? 'backfill' : 'write' },
+		initial: ({ fill }) => (fill ? { phase: 'fill', round: 0 } : { phase: 'write' }),
 		phases: {
-			backfill: ({ conversationId: threadId, input }, rt, ctx) =>
-				inTurn(
-					threadId,
-					async () => {
-						rt.signal.throwIfAborted()
-						const { ids, have, long } = await indexOf(threadId)
-						const missing = ids.flatMap((id, i) =>
-							(input.entry === undefined || id < input.entry) &&
-							!have.has(key(0, i)) &&
-							!long.has(i)
-								? [i]
-								: [],
-						)
-						const found = await core.commit(async (tx) => {
-							const read = []
-							for (const i of missing) read.push([i, kept(await tx.entry(ids[i]))])
-							return read
-						})
-						return rt.commit(async (tx) => {
-							for (const [i, text] of found)
-								await tx.appendEntry(threadId, {
-									kind: KIND,
-									data: { l: 0, i, text, size: bytes(text) },
-								})
-							// Switched on, it has no message of its own to write
-							if (input.entry === undefined) return finished()
-							return { status: 'running', checkpoint: { phase: 'write' } }
-						}, ctx)
-					},
-					{ signal: rt.signal },
-				),
+			/** Short message lines, which need no model: a backfill's up to its message, else its message's alone */
 			write: ({ conversationId: threadId, input }, rt, ctx) =>
-				inTurn(
-					threadId,
-					async () => {
-						rt.signal.throwIfAborted()
-						const { positions, have, long } = await indexOf(threadId)
-						const i = positions.get(input.entry)
-						if (
-							i === undefined ||
-							have.has(key(0, i)) ||
-							long.has(i) ||
-							!remembers(await core.thread(threadId))
-						)
-							return rt.commit(() => finished(), ctx)
-						const text = kept(await core.commit((tx) => tx.entry(input.entry)))
-						return rt.commit(async (tx) => {
-							await tx.appendEntry(threadId, {
-								kind: KIND,
-								data: { l: 0, i, text, size: bytes(text) },
-							})
-							return finished()
-						}, ctx)
-					},
-					{ signal: rt.signal },
-				),
+				inTurn(threadId, rt, async () => {
+					const { ids, have, long } = await indexOf(core, threadId)
+					const mine = input.backfill
+						? (id) => input.entry === undefined || id <= input.entry
+						: (id) => id === input.entry
+					const missing =
+						input.backfill || remembers(await core.thread(threadId))
+							? ids.flatMap((id, i) =>
+									mine(id) && !have.has(key(0, i)) && !long.has(i) ? [i] : [],
+								)
+							: []
+					const found = await core.commit(async (tx) => {
+						const read = []
+						for (const i of missing) read.push([i, kept(await tx.entry(ids[i]))])
+						return read
+					})
+					return rt.commit(async (tx) => {
+						for (const [i, text] of found) await append(tx, threadId, 0, i, text)
+						return finished()
+					}, ctx)
+				}),
 			/** One batch per pass, committed with the next round, so a restart repeats at most the batch it cut off */
 			fill: ({ conversationId: threadId, input, state }, rt, ctx) =>
 				inTurn(
 					threadId,
+					rt,
 					async () => {
-						rt.signal.throwIfAborted()
-						const index = await indexOf(threadId)
+						const index = await indexOf(core, threadId)
 						const batch = remembers(await core.thread(threadId)) ? due(index, input) : []
 						if (!batch.length) return rt.commit(() => finished(), ctx)
 						const { ids, have } = index
@@ -436,13 +331,7 @@ export function server(core) {
 							return read
 						})
 						const items = batch.map(({ l, i }) => {
-							if (!l)
-								return {
-									l,
-									i,
-									ask: `Line: compress message ${i}`,
-									source: messages.get(i),
-								}
+							if (!l) return { l, i, ask: `Line: compress message ${i}`, source: messages.get(i) }
 							const half = 2 ** (l - 1),
 								id = i * 2 ** l
 							return {
@@ -453,41 +342,22 @@ export function server(core) {
 							}
 						})
 						const { l, i } = items[0]
-						const chat = render(memory(have, l ? (items.at(-1).i + 1) * 2 ** l : i, CONTEXT))
+						const chat = render(shown(have, l ? (items.at(-1).i + 1) * 2 ** l : i, CONTEXT))
 						const texts = await writeLines(items, chat, threadId, rt.signal)
 						if (!texts) return rt.commit(() => finished(), ctx)
-						const now = await indexOf(threadId)
+						const now = await indexOf(core, threadId)
 						return rt.commit(async (tx) => {
 							for (const [offset, { l, i }] of items.entries())
-								if (!now.have.has(key(l, i)))
-									await tx.appendEntry(threadId, {
-										kind: KIND,
-										data: {
-											l,
-											i,
-											text: texts[offset],
-											size: bytes(texts[offset]),
-										},
-									})
-							return {
-								status: 'running',
-								checkpoint: {
-									phase: 'fill',
-									round: /** @type {{round: number}} */ (state.checkpoint).round + 1,
-								},
-							}
+								if (!now.have.has(key(l, i))) await append(tx, threadId, l, i, texts[offset])
+							const { round } = /** @type {{round: number}} */ (state.checkpoint)
+							return { status: 'running', checkpoint: { phase: 'fill', round: round + 1 } }
 						}, ctx)
 					},
-					{ urgent: input.fill === 'cut', signal: rt.signal },
+					input.fill === 'cut',
 				),
 		},
 		abort: (task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
 	})
-
-	async function cutPosition(agent, firstKept, threadId) {
-		const newest = Math.max(-1, ...(await core.seenBy(agent, firstKept - 1)))
-		return (await core.messages(threadId)).findIndex((entry) => entry.id === newest)
-	}
 
 	async function budget(agent) {
 		const to = await core.agentOf(agent)
@@ -503,19 +373,14 @@ export function server(core) {
 			const early = compactions.find((status) => status.taskId === api.taskId)?.blocking === false
 			return reason === 'threshold' && early ? { decline: /** @type {const} */ (true) } : undefined
 		}
-		const T = (await cutPosition(api.conversationId, firstKept, home.thread)) + 1
+		const newest = Math.max(-1, ...(await core.seenBy(api.conversationId, firstKept - 1)))
+		const T = (await core.messages(home.thread)).findIndex((entry) => entry.id === newest) + 1
 		if (T <= 0) return undefined
 		const most = Math.min(await budget(api.conversationId), PANEL)
 		// Only the lines this cut shows, and those below them; newer messages wait for their own demand
-		const fill = await demand(home.thread, {
-			fill: 'cut',
-			upTo: T,
-			budget: most,
-		})
+		const fill = await demand(home.thread, { fill: 'cut', upTo: T, budget: most })
 		if (fill !== undefined) await core.waitForTask(fill, context)
-		return {
-			summary: render(memory(await core.commit((tx) => lines(tx, home.thread)), T, most)),
-		}
+		return { summary: render(shown((await indexOf(core, home.thread)).have, T, most)) }
 	}
 
 	const afterResponse = async ({ usage }, api, context) => {
@@ -532,7 +397,7 @@ export function server(core) {
 			cursor = page.next
 		} while (!seen && cursor)
 		if (!seen?.data.held?.length) return
-		const at = (await indexOf(home.thread)).positions.get(Math.max(...seen.data.held))
+		const at = (await indexOf(core, home.thread)).positions.get(Math.max(...seen.data.held))
 		if (at !== undefined) await demand(home.thread, { fill: 'leaves', upTo: at + 1 })
 	}
 
@@ -546,12 +411,8 @@ export function server(core) {
 		const whole = held.slice(first).map(told).join('\n\n')
 		if (!first) return whole
 		const at = (entry) => all.findIndex((message) => message.id === entry.id)
-		const older = memory(
-			await core.commit((tx) => lines(tx, threadId)),
-			at(held[first - 1]) + 1,
-			Math.min(most, PANEL),
-			at(held[0]),
-		)
+		const { have } = await indexOf(core, threadId)
+		const older = shown(have, at(held[first - 1]) + 1, Math.min(most, PANEL), at(held[0]))
 		return `${render(older)}\n\n${whole}`
 	}
 
@@ -561,7 +422,7 @@ export function server(core) {
 			throw new Error(`No line ${id}+${n}; zoom one from your memory`)
 		if (n === 1) return kept(all[id])
 		return (
-			halves(await core.commit((tx) => lines(tx, thread)), all.length, id, n) ??
+			halves((await indexOf(core, thread)).have, all.length, id, n) ??
 			all
 				.slice(id, id + n)
 				.map((message, offset) => `${id + offset}|${kept(message)}`)
@@ -586,9 +447,7 @@ export function server(core) {
 					{
 						type: 'text',
 						text:
-							typeof opened === 'string'
-								? page(opened, id, at, n)
-								: opened.map((line) => `${line.id}+${line.n}|${line.text}`).join('\n'),
+							typeof opened === 'string' ? page(opened, id, at, n) : opened.map(show).join('\n'),
 					},
 				],
 			}
@@ -609,17 +468,13 @@ export function server(core) {
 					id + n > total
 				)
 					throw new Error(`No line ${id}+${n} in this thread`)
+			const have = new Set((await indexOf(core, thread)).have.keys())
+			const fresh = body.lines
+				.map(({ id, n, text }) => ({ l: Math.log2(n), i: id / n, text, size: bytes(text) }))
+				.filter(({ l, i }) => !have.has(key(l, i)) && have.add(key(l, i)))
 			return core.commit(async (tx) => {
-				const have = await lines(tx, thread)
 				const row = await core.threadIn(tx, thread)
-				for (const { id, n, text } of body.lines) {
-					const l = Math.log2(n),
-						i = id / n
-					if (have.has(key(l, i))) continue
-					const line = { l, i, text, size: bytes(text) }
-					await tx.appendEntry(thread, { kind: KIND, data: line })
-					have.set(key(l, i), line)
-				}
+				for (const line of fresh) await tx.appendEntry(thread, { kind: KIND, data: line })
 				row.memory = true
 				return { memory: true }
 			})
@@ -631,34 +486,30 @@ export function server(core) {
 			return typeof opened === 'string' ? { message: opened } : { lines: opened }
 		}
 		await core.conversation(thread)
-		const T = (await indexOf(thread)).ids.length
+		const T = (await indexOf(core, thread)).ids.length
 		// Opening the memory view writes its missing message lines, never merges
 		if (!query.size && remembers(await core.thread(thread)))
 			await demand(thread, { fill: 'leaves', upTo: T })
 		const budget = Math.min(Number(query.get('budget')) || PANEL, PANEL)
-		return {
-			lines: collapse(memory((await indexOf(thread)).have, T, budget).map(span)),
-		}
+		return { lines: shown((await indexOf(core, thread)).have, T, budget) }
 	}
 
 	async function view(thread, room) {
 		if (!(room >= 0 && room <= 100)) throw new Error('room goes from 0 to 100')
 		await core.conversation(thread)
-		const T = (await indexOf(thread)).ids.length
+		const T = (await indexOf(core, thread)).ids.length
 		if (remembers(await core.thread(thread))) await demand(thread, { fill: 'leaves', upTo: T })
 		if (!T) return { total: 0, least: 0, full: 0, budget: 0, cut: [], tree: [] }
 		// The lines this thread's index keeps; the same messages and lines at the same room give the same view
-		const { have, revision } = await indexOf(thread)
+		const { have, revision } = await indexOf(core, thread)
 		const version = `${T} ${revision} ${room}`
-		const seen = views.get(thread)
-		if (seen?.version === version) return seen.view
-		const shown = layOut(have, T, room)
-		views.set(thread, { version, view: shown })
-		return shown
+		if (views.get(thread)?.version !== version)
+			views.set(thread, { version, view: layOut(have, T, room) })
+		return views.get(thread).view
 	}
 	const views = new Map()
 	function layOut(have, T, room) {
-		const cutAt = (budget) => collapse(memory(have, T, Math.min(budget, PANEL)).map(span))
+		const cutAt = (budget) => shown(have, T, Math.min(budget, PANEL))
 		const least = Math.max(100, sizeOf(cutAt(1)))
 		const full = Math.max(least * 2, sizeOf(cutAt(PANEL)))
 		const budget = Math.round(least * (full / least) ** (room / 100))
@@ -696,10 +547,7 @@ export function server(core) {
 		if (short || first)
 			await tx.createTask(
 				Line,
-				{
-					...(short ? { entry: entry.id } : {}),
-					...(first ? { backfill: true } : {}),
-				},
+				{ ...(short && { entry: entry.id }), ...(first && { backfill: true }) },
 				background(threadId),
 			)
 	}
@@ -726,30 +574,74 @@ export function server(core) {
 	}
 }
 
-export async function lines(tx, threadId) {
-	const map = new Map()
-	const own = await collect((cursor) =>
-		tx.scanEntries({ conversationId: threadId, order: 'ascending' }, 500, cursor),
-	)
-	for (const { kind, data } of own)
-		if (kind === KIND && !map.has(key(data.l, data.i))) map.set(key(data.l, data.i), data)
-	const { parent } = await tx.conversation(threadId)
-	if (!parent) return map
-	const upTo = await collect((cursor) =>
-		tx.scanEntries(
-			{
-				conversationId: parent.conversationId,
-				maxEntryId: parent.at,
-				order: 'ascending',
-			},
-			500,
-			cursor,
-		),
-	)
-	const shown = upTo.filter((entry) => entry.kind === 'ade.message').length
-	for (const [coordinates, line] of await lines(tx, parent.conversationId))
-		if ((line.i + 1) * 2 ** line.l <= shown && !map.has(coordinates)) map.set(coordinates, line)
-	return map
+/**
+ * Keep positions, which messages are too long to be their own line, and summaries, never message bodies. Later
+ * writes read only new entries and their own messages.
+ */
+const indexes = new Map()
+/** The lines a thread has, `have` by `l:i`, its parent's over the messages they share included */
+export async function indexOf(core, threadId) {
+	let index = indexes.get(threadId)
+	if (!index) {
+		const { parent } = await core.commit((tx) => tx.conversation(threadId))
+		const inherited = parent && (await indexOf(core, parent.conversationId))
+		const ids = inherited ? inherited.ids.filter((id) => id <= parent.at) : []
+		index = {
+			ids,
+			positions: new Map(ids.map((id, at) => [id, at])),
+			have: new Map(),
+			long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
+			newest: 0,
+			/** Goes up with every line this index gains, its own or its parent's */
+			revision: 0,
+			/** A fork's parent, and the parent's revision its lines were last copied at */
+			parent: parent?.conversationId,
+			inheritedAt: -1,
+			/** Messages the fork shares with its parent: lines over them come from the parent too */
+			shared: ids.length,
+		}
+		indexes.set(threadId, index)
+	}
+	// A fork takes the lines its parent has written since over the messages they share
+	if (index.parent !== undefined) {
+		const inherited = await indexOf(core, index.parent)
+		if (inherited.revision !== index.inheritedAt) {
+			for (const [coordinates, line] of inherited.have)
+				if ((line.i + 1) * 2 ** line.l <= index.shared && !index.have.has(coordinates)) {
+					index.have.set(coordinates, line)
+					index.revision++
+				}
+			index.inheritedAt = inherited.revision
+		}
+	}
+	let cursor
+	do {
+		const page = await core.commit((tx) =>
+			tx.scanEntries(
+				{
+					conversationId: threadId,
+					minEntryId: index.newest + 1,
+					order: 'ascending',
+				},
+				500,
+				cursor,
+			),
+		)
+		for (const entry of page.items) {
+			if (entry.kind === 'ade.message' && !index.positions.has(entry.id)) {
+				if (bytes(kept(entry)) > LINE) index.long.add(index.ids.length)
+				index.positions.set(entry.id, index.ids.length)
+				index.ids.push(entry.id)
+			}
+			if (entry.kind === KIND && !index.have.has(key(entry.data.l, entry.data.i))) {
+				index.have.set(key(entry.data.l, entry.data.i), entry.data)
+				index.revision++
+			}
+		}
+		cursor = page.next
+		if (!cursor) index.newest = page.items.at(-1)?.id ?? index.newest
+	} while (cursor)
+	return index
 }
 
 /**
@@ -866,8 +758,7 @@ function opened(have, T, id, n, cut) {
 	})
 }
 
-const sizeOf = (list) =>
-	list.reduce((sum, line) => sum + bytes(`${line.id}+${line.n}|${line.text}`) + 1, 0)
+const sizeOf = (list) => list.reduce((sum, line) => sum + bytes(show(line)) + 1, 0)
 
 /** Adjacent gaps are one readable, zoomable span, even across binary-tree boundaries. */
 function collapse(list) {
@@ -888,7 +779,6 @@ function collapse(list) {
 	)
 }
 
-const render = (list) =>
-	`<chat>\n${collapse(list.map(span))
-		.map((line) => `${line.id}+${line.n}|${line.text}`)
-		.join('\n')}\n</chat>`
+/** The lines over messages from..T-1 within budget, as they're shown: spans, with gaps collapsed */
+const shown = (have, T, budget, from = 0) => collapse(memory(have, T, budget, from).map(span))
+const render = (list) => `<chat>\n${list.map(show).join('\n')}\n</chat>`

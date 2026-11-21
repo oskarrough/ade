@@ -5,7 +5,7 @@
 import { num, obj, opt } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTask, defineTool } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { lines, memory, rendered } from './memory.js'
+import { indexOf, memory, rendered } from './memory.js'
 import { complete, AGENT, agentTo, background, byAgent, finished, written } from '../util.js'
 
 export const on = false
@@ -54,13 +54,13 @@ export function server(core) {
 			again: false,
 		}),
 	})
-	const read = (threadId) => core.commit((tx) => view(tx, threadId))
 	/** `writing` comes from the stored task's own live state, not a flag that could outlive it */
-	async function view(tx, threadId) {
-		const { page, through, writtenAt, taskId } = await tx.doc(Recap, threadId)
-		const task = taskId && (await tx.task(taskId))
-		return { page, through, writtenAt, writing: !!task && task.state.status !== 'terminal' }
-	}
+	const read = (threadId) =>
+		core.commit(async (tx) => {
+			const { page, through, writtenAt, taskId } = await tx.doc(Recap, threadId)
+			const task = taskId && (await tx.task(taskId))
+			return { page, through, writtenAt, writing: !!task && task.state.status !== 'terminal' }
+		})
 
 	async function writerOf(threadId, signal) {
 		if (chosen) {
@@ -127,7 +127,7 @@ export function server(core) {
 		// Older than a first page can read: memory's lines, when the thread has them
 		const older =
 			from > through
-				? memory(await core.commit((tx) => lines(tx, threadId)), from, OLDER).filter(
+				? memory((await indexOf(core, threadId)).have, from, OLDER).filter(
 						(line) => !line.text.startsWith('(not summarized'),
 					)
 				: []

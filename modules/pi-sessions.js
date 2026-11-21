@@ -147,14 +147,6 @@ export async function server(core) {
 				followed.set(conversation, { thread: threadId, seen: 0, last: 0 })
 	}
 
-	const textOf = (content) =>
-		typeof content === 'string'
-			? content
-			: (content ?? [])
-					.filter((part) => part.type === 'text')
-					.map((part) => part.text)
-					.join('')
-
 	async function folderOf({ runner: name = undefined, dir = undefined }, by) {
 		const known = await core.known()
 		const runner = name && known[name]
@@ -329,6 +321,14 @@ async function open(dir, id) {
 	return state
 }
 
+const textOf = (content, between = '') =>
+	typeof content === 'string'
+		? content
+		: (content ?? [])
+				.filter((part) => part.type === 'text')
+				.map((part) => part.text)
+				.join(between)
+
 const iso = (time) => new Date(time ?? Date.now()).toISOString()
 
 /**
@@ -472,14 +472,8 @@ async function lastWords(file) {
 				continue
 			}
 			if (!['user', 'assistant'].includes(message?.role)) continue
-			const text =
-				typeof message.content === 'string'
-					? message.content
-					: (message.content ?? [])
-							.filter((part) => part.type === 'text')
-							.map((part) => part.text)
-							.join(' ')
-			if (text.trim()) return text.trim()
+			const text = textOf(message.content, ' ').trim()
+			if (text) return text
 		}
 		return ''
 	} finally {
