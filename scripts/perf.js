@@ -113,8 +113,10 @@ async function measure() {
 	store.close()
 
 	// ── The scratch server, counting its reads ──
+	/** A shell a runner started carries its server's SERVE_PORT, which the scratch server must not take */
+	const { SERVE_PORT: _, ...inherited } = process.env
 	const env = {
-		...process.env,
+		...inherited,
 		DB_PATH: copy,
 		XDG_CONFIG_HOME: config,
 		PORT: '0',
