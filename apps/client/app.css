@@ -681,6 +681,11 @@ agent-memory {
 					content: '✎';
 				}
 
+				/* The bot-instructions change reads as one plain sentence: no icon of its own, just the step's bullet. */
+				> li.changed.plain > details > summary::before {
+					content: '';
+				}
+
 				/* Old against new as one run of words: removed struck through in a quiet red, added in a quiet green, the same in
 				   ink, and unchanged stretches far from a change folded into ⋯. */
 				> li.changed .change {
@@ -740,6 +745,12 @@ agent-memory {
 				> li:first-child {
 					margin-top: 0;
 				}
+			}
+
+			/* A bot's self-rewrite and a canvas batch are their own row, but read as a step: the same bullet, the same label
+			   indent as an open run's. */
+			&.elsewhere > .steps:has(> li.changed) {
+				padding-left: var(--space-1);
 			}
 
 			/* A quick snapshot shows nothing; a slow one says so. */

@@ -960,7 +960,6 @@ const Asked = (props) => html`
 				title=${() => `${props.question.data.author} asked in thread ${props.thread}`}
 			/>
 		</ol>
-		<${Stamp} time=${() => props.time} />
 	</li>
 `
 

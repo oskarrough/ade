@@ -13,7 +13,6 @@ import {
 import { colorOf, entries, homeBot, threadOf, titleOf } from './server.js'
 import { Cross } from './thread.js'
 import { authorLabel, doing, messageText, touched } from './agent.js'
-import { Stamp } from './time.js'
 
 /**
  * A turn's line. While its agent works, the step it's in now, and below it the last few steps and the words coming in;
@@ -85,7 +84,6 @@ export function Turn(props) {
 					</ol>
 				<//>
 			</details>
-			<${Stamp} time=${() => props.time} />
 		</li>
 	`
 }
@@ -129,7 +127,6 @@ export function Exchange(props) {
 					/>
 				<//>
 			</ol>
-			<${Stamp} time=${() => props.time} />
 		</li>
 	`
 }

@@ -13,7 +13,6 @@ import { shortLabel } from './agent.js'
 import { Panes } from './panes.js'
 import { openSide, PageTabs } from './side.js'
 import { api, colorOf, me, url } from './server.js'
-import { Stamp } from './time.js'
 
 /** The versions canvas/tldraw.js loads; the server's @tldraw/sync-core must be the same */
 const TLDRAW = '5.6.1'
@@ -278,7 +277,6 @@ ${() =>
 					</details>
 				</li>
 			</ol>
-			<${Stamp} time=${() => props.time} />
 		</li>
 	`
 }
