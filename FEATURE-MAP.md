@@ -10,7 +10,9 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   person                            whether a person wrote a message; Admit hands one person's as typed, and tags them once a second writes
   address, whom, modelOn, reach     whom a `to` asks, on which runner and model
   recipients                       director → explicit recipient → thread agent in groups / last-asked in solo chats and commands
-  post, append, postEntry           write a message and hand it to each agent it asks
+  post, append, postEntry           write a message and hand it to each agent it asks; `direct` leaves that to the director's Pick task
+  ask, route, ROUTE, routed         Admit/Deliver for whom a message asks; the director's pick saved after its message, read as its `to`/`picked`
+  core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
   outcome, tell, restore, faulted   what a finished delivery posts back (a bot's answer asks whom direct says), or a failure says
   reachable                         a message waits for its agent's runner, following the agent if it moves
@@ -47,7 +49,10 @@ modules/
                          instructions a new bot is created with, from then on hers to rewrite
   context.js             AGENTS.md, skills and the folder's path (cwd) from the runner;
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
-  director.js            the `direct` hook: @mentions ask that bot, by default a small model picks the thread's agent, bots or nobody (decide), after a `burst` wait where a newer message takes over (newer), with a visible fallback to the thread agent on failure; settings model, context, timeout, burst (saveSettings in server.js, director row in settings.js);
+  director.js            the `direct` hook: @mentions ask that bot, a free group message is saved and gets a Pick task (`directing`);
+                         one queue per thread (ping): `burst` quiet, then a small model picks the thread's agent, bots or nobody (pick, decide),
+                         a newer message cancels it and folds the older one in, a failure falls back to the thread agent; activity events
+                         for the Director tab; settings model, context, timeout, burst (saveSettings in server.js, director row in settings.js);
                          those asked take turns (`turns`); a bot's answer @mentioning a bot asks it, resting
                          after three bot answers in a row (botTurns); tells bots to @mention, not post (section)
   recap.js               a thread's recap, a checklist of `- [x]`/`- [ ]` lines: WRITER (the prompt), Recap doc, Write task (one writer,
@@ -126,7 +131,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   canvas/tldraw.js       tldraw from esm.sh, the one place its version is named for the browser
   recap.js               the side column's Recap tab: the recap as rows (topicsOf, Topic), a check when done, else a dot that works
                          while a thread it names is working; Page, whose #message-N links scroll the thread there; the refresh icon pulses while it's rewritten
-  side.js                the side column: its pages (pagesOf: details, recap, canvas when on), which one each thread shows
+  side.js                the side column: its pages (pagesOf: details, recap, canvas, director when on and the thread is a group), which one each thread shows
+  director.js            the side column's Director tab: the director's activity events as rows (heardActivity, said), kept on this page only
                          (sideOf, openSide, toggleSide), its tabs (PageTabs);
                          system.js puts the page beside the thread
   agent-memory.js        memory popover and compaction view for the visible thread
@@ -187,7 +193,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Popover rows: `ul.rows > li` in a popover's pane body, one per module, runner or option ("One row across"); the picker's `.model-controls .who` and `.model` share the look.
 - Model controls: model-picker.js `ModelPicker`, `.model-controls`: a `.search` pinned on top (typing filters, arrows and Enter pick, recipients go to `onRecipients`), the `.model-list` of runners' `.models` that alone scrolls (scoped ones first; an "All models" row or a search reaches every model the runner is logged in for), and a pinned `.foot` with the asked runner's `.thinking` and a folder field, any path with its shortcuts suggested ("A search, then each runner's models"); the composer and settings share it.
 - Left aside: thread-list.js `ThreadList`, `.thread-list`; New thread and New bot share `ul.new-rows` on top; each row is `li > .row` (a link, or a button, or `form.row` for a new bot), shared with the family list `.thread-family`; its foot is `.list-foot` with `.foot-toggle`s ("The list's foot").
-- Side column: `aside.side` ("The side column"), one page at a time in the same `Panes` as a popover, side.js `PageTabs` in its header: thread-details.js `DetailsPage` (`.thread-details`), recap.js `Recap` (`.recap`), canvas.js `Canvas` (`.canvas`); a bot's part is bot.js `BotSettings`, `.bot`; its fields are plain inputs.
+- Side column: `aside.side` ("The side column"), one page at a time in the same `Panes` as a popover, side.js `PageTabs` in its header: thread-details.js `DetailsPage` (`.thread-details`), recap.js `Recap` (`.recap`), canvas.js `Canvas` (`.canvas`), director.js `Director` (`.director`); a bot's part is bot.js `BotSettings`, `.bot`; its fields are plain inputs.
 - Thread head: the thread's name, `h2.title > button.ghost.thread-name` (opens the side column on Details; its tabs do the rest), and its `.close` ("The head:"); the head, `p.from` and the phone's `.app-bar` ("The bar") sit on `Canvas` so messages scroll under them; `.thread-name` is layout only.
 - A thread-list page (Archived) has `.page-head`.
 - Message list: thread.js `Message` in `.thread > ul > li` ("The chat: agents write"), its body `.markdown`, its images `div.images`, compaction's `li.cut` and `li.line`.

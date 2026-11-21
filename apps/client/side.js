@@ -1,19 +1,30 @@
 /**
- * The side column beside a thread: one page at a time, its siblings as tabs (the thread's details, and Recap and
- * Canvas when their modules are on). The thread's name opens it on Details; its tabs do the rest.
+ * The side column beside a thread: one page at a time, its siblings as tabs (the thread's details, and Recap, Canvas
+ * and Director when their modules are on). The thread's name opens it on Details; its tabs do the rest.
  */
 import html from '@solidjs/html'
 import { createSignal, For, Show } from 'solid-js'
-import { server } from './server.js'
+import { server, threadOf } from './server.js'
 
 const PAGES = [
 	{ key: 'details', label: 'Details' },
 	{ key: 'recap', label: 'Recap', title: 'Where this thread stands' },
 	{ key: 'canvas', label: 'Canvas', title: "This thread's canvas" },
+	{
+		key: 'director',
+		label: 'Director',
+		title: 'Whom the director picks, as it happens',
+		/** Only a group has anyone to pick between */
+		shows: (id) => (threadOf(id)?.agents?.length ?? 0) >= 2,
+	},
 ]
 /** A thread's pages: its details always, the rest once it exists and their modules are on */
 export const pagesOf = (id) =>
-	PAGES.filter((page) => page.key === 'details' || (id && server().modules.includes(page.key)))
+	PAGES.filter(
+		(page) =>
+			page.key === 'details' ||
+			(id && server().modules.includes(page.key) && (page.shows?.(id) ?? true)),
+	)
 
 /** The page each thread's column shows; a thread with none has it closed */
 const [shown, setShown] = createSignal(new Map())

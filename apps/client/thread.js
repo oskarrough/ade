@@ -67,6 +67,7 @@ import { report } from './notice.js'
 import { imageUrl } from './images.js'
 import { markdown } from './markdown.js'
 import { sideOf, toggleSide } from './side.js'
+import { heardActivity } from './director.js'
 import { CanvasRow } from './canvas.js'
 
 /** A folded summary's text, without the literal <summary> wrapper tags some memories still carry */
@@ -442,6 +443,7 @@ export function Thread(props) {
 						})
 						if (!snapshot) markRead(id)
 					}
+					if (message.activity) heardActivity(id, message.activity)
 					if (message.people)
 						setPeople((all) => {
 							all[id] = message.people

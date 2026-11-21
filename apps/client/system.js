@@ -9,6 +9,7 @@ import { Runner } from './runner.js'
 import { Thread } from './thread.js'
 import { Canvas } from './canvas.js'
 import { Recap } from './recap.js'
+import { Director } from './director.js'
 import { sideOf } from './side.js'
 import { DetailsPage } from './thread-details.js'
 import { ThreadList } from './thread-list.js'
@@ -96,13 +97,15 @@ export function System() {
 										${(key) =>
 											key === 'canvas'
 												? html`<${Canvas} id=${id} />`
-												: key === 'recap'
-													? html`<${Loading}
-															fallback=${html`<aside class="side"><p class="mute">Reading the page…</p></aside>`}
-														>
-															<${Recap} id=${id} />
-														<//>`
-													: html`<${DetailsPage} id=${id} />`}
+												: key === 'director'
+													? html`<${Director} id=${id} />`
+													: key === 'recap'
+														? html`<${Loading}
+																fallback=${html`<aside class="side"><p class="mute">Reading the page…</p></aside>`}
+															>
+																<${Recap} id=${id} />
+															<//>`
+														: html`<${DetailsPage} id=${id} />`}
 									<//>
 									<${SideEdge} after />
 								<//>
