@@ -554,6 +554,33 @@ registry.install(
 	}),
 )
 registry.install(defineExtension({ name: 'ade', tasks: [Anchor, Admit, Deliver, Shell] }))
+/**
+ * Pi's settings, worked out again only when a runner's models change: Pi asks for them on every document it reads, and
+ * going through every model for compactingAt each time was most of what a thread list cost
+ * @type {{ providers: readonly unknown[], compactAt: number | undefined, value: any }}
+ */
+let settingsFor = { providers: [], compactAt: undefined, value: undefined }
+function harnessSettings() {
+	const providers = models.getProviders()
+	if (
+		settingsFor.value &&
+		settingsFor.compactAt === compactAt &&
+		providers.length === settingsFor.providers.length &&
+		providers.every((provider, index) => provider === settingsFor.providers[index])
+	)
+		return settingsFor.value
+	const value = {
+		afterFailedRun: /** @type {const} */ ('continue'),
+		/** RESTART_LIMIT=n: how many crashes in a row end a task; Pi's own limit unless set */
+		...(Number(process.env.RESTART_LIMIT) >= 1 && {
+			restartLimit: Number(process.env.RESTART_LIMIT),
+		}),
+		...(compactAt && { compaction: compactingAt(compactAt) }),
+	}
+	settingsFor = { providers, compactAt, value }
+	return value
+}
+
 const storage = await openNodeSqliteStorage(file)
 const harness = await Harness.open(
 	storage,
@@ -567,14 +594,7 @@ const harness = await Harness.open(
 			return runner ? remoteEnv(runners, runner, cwd) : undefined
 		},
 		/** A failed run doesn't strand the messages queued behind it: the next run takes them */
-		settings: () => ({
-			afterFailedRun: 'continue',
-			/** RESTART_LIMIT=n: how many crashes in a row end a task; Pi's own limit unless set */
-			...(Number(process.env.RESTART_LIMIT) >= 1 && {
-				restartLimit: Number(process.env.RESTART_LIMIT),
-			}),
-			...(compactAt && { compaction: compactingAt(compactAt) }),
-		}),
+		settings: () => harnessSettings(),
 		onReport: (report) => {
 			console.error(`pi-durable: ${report.kind}:`, report.error)
 			if (report.kind === 'task_faulted') faulted(report).catch((error) => console.error(error))
@@ -594,6 +614,102 @@ for (const signal of ['SIGINT', 'SIGTERM'])
 		console.error(`stopped by ${signal}`)
 		stopping ??= harness.close(context).finally(() => process.exit(0))
 	})
+
+/**
+ * Each read thread's newest RECENT entries, then each it commits, so a list's status and open question read no entries;
+ * `whole` while they are all it has
+ */
+const RECENT = 50
+const tails = new Map()
+async function recent(id) {
+	let tail = tails.get(id)
+	if (!tail) {
+		tail = { entries: [], whole: false, ready: undefined, older: new Map() }
+		tails.set(id, tail)
+		const loading = tail
+		tail.ready = (async () => {
+			const handle = await harness.conversation(id, context)
+			const page = handle
+				? await handle.entries({ order: 'descending' }, RECENT, undefined, context)
+				: { items: [], next: undefined }
+			// Entries committed while it read came in already; each goes in once, in order
+			const have = new Set(loading.entries.map((entry) => entry.id))
+			loading.entries = [
+				...page.items.filter((entry) => !have.has(entry.id)).reverse(),
+				...loading.entries,
+			]
+				.sort((a, b) => a.id - b.id)
+				.slice(-RECENT)
+			loading.whole = !page.next && loading.entries.length < RECENT
+		})()
+		tail.ready.catch(() => tails.get(id) === loading && tails.delete(id))
+	}
+	await tail.ready
+	return tail
+}
+const heardEntry = (entry) => {
+	const tail = tails.get(entry.conversationId)
+	if (!tail) return
+	tail.entries.push(entry)
+	if (tail.entries.length > RECENT) {
+		// What leaves the newest goes on to the older ones kept of its kind
+		for (const gone of tail.entries.splice(0, tail.entries.length - RECENT))
+			tail.older.get(gone.kind)?.entries.push(gone)
+		tail.whole = false
+	}
+}
+/**
+ * A thread's entries of `kind` before its newest, oldest first, read once when a look finds nothing among the newest:
+ * they never change, and those that leave the newest join them
+ */
+async function older(id, kind) {
+	const tail = await recent(id)
+	let kept = tail.older.get(kind)
+	if (!kept) {
+		kept = { entries: [], ready: undefined }
+		tail.older.set(kind, kept)
+		const before = tail.entries[0]?.id
+		const loading = kept
+		kept.ready = (async () => {
+			const handle = await harness.conversation(id, context)
+			const found = []
+			if (handle && before !== undefined)
+				for (let cursor; ;) {
+					const page = await handle.entries(
+						{
+							order: 'descending',
+							maxEntryId: /** @type {import("@earendil-works/pi-durable").EntryId} */ (before - 1),
+						},
+						500,
+						cursor,
+						context,
+					)
+					for (const entry of page.items) if (entry.kind === kind) found.push(entry)
+					if (!(cursor = page.next)) break
+				}
+			loading.entries = [...found.reverse(), ...loading.entries]
+		})()
+		kept.ready.catch(() => tail.older.get(kind) === loading && tail.older.delete(kind))
+	}
+	await kept.ready
+	return kept.entries
+}
+/** Each read conversation's record, as its commits change it */
+const records = new Map()
+async function conversationRecord(id) {
+	if (!records.has(id)) records.set(id, await storage.conversation(id, context))
+	return records.get(id)
+}
+harness.observeCommits({
+	advance: ({ changes }) => {
+		for (const change of changes) {
+			if (change.type === 'entry') heardEntry(change.value)
+			if (change.type === 'conversation' && records.has(change.value.id))
+				records.set(change.value.id, change.value)
+		}
+	},
+	end: () => {},
+})
 
 /** What each runner said when it last connected; a runner whose key is gone stays here, so its agents can wait for its name */
 const known = async () => (await harness.snapshot(Runners, context)) ?? {}
@@ -754,12 +870,12 @@ const folder = (runner, to) => {
 	return path.resolve(runner.dir, home ? path.join(home, dir.slice(1)) : dir)
 }
 
-/** `key`, its key in the thread when the caller has it, saves looking it up */
-async function agentOf(id, key, tx) {
+/** `key`, its key in the thread, and `all`, the runners as known, when the caller has them, save looking them up */
+async function agentOf(id, key, tx, all) {
 	const agent = tx ? await tx.doc(AgentDoc, id) : await harness.snapshot(AgentDoc, id, context)
 	const runnerName = agent?.model?.provider?.match(/^runner:(.+)$/)?.[1]
 	if (!runnerName) return null
-	const runner = (tx ? await tx.doc(Runners) : await known())[runnerName]
+	const runner = (tx ? await tx.doc(Runners) : (all ?? (await known())))[runnerName]
 	const rel = runner && agent.cwd ? path.relative(runner.dir, agent.cwd) : ''
 	const dir = rel.startsWith('..') ? agent.cwd : rel
 	const name = key ?? (await home(id))?.key
@@ -842,10 +958,10 @@ async function work() {
 const busy = async (threadId) => (await work()).some((job) => job.thread === threadId)
 
 /** @returns {Promise<Agent[]>} */
-async function agentsIn(row, busy) {
+async function agentsIn(row, busy, all) {
 	return Promise.all(
 		Object.entries(row.agents).map(async ([key, { conversation }]) => {
-			const to = await agentOf(conversation, key)
+			const to = await agentOf(conversation, key, undefined, all)
 			const status = busiest(
 				busy.filter((job) => job.conversation === conversation).map((job) => job.status),
 			)
@@ -907,6 +1023,19 @@ const withRoute = (entry, routes) => {
 }
 /** The newest matching message, stopping as soon as it is found rather than loading a thread; inside a commit, before its writes, with its `tx` */
 async function latestMessage(id, matches, kind = KIND, tx = undefined) {
+	// Outside a commit, the thread's newest entries kept in memory answer, and the older ones once read
+	if (!tx) {
+		const tail = await recent(id)
+		for (let at = tail.entries.length - 1; at >= 0; at--) {
+			const entry = tail.entries[at]
+			if (entry.kind === kind && matches(entry)) return entry
+		}
+		if (!tail.entries.length) await conversation(id)
+		if (tail.whole) return undefined
+		const kept = await older(id, kind)
+		for (let at = kept.length - 1; at >= 0; at--) if (matches(kept[at])) return kept[at]
+		return undefined
+	}
 	const handle = tx ? undefined : await conversation(id)
 	let cursor
 	do {
@@ -1272,19 +1401,24 @@ async function status(id, row, busy, reader) {
 	const now = busiest(busy.map((job) => job.status))
 	if (now !== 'idle') return now
 	const seen = new Set(reader ? [reads[reader]] : Object.values(reads))
-	const handle = await harness.conversation(id, context)
-	let cursor
-	do {
-		const page = await handle.entries({}, 50, cursor, context)
-		for (const record of page.items) {
-			const entry = /** @type {import("@earendil-works/pi-durable").TypedEntry<Message>} */ (record)
-			if (seen.has(entry.id)) return 'idle'
-			if (entry.data?.shell?.error === 'stopped') continue
-			if (entry.data?.answer || entry.data?.error || entry.data?.shell)
-				return entry.data.error || entry.data.shell?.error ? 'error' : 'done'
-		}
-		cursor = page.next
-	} while (cursor)
+	/** An answer or error unread, or a read since: the newest entries say, unless none of them does */
+	const said = (entry) => {
+		if (seen.has(entry.id)) return 'idle'
+		if (entry.data?.shell?.error === 'stopped') return undefined
+		if (entry.data?.answer || entry.data?.error || entry.data?.shell)
+			return entry.data.error || entry.data.shell?.error ? 'error' : 'done'
+	}
+	const tail = await recent(id)
+	for (let at = tail.entries.length - 1; at >= 0; at--) {
+		const found = said(tail.entries[at])
+		if (found) return found
+	}
+	if (tail.whole) return 'idle'
+	const messages = await older(id, KIND)
+	for (let at = messages.length - 1; at >= 0; at--) {
+		const found = said(messages[at])
+		if (found) return found
+	}
 	return 'idle'
 }
 
@@ -1322,11 +1456,11 @@ async function authors(id) {
 	return [...wrote.authors].filter((name) => name === owner || name.startsWith('~'))
 }
 
-/** `homes`, each bot's home thread → its name, saves reading them for every row of a list */
-async function threadRow(id, reader, all, homes) {
-	const { reads, hidden, dismissed: _, picks: __, ...row } = await thread(id)
+/** `homes`, each bot's home thread → its name, its `doc` and the `runners` as known save reading them for every row of a list */
+async function threadRow(id, reader, all, homes, doc, runnersKnown) {
+	const { reads, hidden, dismissed: _, picks: __, ...row } = doc ?? (await thread(id))
 	const busy = all.filter((job) => job.thread === id)
-	const agents = await agentsIn(row, busy)
+	const agents = await agentsIn(row, busy, runnersKnown)
 	return {
 		id,
 		...row,
@@ -1342,20 +1476,23 @@ async function threadRow(id, reader, all, homes) {
 		/** Whether it has work, whatever its status shows: an open question doesn't hide a running command */
 		busy: busy.length > 0,
 		status: await status(id, { ...row, reads }, busy, reader),
-		conversation: await storage.conversation(id, context),
+		conversation: await conversationRecord(id),
 	}
 }
 /** Each shown thread's row; the client works out families from `parent` and forks */
 const threadList = async (reader, archived = false) => {
 	const busy = await work()
 	const homes = (await homesOf?.()) ?? {}
+	const runnersKnown = await known()
 	/** Only the threads this list shows get a row, since a row reads its thread's entries for its status */
 	const ids = await threadIds()
-	const shown = await Promise.all(
-		ids.map(async (id) => Boolean((await thread(id)).hidden) === archived),
-	)
+	const docs = await Promise.all(ids.map((id) => thread(id)))
 	return Promise.all(
-		ids.filter((_, index) => shown[index]).map((id) => threadRow(id, reader, busy, homes)),
+		ids.flatMap((id, index) =>
+			Boolean(docs[index].hidden) === archived
+				? [threadRow(id, reader, busy, homes, docs[index], runnersKnown)]
+				: [],
+		),
 	)
 }
 /** A thread's row and people, with its messages: all of them, those after `after`, or the newest `last` */
