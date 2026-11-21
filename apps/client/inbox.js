@@ -62,7 +62,6 @@ export function Inbox() {
 function Question(props) {
 	const thread = untrack(() => props.item.thread)
 	const data = () => props.item.question.data
-	const bot = () => bots.some((bot) => bot.name === data().author)
 	/** The agent that asked, by its conversation, as the thread list has it now */
 	const asks = () =>
 		threadOf(thread)?.agents.find((agent) => agent.conversation === props.item.asker)?.to
