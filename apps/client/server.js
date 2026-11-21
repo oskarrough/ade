@@ -354,12 +354,8 @@ export const {
 		bots: reloadBots,
 		inbox: reloadInbox,
 	}
+	/** Every list, once the socket is open, so no change slips between a fetch and the socket; bots and inbox wait for the modules */
 	const reload = () => {
-		for (const list of Object.values(reloads)) list()
-	}
-	/** The socket names the lists that changed; a reconnect may have missed some, so it fetches them all */
-	const changed = (message) => message.changed?.forEach((list) => reloads[list]?.())
-	onSettled(() => {
 		reloadServer().then(() => {
 			reloadBots()
 			reloadInbox()
@@ -367,11 +363,15 @@ export const {
 		reloadThreads()
 		reloadArchivedThreads()
 		reloadRunners()
+	}
+	/** The socket names the lists that changed; a reconnect may have missed some, so it fetches them all */
+	const changed = (message) => message.changed?.forEach((list) => reloads[list]?.())
+	onSettled(() => {
 		watch(
 			changed,
 			() => {
 				setConnected(true)
-				reloadServer().then(reload)
+				reload()
 			},
 			() => setConnected(false),
 		)
