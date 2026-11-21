@@ -138,9 +138,9 @@ function board({ react, dom, tldraw, sync }, element, id) {
 	let editor, stop, unreport
 	// The same options every render, or useSync starts over each time
 	const options = {
-		uri: `${url.replace(/^http/, 'ws')}/api/threads/${id}/canvas?user=${encodeURIComponent(me)}`,
+		uri: `${url.replace(/^http/, 'ws')}/api/threads/${id}/canvas`,
 		assets,
-		userInfo: { id: me, name: me },
+		userInfo: { id: me(), name: shortLabel(me()) },
 	}
 	const onMount = (mounted) => {
 		editor = mounted

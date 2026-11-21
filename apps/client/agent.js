@@ -35,13 +35,16 @@ export const writtenTo = (to) =>
 export const formatAgent = (to) =>
 	`${to.name ? `${to.name}=` : ''}${writtenTo({ ...to, name: undefined })}`
 
+/** A person's name without the `~` the server marks people with, or any other author as it is */
+const unmarked = (author) => (author?.startsWith('~') ? author.slice(1) : (author ?? ''))
+
 /** An author as a message shows it: a person's or bot's name, or an agent written out, older `provider/id` ones too */
 export const authorLabel = (author) =>
-	author?.includes('@') ? writtenTo(agentTo(author)) : (author ?? '')
+	author?.includes('@') ? writtenTo(agentTo(author)) : unmarked(author)
 
 /** An author in a few words, as an ask's line says it: a bot's or person's name, or an agent's model alone */
 export const shortLabel = (author) => {
-	if (!author?.includes('@')) return author ?? ''
+	if (!author?.includes('@')) return unmarked(author)
 	const to = agentTo(author)
 	return to.name ?? to.model?.split('/').pop() ?? author
 }

@@ -41,10 +41,18 @@ const cache = (key, value) => {
 	} catch {}
 }
 export const url = params.get('server') || location.origin
-export const me = params.get('user') || 'you'
+/** A link with the owner's key after `#key=` brings this browser in: the server keeps it as a cookie, and the address drops it */
+const ownerKey = new URLSearchParams(location.hash.slice(1)).get('key')
+if (ownerKey) {
+	history.replaceState(null, '', location.pathname + location.search)
+	await fetch(`${url}/api/me`, {
+		method: 'POST',
+		headers: { authorization: `Bearer ${ownerKey}` },
+	}).catch(() => {})
+}
 export const api = (path, body, method = body === undefined ? 'GET' : 'POST') =>
 	fetch(url + path, {
-		headers: { 'Content-Type': 'application/json', 'x-user': me },
+		headers: { 'Content-Type': 'application/json' },
 		method,
 		...(body === undefined ? {} : { body: JSON.stringify(body) }),
 	})
@@ -96,7 +104,7 @@ export function sending(thread, data) {
 	const entry = {
 		id: (entries[thread]?.at(-1)?.id ?? 0) + 0.9,
 		sending: true,
-		data: { author: me, ...data },
+		data: { author: me(), ...data },
 	}
 	setEntries((all) => {
 		all[thread] = [...(all[thread] ?? []), entry]
@@ -109,7 +117,7 @@ export function sending(thread, data) {
 /** New messages into a thread's list, each once and after it; each of yours that came back replaces the oldest one you were sending with that text */
 export const merged = (list, more) => {
 	const have = new Set(list.map((entry) => entry.id))
-	const back = more.filter((entry) => entry.data.author === me).map((entry) => entry.data.body)
+	const back = more.filter((entry) => entry.data.author === me()).map((entry) => entry.data.body)
 	const waiting = list.filter((entry) => {
 		if (!entry.sending) return false
 		const at = back.indexOf(entry.data.body.trim())
@@ -502,3 +510,6 @@ function withFamilies(rows) {
 	})
 }
 export const titleOf = (id) => threadOf(id)?.title ?? `thread ${id}`
+
+/** Who the server takes this page for, to show which messages are yours; the server decides who writes, not this */
+export const me = () => server().me ?? ''

@@ -1,6 +1,7 @@
 /** The walkthrough loads messages and their recorded memory without asking a model. */
 import { lines } from './tutorial-shed-memory.js'
-const SHED = [
+/** The example thread's messages, each by its author; the server writes them, as only it can name people */
+export const SHED = [
 	[
 		'Oskar',
 		'Shall we finally build the shed this spring? The old one is rotting behind the plum tree.',
@@ -50,25 +51,9 @@ const SHED = [
 	['Oskar', 'Shed done. Housewarming for the shed on Saturday, bring beers.'],
 ]
 
-export async function loadShed(url, open) {
-	const post = async (path, body, author = 'you') => {
-		const response = await fetch(url + path, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', 'x-user': author },
-			body: JSON.stringify(body),
-		})
-		const json = await response.json()
-		if (!response.ok) throw new Error(json.error)
-		return json
-	}
-	const { id } = await post('/api/threads', { title: 'The shed', requestId: crypto.randomUUID() })
-	for (const [index, [author, body]] of SHED.entries())
-		await post(
-			`/api/threads/${id}/entries`,
-			{ body, to: null, requestId: `shed-${id}-${index}` },
-			author,
-		)
-	await post(`/api/threads/${id}/memory`, { lines })
+export async function loadShed(api, open) {
+	const { id } = await api('/api/threads/shed', { requestId: crypto.randomUUID() })
+	await api(`/api/threads/${id}/memory`, { lines })
 	open(id)
 	return id
 }

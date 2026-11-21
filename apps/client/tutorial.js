@@ -4,7 +4,7 @@ import { defaultTitle } from './title.js'
 import html from '@solidjs/html'
 import { Portal } from '@solidjs/web'
 import { onSettled, Show, snapshot } from 'solid-js'
-import { api, current, createThread, entries, fork, openThread, runners, url } from './server.js'
+import { api, current, createThread, entries, fork, openThread, runners } from './server.js'
 import { choose, toFor } from './composer.js'
 import { ConnectRunner } from './runner.js'
 import { report } from './notice.js'
@@ -95,10 +95,10 @@ const TRIES = {
 	friend: async () => {
 		const id = current() ?? (await api('/api/threads', { title: 'A thread for two' })).id
 		if (!current()) openThread(id)
-		const link = new URL(location.href)
+		const link = new URL(location.pathname, location.origin)
 		link.searchParams.set('thread', id)
-		link.searchParams.set('user', 'Ana')
-		open(link, '_blank')
+		await navigator.clipboard.writeText(link.href)
+		report(`Copied ${link.href}`)
 	},
 	slow: () => {
 		fresh()
@@ -113,7 +113,7 @@ const TRIES = {
 		if (!first) throw new Error('Ask something first: a fork starts from a message.')
 		return fork(current(), first.id)
 	},
-	shed: () => loadShed(url, openThread),
+	shed: () => loadShed(api, openThread),
 	recall: () => {
 		if (!current()) throw new Error('Load the example thread first.')
 		return ask(

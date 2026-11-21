@@ -380,7 +380,7 @@ export function Thread(props) {
 					: row.turn || row.live
 						? row.agent?.name
 						: null
-				if (author !== null && author !== me) last = author
+				if (author !== null && author !== me()) last = author
 			}
 			// A row that didn't change is handed back as the same object, so the diff skips it and an update costs the rows it touched
 			const next = new Map()
@@ -492,7 +492,7 @@ export function Thread(props) {
 						first = false
 						// Your own send always shows, live or in a reconnect's snapshot; others' entries follow only a view already at the bottom.
 						const shown = new Set((entries[id] ?? []).map((entry) => entry.id))
-						if (message.entries.some((entry) => entry.data.author === me && !shown.has(entry.id)))
+						if (message.entries.some((entry) => entry.data.author === me() && !shown.has(entry.id)))
 							stuck = true
 						setEntries((all) => {
 							all[id] = merged(
@@ -900,8 +900,8 @@ function Message(props) {
 				handed: litIn(props.thread, props.entry.id),
 				elsewhere: crossed(),
 				failed: !!data().error,
-				mine: !elsewhere() && data().author === me,
-				same: !crossed() && data().author !== me && props.above === data().author,
+				mine: !elsewhere() && data().author === me(),
+				same: !crossed() && data().author !== me() && props.above === data().author,
 			})}
 		>
 			<${Show}
