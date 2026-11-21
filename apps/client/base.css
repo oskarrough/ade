@@ -438,36 +438,96 @@ input[type='checkbox'] {
 
 /* Each sidebar row carries its position as --i, so working dots pulse in a wave top to bottom instead of all at once. */
 @media (prefers-reduced-motion: no-preference) {
-	.thread-list li:nth-child(1) { --i: 0; }
-	.thread-list li:nth-child(2) { --i: 1; }
-	.thread-list li:nth-child(3) { --i: 2; }
-	.thread-list li:nth-child(4) { --i: 3; }
-	.thread-list li:nth-child(5) { --i: 4; }
-	.thread-list li:nth-child(6) { --i: 5; }
-	.thread-list li:nth-child(7) { --i: 6; }
-	.thread-list li:nth-child(8) { --i: 7; }
-	.thread-list li:nth-child(9) { --i: 8; }
-	.thread-list li:nth-child(10) { --i: 9; }
-	.thread-list li:nth-child(11) { --i: 10; }
-	.thread-list li:nth-child(12) { --i: 11; }
-	.thread-list li:nth-child(13) { --i: 12; }
-	.thread-list li:nth-child(14) { --i: 13; }
-	.thread-list li:nth-child(15) { --i: 14; }
-	.thread-list li:nth-child(16) { --i: 15; }
-	.thread-list li:nth-child(17) { --i: 16; }
-	.thread-list li:nth-child(18) { --i: 17; }
-	.thread-list li:nth-child(19) { --i: 18; }
-	.thread-list li:nth-child(20) { --i: 19; }
-	.thread-list li:nth-child(21) { --i: 20; }
-	.thread-list li:nth-child(22) { --i: 21; }
-	.thread-list li:nth-child(23) { --i: 22; }
-	.thread-list li:nth-child(24) { --i: 23; }
-	.thread-list li:nth-child(25) { --i: 24; }
-	.thread-list li:nth-child(26) { --i: 25; }
-	.thread-list li:nth-child(27) { --i: 26; }
-	.thread-list li:nth-child(28) { --i: 27; }
-	.thread-list li:nth-child(29) { --i: 28; }
-	.thread-list li:nth-child(30) { --i: 29; }
+	.thread-list li:nth-child(1) {
+		--i: 0;
+	}
+	.thread-list li:nth-child(2) {
+		--i: 1;
+	}
+	.thread-list li:nth-child(3) {
+		--i: 2;
+	}
+	.thread-list li:nth-child(4) {
+		--i: 3;
+	}
+	.thread-list li:nth-child(5) {
+		--i: 4;
+	}
+	.thread-list li:nth-child(6) {
+		--i: 5;
+	}
+	.thread-list li:nth-child(7) {
+		--i: 6;
+	}
+	.thread-list li:nth-child(8) {
+		--i: 7;
+	}
+	.thread-list li:nth-child(9) {
+		--i: 8;
+	}
+	.thread-list li:nth-child(10) {
+		--i: 9;
+	}
+	.thread-list li:nth-child(11) {
+		--i: 10;
+	}
+	.thread-list li:nth-child(12) {
+		--i: 11;
+	}
+	.thread-list li:nth-child(13) {
+		--i: 12;
+	}
+	.thread-list li:nth-child(14) {
+		--i: 13;
+	}
+	.thread-list li:nth-child(15) {
+		--i: 14;
+	}
+	.thread-list li:nth-child(16) {
+		--i: 15;
+	}
+	.thread-list li:nth-child(17) {
+		--i: 16;
+	}
+	.thread-list li:nth-child(18) {
+		--i: 17;
+	}
+	.thread-list li:nth-child(19) {
+		--i: 18;
+	}
+	.thread-list li:nth-child(20) {
+		--i: 19;
+	}
+	.thread-list li:nth-child(21) {
+		--i: 20;
+	}
+	.thread-list li:nth-child(22) {
+		--i: 21;
+	}
+	.thread-list li:nth-child(23) {
+		--i: 22;
+	}
+	.thread-list li:nth-child(24) {
+		--i: 23;
+	}
+	.thread-list li:nth-child(25) {
+		--i: 24;
+	}
+	.thread-list li:nth-child(26) {
+		--i: 25;
+	}
+	.thread-list li:nth-child(27) {
+		--i: 26;
+	}
+	.thread-list li:nth-child(28) {
+		--i: 27;
+	}
+	.thread-list li:nth-child(29) {
+		--i: 28;
+	}
+	.thread-list li:nth-child(30) {
+		--i: 29;
+	}
 
 	.thread-list .dot.working {
 		animation-delay: calc(var(--i, 0) * 120ms);
