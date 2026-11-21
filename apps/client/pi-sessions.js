@@ -1,14 +1,11 @@
-/** Starts a thread from a pi session in one of a runner's folders; and, in a thread's details, says which one it came from. */
+/** Starts a thread from a pi session in one of a runner's folders (settings' pi-sessions row opens it); and, in a thread's details, says which one it came from. */
 import html from '@solidjs/html'
-import { Icon } from './icons.js'
 import { createSignal, createUniqueId, For, Show } from 'solid-js'
 import { api, openThread, reloadThreads, runners } from './server.js'
-import { placePopover } from './popover.js'
-import { Panes } from './panes.js'
 import { report } from './notice.js'
 
-export function PiSessions() {
-	let button, panel
+/** A folder and its pi sessions; picking one starts a thread from it and calls `onStarted`. `onLoaded` hears the list change height. */
+export function PiSessionList(props) {
 	const id = createUniqueId()
 	const [where, setWhere] = createSignal('')
 	const [found, setFound] = createSignal([])
@@ -49,8 +46,7 @@ export function PiSessions() {
 		} catch (failure) {
 			if (current()) setError(failure.message)
 		}
-		// It is as tall as its list now, which may not fit where it first opened
-		if (panel.matches(':popover-open')) setTimeout(() => placePopover(panel, button))
+		props.onLoaded?.()
 	}
 	const start = async (session) => {
 		setStarting(session.path)
@@ -61,90 +57,69 @@ export function PiSessions() {
 			})
 			reloadThreads()
 			openThread(thread)
-			panel.hidePopover()
+			props.onStarted?.()
 		} catch (failure) {
 			report(failure)
 		} finally {
 			setStarting('')
 		}
 	}
+	load()
 	return html`
-		<li class="new">
-			<button type="button" class="row" ref=${(el) => (button = el)} popovertarget=${id}>
-				<span class="plus" aria-hidden="true"><${Icon} name="plus" /></span>
-				<span>Import pi session</span>
-			</button>
-			<div
-				class="popover pi-sessions"
-				id=${id}
-				popover
-				ref=${(el) => (panel = el)}
-				onToggle=${(event) => {
-					if (event.newState !== 'open') return
-					load()
-					placePopover(panel, button)
+		<div class="pi-sessions">
+			<input
+				aria-label="Folder"
+				list=${`${id}-folders`}
+				value=${() => (place() ? said(place()) : '')}
+				onKeyDown=${(event) => {
+					if (event.key !== 'Enter') return
+					event.preventDefault()
+					event.currentTarget.blur()
 				}}
-			>
-				<${Panes}
-					title="Pi sessions"
-					open=${() => false}
-					close=${html`<button type="button" class="ghost small close" aria-label="Close" onClick=${() => panel.hidePopover()}><${Icon} name="close" /></button>`}
+				onChange=${(event) => {
+					setWhere(event.currentTarget.value)
+					load(placeOf(event.currentTarget.value))
+				}}
+			/>
+			<datalist id=${`${id}-folders`}>
+				<${For} each=${places}
+					>${(candidate) => html`<option value=${() => said(candidate)}></option>`}<//
 				>
-					<input
-						aria-label="Folder"
-						list=${`${id}-folders`}
-						value=${() => (place() ? said(place()) : '')}
-						onKeyDown=${(event) => {
-							if (event.key !== 'Enter') return
-							event.preventDefault()
-							event.currentTarget.blur()
-						}}
-						onChange=${(event) => {
-							setWhere(event.currentTarget.value)
-							load(placeOf(event.currentTarget.value))
-						}}
-					/>
-					<datalist id=${`${id}-folders`}>
-						<${For} each=${places}
-							>${(candidate) => html`<option value=${() => said(candidate)}></option>`}<//
+			</datalist>
+			<${Show} when=${() => error()}><p class="bad">${() => error()}</p><//>
+			<${Show} when=${() => !error() && !found().length}
+				><p class="mute">No pi sessions in this folder.</p><//
+			>
+			<ul class="rows">
+				<${For} each=${found}
+					>${(session) => html`
+						<li
+							role="button"
+							tabindex="0"
+							title=${() => session.firstMessage}
+							onClick=${() => !starting() && start(session)}
+							onKeyDown=${(event) => event.key === 'Enter' && !starting() && start(session)}
 						>
-					</datalist>
-					<${Show} when=${() => error()}><p class="bad">${() => error()}</p><//>
-					<${Show} when=${() => !error() && !found().length}
-						><p class="mute">No pi sessions in this folder.</p><//
-					>
-					<ul class="rows">
-						<${For} each=${found}
-							>${(session) => html`
-								<li
-									role="button"
-									tabindex="0"
-									title=${() => session.firstMessage}
-									onClick=${() => !starting() && start(session)}
-									onKeyDown=${(event) => event.key === 'Enter' && !starting() && start(session)}
+							<div>
+								<span class="first"
+									>${() => session.name || session.firstMessage || session.id}</span
 								>
-									<div>
-										<span class="first"
-											>${() => session.name || session.firstMessage || session.id}</span
-										>
-										<${Show}
-											when=${() => session.lastMessage && session.lastMessage !== session.firstMessage}
-											><span class="last">${() => session.lastMessage}</span><//
-										>
-										<small
-											>${() =>
-												starting() === session.path
-													? 'Starting a thread…'
-													: `${session.messageCount} messages · ${new Date(session.modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}</small
-										>
-									</div>
-								</li>
-							`}<//
-						>
-					</ul>
-				<//>
-			</div>
-		</li>
+								<${Show}
+									when=${() => session.lastMessage && session.lastMessage !== session.firstMessage}
+									><span class="last">${() => session.lastMessage}</span><//
+								>
+								<small
+									>${() =>
+										starting() === session.path
+											? 'Starting a thread…'
+											: `${session.messageCount} messages · ${new Date(session.modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}</small
+								>
+							</div>
+						</li>
+					`}<//
+				>
+			</ul>
+		</div>
 	`
 }
 

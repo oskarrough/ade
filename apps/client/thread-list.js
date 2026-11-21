@@ -19,7 +19,6 @@ import { report } from './notice.js'
 import { RunnerList } from './runner.js'
 import { Settings } from './settings.js'
 import { BotItem, NewBot } from './bot.js'
-import { PiSessions } from './pi-sessions.js'
 
 export function ThreadList() {
 	const [creating, setCreating] = createSignal(false)
@@ -46,25 +45,25 @@ export function ThreadList() {
 				when=${() => !archivedPage()}
 				fallback=${html`<${ArchivedPage} onBack=${(_e) => setArchivedPage(false)} />`}
 			>
-				<${Show} when=${() => server().modules.includes('bots')}>
-					<h2>Bots</h2>
-					<ul class="bots">
-						<${Show}
-							when=${() => creating()}
-							fallback=${html`<${NewRow} label="New bot" onPick=${(_e) => setCreating(true)} />`}
-							><${NewBot} onDone=${(_e) => setCreating(false)}
-						/><//>
-						<${For} each=${sortedBots}>${(bot) => html`<${BotItem} bot=${() => bot} />`}<//>
-					</ul>
-					<h2>Threads</h2>
-				<//>
-				<ul>
+				<ul class="new-rows">
 					<${NewRow}
 						label="New thread"
 						current=${() => !current()}
 						onPick=${(_e) => openThread(null)}
 					/>
-					<${Show} when=${() => server().modules.includes('pi-sessions')}><${PiSessions} /><//>
+					<${Show} when=${() => server().modules.includes('bots')}>
+						<${NewRow} label="New bot" onPick=${(_e) => setCreating(true)} />
+					<//>
+				</ul>
+				<${Show} when=${() => server().modules.includes('bots')}>
+					<h2>Bots</h2>
+					<ul class="bots">
+						<${Show} when=${() => creating()}><${NewBot} onDone=${(_e) => setCreating(false)} /><//>
+						<${For} each=${sortedBots}>${(bot) => html`<${BotItem} bot=${() => bot} />`}<//>
+					</ul>
+					<h2>Threads</h2>
+				<//>
+				<ul>
 					<${For}
 						each=${() =>
 							threads.filter(

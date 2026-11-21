@@ -20,11 +20,12 @@ import { placePopover } from './popover.js'
 import { Switch } from './dot.js'
 import { markdown } from './markdown.js'
 import { Icon } from './icons.js'
+import { PiSessionList } from './pi-sessions.js'
 
 export function Settings() {
 	let button, panel
 	const id = createUniqueId()
-	// Whose model the picker sets: '', 'memory' or 'director'
+	// The page over the settings: '', a model for 'memory' or 'director', or 'pi-sessions' to import one
 	const [picking, setPicking] = createSignal('')
 	// One module open at a time: its whole description and its options
 	const [expanded, setExpanded] = createSignal('')
@@ -118,7 +119,9 @@ export function Settings() {
 		>
 			<${Panes}
 				title="Settings"
-				detailTitle=${() => (picking() === 'director' ? 'The director’s model' : 'Memory’s agent')}
+				detailTitle=${() =>
+					({ director: 'The director’s model', 'pi-sessions': 'Pi sessions' })[picking()] ??
+					'Memory’s agent'}
 				actions=${html`<button
 					type="button"
 					class="ghost small story"
@@ -169,46 +172,52 @@ export function Settings() {
 				open=${picking}
 				onClose=${(_event) => panel.hidePopover()}
 				onBack=${(event) => setPicking('')}
-				detail=${html` <div class="model-for">
-						<${Show}
-							when=${() => picking() === 'director'}
-							fallback=${html`<p>
-								<b>Memory’s model</b><br />
-								Writes and merges memory’s lines. Choose a cheaper model here without changing the
-								thread’s agent.
-							</p>`}
-						>
-							<p>
-								<b>The director’s model</b><br />
-								Picks who answers a group message that names no one. A small, quick model does it
-								best.
-							</p>
-						<//>
-					</div>
-					<${ModelPicker}
-						getTo=${(runner) =>
-							chosen().runner === runner.name
-								? chosen()
-								: { runner: runner.name, model: runner.model }}
-						selectedRunner=${() => chosen().runner}
-						before=${html`<li class="models">
-							<button
-								type="button"
-								class="ghost model"
-								aria-pressed=${() => String(!chosen().model)}
-								onClick=${() => choose(agentTo(''))}
+				detail=${html`<${Show}
+					when=${() => picking() === 'pi-sessions'}
+					fallback=${html` <div class="model-for">
+							<${Show}
+								when=${() => picking() === 'director'}
+								fallback=${html`<p>
+									<b>Memory’s model</b><br />
+									Writes and merges memory’s lines. Choose a cheaper model here without changing the
+									thread’s agent.
+								</p>`}
 							>
-								<span
-									>${() =>
-										picking() === 'director'
-											? 'Haiku or Luna, else each thread’s agent'
-											: 'Each thread’s agent'}</span
+								<p>
+									<b>The director’s model</b><br />
+									Picks who answers a group message that names no one. A small, quick model does it
+									best.
+								</p>
+							<//>
+						</div>
+						<${ModelPicker}
+							getTo=${(runner) =>
+								chosen().runner === runner.name
+									? chosen()
+									: { runner: runner.name, model: runner.model }}
+							selectedRunner=${() => chosen().runner}
+							before=${html`<li class="models">
+								<button
+									type="button"
+									class="ghost model"
+									aria-pressed=${() => String(!chosen().model)}
+									onClick=${() => choose(agentTo(''))}
 								>
-							</button>
-						</li>`}
-						onChoose=${(to) => choose(to)}
-						onConfigure=${(to) => choose(to)}
-					/>`}
+									<span
+										>${() =>
+											picking() === 'director'
+												? 'Haiku or Luna, else each thread’s agent'
+												: 'Each thread’s agent'}</span
+									>
+								</button>
+							</li>`}
+							onChoose=${(to) => choose(to)}
+							onConfigure=${(to) => choose(to)}
+						/>`}
+					><${PiSessionList}
+						onLoaded=${() => setTimeout(() => placePopover(panel, button))}
+						onStarted=${() => panel.hidePopover()}
+				/><//>`}
 			>
 				<ul class="rows modules">
 					<${For} each=${all}
@@ -301,6 +310,25 @@ export function Settings() {
 										${directorOption('context', 'Reads the last', 'messages', 1)}
 										${directorOption('timeout', 'Gives up after', 'seconds', 1)}
 										${directorOption('burst', 'Waits for more', 'seconds', 0)}
+									</div>
+								<//>
+								<${Show}
+									when=${() =>
+										module.name === 'pi-sessions' &&
+										expanded() === 'pi-sessions' &&
+										server().modules.includes('pi-sessions')}
+								>
+									<div class="options">
+										<div class="option">
+											<span>Brings a pi session in as a thread</span>
+											<button
+												type="button"
+												class="small"
+												onClick=${(event) => setPicking('pi-sessions')}
+											>
+												Import pi session
+											</button>
+										</div>
 									</div>
 								<//>
 							</li>

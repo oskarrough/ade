@@ -117,7 +117,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   thread-list.js         the thread list, its family rows, the Blocked filter (including children and bot homes)
   thread-details.js      DetailsPage, the side column's Details tab: title, people, family, tools and the memory switch for a thread;
                          a bot's threads open over them, with back
-  pi-sessions.js         the thread list's "Import pi session" popover (PiSessions), and in thread details where one came from (PiSource)
+  pi-sessions.js         the "Import pi session" page settings' pi-sessions row opens (PiSessionList), and in thread details where one came from (PiSource)
   canvas.js              a thread's canvas as a page of the side column: tldraw and React loaded once from esm.sh (load), mounted as
                          a React island synced over /api/threads/:id/canvas (board), which only shows the board and grows shapes whose
                          labels don't fit (fitLabels), and tells the server what the person has selected and in view (reportSeen); CanvasRow, a canvas_act call's row in the chat
@@ -133,7 +133,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   icons.js               Icon: the client's stroke icons (up, back, plus, close, next, check, again, settings), one viewBox and weight
   title.js               defaultTitle shared by new-thread client paths, CLI, post and auto-title
   settings.js            server settings: a one-line row per module that opens to its description and options (memory's model,
-                         compact-at), a pinned foot counting changes for Save and restart, Story back to the walkthrough
+                         compact-at, pi-sessions' import page), a pinned foot counting changes for Save and restart, Story back to the walkthrough
   system.js, wires.js    the live system diagram and the wires between boxes
   tutorial.js            walkthrough buttons wired to the real server
   tutorial-shed.js       loadShed: the example messages and their saved memory, loaded through the API
@@ -186,7 +186,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Popover: a `div.popover[popover]` placed by `placePopover` (popover.js), a bottom sheet on phones ("The model picker and settings"). Panes inside it (panes.js `Panes`, `.panes .pane`, "A detail covers") give it a header with a ghost close (shown only on a phone's sheet), a back and actions, and an optional `foot` pinned under the scrolling body. Settings (settings.js), Runners (runner.js `.runner-list`) and Context (composer.js `.recall`) use it; the model picker and @mentions (composer.js `.model-picker`) are the same frame without panes.
 - Popover rows: `ul.rows > li` in a popover's pane body, one per module, runner or option ("One row across"); the picker's `.model-controls .who` and `.model` share the look.
 - Model controls: model-picker.js `ModelPicker`, `.model-controls`: a `.search` pinned on top (typing filters, arrows and Enter pick, recipients go to `onRecipients`), the `.model-list` of runners' `.models` that alone scrolls (scoped ones first; an "All models" row or a search reaches every model the runner is logged in for), and a pinned `.foot` with the asked runner's `.thinking` and a folder field, any path with its shortcuts suggested ("A search, then each runner's models"); the composer and settings share it.
-- Left aside: thread-list.js `ThreadList`, `.thread-list`; each row is `li > .row` (a link, or a button, or `form.row` for a new bot), shared with the family list `.thread-family`; its foot is `.list-foot` with `.foot-toggle`s ("The list's foot").
+- Left aside: thread-list.js `ThreadList`, `.thread-list`; New thread and New bot share `ul.new-rows` on top; each row is `li > .row` (a link, or a button, or `form.row` for a new bot), shared with the family list `.thread-family`; its foot is `.list-foot` with `.foot-toggle`s ("The list's foot").
 - Side column: `aside.side` ("The side column"), one page at a time in the same `Panes` as a popover, side.js `PageTabs` in its header: thread-details.js `DetailsPage` (`.thread-details`), recap.js `Recap` (`.recap`), canvas.js `Canvas` (`.canvas`); a bot's part is bot.js `BotSettings`, `.bot`; its fields are plain inputs.
 - Thread head: the thread's name, `h2.title > button.ghost.thread-name` (opens the side column on Details; its tabs do the rest), and its `.close` ("The head:"); the head, `p.from` and the phone's `.app-bar` ("The bar") sit on `Canvas` so messages scroll under them; `.thread-name` is layout only.
 - A thread-list page (Archived) has `.page-head`.

@@ -270,6 +270,18 @@ agent-memory {
 	overflow-y: auto;
 }
 
+/* New thread and New bot side by side, above both lists */
+.thread-list > ul.new-rows {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	overflow: visible;
+
+	> li {
+		flex: none;
+	}
+}
+
 :is(.thread-list > ul, .thread-family) > li {
 	position: relative;
 	display: flex;
@@ -1370,7 +1382,7 @@ agent-memory {
 	overflow: hidden;
 
 	/* A pi session's folder takes a whole path; a session is one line of its name or first message, the rest on hover */
-	&.pi-sessions {
+	.pi-sessions {
 		input {
 			width: 100%;
 		}
