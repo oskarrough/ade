@@ -20,13 +20,14 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   reachable                         a message waits for its agent's runner, following the agent if it moves
   gone                              an agent's folder that no longer exists: it doesn't run, the thread says so
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
-  threadList, threadRow, threadView, people   what GET /api/threads returns
+  threadList, threadRow, threadView, people   what GET /api/threads returns; people kept per thread (writers), read once
+  listsOf, placed, listOf           which lists a commit moves: a thread's own list, the inbox only for a question asked, answered or dismissed
   forkThread, seenBy                forks
   compact, compactingAt             compaction now, or early
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once
   routes                            every HTTP route, as the README lists them
-  watch, rewatch, told, doing       /ws: a browser watching one thread and its agents' live work, its newest FIRST messages first;
+  watch, rewatch, told, doing       /ws: a browser watching one thread and its agents' live work, its newest FIRST messages first
   cutOf                             an agent's newest compaction cut, sent with its first batch so its turns reach back only to the messages sent
   earlier, covers                   an earlier page on request, after the agent turns that reach back to it
   mintKey, revoke, upgrade          runner keys and the runner's socket; a module's own thread socket (its `connect`)
@@ -45,8 +46,9 @@ modules/
                          thread it posts to speaks there as itself (member), and so does a bot that
                          starts a thread for two or more bots (opener in server.js's post)
   auto-title.js          first-answer title generation (AutoTitle; the model sees the opening and the newest messages, `recent`), sanitizeThreadTitle, one attempt per thread; serve: a new title on request
-  memory.js              memory lines (Line task), `zoom`, `writerOf` (util's smallModel with low thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve), the memory view in one read (view, opened); render; lines, memory and rendered, which recap reads too
+  memory.js              memory lines (Line task), `zoom`, `writerOf` (util's smallModel with low thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve), the memory view in one read (view, opened), laid out once per change (views, layOut); render; lines, memory and rendered, which recap reads too
   bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, a rename through server.js renameIn),
+                         the threads that asked a home, in one read (askedHome, `?asked=`),
                          each with `answeredAt`, stamped on the bot's doc by posted when its entry carries an answer;
                          homesOf, which server.js threadRow uses to title a home with its bot's name; a new bot starts
                          with empty instructions, hers to write with the `bot` tool; DEFAULT_VOICE and `voice`, the
@@ -84,7 +86,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   checker declarations for browser-only CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
   client.js              root: just the chat, or the live system around it
-  server.js              the server as the client sees it: api, watch, lists (threads, runners, bots),
+  server.js              the server as the client sees it: api, watch, lists (threads, runners, bots), fetched once the socket opens; withFamilies, each thread's family from parent and forks,
                          threadOf, current, openThread, fork, entries store, earlier and loadEarlier (the page before, or all)
                          changeThread/removeRow: archive, unarchive, rename, forget a bot and revoke a runner show at once, put the row back if the server refuses
   thread.js              one thread on screen
