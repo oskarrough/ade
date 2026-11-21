@@ -79,10 +79,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   checker declarations for browser-only CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
   client.js              root: just the chat, or the live system around it
-  server.js              the server as the client sees it: api, watch, lists (threads, runners, bots) as optimistic stores
-                         (listed; one allThreads feeds threads and archivedThreads), threadOf, current, openThread, fork,
-                         entries store, earlier and loadEarlier (the page before, or all)
-                         changeThread/removeRow actions: archive, unarchive, rename, forget a bot and revoke a runner show at once, put the row back if the server refuses
+  server.js              the server as the client sees it: api, watch, lists (threads, runners, bots),
+                         threadOf, current, openThread, fork, entries store, earlier and loadEarlier (the page before, or all)
+                         changeThread/removeRow: archive, unarchive, rename, forget a bot and revoke a runner show at once, put the row back if the server refuses
   thread.js              one thread on screen
     Thread               subscribes to the thread over /ws, keeps its messages, follows the bottom (follow), asks for the
                          page before near the top (nearTop) and holds the view still as it lands (hold)
