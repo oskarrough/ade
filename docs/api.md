@@ -19,10 +19,10 @@ Every message carries `createdAt`, the ISO time the server wrote it; one brought
 
 With the `blocked` module on, the agent's `ask_person({body})` tool posts a message with `waitingOnPerson: true`. Thread views and lists return `status: "blocked"` until a person's next message, even if agents keep writing. This takes precedence over live work and unread-answer status. It is derived from messages, not stored separately. The tool returns at once, so the agent may carry on or end its turn; the CLI's `post` and `wait` stop waiting once only the question is left. A thread's `busy` says whether it has work whatever its status shows: an agent answering or waiting for its runner, a `$` command, a director pick. With a question open and a command running, it's `blocked` and `busy`, and `wait` waits for the command.
 
-To watch a thread live, open `/ws` and send `{"watch": 3}`. You get its newest messages, at least 15, with `earlier: true` when more lie before them, then new messages and each agent's work as it happens. Each agent's turns reach back only as far as the messages you have; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction; `{"changed": ["threads", "runners"]}` names the lists to fetch again, from `threads`, `archived`, `runners`, `bots` and `inbox`: a thread's change names the list it's in, and `inbox` only when a question is asked, answered or dismissed; work names `threads` and `runners` as it starts and ends, so a runner's `calls` are as of your fetch; after a reconnect, fetch them all, since you may have missed some. When a message's pick lands, the socket sends that message again with its `to` and `picked`; replace your copy. Modules also send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `dropped` and `picked`, the last once the pick is saved. Send `{"earlier": 3}` for the page before the oldest you have, at least 50 messages, or `{"earlier": 3, "all": true}` for all of them: each agent's turns for it come first, then the messages, both marked `older: true`, the messages with `earlier` again.
+To watch a thread live, open `/ws` and send `{"watch": 3}`. You get its newest messages, at least 15, with `earlier: true` when more lie before them, then new messages and each agent's work as it happens. Each agent's turns reach back only as far as the messages you have; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction; `{"changed": ["threads", "runners"]}` names the lists to fetch again, from `threads`, `archived`, `runners`, `bots`, `inbox` and `server`, which names a change to the client's files, so `GET /api/server` answers another `client`: a thread's change names the list it's in, and `inbox` only when a question is asked, answered or dismissed; work names `threads` and `runners` as it starts and ends, so a runner's `calls` are as of your fetch; after a reconnect, fetch them all, since you may have missed some. When a message's pick lands, the socket sends that message again with its `to` and `picked`; replace your copy. Modules also send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `dropped` and `picked`, the last once the pick is saved. Send `{"earlier": 3}` for the page before the oldest you have, at least 50 messages, or `{"earlier": 3, "all": true}` for all of them: each agent's turns for it come first, then the messages, both marked `older: true`, the messages with `earlier` again.
 
 ```
-GET    /api/server                     modules, settings, and `me`, who the server takes you for
+GET    /api/server                     modules, settings, `me`, who the server takes you for, and `client`, what a reload of the page gets
 POST   /api/me                         with the owner key as a bearer: keeps it as this browser's cookie
 GET    /api/runners
 POST   /api/runners {name}             a key, and the command that connects it
@@ -113,6 +113,17 @@ POST   /api/threads/:id/wake {cancel}   cancels that wake (its id): {cancelled},
 
 A wake that fires posts `{author, body: note, wake: id, to: [author]}`: the agent that set it, asking itself. Each change to a thread's wakes (set, fired, cancelled) sends the pages watching it `{thread, activity: {purpose: "wake", kind: "changed"}}`; fetch its wakes again then, and after a reconnect.
 
+With `export` on:
+
+```
+GET    /api/export?dir=<path>   writes every thread, archived ones included, into <path> on the server's own
+                                 machine: one Markdown file and one JSON file each; {dir, written}
+```
+
+The JSON file holds a thread's entries exactly as `GET /api/threads/:id` returns them. The Markdown file is for a
+person: the title, who wrote in it, then each message as "**author** · time" with the body; a `$ cmd` message's
+shell result folds into one line. Both read without ade installed.
+
 The routes are in `server.js`, the runner protocol in [remote.js](../remote.js).
 
 The CLI is the same API from a terminal:
@@ -123,6 +134,7 @@ node cli.js threads
 node cli.js read 3
 node cli.js wait 3                             # waits for its agents, then prints the answers
 node cli.js stop 3
+node cli.js export ~/backup                    # with export on: every thread as Markdown and JSON
 ```
 
 It writes as whoever the server takes it for: on the server's machine, the owner, an agent's shell there included. Against a server elsewhere (`--server` or `ADE_SERVER`), set `ADE_OWNER_KEY` to write as the owner; through a Serve address you're your tailnet login without it. `node cli.js link`, on the server's machine, prints a link that brings a browser in as the owner.

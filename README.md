@@ -47,6 +47,8 @@ Use `+` and `-` to change the defaults; a list of bare names replaces them.
 
 Threads live in `${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite`, with its SQLite sidecars, lock and `ade.log` beside it. Settings stay in `${XDG_CONFIG_HOME:-~/.config}/ade/ade.json`. `DB_PATH` selects another store and puts its log beside it; it does not move settings.
 
+Server secrets, like `TYPESAFE_API_KEY` and `MATRIX_TOKEN`, go in `${XDG_CONFIG_HOME:-~/.config}/ade/.env`, loaded at start-up if it exists; a variable already set in the shell wins over it.
+
 The server's address, port, Serve port and data file come from the environment (`HOST`, `PORT`, `SERVE_PORT`, `DB_PATH`), and so can `MODULES`. These win over the file. `SERVE_PORT` is the first free one after `PORT` unless you set it; set it, so `tailscale serve` always finds it.
 
 ## What it does
@@ -68,6 +70,7 @@ So, what's different about this one? Not much, but it adds patterns I've found u
 - agents leave you questions only you can answer, and carry on meanwhile; the thread waits on you until you write (`blocked`, off by default)
 - one inbox for every question agents ask you, answered right there (`inbox`, off by default, with `blocked`)
 - agents come back to a thread later, once, every so often, or when another thread is done, and you see and cancel what's pending (`wake`, off by default)
+- every thread, archived ones included, exports as Markdown and JSON a person can read without ade installed (`export`, off by default)
 
 In a group (the thread's agent plus bots, at least two), leave `to` out to let the director choose who answers, or nobody. The message is saved at once; the director's pick comes after and shows on it as its `to` and `picked`. `@name` asks that bot for one message; the next unaddressed message goes to the director again. People don't count toward the group. Solo chats and `$` commands keep the last recipient.
 

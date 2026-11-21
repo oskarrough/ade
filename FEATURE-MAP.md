@@ -91,10 +91,15 @@ modules/
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)
+  export.js              GET /api/export?dir=<path> (serve) writes every thread, archived ones included, as one
+                         Markdown file and one JSON file each into <path> on the server's own machine (exportAll,
+                         fileName, peopleOf over util's byAgent, toMarkdown, foldShell folding a `$ cmd`'s output
+                         to one line); off by default; cli.js's `export <dir>` is a thin call to it
   pi-sessions.js         conversations as pi session files: server follows each agent's conversation (push, sync, changed) and sends
                          new entries; writePiSession, the runner's `pi-session` op (remote.js serveRunner), maps them to pi's entries.
                          The other way: bring (what pi hands its model from a session, into a new thread: newAgent, setUp, post), serve
                          (`/api/pi-sessions`), listPiSessions and readPiSession (the runner's `pi-session-list` and `-read`, over pi's own projection and convertToLlm)
+apps/desktop/            arbe desktop: ade's page in its own window, a Go app on mygo (main.go, preload.js, offline.html; README.md there)
 apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   checker declarations for browser-only CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
@@ -218,6 +223,8 @@ Where a feature lives:
 - Pi session files, both ways: modules/pi-sessions.js; the runner's messages are `pi-session`, `pi-session-list` and `pi-session-read` in remote.js serveRunner, shipped with the runner through RUNNER_FILES; cli.js `import`.
 - Wakes: modules/wake.js, util.js byAgent/said (`wake` marks the message), client wake.js, composer.js (the strip), thread.js (rows, WokeLine), time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, client settings.js.
+- A page behind its ade: server.js hashOf/clientVersion (`client` in GET /api/server, `server` named on the socket when apps/client changes), client server.js `behind`, thread-list.js (Updated · Reload in the list's foot).
+- The desktop window: apps/desktop main.go (window, links, offline page, notifications, updater), preload.js (notifications from the thread list, the clipboard on plain http).
 
 ## UI parts
 
