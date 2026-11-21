@@ -415,10 +415,9 @@ export function Thread(props) {
 	})
 	/** Once the first rows are laid out, where they start stays put: a message landing below adds a row instead of moving the top */
 	createEffect(
-		() => ready() && rows.length,
-		(count) => {
-			if (count && untrack(shownFrom) === null)
-				setShownFrom((rows.at(-SHOWN) ?? rows[0])?.at ?? -Infinity)
+		() => (ready() && rows.length ? ((rows.at(-SHOWN) ?? rows[0])?.at ?? -Infinity) : null),
+		(start) => {
+			if (start !== null && untrack(shownFrom) === null) setShownFrom(start)
 		},
 	)
 	const titleClick = () =>
