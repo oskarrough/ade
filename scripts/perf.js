@@ -251,6 +251,7 @@ async function measure() {
 				`new Promise((resolve) => {
 					const link = [...document.querySelectorAll('nav a.row')].find((a) => new URL(a.href).searchParams.get('thread') === '${big}')
 					const heard = sizes.length
+					const said = spy.socket.length
 					const begun = performance.now()
 					link.click()
 					const check = () => {
@@ -262,6 +263,7 @@ async function measure() {
 							painted: performance.now() - begun,
 							rows: document.querySelectorAll('ul[aria-label="Messages"] li').length,
 							bytes: sizes.slice(heard).reduce((sum, size) => sum + size, 0),
+							heard: spy.socket.slice(said).map((line) => Number(line.split(' ')[0]) - begun),
 						}))))
 					}
 					check()
@@ -377,6 +379,8 @@ async function measure() {
 			[
 				['sidebar ms', marks.sidebar ?? 'never'],
 				[`thread ${big} ms`, marks.thread ?? 'never'],
+				[`click to ${big}'s first page ms`, Math.round(opened.heard[0] ?? Number.NaN)],
+				[`click to its last socket message ms`, Math.round(opened.heard.at(-1) ?? Number.NaN)],
 				[`click to ${big} shown ms`, Math.round(opened.shown)],
 				[`click to ${big} painted ms`, Math.round(opened.painted)],
 				[`  rows rendered`, opened.rows],
