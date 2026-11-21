@@ -120,6 +120,8 @@ export function ThreadList() {
 						}}
 					/>
 				<//>
+				<${Settings} />
+				<${RunnerList} />
 				<${Show} when=${behind}>
 					<button
 						type="button"
@@ -137,8 +139,6 @@ export function ThreadList() {
 						>
 					</button>
 				<//>
-				<${RunnerList} />
-				<${Settings} />
 			</footer>
 		</nav>
 	`
