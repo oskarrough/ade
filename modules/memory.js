@@ -790,32 +790,78 @@ export async function lines(tx, threadId) {
 	return map
 }
 
-/** Lines over messages from..T-1, merging the most due pair, (T - last) / 2^l, until they fit the budget */
+/**
+ * Lines over messages from..T-1, merging the most due pair, (T - last) / 2^l, until they fit the budget: a written
+ * parent before an unwritten one, and of equal due the earlier pair. Each pair waits in a heap, so a merge costs its
+ * own neighbours, not a scan of every line.
+ */
 export function memory(lines, T, budget, from = 0) {
-	const list = Array.from(
-		{ length: T - from },
-		(_, offset) => lines.get(key(0, from + offset)) ?? unwritten(0, from + offset),
-	)
+	/** The lines in the list now, by `l:i`; siblings that are both here sit side by side */
+	const here = new Map()
 	const cost = (line) => bytes(rendered(line)) + 1
-	let size = list.reduce((sum, line) => sum + cost(line), 0)
-	while (size > budget) {
-		let best, unbuilt
-		for (let index = 0; index + 1 < list.length; index++) {
-			const [left, right] = [list[index], list[index + 1]]
-			if (left.l !== right.l || left.i % 2 || right.i !== left.i + 1) continue
-			const last = (right.i + 1) * 2 ** right.l - 1
-			const parent = lines.get(key(left.l + 1, left.i >> 1)),
-				due = (T - last) / 2 ** left.l
-			if (parent && (!best || due > best.due)) best = { index, parent, due }
-			if (!parent && (!unbuilt || due > unbuilt.due))
-				unbuilt = { index, parent: unwritten(left.l + 1, left.i >> 1), due }
-		}
-		best ??= unbuilt
-		if (!best) break
-		size += cost(best.parent) - cost(list[best.index]) - cost(list[best.index + 1])
-		list.splice(best.index, 2, best.parent)
+	let size = 0
+	for (let at = from; at < T; at++) {
+		const line = lines.get(key(0, at)) ?? unwritten(0, at)
+		here.set(key(0, at), line)
+		size += cost(line)
 	}
-	return list
+	/** Pairs that could merge, most due first, then earliest: one heap for written parents, one for the rest */
+	const written = [],
+		unbuilt = []
+	const before = (a, b) => a.due > b.due || (a.due === b.due && a.start < b.start)
+	const push = (heap, pair) => {
+		heap.push(pair)
+		for (let at = heap.length - 1; at > 0;) {
+			const up = (at - 1) >> 1
+			if (!before(heap[at], heap[up])) break
+			;[heap[at], heap[up]] = [heap[up], heap[at]]
+			at = up
+		}
+	}
+	const pop = (heap) => {
+		const top = heap[0]
+		const last = heap.pop()
+		if (heap.length) {
+			heap[0] = last
+			for (let at = 0; ;) {
+				const [left, right] = [2 * at + 1, 2 * at + 2]
+				let next = at
+				if (left < heap.length && before(heap[left], heap[next])) next = left
+				if (right < heap.length && before(heap[right], heap[next])) next = right
+				if (next === at) break
+				;[heap[at], heap[next]] = [heap[next], heap[at]]
+				at = next
+			}
+		}
+		return top
+	}
+	/** The pair under parent (l, i), once both halves are here */
+	const offer = (l, i) => {
+		if (!here.has(key(l - 1, 2 * i)) || !here.has(key(l - 1, 2 * i + 1))) return
+		const parent = lines.get(key(l, i))
+		const pair = {
+			l,
+			i,
+			parent: parent ?? unwritten(l, i),
+			due: (T - ((i + 1) * 2 ** l - 1)) / 2 ** (l - 1),
+			start: i * 2 ** l,
+		}
+		push(parent ? written : unbuilt, pair)
+	}
+	for (let at = from; at + 1 < T; at++) if (at % 2 === 0) offer(1, at / 2)
+	while (size > budget) {
+		const heap = written.length ? written : unbuilt
+		if (!heap.length) break
+		const { l, i, parent } = pop(heap)
+		const [left, right] = [key(l - 1, 2 * i), key(l - 1, 2 * i + 1)]
+		if (!here.has(left) || !here.has(right)) continue
+		size += cost(parent) - cost(here.get(left)) - cost(here.get(right))
+		here.delete(left)
+		here.delete(right)
+		here.set(key(l, i), parent)
+		offer(l + 1, i >> 1)
+	}
+	return [...here.values()].sort((a, b) => a.i * 2 ** a.l - b.i * 2 ** b.l)
 }
 
 /** Message `id` from character `at`, up to PAGE characters or PAGE_LINES lines, and where to go on */
