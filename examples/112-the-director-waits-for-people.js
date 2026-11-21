@@ -26,7 +26,7 @@ await scriptedRunner('laptop', async (request) => {
 	if (system.startsWith('You choose who answers')) {
 		const body = newest(text(request.messages.at(-1)))
 		picked.push(body)
-		const choice = body.includes('lunch') ? 'nobody' : 'Jeroen'
+		const choice = body.includes('lunch') ? 'nobody' : body.includes('you all') ? 'all' : 'Jeroen'
 		return say(JSON.stringify({ choice, confidence: 0.9, reason: 'scripted' }))
 	}
 	return say(system.includes('You are Jeroen in thread') ? 'Jeroen here' : 'agent here')
@@ -87,6 +87,15 @@ check(
 	'one agent and two people: a message for the other person gets no answer',
 	JSON.stringify(await message(pair, 'oskar, lunch at one?')),
 )
+
+// A message to everyone gets every agent's answer, one after another
+const all = await post(id, 'what do you all think?')
+check(
+	all.json.to?.length === 2 && all.json.to.includes('Jeroen'),
+	'asking everyone picks every agent, each in turn',
+	JSON.stringify(all.json),
+)
+await answered(id, 8)
 
 // Paused, only @mentions and named recipients get an answer; resuming replays nothing
 await api('POST', `/api/threads/${id}/pause`, { paused: true })

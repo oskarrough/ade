@@ -32,6 +32,8 @@ const director = (request) => {
 	const message = (
 		ask.split(/New messages?:\n/)[1]?.split('\n\nCandidates:')[0] ?? ''
 	).toLowerCase()
+	if (/\b(you all|everyone|all of you)\b/.test(message))
+		return say(JSON.stringify({ choice: 'all', confidence: 0.9, reason: 'they asked everyone' }))
 	const name = Object.keys(personas).find((name) =>
 		message.includes(personas[name].split(' ').pop().slice(0, 6)),
 	)
