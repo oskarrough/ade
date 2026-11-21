@@ -145,7 +145,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   runner.js              runner list, a runner's agents, ConnectRunner
   bot.js                 a bot's settings, its threads row, new bot; botThreads shares its own/elsewhere lists
   thread-list.js         the thread list, its family rows, the Blocked filter (including children and bot homes), or with inbox on, the Inbox toggle
-  wake.js                Wakes, the thread's pending wakes above the composer as `.notice` lines with × (refetched on connect and on
+  wake.js                Wakes, the thread's pending wakes above the composer as one-line `.notice` lines (`.line`, open on click) with × (refetched on connect and on
                          each `wake` activity its socket hears, heardWake);
                          WakeSet, a wake call's row in the chat (run.js LASTING); WokeLine under a message a wake posted
   inbox.js               Inbox, in the threads' place while open (server.js inboxOpen/openInbox; system.js): a `.thread.inbox` column whose

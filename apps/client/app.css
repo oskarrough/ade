@@ -1815,6 +1815,19 @@ body.resizing {
 		flex: none;
 		margin-left: auto;
 	}
+
+	/* A notice that's one of a list, like a pending wake, keeps to one line until clicked open */
+	> .line {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	&.open > .line {
+		white-space: normal;
+	}
 }
 
 /* Images waiting to go: small squares above the box, each with its × to take it off. */

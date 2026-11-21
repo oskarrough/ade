@@ -2,7 +2,7 @@
 import html from '@solidjs/html'
 import { createEffect, createRoot, createSignal, createStore, For, Show } from 'solid-js'
 import { Icon } from './icons.js'
-import { api, colorOf, connected, titleOf } from './server.js'
+import { api, connected, titleOf } from './server.js'
 import { shortLabel } from './agent.js'
 import { ahead } from './time.js'
 import { report } from './notice.js'
@@ -43,43 +43,59 @@ export function Wakes(props) {
 	const cancel = (id) => api(`/api/threads/${props.thread}/wake`, { cancel: id }).then(load, report)
 	return html`
 		<${For} each=${wakes} keyed=${(wake) => wake.id}
-			>${(wake) => html`
-				<p class="notice" role="status">
-					<span
-						>${() =>
-							`⏰ ${shortLabel(wake().agent)} wakes ${wake().after === undefined ? `${ahead(wake().at)}${wake().every ? `, then every ${span(wake().every)}` : ''}` : `once ${titleOf(wake().after)} is done`}: ${wake().note}`}</span
-					>
-					<button
-						type="button"
-						class="ghost small"
-						aria-label="Cancel this wake"
-						title="Cancel this wake"
-						onClick=${(_e) => cancel(wake().id)}
-					>
-						<${Icon} name="close" />
-					</button>
-				</p>
-			`}<//
+			>${(wake) => {
+				const [open, setOpen] = createSignal(false)
+				const when = () =>
+					wake().after === undefined
+						? `${ahead(wake().at)}${wake().every ? `, then every ${span(wake().every)}` : ''}`
+						: `once ${titleOf(wake().after)} is done`
+				return html`
+					<p class=${() => ({ notice: true, open: open() })} role="status">
+						<span
+							class="line"
+							title=${() => `${shortLabel(wake().agent)} wakes ${when()}: ${wake().note}`}
+							onClick=${() => setOpen((was) => !was)}
+							>${() => `⏰ ${when()}: ${wake().note}`}</span
+						>
+						<button
+							type="button"
+							class="ghost small"
+							aria-label="Cancel this wake"
+							title="Cancel this wake"
+							onClick=${(_e) => cancel(wake().id)}
+						>
+							<${Icon} name="close" />
+						</button>
+					</p>
+				`
+			}}<//
 		>
 	`
 }
 
-/** A wake call's own row in the chat: who set it, when for, and the note */
+/** A wake call's own row in the chat, one quiet line: ⏰, who, when, the note cut off; opened, the note whole */
 export function WakeSet(props) {
-	const said = () => {
+	const when = () => {
 		const args = props.step.args
-		if (args.cancel !== undefined) return `cancelled a wake`
-		if (args.after !== undefined) return `wakes once ${titleOf(args.after)} is done: ${args.note}`
-		const when = args.in ?? args.every
-		return `wakes in ${when}${args.every ? `, then every ${args.every}` : ''}: ${args.note}`
+		if (args.cancel !== undefined) return 'cancelled a wake'
+		if (args.after !== undefined) return `wakes once ${titleOf(args.after)} is done`
+		return `wakes in ${args.in ?? args.every}${args.every ? `, then every ${args.every}` : ''}`
 	}
+	const note = () => props.step.args.note
 	return html`
 		<li class="elsewhere">
 			<ol class="steps">
 				<li class="call changed plain">
-					<span class="in" style=${() => colorOf(props.agent.name)}
-						>${() => `${shortLabel(props.agent.name)} ${said()}`}</span
-					>
+					<details>
+						<summary>
+							<span class="in"
+								>${() => `⏰ ${shortLabel(props.agent.name)} ${when()}${note() ? `: ${note()}` : ''}`}</span
+							>
+						</summary>
+						<${Show} when=${note}>
+							<div class="whole"><p>${note}</p></div>
+						<//>
+					</details>
 				</li>
 			</ol>
 		</li>
