@@ -9,6 +9,7 @@ import {
 	configDir,
 	done,
 	say,
+	newest,
 	scriptedRunner,
 	server,
 	text,
@@ -25,11 +26,18 @@ await scriptedRunner('laptop', async (request) => {
 	const system = text(request.messages.find((m) => m.role === 'system') ?? { content: '' })
 	if (system.startsWith('You choose who answers')) {
 		choosing++
-		const message = text(request.messages.at(-1)).match(/New message: \[[^\]]+\] (.*)/)?.[1] ?? ''
+		const message = newest(text(request.messages.at(-1)))
 		if (message.includes('timeout')) return new Promise(() => {})
 		if (message.includes('error')) throw new Error('chooser unavailable')
-		if (message.includes('unknown')) return say('Jeroen, Stranger: both can answer')
-		return say('agent: the question is for the thread agent')
+		if (message.includes('unknown'))
+			return say(JSON.stringify({ choice: 'Stranger', confidence: 0.9, reason: 'both can answer' }))
+		return say(
+			JSON.stringify({
+				choice: 'agent',
+				confidence: 0.9,
+				reason: 'the question is for the thread agent',
+			}),
+		)
 	}
 	return say(system.includes('You are Jeroen in thread') ? 'Jeroen here' : 'agent here')
 })

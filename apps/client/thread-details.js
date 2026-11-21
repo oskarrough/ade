@@ -274,6 +274,16 @@ function Tools(props) {
 				}}
 			/>
 		</div>
+		<${Show} when=${() => here()}>
+			<div class="hands">
+				<${Switch}
+					on=${() => !!here().paused}
+					title="Only @mentions and named recipients get an answer; replies already on their way finish"
+					onToggle=${(on) => save('pause', { paused: on })}
+					><span>Paused</span><//
+				>
+			</div>
+		<//>
 		<${Show} when=${() => typeof here()?.memory === 'boolean'}>
 			<div class="hands">
 				<${Switch}

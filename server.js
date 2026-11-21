@@ -266,8 +266,10 @@ const Thread = defineDoc({
 		tools: null,
 		/** With memory on, whether this thread remembers; null takes memory's default */
 		memory: null,
-		/** The director's Pick task still deciding for this thread's newest message, which a newer one takes over */
-		pick: null,
+		/** Each person's Pick task still deciding for their newest message, by author; their next message takes it over */
+		picks: {},
+		/** Only @mentions and named recipients get an answer while it's on */
+		paused: false,
 		/** With inbox on, the open question dismissed from it: its message id */
 		dismissed: null,
 	}),
@@ -973,10 +975,17 @@ async function append(
 	const data = { createdAt: now(), ...message, ...(to ? { to: names } : {}) }
 	const prior =
 		!empty && names.some((name) => !row.agents[keyOf(name)]) ? await messageIds(tx, threadId) : []
-	// A fresh message, an @mention too, takes over the pick still pending; whoever it asks reads that message too
-	if (row.pick && fresh({ kind: KIND, data })) {
-		await supersede?.(tx, threadId, row.pick)
-		row.pick = null
+	row.picks ??= {}
+	/** The author's own earlier messages a pick still pending covered, which their new message's pick covers now */
+	let covers = []
+	if (fresh({ kind: KIND, data })) {
+		// The author's next message, an @mention too, takes over their pick still pending; whoever it asks reads the older one
+		if (row.picks[message.author]) {
+			covers = (await supersede?.(tx, threadId, row.picks[message.author])) ?? []
+			delete row.picks[message.author]
+		}
+		// Having sent, they're no longer typing: picks held for them go on
+		await sent?.(tx, threadId, message.author, Object.values(row.picks))
 	}
 	const entry = await tx.appendEntry(threadId, { kind: KIND, data })
 	for (const hook of posted) await hook(tx, threadId, entry)
@@ -989,9 +998,10 @@ async function append(
 					steer,
 					author: message.author,
 					body: message.body,
+					covers,
 				})
 			: undefined
-	if (pick) row.pick = pick
+	if (pick) row.picks[message.author] = pick
 	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
 }
 
@@ -1038,10 +1048,11 @@ async function ask(tx, row, threadId, upTo, to, { steer = false, prior = [] } = 
  */
 async function route(tx, threadId, messageId, { to, picked }, { steer = false, pick } = {}) {
 	const { data } = await tx.entry(messageId)
-	// A newer message saved since takes over: this one asks no one, and whoever that one asks reads it too
-	if (await newerThan(tx, threadId, messageId)) [to, picked] = [[], undefined]
+	// The author's newer message saved since takes over: this one asks no one, and whoever that one asks reads it too
+	if (await newerThan(tx, threadId, messageId, data.author)) [to, picked] = [[], undefined]
 	const row = await tx.doc(Thread, threadId)
-	if (row.pick === pick) row.pick = null
+	row.picks ??= {}
+	if (row.picks[data.author] === pick) delete row.picks[data.author]
 	try {
 		await reach(to, data.author, await tx.doc(Runners))
 	} catch (error) {
@@ -1068,14 +1079,14 @@ const fresh = ({ kind, data }) =>
 	!data.wake &&
 	!data.stopped
 
-/** Whether a fresh message came after `messageId`, reading back from the newest */
-async function newerThan(tx, threadId, messageId) {
+/** Whether `author` wrote a fresh message after `messageId`, reading back from the newest */
+async function newerThan(tx, threadId, messageId, author) {
 	let cursor
 	do {
 		const page = await tx.scanEntries({ conversationId: threadId, order: 'descending' }, 50, cursor)
 		for (const entry of page.items) {
 			if (entry.id <= messageId) return false
-			if (fresh(entry)) return true
+			if (fresh(entry) && /** @type {any} */ (entry.data).author === author) return true
 		}
 		cursor = page.next
 	} while (cursor)
@@ -1281,6 +1292,14 @@ async function status(id, row, busy, reader) {
 const writers = new Map()
 /** Who's in a thread needs no state of its own: the people who wrote there, or read, the owner and tailnet logins. Only an open thread needs it. */
 async function people(id) {
+	const wrote = await authors(id)
+	const { reads } = await thread(id)
+	return [...new Set([...wrote, ...Object.keys(reads)])].filter(
+		(name) => name === owner || name.startsWith('~'),
+	)
+}
+/** The people who wrote in a thread, not counting who only read it */
+async function authors(id) {
 	const handle = await conversation(id)
 	const wrote = writers.get(id) ?? { after: 0, authors: new Set() }
 	writers.set(id, wrote)
@@ -1298,17 +1317,14 @@ async function people(id) {
 		}
 		if (!(cursor = page.next)) break
 	}
-	const { reads } = await thread(id)
 	/** People only, as the server names them: a bot speaking in its own room writes with no agent's mark, and older
 	 * stores hold names anyone could claim */
-	return [...new Set([...wrote.authors, ...Object.keys(reads)])].filter(
-		(name) => name === owner || name.startsWith('~'),
-	)
+	return [...wrote.authors].filter((name) => name === owner || name.startsWith('~'))
 }
 
 /** `homes`, each bot's home thread → its name, saves reading them for every row of a list */
 async function threadRow(id, reader, all, homes) {
-	const { reads, hidden, dismissed: _, ...row } = await thread(id)
+	const { reads, hidden, dismissed: _, picks: __, ...row } = await thread(id)
 	const busy = all.filter((job) => job.thread === id)
 	const agents = await agentsIn(row, busy)
 	return {
@@ -1421,6 +1437,10 @@ async function recipients(
 	const joining = director ? await invited(id, message.body) : []
 	const and = (to) => [...to, ...joining.filter((bot) => !to.some((one) => one.name === bot.name))]
 	const directed = director && (await direct?.(id, message, explicit === undefined))
+	if (directed?.mention) return { ...directed, to: and(directed.to) }
+	// Paused, only @mentions and named recipients get an answer
+	if (director && !explicit && !joining.length && (await thread(id)).paused)
+		return { to: [], picked: 'Paused: only @mentions and named recipients get an answer.' }
 	// Naming a bot that isn't here asks it, so the message isn't free for the director to pick for
 	if (directed?.direct) return joining.length ? { to: joining } : { to: [], direct: true }
 	if (directed) return { ...directed, to: and(directed.to) }
@@ -1623,6 +1643,16 @@ async function setTools(id, { tools }) {
 	})
 }
 
+/** Pauses a thread, or resumes it: only @mentions and named recipients get an answer while it's paused */
+async function setPaused(id, { paused }) {
+	if (typeof paused !== 'boolean') throw new Error('paused is true or false')
+	await conversation(id)
+	return commit(async (tx) => {
+		;(await tx.doc(Thread, id)).paused = paused
+		return { paused }
+	})
+}
+
 /** Forks history, the agent and bots at `at`, but keeps the source's current thread-wide tools */
 async function forkThread(id, { at, title }) {
 	await conversation(id)
@@ -1764,6 +1794,7 @@ const core = {
 	post,
 	route,
 	fresh,
+	authors,
 	afterCommit,
 	abortTask: (id) => harness.abortTask(id, context),
 	/** One task's latest record, or every task matching `query` (Pi's TaskQuery) */
@@ -1824,6 +1855,8 @@ const [
 	direct,
 	directing,
 	supersede,
+	sent,
+	typing,
 	turns,
 	reply,
 	catchUp,
@@ -1837,6 +1870,8 @@ const [
 	'direct',
 	'directing',
 	'supersede',
+	'sent',
+	'typing',
 	'turns',
 	'reply',
 	'catchUp',
@@ -2001,6 +2036,16 @@ const routes = /** @type {[string, Function][]} */ ([
 	['POST /api/threads/:id/fork', async (req, id) => forkThread(id, await input(req))],
 	['POST /api/threads/:id/title', async (req, id) => setTitle(id, await input(req))],
 	['POST /api/threads/:id/tools', async (req, id) => setTools(id, await input(req))],
+	['POST /api/threads/:id/pause', async (req, id) => setPaused(id, await input(req))],
+	[
+		'POST /api/threads/:id/typing',
+		async (req, id) => {
+			await conversation(id)
+			const { typing: on } = await input(req)
+			await typing?.(id, user(req), on === true)
+			return { typing: on === true }
+		},
+	],
 	['POST /api/threads/:id/read', (req, id) => markRead(id, user(req))],
 	[
 		'POST /api/threads/:id/stop',

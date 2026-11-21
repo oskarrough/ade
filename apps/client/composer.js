@@ -220,6 +220,7 @@ export function Composer(props) {
 			draft.images = []
 		}, key)
 		// Your message shows at once; a `$ command` waits for its run
+		sentTyping()
 		const drop =
 			id && !/^\$\s/.test(body) ? sending(id, { body, ...(images.length && { images }) }) : () => {}
 		try {
@@ -390,6 +391,7 @@ export function Composer(props) {
 						changeDraft((draft) => {
 							draft.draft = event.currentTarget.value
 						})
+						typed(props.thread, event.currentTarget.value)
 						findMention()
 					}}
 				></textarea>
@@ -669,6 +671,22 @@ function MentionRow(option, mention) {
 
 const [compose, setCompose] = createRoot(() => createStore({ drafts: {}, picks: {}, settings: {} }))
 const emptyDraft = { draft: '', images: [], sending: false }
+/**
+ * Tells the thread you're typing, so the director's picks wait for you: a beat every 2 s while there's text, one
+ * that you stopped once it's empty. Sending ends it on the server.
+ */
+let beat = { thread: null, at: 0 }
+function typed(thread, text) {
+	if (!thread) return
+	const typing = Boolean(text.trim())
+	if (typing && beat.thread === thread && Date.now() - beat.at < 2000) return
+	if (!typing && beat.thread !== thread) return
+	beat = typing ? { thread, at: Date.now() } : { thread: null, at: 0 }
+	api(`/api/threads/${thread}/typing`, { typing }).catch(() => {})
+}
+/** Sending ends your typing on the server; the next keystroke starts a new beat */
+const sentTyping = () => (beat = { thread: null, at: 0 })
+
 /** Each mounted composer's textarea, by thread id ('new' for one with none yet), so a quote from its message list can reach it */
 const textareas = new Map()
 const changeDraftFor = (key, change) =>

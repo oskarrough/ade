@@ -13,7 +13,7 @@ import {
 } from '@earendil-works/pi-ai/providers/faux'
 import { messageText as text, serveRunner } from '../remote.js'
 
-/** The shell's ade settings stay out of every server and runner an example starts: a dev shell's MODULES=+director routes posts with no `to` to nobody. `shellEnv` keeps what was there, so a script like try.js can still layer its own MODULES on top. */
+/** The shell's ade settings stay out of every server and runner an example starts: a dev shell's MODULES=+director routes posts with no `to` to nobody, and its TYPESAFE_API_KEY would send every pick to Jev. `shellEnv` keeps what was there, so a script like try.js can still layer its own MODULES on top. */
 export const shellEnv = {}
 for (const name of [
 	'MODULES',
@@ -24,6 +24,8 @@ for (const name of [
 	'ADE_LENT',
 	'ADE_SERVER',
 	'SERVE_PORT',
+	'TYPESAFE_API_KEY',
+	'DIRECTOR_MODEL',
 ]) {
 	shellEnv[name] = process.env[name]
 	delete process.env[name]
@@ -323,5 +325,14 @@ export async function scriptedRunner(
 }
 
 export const say = (text) => fauxAssistantMessage([fauxText(text)])
+/** The newest message a director's ask picks for, its body without the author */
+export const newest = (ask) =>
+	(
+		ask
+			.split(/New messages?:\n/)[1]
+			?.split('\n\nCandidates:')[0]
+			.split('\n')
+			.at(-1) ?? ''
+	).replace(/^\[[^\]]+\] /, '')
 export const call = (name, args) =>
 	fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: 'toolUse' })

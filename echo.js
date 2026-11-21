@@ -26,15 +26,25 @@ const bots = (request) => {
 	const newest = (handed.at(-1) ?? '').replace(/\n/g, ' ').slice(0, 120)
 	return say(`${name} (${personas[name]}) got ${handed.length}, newest "${newest}"`)
 }
-/** The director's pick: the bot whose persona's last word the message uses, else nobody */
+/** The director's pick: the bot whose persona's last word the new messages use, else nobody */
 const director = (request) => {
 	const ask = text(request.messages.at(-1))
-	const message = ask.match(/New message: \[[^\]]+\] (.*)/)?.[1]?.toLowerCase() ?? ''
+	const message = (
+		ask.split(/New messages?:\n/)[1]?.split('\n\nCandidates:')[0] ?? ''
+	).toLowerCase()
 	const name = Object.keys(personas).find((name) =>
 		message.includes(personas[name].split(' ').pop().slice(0, 6)),
 	)
 	return say(
-		name ? `${name}: it's about ${personas[name].split(' ').pop()}s` : 'nobody: nothing for them',
+		JSON.stringify(
+			name
+				? {
+						choice: name,
+						confidence: 0.8,
+						reason: `it's about ${personas[name].split(' ').pop()}s`,
+					}
+				: { choice: 'nobody', confidence: 0.7, reason: 'nothing for them' },
+		),
 	)
 }
 /** A recap: one open line for the newest message it was shown */

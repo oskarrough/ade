@@ -93,9 +93,14 @@ function said(event, bodyOf) {
 		case 'wait':
 			return `Waiting ${seconds(event.ms)} for more`
 		case 'dropped':
-			return `Dropped the pick for ${quote(bodyOf(event.entry))}: a newer message came`
-		case 'picked':
-			return `${event.to.length ? `Picked ${event.to.join(', ')}` : 'Picked nobody'}${event.reason ? `: ${event.reason}` : ', a newer message took over'}`
+			return `Dropped the pick for ${quote(bodyOf(event.entry))}: its author wrote again`
+		case 'hold':
+			return `Holding for ${quote(bodyOf(event.entry))}: ${event.names.join(', ')} ${event.names.length > 1 ? 'are' : 'is'} typing`
+		case 'picked': {
+			const sure =
+				typeof event.confidence === 'number' ? ` (${Math.round(event.confidence * 100)}% sure)` : ''
+			return `${event.to.length ? `Picked ${event.to.join(', ')}` : 'Picked nobody'}${event.reason ? `: ${event.reason}${sure}` : ', their next message took over'}`
+		}
 		case 'call': {
 			const tokens = event.tokens ? `, ${event.tokens} tokens` : ''
 			return {

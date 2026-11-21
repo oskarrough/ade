@@ -8,6 +8,7 @@ import {
 	configDir,
 	done,
 	say,
+	newest,
 	scriptedRunner,
 	server,
 	text,
@@ -26,11 +27,11 @@ await scriptedRunner('laptop', async (request) => {
 	const system = text(request.messages.find((m) => m.role === 'system') ?? { content: '' })
 	if (system.startsWith('You choose who answers')) {
 		const ask = text(request.messages.at(-1))
-		const body = ask.match(/New message: \[[^\]]+\] (.*)/)?.[1] ?? ''
+		const body = newest(ask)
 		const saved = (await view(id)).entries.find((entry) => entry.data.body === body)
 		picks.push({ body, ask, saved })
 		if (body === 'hold this one') return new Promise((resolve) => (release = resolve))
-		return say('Jeroen: he knows')
+		return say(JSON.stringify({ choice: 'Jeroen', confidence: 0.9, reason: 'he knows' }))
 	}
 	return say(system.includes('You are Jeroen in thread') ? 'Jeroen here' : 'agent here')
 })
@@ -67,7 +68,7 @@ check(
 	JSON.stringify(older),
 )
 await answered(id, 3)
-release?.(say('Jeroen: too late'))
+release?.(say(JSON.stringify({ choice: 'Jeroen', confidence: 0.9, reason: 'too late' })))
 
 const free = post('who knows?')
 await until(async () => byBody('who knows?'))
