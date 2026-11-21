@@ -2230,10 +2230,10 @@ function listsOf({ changes }) {
 		}
 		if (change.type === 'task') {
 			// A thread or runner works while its task lives: only the task's start and end move a list
-			const { id, kind, status, conversationId } = change.value
+			const { id, kind, conversationId, state } = change.value
 			const runs = [Deliver.definition.name, Shell.definition.name].includes(kind)
 			if (!runs && !moduleWork.includes(kind)) return []
-			if (status === 'terminal') live.delete(id)
+			if (state.status === 'terminal') live.delete(id)
 			else if (live.has(id)) return []
 			else live.add(id)
 			return [...listOf(conversationId), ...(runs ? ['runners'] : [])]

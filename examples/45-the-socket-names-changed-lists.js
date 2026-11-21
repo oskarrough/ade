@@ -75,5 +75,23 @@ check(
 	JSON.stringify(heard),
 )
 
+// A run waiting on the offline laptop: its start and its end are each their own change
+heard.length = 0
+await api('POST', `/api/threads/${id}/entries`, { body: 'are you there?', to: 'echo/one@laptop' })
+check(
+	Boolean(await until(async () => named('threads') && named('runners'))),
+	'a run starting names the thread list and the runner list',
+	JSON.stringify(heard),
+)
+await until(async () => (await api('GET', `/api/threads/${id}`)).json.status === 'blocked')
+await sleep(300)
+heard.length = 0
+await api('POST', `/api/threads/${id}/stop`, {})
+check(
+	Boolean(await until(async () => named('threads') && named('runners'))),
+	'a run ending, here stopped while it waits for its runner, names them again',
+	JSON.stringify(heard),
+)
+
 socket.close()
 done()
