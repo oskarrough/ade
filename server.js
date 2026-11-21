@@ -2895,7 +2895,11 @@ function listener(serve) {
 	return server
 }
 const serving = listener(true)
+/** A Serve port chosen here, not by SERVE_PORT, that something took since it was found free: the next one */
+const chosen = !process.env.SERVE_PORT
 serving.on('error', (error) => {
+	if (chosen && servePort && /** @type {NodeJS.ErrnoException} */ (error).code === 'EADDRINUSE')
+		return serving.listen(++servePort, '127.0.0.1')
 	console.error(error)
 	process.exit(1)
 })

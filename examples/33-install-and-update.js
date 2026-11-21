@@ -16,6 +16,7 @@ import {
 	repo,
 	runner,
 	server,
+	servePort,
 	start,
 	until,
 } from './lib.js'
@@ -71,7 +72,16 @@ srv.kill('SIGTERM')
 await new Promise((r) => srv.on('exit', r))
 srv = command(process.execPath, ['server.js'], {
 	cwd: deployed,
-	env: { ...process.env, PORT: port, HOST: '127.0.0.1', DB_PATH: db, XDG_CONFIG_HOME: tmp },
+	// Its own ports again: left to itself, Serve's would take the first free one after PORT, which another example may
+	// take before it listens
+	env: {
+		...process.env,
+		PORT: port,
+		SERVE_PORT: String(servePort),
+		HOST: '127.0.0.1',
+		DB_PATH: db,
+		XDG_CONFIG_HOME: tmp,
+	},
 })
 
 const updated = await until(async () => {
