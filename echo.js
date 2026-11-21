@@ -73,6 +73,34 @@ export const tryEcho = (request) => {
 		/(?:^|<message from="[^"]*">\n)wake (every )?(\S+) (.+?)(?:\n<\/message>)?$/s.exec(text(latest))
 	if (waking) return call('wake', { [waking[1] ? 'every' : 'in']: waking[2], note: waking[3] })
 	if (latest.role === 'toolResult' && latest.toolName === 'wake') return say('Wake set.')
+	// "hands" runs `uname -n; pwd` on every online runner in one turn; "hands slow" sleeps first
+	const hands = request.messages.findLast(
+		(m) => m.role === 'user' && /(?:^|\n)hands\b/.test(text(m)),
+	)
+	if (hands && latest === hands) return call('runners', {})
+	if (hands && latest.role === 'toolResult' && latest.toolName === 'runners')
+		return fauxAssistantMessage(
+			text(latest)
+				.split('\n')
+				.filter((line) => line.includes(', online'))
+				.map((line) =>
+					fauxToolCall('bash', {
+						command: `${/hands slow/.test(text(hands)) ? 'sleep 5; ' : ''}uname -n; pwd`,
+						runner: line.split(',')[0],
+					}),
+				),
+			{ stopReason: 'toolUse' },
+		)
+	if (hands && latest.role === 'toolResult' && latest.toolName === 'bash') {
+		const since = request.messages.indexOf(hands)
+		return say(
+			request.messages
+				.slice(since)
+				.filter((m) => m.role === 'toolResult' && m.toolName === 'bash')
+				.map((m) => text(m).trim())
+				.join('\n---\n'),
+		)
+	}
 	const bot = bots(request)
 	if (bot) return bot
 	const last = request.messages.findLastIndex((m) => m.role === 'user')

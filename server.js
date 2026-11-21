@@ -25,8 +25,10 @@ import {
 	defineDocFamily,
 	defineExtension,
 	defineTask,
+	defineTool,
 	Harness,
 } from '@earendil-works/pi-durable'
+import { num, obj, opt, str } from '@earendil-works/pi-schema'
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node'
 import {
 	createBashTool,
@@ -537,14 +539,43 @@ registry.install(
 			createReadTool(),
 			createWriteTool(),
 			createEditTool(),
-			createBashTool({
-				prepare: async (execution, api, context) => {
-					const { model, thinkingLevel } = await api.agent(context)
-					Object.assign(execution.env, {
-						PI_SESSION_ID: String(api.conversationId),
-						...(model && { PI_MODEL: model.modelId.replace(/^[^/]+\//, '') }),
-						...(thinkingLevel && thinkingLevel !== 'off' && { PI_REASONING_LEVEL: thinkingLevel }),
-					})
+			anyRunner(
+				createBashTool({
+					prepare: async (execution, api, context) => {
+						const { model, thinkingLevel } = await api.agent(context)
+						Object.assign(execution.env, {
+							PI_SESSION_ID: String(api.conversationId),
+							...(model && { PI_MODEL: model.modelId.replace(/^[^/]+\//, '') }),
+							...(thinkingLevel &&
+								thinkingLevel !== 'off' && { PI_REASONING_LEVEL: thinkingLevel }),
+						})
+					},
+				}),
+			),
+			defineTool({
+				name: 'runners',
+				description:
+					"List the house's runners you can run commands on: name, machine, online, folder. `bash` takes one as `runner`.",
+				parameters: obj({}),
+				replay: 'safe',
+				execute: async (_args, api) => {
+					const own = api.env?.id.replace(/^runner:/, '')
+					const all = await known()
+					const lines = Object.entries(all)
+						.filter(([name]) => mayRun(own, name, all))
+						.map(([name, runner]) =>
+							[
+								name,
+								`machine ${runner.host || '?'}`,
+								runners.isOnline(name) ? 'online' : 'offline',
+								`folder ${runner.dir}`,
+								runner.readOnly && 'read-only',
+								name === own && '(yours)',
+							]
+								.filter(Boolean)
+								.join(', '),
+						)
+					return { output: [{ type: 'text', text: lines.join('\n') }] }
 				},
 			}),
 		],
@@ -557,6 +588,41 @@ registry.install(
 	}),
 )
 registry.install(defineExtension({ name: 'ade', tasks: [Anchor, Admit, Deliver, Shell] }))
+/** An agent on runner `own` may run commands on `name`: any runner whose owner takes its work */
+function mayRun(own, name, all) {
+	try {
+		return Boolean(all[name]) && (reach([{ runner: name }], `@${own}`, all), true)
+	} catch {
+		return false
+	}
+}
+/** `bash` with an optional `runner`: the command runs there, in its folder; the conversation stays where it is */
+function anyRunner(bash) {
+	const { command, timeout } = bash.parameters.properties
+	return defineTool({
+		...bash,
+		description: `${bash.description} Give \`runner\` to run it on another runner, in its folder (\`runners\` lists them).`,
+		parameters: obj(
+			{
+				command: str(command),
+				timeout: opt(num(timeout)),
+				runner: opt(str({ description: 'Another runner to run it on; yours by default' })),
+			},
+			{ open: true },
+		),
+		async execute(args, api, context) {
+			const own = api.env?.id.replace(/^runner:/, '')
+			const name = /** @type {any} */ (args).runner
+			if (!name || name === own) return bash.execute(args, api, context)
+			const all = await known()
+			if (!all[name]) throw new Error(`No runner named ${name}; \`runners\` lists them`)
+			if (!mayRun(own, name, all)) throw new Error(`${name} doesn't take work from ${own}`)
+			if (!runners.isOnline(name)) throw new Error(`${name} is offline`)
+			const env = remoteEnv(runners, name, all[name].dir)
+			return bash.execute(args, Object.create(api, { env: { value: env } }), context)
+		},
+	})
+}
 /**
  * Pi's settings, worked out again only when a runner's models or compactAt change (`provide`): Pi asks for them on
  * every document it reads, and going through every model for compactingAt each time was most of what a list cost
