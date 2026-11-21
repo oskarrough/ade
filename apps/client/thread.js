@@ -337,7 +337,8 @@ export function Thread(props) {
 			})
 			/**
 			 * Whom each answer replies to, when it isn't the message right above it nor the newest one someone wrote: the
-			 * author of the newest message its turn was handed. One pass, each agent's turns walked once in step.
+			 * person who wrote the newest message its turn was handed, never an agent or a report, and only under a person's
+			 * message. One pass, each agent's turns walked once in step.
 			 */
 			const replyTo = new Map()
 			const walked = new Map()
@@ -348,13 +349,26 @@ export function Thread(props) {
 				walked.set(conversation, at)
 				return turns[at]
 			}
+			/** A person wrote it here: not an agent, a bot, a report from another thread, a wake or a Stop */
+			const byPerson = (entry) =>
+				!entry.data.from &&
+				!entry.data.answer &&
+				!entry.data.error &&
+				!entry.data.wake &&
+				!entry.data.stopped &&
+				!entry.data.author?.includes('@') &&
+				!bots.some((bot) => bot.name === entry.data.author)
 			let previous, written
 			for (const entry of all) {
 				const { answer, from, author } = entry.data
 				const turn = answer && !from ? turnOf(answer) : undefined
 				const replied = turn?.held.length ? byId.get(Math.max(...turn.held)) : undefined
+				// Only a person is worth naming, and only when a person's message sits right above
 				if (
 					replied &&
+					byPerson(replied) &&
+					previous &&
+					byPerson(previous) &&
 					replied.data.author !== author &&
 					replied !== previous &&
 					replied !== written
