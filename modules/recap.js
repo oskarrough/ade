@@ -322,9 +322,17 @@ export function server(core) {
 			tasks: [Write],
 			tools: [tool],
 		}),
-		/** An agent's finished answer, here or from a thread it was asked in, rewrites the page while someone looks at it */
-		async posted(tx, threadId, entry) {
-			if (byAgent(entry.data) && !entry.data.error && looked(threadId)) await ask(tx, threadId)
+		/**
+		 * An agent's finished answer, here or from a thread it was asked in, rewrites the page while someone looks at it.
+		 * `posted` runs after `tx.appendEntry`'s write, so `ask`'s task read waits for a commit of its own.
+		 */
+		posted(tx, threadId, entry) {
+			if (byAgent(entry.data) && !entry.data.error && looked(threadId))
+				core.afterCommit(tx, () =>
+					core
+						.commit((fresh) => ask(fresh, threadId))
+						.catch((error) => console.error(`recap: thread ${threadId}: ${error.message}`)),
+				)
 		},
 	}
 }
