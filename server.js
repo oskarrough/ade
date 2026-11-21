@@ -1592,7 +1592,9 @@ const routes = /** @type {[string, Function][]} */ ([
 						.map((module) => [module.name, module.settings]),
 				),
 				/** Set in the environment, these win over ade.json */
-				overrides: ['MODULES', 'MEMORY_MODEL'].filter((name) => process.env[name]),
+				overrides: ['MODULES', 'MEMORY_MODEL', 'DIRECTOR_MODEL'].filter(
+					(name) => process.env[name],
+				),
 				restarts: typeof process.execve === 'function',
 			},
 		}),
@@ -2191,9 +2193,10 @@ async function upgrade(req, raw, head) {
 
 /**
  * Writes ade.json and restarts to take it up: in place where the runtime can (same terminal, same process),
- * else it stops and says so. `modules` maps a name to on or off; memory's `model` empty means each thread's agent.
+ * else it stops and says so. `modules` maps a name to on or off; memory's `model` empty means each thread's agent, and
+ * the director's a small model on each thread's runner.
  */
-async function saveSettings({ modules: wanted = {}, memory }) {
+async function saveSettings({ modules: wanted = {}, memory, director }) {
 	const known = [
 		...Object.keys(defaults),
 		...customModules.map((entry) => path.basename(entry, '.js')),
@@ -2236,6 +2239,32 @@ async function saveSettings({ modules: wanted = {}, memory }) {
 			else next.memory = { ...next.memory, compactAt: tokens }
 		}
 		if (next.memory && !Object.keys(next.memory).length) delete next.memory
+	}
+	if (director !== undefined) {
+		if (director.model !== undefined) {
+			const model = typeof director.model === 'string' ? director.model.trim() : ''
+			if (model) next.director = { ...next.director, model }
+			else if (next.director) delete next.director.model
+		}
+		/** Each number, its least value and its default, which ade.json leaves out */
+		const numbers = {
+			context: { least: 1, fallback: 20, says: 'the director reads at least 1 message' },
+			timeout: { least: 1, fallback: 60, says: 'the director gives a pick at least 1 second' },
+			burst: { least: 0, fallback: 0, says: 'the director waits 0 seconds or more' },
+		}
+		for (const [field, { least, fallback, says }] of Object.entries(numbers)) {
+			if (director[field] === undefined) continue
+			const value = Number(director[field])
+			if (
+				!Number.isFinite(value) ||
+				value < least ||
+				(field === 'context' && !Number.isInteger(value))
+			)
+				throw new Error(says)
+			if (value === fallback) delete next.director?.[field]
+			else next.director = { ...next.director, [field]: value }
+		}
+		if (next.director && !Object.keys(next.director).length) delete next.director
 	}
 	writeFileSync(settings.file, `${JSON.stringify(next, null, '\t')}\n`)
 	const restarts = typeof process.execve === 'function'

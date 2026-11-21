@@ -33,7 +33,16 @@ import {
 	hook,
 } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { AGENT, agentTo, byAgent, collect, written, finished, background } from '../util.js'
+import {
+	AGENT,
+	agentTo,
+	byAgent,
+	collect,
+	written,
+	finished,
+	background,
+	smallModel,
+} from '../util.js'
 
 export const on = true
 
@@ -124,18 +133,6 @@ export function server(core) {
 		row.memory ??
 		[...Object.keys(row.agents), ...to].some((name) => !name.includes('@') && name !== AGENT)
 
-	/** Prefer a small writer only when the thread's runner lists it. */
-	async function smallWriter(to) {
-		const provider = to.model.split('/')[0]
-		const model =
-			provider === 'anthropic' || provider === 'claude-code'
-				? `${provider}/claude-haiku-5-5`
-				: 'openai-codex/gpt-6-luna'
-		return (await core.known())[to.runner]?.models?.[model]
-			? { runner: to.runner, model, thinkingLevel: 'low' }
-			: to
-	}
-
 	/** MEMORY_MODEL overrides the small writer on the thread agent's runner, or a bot's runner. */
 	async function writerOf(threadId, signal) {
 		if (override) {
@@ -148,7 +145,7 @@ export function server(core) {
 			: (Object.entries(agents)[0] ?? [])
 		const to = recipient && (await core.agentOf(recipient.conversation, slot))
 		if (to) await core.runners.online(to.runner, signal)
-		return to && core.address(await smallWriter(to), false, signal)
+		return to && core.address(smallModel(to, await core.known(), 'low'), false, signal)
 	}
 
 	/** Short sources need no model. Trim oversized replies; only missing items get one more attempt. */

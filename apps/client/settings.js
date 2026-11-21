@@ -1,4 +1,4 @@
-/** The server's settings: its modules, on or off, and memory's model. Saving restarts it. */
+/** The server's settings: its modules, on or off, and memory's and the director's options. Saving restarts it. */
 import html from '@solidjs/html'
 import {
 	createEffect,
@@ -24,7 +24,8 @@ import { Icon } from './icons.js'
 export function Settings() {
 	let button, panel
 	const id = createUniqueId()
-	const [picking, setPicking] = createSignal(false)
+	// Whose model the picker sets: '', 'memory' or 'director'
+	const [picking, setPicking] = createSignal('')
 	// One module open at a time: its whole description and its options
 	const [expanded, setExpanded] = createSignal('')
 	const expand = (module) => setExpanded((name) => (name === module.name ? '' : module.name))
@@ -37,23 +38,53 @@ export function Settings() {
 	const on = (module) => draft.modules[module.name] ?? module.on
 	const model = () => draft.model ?? server().settings?.memory.model ?? ''
 	const compactAt = () => draft.compactAt ?? server().settings?.memory.compactAt ?? 100000
+	/** A director option as it will be saved: the draft's, else the server's */
+	const directs = (field) =>
+		field === 'model' && overridden('DIRECTOR_MODEL')
+			? server().settings?.director?.picks
+			: (draft.director[field] ?? server().settings?.director?.[field])
+	const directorOption = (field, label, unit, least) =>
+		html`<div class="option compact-option">
+			<span>${label}</span>
+			<input
+				type="number"
+				class="small"
+				min=${least}
+				aria-label=${`${label}, in ${unit}`}
+				disabled=${() => !editable()}
+				value=${() => directs(field)}
+				onChange=${(event) => {
+					const value = Number(event.currentTarget.value)
+					if (event.currentTarget.value !== '' && value >= least)
+						setDraft((store) => void (store.director[field] = value))
+				}}
+			/>
+			<span>${unit}</span>
+		</div>`
 	const toggle = (module) =>
 		setDraft((store) => {
 			if (!module.on === !on(module)) store.modules[module.name] = !module.on
 			else delete store.modules[module.name]
 		})
 	// A pick counts at once, like a module's switch; Save and restart sends it with the rest
-	const choose = (to) => setDraft((store) => void (store.model = to.model ? formatAgent(to) : ''))
-	const chosen = () => agentTo(model())
+	const choose = (to) =>
+		setDraft((store) => {
+			const chosen = to.model ? formatAgent(to) : ''
+			if (picking() === 'director') store.director.model = chosen
+			else store.model = chosen
+		})
+	const chosen = () => agentTo(picking() === 'director' ? directs('model') : model())
 	const save = async () => {
 		setDraft((store) => void (store.state = 'saving'))
 		try {
 			const { restarts } = await api('/api/settings', {
 				modules: snapshot(draft.modules),
 				...(Object.keys(memoryChanges()).length && { memory: memoryChanges() }),
+				...(Object.keys(draft.director).length && { director: snapshot(draft.director) }),
 			})
 			setDraft((store) => {
 				store.modules = {}
+				store.director = {}
 				for (const field of MEMORY_FIELDS) store[field] = undefined
 				store.state = restarts ? 'restarting' : 'stopped'
 			})
@@ -85,12 +116,12 @@ export function Settings() {
 			ref=${(el) => (panel = el)}
 			onToggle=${(event) => {
 				if (event.newState === 'open') placePopover(panel, button)
-				else setPicking(false)
+				else setPicking('')
 			}}
 		>
 			<${Panes}
 				title="Settings"
-				detailTitle="Memory’s agent"
+				detailTitle=${() => (picking() === 'director' ? 'The director’s model' : 'Memory’s agent')}
 				actions=${html`<button
 					type="button"
 					class="ghost small story"
@@ -106,6 +137,11 @@ export function Settings() {
 					<${Show} when=${() => overridden('MEMORY_MODEL')}>
 						<p class="mute">
 							Memory’s agent is locked by MEMORY_MODEL in the server’s environment.
+						</p>
+					<//>
+					<${Show} when=${() => overridden('DIRECTOR_MODEL')}>
+						<p class="mute">
+							The director’s model is locked by DIRECTOR_MODEL in the server’s environment.
 						</p>
 					<//>
 					<${Show}
@@ -129,13 +165,22 @@ export function Settings() {
 				`}
 				open=${picking}
 				onClose=${(_event) => panel.hidePopover()}
-				onBack=${(event) => setPicking(false)}
-				detail=${html` <div class="memory-model">
-						<p>
-							<b>Memory’s model</b><br />
-							Writes and merges memory’s lines. Choose a cheaper model here without changing the
-							thread’s agent.
-						</p>
+				onBack=${(event) => setPicking('')}
+				detail=${html` <div class="model-for">
+						<${Show}
+							when=${() => picking() === 'director'}
+							fallback=${html`<p>
+								<b>Memory’s model</b><br />
+								Writes and merges memory’s lines. Choose a cheaper model here without changing the
+								thread’s agent.
+							</p>`}
+						>
+							<p>
+								<b>The director’s model</b><br />
+								Picks who answers a group message that names no one. A small, quick model does it
+								best.
+							</p>
+						<//>
 					</div>
 					<${ModelPicker}
 						getTo=${(runner) =>
@@ -150,7 +195,12 @@ export function Settings() {
 								aria-pressed=${() => String(!chosen().model)}
 								onClick=${() => choose(agentTo(''))}
 							>
-								<span>Each thread’s agent</span>
+								<span
+									>${() =>
+										picking() === 'director'
+											? 'Haiku or Luna, else each thread’s agent'
+											: 'Each thread’s agent'}</span
+								>
 							</button>
 						</li>`}
 						onChoose=${(to) => choose(to)}
@@ -203,7 +253,7 @@ export function Settings() {
 												class="small"
 												disabled=${() => !editable() || overridden('MEMORY_MODEL')}
 												title=${() => model() || 'Haiku or Luna on each thread’s runner'}
-												onClick=${(event) => setPicking(true)}
+												onClick=${(event) => setPicking('memory')}
 											>
 												${() => (model() ? writtenTo(agentTo(model())) : 'Haiku or Luna')}
 											</button>
@@ -228,6 +278,29 @@ export function Settings() {
 										</div>
 									</div>
 								<//>
+								<${Show}
+									when=${() =>
+										module.name === 'director' && expanded() === 'director' && on(module)}
+								>
+									<div class="options">
+										<div class="option">
+											<span>Picks with</span>
+											<button
+												type="button"
+												class="small"
+												disabled=${() => !editable() || overridden('DIRECTOR_MODEL')}
+												title=${() => directs('model') || 'Haiku or Luna on each thread’s runner'}
+												onClick=${(event) => setPicking('director')}
+											>
+												${() =>
+													directs('model') ? writtenTo(agentTo(directs('model'))) : 'Haiku or Luna'}
+											</button>
+										</div>
+										${directorOption('context', 'Reads the last', 'messages', 1)}
+										${directorOption('timeout', 'Gives up after', 'seconds', 1)}
+										${directorOption('burst', 'Waits for more', 'seconds', 0)}
+									</div>
+								<//>
 							</li>
 						`}<//
 					>
@@ -243,6 +316,7 @@ const [draft, setDraft] = createRoot(() =>
 		modules: {},
 		model: undefined,
 		compactAt: undefined,
+		director: {},
 		state: '',
 	}),
 )
@@ -254,5 +328,8 @@ const memoryChanges = () =>
 			draft[field],
 		]),
 	)
-/** How many switches and memory fields differ from what the server runs */
-const changes = () => Object.keys(draft.modules).length + Object.keys(memoryChanges()).length
+/** How many switches, memory and director fields differ from what the server runs */
+const changes = () =>
+	Object.keys(draft.modules).length +
+	Object.keys(memoryChanges()).length +
+	Object.keys(draft.director).length

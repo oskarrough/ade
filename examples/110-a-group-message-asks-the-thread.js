@@ -14,7 +14,7 @@ import {
 	view,
 } from './lib.js'
 
-writeFileSync(path.join(configDir, 'ade.json'), JSON.stringify({ director: { timeoutMs: 500 } }))
+writeFileSync(path.join(configDir, 'ade.json'), JSON.stringify({ director: { timeout: 0.5 } }))
 await server({ MODULES: '+bots,-auto-title,-memory' })
 let choosing = 0
 await scriptedRunner('laptop', async (request) => {

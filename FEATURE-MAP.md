@@ -32,7 +32,7 @@ runner-updater.js        what `curl <server>/connect-runner | sh` starts (it sav
 remote.js                the runner protocol, both ends: createRunners (server), serveRunner (runner),
                          runnerProvider (a model over the wire), remoteEnv (tools in the runner's folder)
 cli.js                   the API from a terminal
-util.js                  helpers server and modules share: agentTo, writtenTo, mentioned, keyOf, speaker, said, written, byAgent,
+util.js                  helpers server and modules share: agentTo, writtenTo, smallModel (Haiku/Luna if the runner lists it, else the agent's own), mentioned, keyOf, speaker, said, written, byAgent,
                          finished (task result), background (thread-owned task)
 modules.js               builtIn (each module's own `on` default), dataDir ($XDG_DATA_HOME/ade, default ~/.local/share/ade), ade.json ($XDG_CONFIG_HOME/ade, default ~/.config/ade), MODULES, and loading each module's server/runner half
 modules/
@@ -40,14 +40,14 @@ modules/
                          thread it posts to speaks there as itself (member), and so does a bot that
                          starts a thread for two or more bots (opener in server.js's post)
   auto-title.js          first-answer title generation (AutoTitle; the model sees the opening and the newest messages, `recent`), sanitizeThreadTitle, one attempt per thread; serve: a new title on request
-  memory.js              memory lines (Line task), `zoom`, `smallWriter` (Haiku/Luna if listed on the thread runner, else its own model and thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve); render; lines, memory and rendered, which recap reads too
+  memory.js              memory lines (Line task), `zoom`, `writerOf` (util's smallModel with low thinking), short messages verbatim on arrival, long ones and merges only on demand (`demand`: memory view and 70% of compactAt write message lines, `beforeCompact` the cut's merges), per-thread batch queue with compaction first (`inTurn`, `writeLines`, up to 16), incremental message/line index (`indexOf`), short-only startup backfill, catch-up and compaction cut, each thread's switch (remembers, turn), recorded-line import (serve); render; lines, memory and rendered, which recap reads too
   bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, a rename through server.js renameIn),
                          each with `answeredAt`, stamped on the bot's doc by posted when its entry carries an answer;
                          homesOf, which server.js threadRow uses to title a home with its bot's name; voice, the seed
                          instructions a new bot is created with, from then on hers to rewrite
   context.js             AGENTS.md, skills and the folder's path (cwd) from the runner;
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
-  director.js            the `direct` hook: @mentions ask that bot, by default a model picks the thread's agent, bots or nobody (decide), with a short, visible fallback to the thread agent on failure;
+  director.js            the `direct` hook: @mentions ask that bot, by default a small model picks the thread's agent, bots or nobody (decide), after a `burst` wait where a newer message takes over (newer), with a visible fallback to the thread agent on failure; settings model, context, timeout, burst (saveSettings in server.js, director row in settings.js);
                          those asked take turns (`turns`); a bot's answer @mentioning a bot asks it, resting
                          after three bot answers in a row (botTurns); tells bots to @mention, not post (section)
   recap.js               a thread's recap, a checklist of `- [x]`/`- [ ]` lines: WRITER (the prompt), Recap doc, Write task (one writer,

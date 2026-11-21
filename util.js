@@ -53,6 +53,16 @@ export const agentTo = (name) => {
 		...(eq > 0 ? { name: name.slice(0, eq) } : {}),
 	}
 }
+/** A small model for side work, like memory's lines or the director's picks: Haiku for Anthropic or Claude Code agents,
+ * Luna otherwise, on `to`'s runner when that runner lists it; else `to` itself. `runners` is what each runner lists. */
+export function smallModel(to, runners, thinkingLevel) {
+	const provider = to.model.split('/')[0]
+	const model =
+		provider === 'anthropic' || provider === 'claude-code'
+			? `${provider}/claude-haiku-5-5`
+			: 'openai-codex/gpt-6-luna'
+	return runners[to.runner]?.models?.[model] ? { runner: to.runner, model, thinkingLevel } : to
+}
 /** A person's name as one line of printable text, so no author can write a speaker line of their own */
 export const speaker = (name) =>
 	[

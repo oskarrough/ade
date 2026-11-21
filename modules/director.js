@@ -3,23 +3,23 @@
  * message asks whom a model picks, or nobody. People don't count. On by default; MODULES=-director turns it off.
  * A bot's answer can @mention another bot, resting after three answers in a row until someone else writes.
  *
- * The chooser uses the thread agent's model and runner with thinking off, or the first bot's setup in a bot-only group.
- * `director.model` in ade.json selects model:thinking, optionally @runner; DIRECTOR_MODEL overrides it.
- * `director.picks: false` disables model picks. `director.timeoutMs` defaults to 3000. A failed pick asks the thread's
- * agent and records why on the message; with no thread agent it asks nobody and records the failure.
+ * The chooser is `director.model` in ade.json, `provider/model:thinking`, optionally @runner (else the thread's), with
+ * DIRECTOR_MODEL winning over it. Left empty, it's Haiku or Luna with thinking off when the thread agent's runner lists
+ * them (the first bot's in a bot-only group), else that agent's own model. `director.context` is how many recent
+ * messages it reads (20), `director.timeout` the seconds before a pick fails (60), and `director.burst` the seconds it
+ * waits for another message first (0): a message that comes within them takes over the pick, and the one before asks
+ * no one. `director.picks: false` disables model picks. A failed pick asks the thread's agent and records why on the
+ * message; with no thread agent it asks nobody and records the failure.
  */
 import { defineExtension } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { AGENT, agentTo, writtenTo, mentioned } from '../util.js'
+import { AGENT, agentTo, writtenTo, mentioned, smallModel } from '../util.js'
 
 export const on = true
 
-/** The messages it reads before the new one, how much of each, and of a bot's instructions */
-const WINDOW = 20
+/** How much of each message it reads, and of a bot's instructions */
 const SAID = 600
 const PERSONA = 300
-/** A slow pick gives way to the thread agent, never to the last bot asked */
-const LIMIT = 3000
 /** How many bot answers in a row, with no one else writing, before a bot's @mention summons no one */
 const REST = 3
 
@@ -42,6 +42,12 @@ export function server(core) {
 	const own = core.config?.director ?? {}
 	const name = process.env.DIRECTOR_MODEL || own.model
 	const picks = own.picks !== false || Boolean(process.env.DIRECTOR_MODEL)
+	/** The messages it reads before the new one; seconds before a pick gives way to the thread agent; seconds it waits for more */
+	const context = own.context ?? 20
+	const timeout = own.timeout ?? 60
+	const burst = own.burst ?? 0
+	/** Per thread, the waiting message's hand-off: a newer message calls it, and the waiting one asks no one */
+	const waiting = new Map()
 
 	/**
 	 * The one judgment: given the recent messages, the new one and who could answer, `{names, reason}` with the
@@ -111,13 +117,17 @@ export function server(core) {
 		)
 		const said = (await core.messages(threadId))
 			.filter((entry) => !entry.data.shell)
-			.slice(-WINDOW)
+			.slice(-context)
 			.map(({ data }) => ({ author: data.author, body: (data.body ?? '').slice(0, SAID) }))
 		const chooser = name
 			? agentTo(name.includes('@') ? name : `${name}@${setup.runner}`)
-			: { runner: setup.runner, model: setup.model, thinkingLevel: 'off' }
+			: smallModel(
+					{ runner: setup.runner, model: setup.model, thinkingLevel: 'off' },
+					await core.known(),
+					'off',
+				)
 		chooser.thinkingLevel ??= 'off'
-		const signal = AbortSignal.timeout(own.timeoutMs ?? LIMIT)
+		const signal = AbortSignal.timeout(timeout * 1000)
 		let decided
 		try {
 			decided = await decide(
@@ -137,6 +147,19 @@ export function server(core) {
 			here.find((agent) => (name === AGENT ? !agent.name : agent.name === name)),
 		)
 		return { to, picked: decided.reason }
+	}
+
+	/** Waits `burst` seconds for another message in the thread; true when one came and takes over the pick */
+	function newer(threadId) {
+		waiting.get(threadId)?.()
+		return new Promise((resolve) => {
+			const handOff = () => (clearTimeout(timer), resolve(true))
+			const timer = setTimeout(() => {
+				if (waiting.get(threadId) === handOff) waiting.delete(threadId)
+				resolve(false)
+			}, burst * 1000)
+			waiting.set(threadId, handOff)
+		})
 	}
 
 	/** How many answers in a row end the thread, with no one else writing since */
@@ -174,6 +197,11 @@ export function server(core) {
 				picked: "Model picks are off; ask the thread's agent or @mention a bot.",
 			}
 		}
+		if (burst && (await newer(threadId)))
+			return {
+				to: [],
+				picked: 'Another message came right after; the director picks for both there.',
+			}
 		return pick(
 			threadId,
 			message,
@@ -196,7 +224,13 @@ export function server(core) {
 	return {
 		direct,
 		turns: true,
-		settings: { picks: picks ? name || true : false },
+		settings: {
+			picks: picks ? name || true : false,
+			model: own.model ?? '',
+			context,
+			timeout,
+			burst,
+		},
 		extension: defineExtension({ name: 'ade.director', sections: [section] }),
 	}
 }
