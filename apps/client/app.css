@@ -446,11 +446,24 @@ agent-memory {
 			font: inherit;
 			font-weight: 400;
 
+			/* A raised pill of its own, opaque so the chat never shows through it. */
 			> button {
 				flex: 1;
 				max-width: none;
 				margin: 0;
 				text-align: start;
+				background: var(--tint);
+				color: var(--ink);
+
+				&[aria-pressed='true'] {
+					background: color-mix(in srgb, CanvasText 10%, Canvas);
+				}
+
+				@media (hover: hover) {
+					&:hover {
+						background: color-mix(in srgb, CanvasText 10%, Canvas);
+					}
+				}
 
 				> span:not(.dot) {
 					flex: 1;
