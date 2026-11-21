@@ -2,7 +2,7 @@
  */
 import { defineDoc, defineExtension, defineTask } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { AGENT, agentTo, background, finished } from '../util.js'
+import { complete, AGENT, agentTo, background, finished } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
 
 export const on = true
@@ -102,28 +102,19 @@ export function server(core) {
 						: { runner: own.runner, model: own.model, thinkingLevel: 'off' }
 					await core.runners.online(choice.runner, rt.signal)
 					const to = await core.address(choice, false, rt.signal)
-					const model = core.models.getModel(`runner:${to.runner}`, to.model)
-					const reply = await core.models.completeSimple(
-						model,
-						{
-							messages: [
-								{ role: 'system', content: SYSTEM_PROMPT, timestamp: Date.now() },
-								{
-									role: 'user',
-									content: `Title this conversation:\n\n${recent(messages)}`,
-									timestamp: Date.now(),
-								},
-							],
-						},
-						{
-							signal: rt.signal,
-							...(to.thinkingLevel && to.thinkingLevel !== 'off'
-								? { reasoning: to.thinkingLevel }
-								: {}),
-						},
+					const reply = await complete(
+						core,
+						to,
+						[
+							{ role: 'system', content: SYSTEM_PROMPT, timestamp: Date.now() },
+							{
+								role: 'user',
+								content: `Title this conversation:\n\n${recent(messages)}`,
+								timestamp: Date.now(),
+							},
+						],
+						rt.signal,
 					)
-					if (reply.stopReason === 'error' || reply.stopReason === 'aborted')
-						throw new Error(reply.errorMessage ?? reply.stopReason)
 					const title = sanitizeThreadTitle(messageText(reply))
 					if (!title) throw new Error('model returned no usable title')
 					return rt.commit(async (tx) => {

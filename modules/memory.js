@@ -9,7 +9,6 @@
  * long, missing) and confirm the requested model and thinking level reach the provider. Count calls, total tokens
  * (cache and reasoning included), retries and peak RSS; keep the evidence in .work/.
  */
-import { retryAssistantCall } from '@earendil-works/pi-ai'
 import { num, obj, opt } from '@earendil-works/pi-schema'
 import {
 	CompactionTask,
@@ -22,6 +21,7 @@ import {
 } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
 import {
+	complete,
 	AGENT,
 	agentTo,
 	byAgent,
@@ -140,7 +140,6 @@ export function server(core) {
 		if (!pending.length) return result
 		const to = await writerOf(threadId, signal)
 		if (!to) return undefined
-		const model = core.models.getModel(`runner:${to.runner}`, to.model)
 		for (let attempt = 0; attempt < RETRIES && pending.length; attempt++) {
 			const task =
 				`${chat}\n\nCompress each message or merge each pair into one line of at most ${LINE} bytes (about 70 words), the length of this ruler:\n${RULER}\nWhen merging, <chat> may hold the covered messages in more detail: keep useful details from there too.\n` +
@@ -155,23 +154,7 @@ export function server(core) {
 				{ role: 'system', content: WRITER, timestamp: Date.now() },
 				{ role: 'user', content: task, timestamp: Date.now() },
 			]
-			const reply = await retryAssistantCall(
-				() =>
-					core.models.completeSimple(
-						model,
-						{ messages },
-						{
-							signal,
-							...(to.thinkingLevel && to.thinkingLevel !== 'off'
-								? { reasoning: to.thinkingLevel }
-								: {}),
-						},
-					),
-				RETRY,
-				signal,
-			)
-			if (reply.stopReason === 'error' || reply.stopReason === 'aborted')
-				throw new Error(reply.errorMessage ?? reply.stopReason)
+			const reply = await complete(core, to, messages, signal, RETRY)
 			const answers = new Map(),
 				duplicates = new Set()
 			if (pending.length === 1) answers.set(pending[0], messageText(reply).trim())

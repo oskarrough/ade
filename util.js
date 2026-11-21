@@ -1,4 +1,5 @@
 /** Helpers the server and its modules share */
+import { retryAssistantCall } from '@earendil-works/pi-ai'
 
 /** A durable task's terminal result
  * @param {'completed' | 'aborted'} [status] */
@@ -160,4 +161,21 @@ export function mentioned(body, names) {
 				.filter(Boolean),
 		),
 	]
+}
+
+export async function complete(core, to, messages, signal, retry = undefined) {
+	const model = core.models.getModel(`runner:${to.runner}`, to.model)
+	const call = () =>
+		core.models.completeSimple(
+			model,
+			{ messages },
+			{
+				signal,
+				...(to.thinkingLevel && to.thinkingLevel !== 'off' ? { reasoning: to.thinkingLevel } : {}),
+			},
+		)
+	const reply = await (retry ? retryAssistantCall(call, retry, signal) : call())
+	if (reply.stopReason === 'error' || reply.stopReason === 'aborted')
+		throw new Error(reply.errorMessage ?? reply.stopReason)
+	return reply
 }

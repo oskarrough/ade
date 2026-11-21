@@ -91,51 +91,18 @@ export function server(core) {
 				throw new Error('Run commands with your own bash tool, not as a post')
 			const title = thread === undefined ? args.title?.trim() || defaultTitle(args.body) : ''
 			if (thread !== undefined) await core.conversation(thread)
+			const explicit =
+				args.to === undefined
+					? undefined
+					: async () =>
+							args.to === 'nobody'
+								? []
+								: [await core.whom(thread, args.to, false, context.abortSignal)]
 			/** A bot that's in the thread speaks there as itself, like a person in the room: no question from home, no answer back */
 			const member =
 				thread !== undefined &&
 				keyOf(name) !== AGENT &&
 				Boolean((await core.thread(thread)).agents[keyOf(name)])
-			if (member) {
-				const { to, picked, direct } = await core.recipients(
-					thread,
-					{ author: name, body: args.body },
-					{
-						explicit:
-							args.to === undefined
-								? undefined
-								: async () =>
-										args.to === 'nobody'
-											? []
-											: [await core.whom(thread, args.to, false, context.abortSignal)],
-						fallback: async () =>
-							(await core.lastAsked(thread)).filter((agent) => agent?.name !== name),
-					},
-				)
-				return core.once(`post ${api.taskId}`, 'post', async (tx) => {
-					context.abortSignal?.throwIfAborted()
-					await core.post(
-						tx,
-						thread,
-						{
-							author: name,
-							body: args.body,
-							...(to.length ? { to } : {}),
-							...(picked ? { picked } : {}),
-						},
-						{ steer: true, member: true, direct },
-					)
-					return {
-						output: [
-							{
-								type: 'text',
-								text: `Said in thread ${thread}, where you're a member${to.length ? `, for ${to.map(writtenTo).join(', ')}` : ''}. Replies stay there, with your run in that thread; read it when you need them.`,
-							},
-						],
-						details: { thread },
-					}
-				})
-			}
 			/**
 			 * A bot that starts a thread for two or more other bots, named by `to` or @mention, is in it from the first
 			 * message, as someone opening a group chat; a side question to one bot, a model or itself still asks from home.
@@ -149,31 +116,54 @@ export function server(core) {
 				...(args.to !== undefined ? [botNamed(args.to)] : []),
 				...mentioned(args.body, bots),
 			].filter((bot) => bot && bot !== name)
-			if (new Set(named).size > 1 && (args.to === undefined || botNamed(args.to))) {
-				const to = await Promise.all(
-					[...new Set(named)].map((bot) => core.whom(undefined, bot, false, context.abortSignal)),
-				)
-				const opener = await core.botAgent(name)
+			const opening = new Set(named).size > 1 && (args.to === undefined || botNamed(args.to))
+			if (member || opening) {
+				const { to, picked, direct } = member
+					? await core.recipients(
+							thread,
+							{ author: name, body: args.body },
+							{
+								explicit,
+								fallback: async () =>
+									(await core.lastAsked(thread)).filter((agent) => agent?.name !== name),
+							},
+						)
+					: {
+							to: await Promise.all(
+								[...new Set(named)].map((bot) =>
+									core.whom(undefined, bot, false, context.abortSignal),
+								),
+							),
+							picked: undefined,
+							direct: undefined,
+						}
+				const opener = opening ? await core.botAgent(name) : undefined
 				return core.once(`post ${api.taskId}`, 'post', async (tx) => {
 					context.abortSignal?.throwIfAborted()
-					const id = await core.startThread(tx, title, from)
+					const id = thread ?? (await core.startThread(tx, title, from))
 					await core.post(
 						tx,
 						id,
-						{ author: name, body: args.body, ...(to.length ? { to } : {}) },
-						{ empty: true, steer: true, opener },
+						{
+							author: name,
+							body: args.body,
+							...(to.length ? { to } : {}),
+							...(picked ? { picked } : {}),
+						},
+						member ? { steer: true, member: true, direct } : { empty: true, steer: true, opener },
 					)
 					return {
 						output: [
 							{
 								type: 'text',
-								text: `Started thread ${id}, where you're a member${to.length ? `, for ${to.map(writtenTo).join(', ')}` : ''}. Replies stay there, with your run in that thread; read it when you need them.`,
+								text: `${member ? 'Said in' : 'Started'} thread ${id}, where you're a member${to.length ? `, for ${to.map(writtenTo).join(', ')}` : ''}. Replies stay there, with your run in that thread; read it when you need them.`,
 							},
 						],
 						details: { thread: id },
 					}
 				})
 			}
+
 			const done = thread !== undefined && (await answered(thread, from))
 			const asked =
 				thread === undefined
@@ -196,12 +186,7 @@ export function server(core) {
 								Promise.all(
 									asks.map((bot) => core.whom(undefined, bot, false, context.abortSignal)),
 								)
-						: args.to === undefined
-							? undefined
-							: async () =>
-									args.to === 'nobody'
-										? []
-										: [await core.whom(thread, args.to, false, context.abortSignal)],
+						: explicit,
 					fallback: async () => (asker ? [asker] : await core.lastAsked(thread)),
 				},
 			)

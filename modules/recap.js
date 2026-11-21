@@ -2,12 +2,11 @@
  * Keeps one living recap per thread someone looks at, a short checklist of where it stands, rewritten after each
  * answer by a cheap model from the recap before and the messages since.
  */
-import { retryAssistantCall } from '@earendil-works/pi-ai'
 import { num, obj, opt } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTask, defineTool } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
 import { lines, memory, rendered } from './memory.js'
-import { AGENT, agentTo, background, byAgent, finished, written } from '../util.js'
+import { complete, AGENT, agentTo, background, byAgent, finished, written } from '../util.js'
 
 export const on = false
 
@@ -146,7 +145,6 @@ export function server(core) {
 		]
 			.filter(Boolean)
 			.join('\n\n')
-		const model = core.models.getModel(`runner:${to.runner}`, to.model)
 		/** @type {import('@earendil-works/pi-ai').Message[]} */
 		const messages = [
 			{ role: 'system', content: WRITER, timestamp: Date.now() },
@@ -154,23 +152,7 @@ export function server(core) {
 		]
 		let page
 		for (let attempt = 0; attempt < 2; attempt++) {
-			const reply = await retryAssistantCall(
-				() =>
-					core.models.completeSimple(
-						model,
-						{ messages },
-						{
-							signal,
-							...(to.thinkingLevel && to.thinkingLevel !== 'off'
-								? { reasoning: to.thinkingLevel }
-								: {}),
-						},
-					),
-				RETRY,
-				signal,
-			)
-			if (reply.stopReason === 'error' || reply.stopReason === 'aborted')
-				throw new Error(reply.errorMessage ?? reply.stopReason)
+			const reply = await complete(core, to, messages, signal, RETRY)
 			page = tidy(
 				messageText(reply)
 					.replace(/^```(?:markdown|md)?\n([\s\S]*)\n```$/, '$1')
