@@ -2184,7 +2184,13 @@ async function rewatch(socket, id) {
 			}
 			send({ agent, live: await live(watch.value) })
 			// Its conversation as far back as the messages sent, then each entry as it's written, beside its live work
-			const shown = ({ id, kind, model, data, head }) => ({ id, kind, model, data, head })
+			const shown = ({ id, kind, model, data, head }) => ({
+				id,
+				kind,
+				model: model?.map(visible),
+				data,
+				head,
+			})
 			const transcript = await told(
 				handle,
 				watch,
@@ -2209,6 +2215,18 @@ async function rewatch(socket, id) {
 		await follow(call.value.agents)
 		send(await present())
 	})
+}
+/**
+ * A model message as a page shows it: without the provider's diagnostics and the signatures that let it check its own
+ * thinking, which are most of an answer's bytes and nothing a person reads
+ */
+const visible = (message) => {
+	const { diagnostics: _, ...shown } = message
+	if (!Array.isArray(shown.content)) return shown
+	return {
+		...shown,
+		content: shown.content.map(({ thinkingSignature: _, textSignature: __, ...block }) => block),
+	}
 }
 /**
  * A conversation's entries through Pi's transcript, which keeps them whole: the newest first, back as far as `enough`
