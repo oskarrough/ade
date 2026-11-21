@@ -110,7 +110,10 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 logged(`started, process ${process.pid}`)
 process.on('uncaughtExceptionMonitor', (error, origin) =>
-	logged(`${origin}: ${error?.stack ?? error}`),
+	console.error(`${origin}: ${error?.stack ?? error}`),
+)
+process.on('unhandledRejection', (reason) =>
+	console.error(`unhandledRejection: ${reason?.stack ?? reason}`),
 )
 process.on('exit', (code) => logged(`exited with code ${code}`))
 process.on('exit', () => Number(readFileSync(lock, 'utf8')) === process.pid && rmSync(lock))
@@ -563,7 +566,7 @@ harness.closed.then(
 let stopping
 for (const signal of ['SIGINT', 'SIGTERM'])
 	process.on(signal, () => {
-		logged(`stopped by ${signal}`)
+		console.error(`stopped by ${signal}`)
 		stopping ??= harness.close(context).finally(() => process.exit(0))
 	})
 
