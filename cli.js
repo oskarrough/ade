@@ -169,10 +169,8 @@ async function post() {
 	}
 }
 
-/** Still going: an agent works or waits for its runner; a thread that only waits on a person's answer is settled */
-const going = (view) =>
-	view.status === 'working' ||
-	(view.status === 'blocked' && view.agents.some((agent) => agent.status !== 'idle'))
+/** Still going: the thread has work (an agent answering or waiting for its runner, a command); a question alone settles it */
+const going = (view) => view.busy
 
 const commands = {
 	post,

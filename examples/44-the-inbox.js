@@ -1,4 +1,6 @@
 /** MODULES=+blocked,+inbox: the questions agents ask wait in one inbox until you answer or dismiss them */
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import WebSocket from 'ws'
 import {
 	answered,
@@ -12,6 +14,7 @@ import {
 	server,
 	text,
 	until,
+	repo,
 } from './lib.js'
 
 await server({ MODULES: '+blocked,+inbox,+bots' })
@@ -123,4 +126,21 @@ check(
 	JSON.stringify([fork, heard, await inbox()]),
 )
 socket.close()
+
+// A question open doesn't hide a command still running: `wait` waits for it
+const slow = await thread('slow')
+await post(slow, '$ sleep 3; echo slept')
+await post(slow, 'ask: meanwhile?')
+await until(async () => (await api('GET', `/api/threads/${slow}`)).json.status === 'blocked')
+const waited = await promisify(execFile)(
+	process.execPath,
+	['cli.js', '--server', base, 'wait', String(slow)],
+	{ cwd: repo },
+)
+const view = (await api('GET', `/api/threads/${slow}`)).json
+check(
+	!view.busy && view.entries.some((entry) => entry.data.shell?.stdout?.includes('slept')),
+	'with a question open, wait returns once the command ends',
+	`${waited.stdout} ${JSON.stringify(view.entries.at(-1)?.data)}`,
+)
 done()
