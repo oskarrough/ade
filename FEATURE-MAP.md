@@ -14,6 +14,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   ask, route, ROUTE, routed         Admit/Deliver for whom a message asks; the director's pick saved after its message, read as its `to`/`picked`;
                                     `fresh`/newerThan: a newer message takes over a pending pick
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
+  afterCommit, moduleWork           best-effort work once a server commit is stored; modules' task kinds that count as a thread working
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
   outcome, tell, restore, faulted   what a finished delivery posts back (a bot's answer asks whom direct says), or a failure says
   reachable                         a message waits for its agent's runner, following the agent if it moves

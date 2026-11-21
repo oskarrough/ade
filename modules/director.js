@@ -208,8 +208,8 @@ export function server(core) {
 
 	/**
 	 * In the commit that saves a newer message, before it's written: the thread's pending pick is woken to ask no one.
-	 * One already calling its model is aborted once this commit is in, which cuts the call short; either way its
-	 * route, committed after the newer message, asks no one.
+	 * One already calling its model is aborted once this commit is stored, best-effort, which cuts the call short;
+	 * either way its route, committed after the newer message, asks no one.
 	 */
 	async function supersede(tx, threadId, pick) {
 		const task = /** @type {any} */ (await tx.task(pick))
@@ -218,7 +218,8 @@ export function server(core) {
 		const running = task?.state?.status === 'running'
 		if (delivered !== 'delivered' && !running) return
 		tell(threadId, { kind: 'dropped', entry: task?.input?.entry })
-		if (running) setImmediate(() => core.abortTask(pick).catch((error) => console.error(error)))
+		if (running)
+			core.afterCommit(tx, () => core.abortTask(pick).catch((error) => console.error(error)))
 	}
 
 	/** Tells the Director tab what the committed route asks, after the runner check and any newer message */
@@ -248,8 +249,10 @@ export function server(core) {
 				)
 			},
 			async call({ id, conversationId: threadId, input: { entry, steer }, state }, rt, ctx) {
-				const routed =
-					state.wake?.reason === 'signal' ? { to: [] } : await pick(threadId, entry, rt.signal)
+				// Superseded while it slept, or before it got here (no burst, or a restart): no model call
+				const superseded =
+					state.wake?.reason === 'signal' || (await core.thread(threadId)).pick !== id
+				const routed = superseded ? { to: [] } : await pick(threadId, entry, rt.signal)
 				let route
 				await rt.commit(async (tx) => {
 					route = await core.route(tx, threadId, entry, routed, { steer, pick: id })
@@ -341,6 +344,8 @@ export function server(core) {
 		direct,
 		directing,
 		supersede,
+		/** A pick keeps its thread working, so Stop shows */
+		work: [Pick.definition.name],
 		turns: true,
 		/** The model it picks with as written (DIRECTOR_MODEL's when set), empty for Haiku or Luna on each thread's runner */
 		settings: {
