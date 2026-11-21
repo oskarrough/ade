@@ -30,7 +30,7 @@ export const on = false
 /** Conversations the server follows, `conversation` → { thread, session, seen, last, where, titled, failed }; a tick looks only at the newest entry of each */
 export async function server(core) {
 	// Server-only files, which a runner doesn't have
-	const { AGENT, speaker, writtenTo } = await import('../util.js')
+	const { AGENT, writtenTo } = await import('../util.js')
 	const { defaultTitle } = await import('../apps/client/title.js')
 	/** The thread's first entry says which pi session it came from; its messages are the other kind, so nothing else reads it */
 	const SOURCE = 'ade.pi-session'
@@ -191,7 +191,6 @@ export async function server(core) {
 				thinkingLevel: read.thinkingLevel,
 			})
 			.catch(() => core.address(asked))
-		const who = speaker(by)
 		const label = writtenTo(to)
 		const heading = title?.trim() || read.name || defaultTitle(textOf(first.content))
 		const thread = await core.commit(async (tx) => {
@@ -224,7 +223,7 @@ export async function server(core) {
 						const sent = await tx.appendEntry(threadId, {
 							kind: MESSAGE,
 							data: {
-								author: who,
+								author: by,
 								body: textOf(message.content),
 								createdAt: new Date(message.timestamp).toISOString(),
 								to: [label],

@@ -31,9 +31,14 @@ for (const name of [
 export const repo = path.resolve(import.meta.dirname, '..')
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** The first server asks for port 0 and says which it got; later ones, restarts, keep it */
+/** The first server asks for port 0 and says which it got; later ones, restarts, keep it, and Serve's listener's */
 export let base
 let port = 0
+export let servePort = 0
+/** The owner, as the server names them: whoever asks from its own machine */
+export let owner
+/** A friend as the server names them, coming in through Tailscale Serve as `name@github` */
+export const person = (name) => `~${name}+github`
 
 /** Its on-disk path, case as stored, since a shell's `pwd` prints that and macOS's temp folder sits behind a symlink */
 const tmp = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'ade-example-')))
@@ -68,6 +73,7 @@ export function start(file, args = [], env = {}, cwd = tmp) {
 		env: {
 			...process.env,
 			PORT: String(port),
+			SERVE_PORT: String(servePort),
 			HOST: '127.0.0.1',
 			DB_PATH: db,
 			XDG_CONFIG_HOME: tmp,
@@ -95,13 +101,17 @@ export function command(file, args = [], options = {}) {
 export async function server(env = {}, { cwd, args = ['--no-runner'] } = {}) {
 	const child = start('server.js', args, env, cwd)
 	if (!port) {
+		let printed = ''
 		child.stdout.on('data', (chunk) => {
-			port ||= Number(/http:\/\/127\.0\.0\.1:(\d+)/.exec(chunk)?.[1])
+			printed += chunk
+			port ||= Number(/ade +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
+			servePort ||= Number(/serve +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
 		})
-		await until(async () => port)
+		await until(async () => port && servePort)
 		base = `http://127.0.0.1:${port}`
 	}
 	await until(() => api('GET', '/api/server').then((response) => response.status === 200))
+	owner ??= (await api('GET', '/api/server')).json.me
 	return child
 }
 
@@ -133,10 +143,14 @@ export async function runner(name, { args = [], env = {}, wait = true, dir: fold
 
 export const keyFor = async (name) => (await api('POST', '/api/runners', { name })).json.key
 
-export async function api(method, route, body, user = 'oskar') {
-	const res = await fetch(base + route, {
+/** A request from the owner, on the server's own machine; `as` a friend's name, from them through Tailscale Serve */
+export async function api(method, route, body, as = undefined) {
+	const res = await fetch(`http://127.0.0.1:${as ? servePort : port}${route}`, {
 		method,
-		headers: { 'content-type': 'application/json', 'x-user': user },
+		headers: {
+			'content-type': 'application/json',
+			...(as && { 'tailscale-user-login': `${as}@github` }),
+		},
 		body: body && JSON.stringify(body),
 	})
 	return { status: res.status, json: await res.json() }

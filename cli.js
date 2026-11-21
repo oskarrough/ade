@@ -3,9 +3,15 @@ import { agentTo } from './util.js'
 import { defaultTitle } from './apps/client/title.js'
 import { parseArgs } from 'node:util'
 import { on, once } from 'node:events'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import WebSocket from 'ws'
+import { dataDir } from './modules.js'
 
-const usage = `node cli.js [--server url] [--as name] <command>
+const usage = `node cli.js [--server url] <command>
+
+  You write as whoever the server takes you for: the owner on its own machine, your login through
+  tailscale serve, or the owner anywhere with ADE_OWNER_KEY set to the key \`link\` shows.
 
   post <message>   post to a new thread, or --thread N, and print the answers as they land
                    --to agent    model@runner, a runner, a bot's name, or nobody; repeat for bots
@@ -24,6 +30,7 @@ const usage = `node cli.js [--server url] [--as name] <command>
   key <runner>     a new key for a runner, replacing its old one, and the line that connects it
   revoke <runner>  take its key away: it goes offline and leaves the list
   stop <thread>    stop its agents and commands
+  link             on the server's machine: a link that brings a browser in as the owner
   import <runner> [session]
                    with pi-sessions on: list the pi sessions in the runner's folder (--dir for another),
                    or start a new thread from one, by id or path, and print "thread N"; --title names it`
@@ -38,13 +45,6 @@ const parse = (options) => {
 		process.exit(1)
 	}
 }
-/** A person's own name, unless an agent's bash tool set PI_SESSION_ID: then it writes as its model, not whoever owns the shell */
-const defaultAs = () =>
-	(process.env.PI_SESSION_ID &&
-		`${process.env.PI_MODEL ?? 'agent'}${process.env.PI_REASONING_LEVEL ? `:${process.env.PI_REASONING_LEVEL}` : ''}`) ||
-	process.env.USER ||
-	'anon'
-
 const {
 	values: flags,
 	positionals: [command, ...rest],
@@ -53,7 +53,6 @@ const {
 		type: 'string',
 		default: process.env.ADE_SERVER || 'http://127.0.0.1:3000',
 	},
-	as: { type: 'string', default: defaultAs() },
 	thread: { type: 'string' },
 	to: { type: 'string', multiple: true },
 	thinking: { type: 'string' },
@@ -66,10 +65,18 @@ const {
 	help: { type: 'boolean', short: 'h' },
 })
 
+/** The owner's key goes only to a server elsewhere, and only when given: on the server's own machine it's not needed */
+const local = /^https?:\/\/(localhost|127\.[\d.]+|\[::1\])(:\d+)?(\/|$)/.test(flags.server)
+const auth =
+	!local && process.env.ADE_OWNER_KEY
+		? { authorization: `Bearer ${process.env.ADE_OWNER_KEY}` }
+		: {}
+const socketTo = () => new WebSocket(`${flags.server.replace(/^http/, 'ws')}/ws`, { headers: auth })
+
 async function api(method, route, body) {
 	const res = await fetch(flags.server + route, {
 		method,
-		headers: { 'content-type': 'application/json', 'x-user': flags.as },
+		headers: { 'content-type': 'application/json', ...auth },
 		body: body && JSON.stringify(body),
 	})
 	const json = await res.json()
@@ -114,9 +121,7 @@ async function post() {
 	const seen = (await api('GET', `/api/threads/${id}?last=1`)).entries.at(-1)?.id ?? 0
 	const to = flags.to && (flags.to.includes('nobody') ? null : flags.to.map(agent))
 	/** Listen before posting so even an immediate answer can't slip between the read and the wait */
-	const socket = flags['no-wait']
-		? null
-		: new WebSocket(flags.server.replace(/^http/, 'ws') + '/ws')
+	const socket = flags['no-wait'] ? null : socketTo()
 	const changes = socket && on(socket, 'message', { close: ['close'] })
 	try {
 		if (socket) await once(socket, 'open')
@@ -190,7 +195,7 @@ const commands = {
 	},
 	async wait() {
 		const id = Number(rest[0])
-		const socket = new WebSocket(flags.server.replace(/^http/, 'ws') + '/ws')
+		const socket = socketTo()
 		const changes = on(socket, 'message', { close: ['close'] })
 		try {
 			await once(socket, 'open')
@@ -234,6 +239,12 @@ const commands = {
 		console.log(`${rest[0]} revoked`)
 	},
 	stop: () => api('POST', `/api/threads/${Number(rest[0])}/stop`),
+	/** The owner's key, from beside this machine's store, in a link's fragment: the page trades it for a cookie and drops it */
+	link() {
+		const store = process.env.DB_PATH || path.join(dataDir(), 'ade.sqlite')
+		const key = readFileSync(path.join(path.dirname(store), 'owner.key'), 'utf8').trim()
+		console.log(`${flags.server}/#key=${key}`)
+	},
 	async import() {
 		const [runner, session] = rest
 		if (!runner) throw new Error('import from which runner?')

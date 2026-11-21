@@ -27,7 +27,11 @@ Open the address it prints for the chat app; add `?story` for the walkthrough.
 
 Agents start in the folder you run it from. Add shortcuts with `--dir ~/sites --dir ~/notes`; threads start in the first, and the folder picker suggests them all. A thread can start in any folder on the machine, though: type its path in the picker. Ade has no sandbox: doing one properly is hard, and a half-baked one would only make you feel safe.
 
-To let agents work on another machine, click "Add runner" (or run `npx github:oskarrough/ade key laptop`) for the command to run there; keep it private, it holds a key. There are no accounts, so reach the server only over Tailscale: `tailscale serve <port>`, using the port ade printed. That's it.
+To let agents work on another machine, click "Add runner" (or run `npx github:oskarrough/ade key laptop`) for the command to run there; keep it private, it holds a key.
+
+There are no accounts. The server knows who you are by how you came in. On its own machine, at the address it prints, you're its owner. To let in your other devices and friends, point `tailscale serve` at the second port it prints, the one marked `serve`: everyone who comes through it is their tailnet login, and nobody gets in without one. Don't point Serve, a tunnel or a proxy at the first port; it turns away anything that came through one. That's it.
+
+Elsewhere, you're the owner with the owner key, which the server writes beside its data at first start (`owner.key`). `ade link` on the server's machine prints a link that brings a browser in with it; the CLI sends it when `ADE_OWNER_KEY` is set.
 
 ## Settings
 
@@ -43,7 +47,7 @@ Use `+` and `-` to change the defaults; a list of bare names replaces them.
 
 Threads live in `${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite`, with its SQLite sidecars, lock and `ade.log` beside it. Settings stay in `${XDG_CONFIG_HOME:-~/.config}/ade/ade.json`. `DB_PATH` selects another store and puts its log beside it; it does not move settings.
 
-The server's address, port and data file come from the environment (`HOST`, `PORT`, `DB_PATH`), and so can `MODULES`. These win over the file.
+The server's address, port, Serve port and data file come from the environment (`HOST`, `PORT`, `SERVE_PORT`, `DB_PATH`), and so can `MODULES`. These win over the file. `SERVE_PORT` is the first free one after `PORT` unless you set it; set it, so `tailscale serve` always finds it.
 
 ## What it does
 

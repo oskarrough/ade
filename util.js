@@ -93,6 +93,15 @@ export const speaker = (name) =>
 		.join('')
 		.trim() || 'anon'
 
+/** A person as the server names them: `~`, then their login with `@` written `+`, so no person reads as a bot (letters,
+ * digits, dot, dash) or an agent (anything with `@`). Never shortened, so two logins never become one name. */
+export const personName = (login) =>
+	`~${String(login)
+		.normalize('NFKC')
+		.replace(/^~/, '')
+		.replace(/[\p{Cc}\p{Cf}\s]/gu, '')
+		.replaceAll('@', '+')}`
+
 export function field(value, name) {
 	if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`)
 	return value.trim()

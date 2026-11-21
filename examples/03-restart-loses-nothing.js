@@ -8,6 +8,7 @@ import {
 	conversationOf,
 	done,
 	kill,
+	person,
 	quiet,
 	runner,
 	server,
@@ -57,7 +58,7 @@ check((await view(id)).status === 'blocked', 'after a stop the delivery still wa
 
 laptop = await runner('laptop', { wait: false })
 const after = await answered(id, 2, 15000)
-const ben = after?.entries.find((e) => e.data.author === 'ben')
+const ben = after?.entries.find((e) => e.data.author === person('ben'))
 check(
 	Boolean(ben) && answers(after).at(-1).data.re?.includes(ben.id),
 	'after restart ben is answered and credited',

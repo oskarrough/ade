@@ -1,5 +1,5 @@
 /** Agents draw on a thread's canvas through the server, with no browser open, and the drawing outlives a restart */
-import { api, check, done, kill, server } from './lib.js'
+import { api, check, done, kill, owner, server } from './lib.js'
 
 const env = { MODULES: '+canvas' }
 let srv = await server(env)
@@ -54,7 +54,7 @@ check(
 	JSON.stringify(await shapes()),
 )
 check(
-	(await shapes()).length === 3 && (await shapes()).every((shape) => shape.by === 'oskar'),
+	(await shapes()).length === 3 && (await shapes()).every((shape) => shape.by === owner),
 	'each shape says who drew it',
 	JSON.stringify(await shapes()),
 )

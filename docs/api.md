@@ -1,9 +1,9 @@
 # API and CLI
 
-Everything the page does, you can do with a few requests. Say who you are with `x-user`:
+Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in. From its own machine you're the owner, and anything that names someone else, an `x-user` header or a `?user=`, is ignored. Through its Serve port you're the login `Tailscale-User-Login` names, and a request without one is refused. Anywhere else, send the owner key from `owner.key` beside the store as `Authorization: Bearer <key>`. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get: a person's is `~` and their login with `@` written as `+`, so it never reads as a bot or an agent.
 
 ```sh
-api() { curl -s -H 'x-user: oskar' -H 'content-type: application/json' "localhost:3000/api/$1" ${2:+-d "$2"}; }
+api() { curl -s -H 'content-type: application/json' "localhost:3000/api/$1" ${2:+-d "$2"}; }
 
 api threads '{"title": "hello"}' # → {"id": 3}
 api threads/3/entries '{"body": "what machine is this?", "to": "sonnet@laptop"}'
@@ -22,7 +22,8 @@ With the `blocked` module on, the agent's `ask_person({body})` tool posts a mess
 To watch a thread live, open `/ws` and send `{"watch": 3}`. You get its newest messages, at least 15, with `earlier: true` when more lie before them, then new messages and each agent's work as it happens. Each agent's turns reach back only as far as the messages you have; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction; `{"changed": ["threads", "runners"]}` names the lists to fetch again, from `threads`, `archived`, `runners`, `bots` and `inbox`: a thread's change names the list it's in, and `inbox` only when a question is asked, answered or dismissed; work names `threads` and `runners` as it starts and ends, so a runner's `calls` are as of your fetch; after a reconnect, fetch them all, since you may have missed some. When a message's pick lands, the socket sends that message again with its `to` and `picked`; replace your copy. Modules also send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `dropped` and `picked`, the last once the pick is saved. Send `{"earlier": 3}` for the page before the oldest you have, at least 50 messages, or `{"earlier": 3, "all": true}` for all of them: each agent's turns for it come first, then the messages, both marked `older: true`, the messages with `earlier` again.
 
 ```
-GET    /api/server                     modules, settings
+GET    /api/server                     modules, settings, and `me`, who the server takes you for
+POST   /api/me                         with the owner key as a bearer: keeps it as this browser's cookie
 GET    /api/runners
 POST   /api/runners {name}             a key, and the command that connects it
 DELETE /api/runners/:name
@@ -124,7 +125,7 @@ node cli.js wait 3                             # waits for its agents, then prin
 node cli.js stop 3
 ```
 
-Run from an agent's own shell, `post` writes as that agent (its model and thinking, like `sonnet:high`), whatever its model; anywhere else it writes as you.
+It writes as whoever the server takes it for: on the server's machine, the owner, an agent's shell there included. Against a server elsewhere (`--server` or `ADE_SERVER`), set `ADE_OWNER_KEY` to write as the owner; through a Serve address you're your tailnet login without it. `node cli.js link`, on the server's machine, prints a link that brings a browser in as the owner.
 
 A new thread prints `thread N` on stdout, followed by any answers; progress and errors go to stderr. To capture just its id without waiting:
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -41,7 +41,7 @@ import {
 	keyOf,
 	said,
 	byAgent,
-	speaker,
+	personName,
 	finished,
 	directorTimes,
 } from './util.js'
@@ -128,6 +128,66 @@ const free = (candidate) =>
 		probe.listen(candidate, '127.0.0.1', () => probe.close(() => resolve(true)))
 	})
 if (port) while (!(await free(port))) port++
+/** The listener `tailscale serve` points at: SERVE_PORT, or the first free port after the main one; 0 when PORT is */
+let servePort = Number(process.env.SERVE_PORT || (port && port + 1))
+if (servePort && !process.env.SERVE_PORT) while (!(await free(servePort))) servePort++
+
+// ── Who's asking ──────────────────────────────────────────────────────────
+
+/** The owner's key, written beside the store at first start: whoever can read the data folder is the owner */
+const ownerKeyFile = path.join(path.dirname(file), 'owner.key')
+if (!existsSync(ownerKeyFile))
+	writeFileSync(ownerKeyFile, `aok_${randomBytes(24).toString('base64url')}\n`, { mode: 0o600 })
+const ownerKey = readFileSync(ownerKeyFile, 'utf8').trim()
+/** The owner as a person, by the name they log in to this machine with */
+const owner = personName(os.userInfo().username)
+/** The cookie a browser keeps the owner key in; per port, since cookies ignore ports */
+const ownerCookie = () => `ade_owner_${port}`
+const isOwnerKey = (given) =>
+	timingSafeEqual(
+		createHash('sha256').update(given).digest(),
+		createHash('sha256').update(ownerKey).digest(),
+	)
+const loopbackHost = (req) => {
+	try {
+		return loopback(new URL(`http://${req.headers.host}`).hostname)
+	} catch {
+		return false
+	}
+}
+/** A name the page is reached by that this listener answers to: on the main one, any while HOST opens it to the network,
+ * else only this machine's own; Serve's, a tailnet name or this machine's. A page on another name, as DNS rebinding
+ * makes one, gets nothing. */
+function answersTo(req, serve) {
+	if (loopbackHost(req)) return true
+	if (serve) return /\.ts\.net(:\d+)?$/.test(String(req.headers.host))
+	return Boolean(process.env.HOST) && !loopback(process.env.HOST)
+}
+/**
+ * Who sent a request, from how it arrived, never from a name it gives: the owner's key, as a bearer or the cookie, is
+ * the owner anywhere; on Serve's listener, the login Tailscale names; on the main one, a request straight from this
+ * machine, not through a proxy, is the owner. Anyone else is nobody: null.
+ */
+function whoSent(req, serve) {
+	const cookie = String(req.headers.cookie ?? '')
+		.split(/;\s*/)
+		.find((pair) => pair.startsWith(`${ownerCookie()}=`))
+		?.slice(ownerCookie().length + 1)
+	const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? cookie
+	if (given && isOwnerKey(given)) return owner
+	if (serve) {
+		const login = req.headers['tailscale-user-login']
+		return typeof login === 'string' && login ? personName(login) : null
+	}
+	const proxied = ['x-forwarded-for', 'forwarded', 'tailscale-user-login'].some(
+		(header) => header in req.headers,
+	)
+	return loopback(req.socket.remoteAddress ?? '') && loopbackHost(req) && !proxied ? owner : null
+}
+const nobody = (serve) =>
+	serve
+		? 'Tailscale Serve named nobody: open it from a device logged in to the tailnet'
+		: 'Who are you? Open the link `ade link` prints on the server, or send its owner key as a bearer'
 // ── Docs and tasks ────────────────────────────────────────────────────────
 
 const KIND = 'ade.message'
@@ -541,7 +601,9 @@ const threadIds = async () =>
 
 // ── Small helpers ─────────────────────────────────────────────────────────
 
-const user = (req) => speaker(req.headers['x-user'])
+/** Who sent each request, settled before it's handled */
+const senders = new WeakMap()
+const user = (req) => senders.get(req)
 
 /** The address this request reached the server at, as a runner on another machine dials it */
 const origin = (req) =>
@@ -1425,6 +1487,15 @@ async function createThread({ title, parent = null, tools = null, requestId }) {
 	}))
 }
 
+/** The walkthrough's example thread, written by its three people as the server names them, since no page can */
+async function exampleShed({ requestId }) {
+	const { SHED } = await import('./apps/client/tutorial-shed.js')
+	const { id } = await createThread({ title: 'The shed', requestId })
+	for (const [index, [author, body]] of SHED.entries())
+		await postEntry(id, personName(author), { body, to: null, requestId: `shed-${id}-${index}` })
+	return { id }
+}
+
 /** A thread's tools, as `pi --tools` takes them */
 function toolList(tools) {
 	if (tools === null || tools === undefined) return null
@@ -1765,6 +1836,8 @@ const routes = /** @type {[string, Function][]} */ ([
 		async (req) => ({
 			port,
 			file,
+			/** Who the server takes the asker to be, for showing; it proves nothing */
+			me: user(req),
 			modules: modules.map((module) => module.name),
 			off: Object.keys(defaults).filter((name) => !modules.some((module) => module.name === name)),
 			about: aboutModules,
@@ -1831,6 +1904,7 @@ const routes = /** @type {[string, Function][]} */ ([
 	['GET /api/threads', (req) => threadList(user(req))],
 	['GET /api/threads/archived', (req) => threadList(user(req), true)],
 	['POST /api/threads', async (req) => createThread(await input(req))],
+	['POST /api/threads/shed', async (req) => exampleShed(await input(req))],
 	[
 		'GET /api/threads/:id',
 		(req, id, url) => {
@@ -1935,14 +2009,32 @@ function send(res, status, value) {
 	res.end(JSON.stringify(value))
 }
 
-async function handleRequest(req, res) {
+async function handleRequest(req, res, serve = false) {
 	const url = new URL(req.url, 'http://localhost')
+	if (!answersTo(req, serve))
+		return send(res, 421, { error: `This server doesn't answer to ${req.headers.host}` })
 	if (
 		!['GET', 'HEAD'].includes(req.method) &&
 		req.headers.origin &&
 		req.headers.origin !== origin(req)
 	)
 		return send(res, 403, { error: 'Cross-origin writes are refused; use the server’s own page' })
+	if (url.pathname.startsWith('/api/')) {
+		const sender = whoSent(req, serve)
+		if (!sender) return send(res, 401, { error: nobody(serve) })
+		senders.set(req, sender)
+	}
+	/** A browser brought in with the owner's key keeps it as a cookie its scripts can't read */
+	if (req.method === 'POST' && url.pathname === '/api/me') {
+		const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
+		if (!given || !isOwnerKey(given)) return send(res, 403, { error: 'That is not the owner key' })
+		const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
+		res.setHeader(
+			'Set-Cookie',
+			`${ownerCookie()}=${given}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`,
+		)
+		return send(res, 201, { me: owner })
+	}
 	if (req.method === 'OPTIONS') {
 		res.writeHead(204)
 		return res.end()
@@ -2442,21 +2534,25 @@ async function revoke(name) {
 // ── Upgrade: sockets and runner connections ───────────────────────────────
 
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: true })
-async function upgrade(req, raw, head) {
+async function upgrade(req, raw, head, serve = false) {
 	const url = new URL(req.url, 'http://localhost')
 	/** A module's own socket, at /api/<module> or for a thread at /api/threads/:id/<module>: the module's `connect` takes it */
 	const [, threadId, named] = url.pathname.match(/^\/api\/(?:threads\/(\d+)\/)?([\w-]+)$/) ?? []
 	const taker = modules.find((module) => module.name === named && module.connect)
 	if (url.pathname !== '/ws' && !taker) return raw.destroy()
-	if (req.headers.origin && req.headers.origin !== origin(req))
-		return raw.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+	const refuse = (status) => raw.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`)
+	if (!answersTo(req, serve) || (req.headers.origin && req.headers.origin !== origin(req)))
+		return refuse('403 Forbidden')
+	const name = !taker && url.searchParams.get('runner')
+	/** A person's socket is theirs from how it arrived, as a request is; a runner shows its own key below */
+	const sender = !name && whoSent(req, serve)
+	if (!name && !sender) return refuse('401 Unauthorized')
 	const socket = await new Promise((resolve) => wss.handleUpgrade(req, raw, head, resolve))
 	if (taker)
-		return taker.connect(threadId && Number(threadId), socket, url).catch((error) => {
+		return taker.connect(threadId && Number(threadId), socket, url, sender).catch((error) => {
 			console.error(`${named} socket: ${error.message}`)
 			socket.close(4004, error.message.slice(0, 120))
 		})
-	const name = url.searchParams.get('runner')
 	/** A runner's connection: once closed, by its socket or by a newer one for its name, it stops wherever it is */
 	const connection =
 		name &&
@@ -2508,8 +2604,11 @@ async function upgrade(req, raw, head) {
 	const resolved = (await known())[name]?.models ?? {}
 	if (connection.phase === 'closed') return
 	const runner = {
-		owner: query('owner') && speaker(query('owner')),
-		allow: url.searchParams.getAll('allow').map(speaker),
+		/** Whom it takes work from: people by their names here, and `@runner` for agents working on that runner */
+		owner: query('owner') && personName(query('owner')),
+		allow: url.searchParams
+			.getAll('allow')
+			.map((who) => (who.startsWith('@') ? who : personName(who))),
 		host: query('host'),
 		home: query('home'),
 		dir: query('dir') || '/',
@@ -2639,7 +2738,11 @@ async function restart(again) {
 	if (lent?.kill) lent.kill()
 	await (stopping ??= harness.close(context))
 	if (!again) process.exit(0)
-	process.execve(process.execPath, process.argv, { ...process.env, PORT: String(port) })
+	process.execve(process.execPath, process.argv, {
+		...process.env,
+		PORT: String(port),
+		SERVE_PORT: String(servePort),
+	})
 }
 
 /** The server connects this machine too, in its `--dir` folders */
@@ -2682,14 +2785,26 @@ const off = (on) =>
 	Object.keys(defaults).filter(
 		(name) => defaults[name] === on && !modules.some((module) => module.name === name),
 	)
-for (const host of process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1']) {
-	const server = http.createServer(handleRequest)
+/** A listener: the main one on HOST, or, `serve`, the one only `tailscale serve` should reach, on this machine alone */
+function listener(serve) {
+	const server = http.createServer((req, res) => handleRequest(req, res, serve))
 	server.on('upgrade', (req, socket, head) =>
-		upgrade(req, socket, head).catch((error) => {
+		upgrade(req, socket, head, serve).catch((error) => {
 			console.error(error)
 			socket.destroy()
 		}),
 	)
+	return server
+}
+const serving = listener(true)
+serving.on('error', (error) => {
+	console.error(error)
+	process.exit(1)
+})
+await new Promise((resolve) => serving.listen(servePort, '127.0.0.1', () => resolve(undefined)))
+servePort ||= /** @type {import('node:net').AddressInfo} */ (serving.address()).port
+for (const host of process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1']) {
+	const server = listener(false)
 	server.on('error', (error) => {
 		if (
 			host === '::1' &&
@@ -2722,6 +2837,10 @@ for (const host of process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1'])
 					...(off(false).length ? [`off: ${off(false).join(' ')}`] : []),
 					...(off(true).length ? [`defaults left out: ${off(true).join(' ')}`] : []),
 				].join(' · '),
+			)
+			say(
+				'serve',
+				`http://127.0.0.1:${servePort} for tailscale serve: people come in by their login`,
 			)
 		}
 		connectSelf(

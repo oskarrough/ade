@@ -1,7 +1,19 @@
 /** With memory, a short message is its own line at once; a long one waits until someone needs it, and opening the
  * memory view writes the waiting message lines, sixteen per call, through a SIGKILL, without merging any */
 // MEMORY_MODEL is set because these threads never ask an agent, so without it their lines would wait for one.
-import { api, check, done, kill, linesOf, say, scriptedRunner, server, text, until } from './lib.js'
+import {
+	api,
+	check,
+	done,
+	kill,
+	linesOf,
+	owner,
+	say,
+	scriptedRunner,
+	server,
+	text,
+	until,
+} from './lib.js'
 
 const env = { MODULES: '+memory', MEMORY_MODEL: 'echo/echo@bot' }
 const requests = []
@@ -84,7 +96,7 @@ await post(a, 'bye')
 await until(async () => has(await linesOf(a), 0, 3))
 const quiet = await linesOf(a)
 check(
-	quiet.length === 2 && quiet[0].text === 'oskar: hi' && requests.length === 0,
+	quiet.length === 2 && quiet[0].text === `${owner}: hi` && requests.length === 0,
 	'a short message is its own line; long ones wait, and no model is called',
 	JSON.stringify(quiet),
 )

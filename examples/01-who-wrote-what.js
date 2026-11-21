@@ -9,6 +9,8 @@ import {
 	conversationOf,
 	dir,
 	done,
+	owner,
+	person,
 	runner,
 	server,
 	text,
@@ -39,7 +41,7 @@ check(
 	JSON.stringify([input?.data.createdAt, answer?.data.createdAt]),
 )
 check(
-	input?.data.author === 'oskar' && input.data.to?.join() === 'echo:off@laptop',
+	input?.data.author === owner && input.data.to?.join() === 'echo:off@laptop',
 	'the message says who wrote it and whom it asks',
 	JSON.stringify(input),
 )
@@ -80,7 +82,7 @@ check(
 
 await api('POST', `/api/threads/${id}/entries`, { body: 'me too' }, 'ana')
 const v2 = await answered(id, 2)
-const ana = v2?.entries.find((e) => e.data.author === 'ana')
+const ana = v2?.entries.find((e) => e.data.author === person('ana'))
 check(
 	ana?.data.to?.join() === 'echo:off@laptop',
 	'no `to` asks whom the thread last asked',
@@ -88,7 +90,7 @@ check(
 )
 check(
 	answers(v2 ?? { entries: [] })[1]?.data.body ===
-		`echo@laptop heard: [Every message above without a tag is oskar's.]\n\n<message from="ana">\nme too\n</message>`,
+		`echo@laptop heard: [Every message above without a tag is ${owner}'s.]\n\n<message from="${person('ana')}">\nme too\n</message>`,
 	"the agent catches up on what's new, not its own answer",
 	JSON.stringify(v2?.entries.at(-1)),
 )
@@ -101,7 +103,7 @@ await api(
 	'cy',
 )
 const v3 = await answered(id, 3)
-const cy = v3?.entries.find((e) => e.data.author === 'cy')
+const cy = v3?.entries.find((e) => e.data.author === person('cy'))
 check(
 	cy?.data.to?.join() === 'echo:high@laptop' && v3.agents[0].to.thinkingLevel === 'high',
 	"pi resolves a pattern to a model, and the thread's agent thinks as hard as it now asks",

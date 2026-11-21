@@ -6,6 +6,7 @@ import {
 	check,
 	done,
 	kill,
+	owner,
 	quiet,
 	runner,
 	server,
@@ -68,7 +69,7 @@ await quiet()
 const v = await view(id)
 check(
 	ran.status === 201 &&
-		v.entries.filter((e) => e.data.author === 'oskar' && e.data.body === 'hello').length === 1,
+		v.entries.filter((e) => e.data.author === owner && e.data.body === 'hello').length === 1,
 	'one message',
 )
 check(answers(v).length === 1, 'one answer', JSON.stringify(answers(v).length))

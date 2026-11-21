@@ -68,7 +68,6 @@ async function measure() {
 	const copy = path.join(work, 'ade.sqlite')
 	const config = path.join(work, 'config')
 	const folder = path.join(work, 'folder')
-	const user = 'Oskar'
 	const session = 'ade-perf'
 	const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 	const run = promisify(execFile)
@@ -146,7 +145,7 @@ async function measure() {
 	const api = async (method, route, body) => {
 		const response = await fetch(base + route, {
 			method,
-			headers: { 'content-type': 'application/json', 'x-user': user },
+			headers: { 'content-type': 'application/json' },
 			body: body && JSON.stringify(body),
 		})
 		const json = await response.json()
@@ -232,7 +231,7 @@ async function measure() {
 `,
 	)
 	await browser('close').catch(() => {})
-	await browser('--init-script', init, 'open', `${base}/?thread=${big}&user=${user}`)
+	await browser('--init-script', init, 'open', `${base}/?thread=${big}`)
 	const marks = JSON.parse(
 		JSON.parse(
 			await browser(
@@ -243,7 +242,7 @@ async function measure() {
 	)
 	await sleep(2000)
 	/** From a click on its row, in a page already open on a new thread, to its newest messages on screen */
-	await browser('open', `${base}/?user=${user}`)
+	await browser('open', base)
 	await browser('wait', 'nav.thread-list li')
 	await sleep(500)
 	const opened = JSON.parse(

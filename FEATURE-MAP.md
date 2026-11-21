@@ -29,6 +29,10 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   compact, compactingAt             compaction now, or early
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once
+  whoSent, answersTo, owner         who sent a request or socket, from how it arrived: the owner key (owner.key beside the store,
+                                    a bearer or the cookie POST /api/me sets), a direct request on the main listener (the owner),
+                                    or Tailscale-User-Login on Serve's listener (SERVE_PORT, listener(true)); Host and Origin checks
+  exampleShed                       the walkthrough's example thread, written as its three people (POST /api/threads/shed)
   routes                            every HTTP route, as the README lists them
   watch, rewatch, told, doing       /ws: a browser watching one thread and its agents' live work, its newest FIRST messages first
   cutOf                             an agent's newest compaction cut, sent with its first batch so its turns reach back only to the messages sent
@@ -40,8 +44,8 @@ runner.js                a runner: offers its models and folder shortcuts, conne
 runner-updater.js        what `curl <server>/connect-runner | sh` starts (it saves the key in ~/.config/ade/key.<name>); keeps the runner up to date
 remote.js                the runner protocol, both ends: createRunners (server), serveRunner (runner),
                          runnerProvider (a model over the wire), remoteEnv (tools in the runner's folder)
-cli.js                   the API from a terminal
-util.js                  helpers server and modules share: agentTo, writtenTo, smallModel (Haiku/Luna if the runner lists it, else the agent's own), mentioned, keyOf, speaker, said, written, byAgent,
+cli.js                   the API from a terminal; the owner key as a bearer off localhost (ADE_OWNER_KEY); `link`, the owner's browser link
+util.js                  helpers server and modules share: personName (`~login`, `@` as `+`), agentTo, writtenTo, smallModel (Haiku/Luna if the runner lists it, else the agent's own), mentioned, keyOf, speaker, said, written, byAgent,
                          finished (task result), background (thread-owned task)
 modules.js               builtIn (each module's own `on` default), dataDir ($XDG_DATA_HOME/ade, default ~/.local/share/ade), ade.json ($XDG_CONFIG_HOME/ade, default ~/.config/ade), MODULES, and loading each module's server/runner half
 modules/
@@ -96,6 +100,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   server.js              the server as the client sees it: api, watch, lists (threads, runners, bots), fetched once the socket opens; withFamilies, each thread's family from parent and forks,
                          threadOf, current, openThread, fork, entries store, earlier and loadEarlier (the page before, or all)
                          changeThread/removeRow: archive, unarchive, rename, forget a bot and revoke a runner show at once, put the row back if the server refuses
+                         me, who the server takes this page for (GET /api/server's `me`), only to mark your messages; a `#key=` link
+                         trades the owner key for a cookie (POST /api/me) and leaves the address
   thread.js              one thread on screen
     Thread               subscribes to the thread over /ws, keeps its messages, follows the bottom (follow), lays out only its
                          newest SHOWN rows (onScreen, shownFrom) and the rows above, then the page before, near the top (nearTop),

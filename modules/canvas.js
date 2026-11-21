@@ -4,7 +4,7 @@
  *
  * The server holds one tldraw sync room per thread that someone has open or an agent draws on, and keeps its snapshot in
  * the thread's Canvas doc, so a fork starts with the canvas as it was. A browser syncs over the socket at
- * `/api/threads/:id/canvas?user=<name>`, and only shows the board: agents draw on the room itself, whether anyone has it
+ * `/api/threads/:id/canvas`, as the person the server takes it from, and only shows the board: agents draw on the room itself, whether anyone has it
  * open or not, in the starter kit's shape format (tldraw's agent starter kit, its actions' schema vendored in
  * apps/client/canvas/agent): create, update, delete, move and label. Sizes are the server's guess, since only an editor
  * lays text out; a browser that opens the board lays it out, and grows a shape whose label doesn't fit, as tldraw does
@@ -23,7 +23,6 @@
 import { readFileSync } from 'node:fs'
 import { arr, num, obj, opt } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTool } from '@earendil-works/pi-durable'
-import { speaker } from '../util.js'
 import { InMemorySyncStorage, TLSocketRoom } from '@tldraw/sync-core'
 import { createTLSchema, toRichText } from '@tldraw/tlschema'
 import { getIndicesAbove } from '@tldraw/utils'
@@ -373,8 +372,8 @@ export function server(core) {
 			}
 			throw new Error('POST {actions}, {look} or {seen}')
 		},
-		/** A browser's tldraw sync socket, at /api/threads/:id/canvas; `user` says who is drawing */
-		async connect(threadId, socket, url) {
+		/** A browser's tldraw sync socket, at /api/threads/:id/canvas; `by` is who opened it, as the server knows them */
+		async connect(threadId, socket, url, by) {
 			if (threadId === undefined)
 				return socket.close(4000, 'a canvas is at /api/threads/:id/canvas')
 			const sessionId = url.searchParams.get('sessionId')
@@ -383,7 +382,7 @@ export function server(core) {
 			room.handleSocketConnect({
 				sessionId,
 				socket,
-				meta: { by: speaker(url.searchParams.get('user')) },
+				meta: { by },
 			})
 		},
 	}

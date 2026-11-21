@@ -43,7 +43,8 @@ if (args.help) {
   --name name       runner's name (this machine's hostname)
   --dir folder      folder threads start in (current folder); repeat to suggest more
   --discover-dirs   offer git and jj checkouts beneath the folders
-  --owner name      take work only from this person and those allowed
+  --owner login     take work only from this person and those allowed: the owner by their
+                    login on the server's machine, a friend by their tailnet login
   --allow name      also take work from this person or @runner; repeat for more
   --read-only       refuse writes and commands
   --key key         runner key (ADE_KEY or the saved key)

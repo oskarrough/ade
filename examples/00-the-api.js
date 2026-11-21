@@ -1,8 +1,13 @@
 /** The README's walk through the API, request by request, so the README stays true */
-import { answered, answers, api, base, check, done, runner, server, until } from './lib.js'
+import { answered, answers, api, base, check, done, owner, runner, server, until } from './lib.js'
 
 await server()
 await runner('laptop')
+
+check(
+	(await api('GET', '/api/server')).json.me?.startsWith('~'),
+	'the server says who it takes you for: on its own machine, its owner',
+)
 
 check(
 	(await api('GET', '/api/threads/999')).status === 404,
@@ -29,7 +34,7 @@ await api('POST', `/api/threads/${id}/entries`, {
 })
 const first = await answered(id)
 check(
-	first?.people.join() === 'oskar' && answers(first)[0]?.data.author === 'one:off@laptop',
+	first?.people.join() === owner && answers(first)[0]?.data.author === 'one:off@laptop',
 	'asking a model on a runner gets its answer, and the thread knows who is in it',
 	JSON.stringify(first?.entries.map((entry) => entry.data)),
 )

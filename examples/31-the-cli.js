@@ -2,10 +2,10 @@
 import { execFile } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { promisify } from 'node:util'
-import { api, base, check, dir, done, repo, runner, server, until, view } from './lib.js'
+import { api, base, check, dir, done, owner, repo, runner, server, until, view } from './lib.js'
 
 const output = (...args) =>
-	promisify(execFile)(process.execPath, ['cli.js', '--server', base, '--as', 'oskar', ...args], {
+	promisify(execFile)(process.execPath, ['cli.js', '--server', base, ...args], {
 		cwd: repo,
 		timeout: 8000,
 	})
@@ -155,8 +155,8 @@ const asAgent = await promisify(execFile)(
 ).then(({ stdout, stderr }) => stdout + stderr)
 const fromShell = (await view(/thread (\d+)/.exec(asAgent)?.[1])).entries?.[0]?.data
 check(
-	fromShell?.author === 'claude-opus-4-5:high' && fromShell.body === 'from an agent shell',
-	"inside an agent's bash tool (PI_SESSION_ID set), post writes as its model, not whoever owns the shell",
+	fromShell?.author === owner && fromShell.body === 'from an agent shell',
+	"the CLI writes as whoever the server takes it for: on the server's machine, the owner, even from an agent's shell",
 	asAgent,
 )
 

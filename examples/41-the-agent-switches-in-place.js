@@ -14,6 +14,8 @@ import {
 	dir,
 	done,
 	localRunner,
+	owner,
+	person,
 	say,
 	scriptedRunner,
 	server,
@@ -87,7 +89,7 @@ const told = (await deliveries(v)).at(-1)
 check(
 	told.startsWith('[You now run as echo/two:high on laptop, in ') &&
 		!told.includes('Files and paths') &&
-		told.endsWith('<message from="ana">\nwhich number?\n</message>'),
+		told.endsWith(`<message from="${person('ana')}">\nwhich number?\n</message>`),
 	'the agent is told it switched, before what it was asked',
 	told,
 )
@@ -123,7 +125,7 @@ check(
 
 await api('POST', `/api/threads/${id}/read`, {}, 'ben')
 check(
-	(await view(id)).people.join() === 'oskar,ana,ben',
+	(await view(id)).people.join() === [owner, person('ana'), person('ben')].join(),
 	"who's in a thread needs no state: the people who wrote or read there",
 	JSON.stringify((await view(id)).people),
 )

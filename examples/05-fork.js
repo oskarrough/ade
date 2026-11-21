@@ -7,11 +7,13 @@ import {
 	check,
 	conversationOf,
 	done,
+	kill,
+	owner,
+	person,
 	runner,
 	say,
 	scriptedRunner,
 	server,
-	kill,
 	text,
 	until,
 	view,
@@ -48,7 +50,7 @@ check(
 	brief(fv),
 )
 check(
-	fv.entries[0]?.data.author === 'oskar' && answers(fv)[0]?.data.author === 'echo:off@laptop',
+	fv.entries[0]?.data.author === owner && answers(fv)[0]?.data.author === 'echo:off@laptop',
 	'inherited messages keep their authors',
 	brief(fv),
 )
@@ -75,7 +77,7 @@ check(
 
 await api('POST', `/api/threads/${f}/entries`, { body: 'other way' }, 'ben')
 fv = await answered(f, 2)
-const ben = fv?.entries.find((e) => e.data.author === 'ben')
+const ben = fv?.entries.find((e) => e.data.author === person('ben'))
 check(
 	Boolean(ben) && answers(fv).at(-1).data.re?.includes(ben.id),
 	'fork answers its own message',
@@ -88,7 +90,7 @@ check(
 	JSON.stringify(inputs) ===
 		JSON.stringify([
 			'hello',
-			`[Every message above without a tag is oskar's.]\n\n<message from="ben">\nother way\n</message>`,
+			`[Every message above without a tag is ${owner}'s.]\n\n<message from="${person('ben')}">\nother way\n</message>`,
 		]),
 	'the forked agent read hello once, then only ben',
 	JSON.stringify(inputs),
@@ -105,7 +107,7 @@ const f2 = (
 const f2v = await view(f2)
 check(
 	f2v.title === 'deeper' &&
-		['oskar', 'ben'].every((who) => f2v.entries.some((e) => e.data.author === who)),
+		[owner, person('ben')].every((who) => f2v.entries.some((e) => e.data.author === who)),
 	'fork of a fork keeps every author',
 	brief(f2v),
 )
@@ -159,7 +161,7 @@ srv = await server({ MODULES: '+director' })
 laptop = await runner('laptop', { wait: false })
 const after = await answered(a, 3, 15000)
 check(
-	Boolean(after?.entries.some((e) => e.data.author === 'cy')),
+	Boolean(after?.entries.some((e) => e.data.author === person('cy'))),
 	'after restart the source answers its queued message',
 	brief(after),
 )
@@ -172,7 +174,7 @@ check(
 await api('POST', `/api/threads/${f2}/entries`, { body: '@echo/echo@laptop again' }, 'di')
 const f2after = await answered(f2, 3)
 check(
-	Boolean(f2after?.entries.find((e) => e.data.author === 'di')?.data.to),
+	Boolean(f2after?.entries.find((e) => e.data.author === person('di'))?.data.to),
 	'director routes by agents the fork inherited',
 	brief(f2after),
 )

@@ -10,13 +10,15 @@ const {
 	allowPositionals: true,
 	options: {
 		server: { type: 'string', default: 'http://127.0.0.1:3000' },
+		/** pi's words come in as the person `pi@replay` through the server's Serve listener, the one port people come in by name */
+		serve: { type: 'string', default: 'http://127.0.0.1:3001' },
 		title: { type: 'string' },
 		limit: { type: 'string' },
 	},
 })
 if (!source) {
 	console.error(
-		'usage: node scripts/replay-pi.js <session.jsonl | sessions folder> [--server URL] [--title T] [--limit N]',
+		'usage: node scripts/replay-pi.js <session.jsonl | sessions folder> [--server URL] [--serve URL] [--title T] [--limit N]',
 	)
 	process.exit(1)
 }
@@ -65,10 +67,15 @@ const sessions = files.map(posts).sort((a, b) => a.start.localeCompare(b.start))
 let all = sessions.flatMap((s) => s.out)
 if (args.limit) all = all.slice(0, Number(args.limit))
 
-async function api(method, route, body, user = 'oskar') {
-	const res = await fetch(args.server + route, {
+/** The owner's posts from this machine; pi's through Serve's listener, as a tailnet login would come */
+async function api(method, route, body, author = 'oskar') {
+	const pi = author === 'pi'
+	const res = await fetch((pi ? args.serve : args.server) + route, {
 		method,
-		headers: { 'content-type': 'application/json', 'x-user': user },
+		headers: {
+			'content-type': 'application/json',
+			...(pi && { 'tailscale-user-login': 'pi@replay' }),
+		},
 		body: JSON.stringify(body),
 	})
 	const json = await res.json()
