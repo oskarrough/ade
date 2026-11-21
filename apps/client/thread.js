@@ -322,11 +322,20 @@ export function Thread(props) {
 				row.break = breakOf(before?.time, row.time)
 				before = row
 			}
-			// A message or run line names its author only when it isn't the last one's that wasn't yours, or one before a break: your own are marked by where they sit
+			// A message or run line names its author only when it isn't the last one's that wasn't yours, or one before a break: your own are marked by where they sit.
+			// A run line leaves the name to the answer right under it, so every answer is named the same way
 			let last
-			for (const row of rows) {
+			for (const [index, row] of rows.entries()) {
 				if (row.break) last = undefined
-				row.above = last
+				const next = rows[index + 1]
+				const answered =
+					(row.turn || row.live) &&
+					next?.entry &&
+					!next.break &&
+					!next.entry.data.from &&
+					next.entry.data.author === row.agent?.name
+				row.above = answered ? row.agent.name : last
+				if (answered) continue
 				const author = row.entry ? !row.entry.data.from && row.entry.data.author : row.agent?.name
 				if (author !== me) last = author
 			}
