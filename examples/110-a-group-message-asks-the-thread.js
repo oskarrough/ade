@@ -1,4 +1,5 @@
-/** A mention asks a bot once; the next group message asks the director, including the thread's own agent. Failed picks never stick to the last bot. */
+/** A mention asks a bot once, and one not in the thread yet joins as if picked from the @ list; the next group message
+ * asks the director, including the thread's own agent. Failed picks never stick to the last bot. */
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import {
@@ -81,6 +82,19 @@ for (const failure of ['unknown', 'error', 'timeout']) {
 			JSON.stringify(data),
 		)
 }
+// Typing a bot's name that isn't in the thread yet, without picking it from the list, invites it all the same
+const picks = choosing
+await post(id, '@Ada can you join?')
+await answered(id, 11)
+check(
+	choosing === picks && (await message(id, '@Ada can you join?'))?.to?.join() === 'Ada',
+	'a typed @mention of a bot not yet here asks it, with no pick',
+	JSON.stringify(await message(id, '@Ada can you join?')),
+)
+check(
+	(await view(id)).agents.some((agent) => agent.name === 'Ada'),
+	'and she is in the thread from then on',
+)
 const bots = (await api('POST', '/api/threads', { title: 'bots only' })).json.id
 await post(bots, 'hello', ['Jeroen', 'Ada'])
 await answered(bots, 2)

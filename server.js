@@ -48,6 +48,7 @@ import {
 	keyOf,
 	said,
 	byAgent,
+	mentioned,
 	personName,
 	ownerName,
 	finished,
@@ -71,6 +72,7 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {true} [posted]  A bot's own post in a thread it's in, or opens, with its post tool: an agent's, as its answers are.
  * @property {number} [wake]  The wake that posted it: an agent's own note, back to it when its time came.
  * @property {true} [error]  The agent gave no answer.
+ * @property {true} [stopped]  Its author pressed Stop while the thread was working; the body says `stopped`.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
  * @typedef {{ id: number, kind: 'ade.message', data: Message }} Entry
  * @typedef {{ name: string, conversation: import("@earendil-works/pi-durable").ConversationId, to: To | null, status: string, contextWindow?: number }} Agent  An agent or bot, as a thread view shows it.
@@ -1058,7 +1060,13 @@ async function route(tx, threadId, messageId, { to, picked }, { steer = false, p
 
 /** A message someone wrote to the thread, not an agent's answer back, its own wake or a command's output: one that takes over a pick */
 const fresh = ({ kind, data }) =>
-	kind === KIND && !data.answer && !data.error && !data.shell && !data.re && !data.wake
+	kind === KIND &&
+	!data.answer &&
+	!data.error &&
+	!data.shell &&
+	!data.re &&
+	!data.wake &&
+	!data.stopped
 
 /** Whether a fresh message came after `messageId`, reading back from the newest */
 async function newerThan(tx, threadId, messageId) {
@@ -1136,8 +1144,8 @@ async function renameIn(tx, ids, from, to) {
 	}
 }
 
-/** Whether a person wrote it: not an agent, in this thread or from another, nor a bot of this thread */
-const person = (row, { data }) => !byAgent(data) && !row.agents[keyOf(data.author)]
+/** Whether a person wrote it: not an agent, in this thread or from another, nor a bot of this thread, nor a Stop */
+const person = (row, { data }) => !byAgent(data) && !data.stopped && !row.agents[keyOf(data.author)]
 
 /** @returns {Recipient} */
 const recipientOf = (row, conversation) =>
@@ -1410,10 +1418,14 @@ async function recipients(
 	message,
 	{ explicit, fallback = () => lastAsked(id), director = true } = {},
 ) {
+	const joining = director ? await invited(id, message.body) : []
+	const and = (to) => [...to, ...joining.filter((bot) => !to.some((one) => one.name === bot.name))]
 	const directed = director && (await direct?.(id, message, explicit === undefined))
-	if (directed?.direct) return { to: [], direct: true }
-	if (directed) return directed
-	if (explicit) return { to: await explicit() }
+	// Naming a bot that isn't here asks it, so the message isn't free for the director to pick for
+	if (directed?.direct) return joining.length ? { to: joining } : { to: [], direct: true }
+	if (directed) return { ...directed, to: and(directed.to) }
+	if (explicit) return { to: and(await explicit()) }
+	if (joining.length) return { to: and(await fallback()) }
 	if (director) {
 		const { agents } = await thread(id)
 		const here = (
@@ -1430,6 +1442,15 @@ async function recipients(
 		}
 	}
 	return { to: await fallback() }
+}
+
+/** The known bots a message @mentions that aren't in the thread yet: naming one invites it, as picking it from the
+ * mention list does. Never in a bot's home, which is hers alone. */
+async function invited(id, body) {
+	if (((await homesOf?.()) ?? {})[id]) return []
+	const { agents } = await thread(id)
+	const names = mentioned(body, (await botNames?.()) ?? []).filter((name) => !agents[keyOf(name)])
+	return Promise.all(names.map((name) => whom(id, name)))
 }
 
 /** No `to` asks the director in a group, or the last recipient in a solo chat or command. */
@@ -1984,7 +2005,11 @@ const routes = /** @type {[string, Function][]} */ ([
 	[
 		'POST /api/threads/:id/stop',
 		async (req, id) => {
+			const working = await busy(id)
 			await (await conversation(id)).abort(context)
+			// Everyone in the thread sees who ended its work; the agents read it with what comes next
+			if (working)
+				await commit((tx) => append(tx, id, { author: user(req), body: 'stopped', stopped: true }))
 			return { stopped: id }
 		},
 	],

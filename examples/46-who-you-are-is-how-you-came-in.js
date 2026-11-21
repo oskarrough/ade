@@ -1,5 +1,6 @@
 /** Who wrote a message comes from how the request arrived, never from a name it gives: the owner on the server's own
- * machine, a friend by the login Tailscale Serve names, nobody without one; and posts, read marks and the canvas agree.
+ * machine, a friend by the login Tailscale Serve names, nobody without one; and posts, read marks, Stop and the canvas
+ * agree.
  * A runner dials in with its own key, so nobody can take its name, and a revoked one goes offline and stays out. */
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -135,6 +136,19 @@ check(
 	thread.people.join() === [owner, person('ana')].join(),
 	'the people in a thread are those the server let in',
 	JSON.stringify(thread.people),
+)
+
+// Stop: whoever ends the thread's work, everyone sees it was them
+await api('POST', `/api/threads/${id}/entries`, { body: '$ sleep 30', to: 'laptop' })
+await until(async () => (await view(id)).busy)
+await api('POST', `/api/threads/${id}/stop`, {}, 'ana')
+const stopped = await until(async () =>
+	(await view(id)).entries.find((entry) => entry.data.stopped),
+)
+check(
+	stopped?.data.author === person('ana') && !(await view(id)).busy,
+	'Stop ends the work and the thread says Ana pressed it',
+	JSON.stringify(stopped?.data),
 )
 
 // The canvas: a socket opened through Serve is Ana's, as her requests are

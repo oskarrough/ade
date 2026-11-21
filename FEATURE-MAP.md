@@ -10,6 +10,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   person                            whether a person wrote a message; Admit hands one person's as typed, and tags them once a second writes
   address, whom, modelOn, reach     whom a `to` asks, on which runner and model
   recipients                       director → explicit recipient → thread agent in groups / last-asked in solo chats and commands
+  invited                          the bots a message @mentions that aren't in the thread yet, which it asks too
   post, append, postEntry           write a message and hand it to each agent it asks; `direct` leaves that to the director's Pick task
   ask, route, ROUTE, routed         Admit/Deliver for whom a message asks; the director's pick saved after its message, read as its `to`/`picked`;
                                     `fresh`/newerThan: a newer message takes over a pending pick
@@ -117,7 +118,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     rows                 projection: messages plus each agent's turns, a row for each lasting call (an ask, a bot change),
                          live turn, compaction cuts, folded memory lines
     Asked                in a bot's home, a question another thread asked it, a received `Cross` row; the bot's answer follows as its own Message (askedHere)
-    Message              one message: author, the director's pick, fork link, Body, Images; one that crossed threads is a `Cross` step row
+    Message              one message: author, the director's pick, fork link, Body, Images; one that crossed threads is a `Cross` step row;
+                         an answer to someone further up says whom (replyToOf in rows); a Stop is one grey line naming who pressed it
     Body, threadLink     a message's markdown; a thread it mentions by title is a link that opens it
   run.js                 an agent's turns, from its own conversation
     heard, conversations the conversation entries the socket brings

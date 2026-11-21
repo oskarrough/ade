@@ -227,5 +227,9 @@ check(
 	'stopping a delivery ends the CLI wait without an answer',
 	JSON.stringify(result),
 )
-check((await view(stopped)).entries.length === 1, 'a stopped delivery posts no answer')
+check(
+	(await view(stopped)).entries.map((entry) => entry.data.body).join() === 'wait for stop,stopped',
+	'a stopped delivery posts no answer, only who stopped it',
+	JSON.stringify((await view(stopped)).entries.map((entry) => entry.data.body)),
+)
 done()

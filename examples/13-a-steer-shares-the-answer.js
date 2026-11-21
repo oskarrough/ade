@@ -9,6 +9,7 @@ import {
 	check,
 	conversationOf,
 	done,
+	owner,
 	quiet,
 	say,
 	scriptedRunner,
@@ -162,8 +163,8 @@ await api('POST', `/api/threads/${gap}/entries`, { body: 'again', to: toCy })
 await answered(gap, 1)
 const last = (await cyInputs()).at(-1)
 check(
-	last === 'and a follow-up\n\nagain',
-	'the next input carries the withdrawn follow-up',
+	last === `and a follow-up\n\n<message from="${owner}">\nstopped\n</message>\n\nagain`,
+	'the next input carries the withdrawn follow-up, and who stopped it',
 	JSON.stringify(last),
 )
 
