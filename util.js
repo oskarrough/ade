@@ -81,6 +81,8 @@ export function directorTimes({ context = 20, timeout = 60, burst = 1.5 } = {}) 
 		burstMs: Math.round(within(burst, 0, 60, 'director.burst is 0 to 60 seconds') * 1000),
 	}
 }
+/** What a paused thread's message says instead of whom it asks */
+export const PAUSED = 'Paused: only @mentions and named recipients get an answer.'
 /** A person's name as one line of printable text, so no author can write a speaker line of their own */
 export const speaker = (name) =>
 	[

@@ -53,6 +53,7 @@ import {
 	ownerName,
 	finished,
 	directorTimes,
+	PAUSED,
 } from './util.js'
 import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
 
@@ -218,7 +219,6 @@ const nobody = (serve) =>
 // ── Docs and tasks ────────────────────────────────────────────────────────
 
 const KIND = 'ade.message'
-const PAUSED = 'Paused: only @mentions and named recipients get an answer.'
 /** Whom the director picked for a message saved before it chose: `{message, to, picked}`, read as that message's own */
 const ROUTE = 'ade.route'
 /** An agent's input in its conversation; `held` names the thread messages it gave */
@@ -894,6 +894,16 @@ async function agentOf(id, key, tx, all) {
 	}
 }
 
+/** Each agent in a thread, the thread's own and its bots, as a {@link To} */
+const agentsHere = async (threadId) =>
+	(
+		await Promise.all(
+			Object.entries((await thread(threadId)).agents).map(([key, agent]) =>
+				agentOf(agent.conversation, key),
+			),
+		)
+	).filter(Boolean)
+
 // ── Live work and statuses ────────────────────────────────────────────────
 
 /** Until the agent's runner is online, following the agent if it's asked on another runner meanwhile */
@@ -926,39 +936,35 @@ const busiest = (statuses) =>
 	STATUSES[Math.max(0, ...statuses.map((status) => STATUSES.indexOf(status)))]
 /**
  * Whatever works right now, from Pi's live tasks: each agent answering and each `$ cmd` running, once for every list
- * @returns {Promise<{ thread: number, conversation?: number, runner: string, row?: string, status: string }[]>}
+ * @returns {Promise<{ thread: number, conversation?: number, runner?: string, row?: string, status: string }[]>}
  */
 async function work() {
 	const tasks = (await harness.inspect(context)).tasks
-	const live = tasks.filter(({ record }) =>
-		[Deliver.definition.name, Shell.definition.name].includes(record.kind),
-	)
-	/** A module's own work in a thread, like the director's pick, keeps it working and its Stop in reach */
-	const own = tasks
-		.filter(({ record }) => moduleWork.includes(record.kind))
-		.map(({ record }) => ({ thread: record.conversationId, runner: undefined, status: 'working' }))
-	return [
-		...own,
-		...(await Promise.all(
-			live.map(async ({ record }) => {
+	return Promise.all(
+		tasks
+			.filter(({ record }) => isWork(record.kind))
+			.map(async ({ record }) => {
 				const task = /** @type {any} */ (record)
+				// A module's own work in a thread, like the director's pick, keeps it working and its Stop in reach
+				if (!runsOnRunner(task.kind)) return { thread: task.conversationId, status: 'working' }
 				const shell = task.kind === Shell.definition.name
 				const to = shell ? task.input.to : await agentOf(task.input.agent)
 				return {
 					thread: task.conversationId,
-					...(shell
-						? {}
-						: {
-								conversation: task.input.agent,
-								row: to && (to.name ?? `${to.model}@${to.runner}`),
-							}),
+					...(!shell && {
+						conversation: task.input.agent,
+						row: to && (to.name ?? `${to.model}@${to.runner}`),
+					}),
 					runner: to?.runner,
 					status: to && runners.isOnline(to.runner) ? 'working' : 'blocked',
 				}
 			}),
-		)),
-	]
+	)
 }
+/** An agent answering or a `$ cmd`: work on a runner */
+const runsOnRunner = (kind) => kind === Deliver.definition.name || kind === Shell.definition.name
+/** What counts as a thread working: work on a runner, or a module's own */
+const isWork = (kind) => runsOnRunner(kind) || moduleWork.includes(kind)
 
 /** Whether a thread has work: an agent answering or waiting for its runner, a `$ cmd`, a module's own, like a pick */
 const busy = async (threadId) => (await work()).some((job) => job.thread === threadId)
@@ -1029,29 +1035,31 @@ const withRoute = (entry, routes) => {
 }
 /** The newest matching message, stopping as soon as it is found rather than loading a thread; inside a commit, before its writes, with its `tx` */
 async function latestMessage(id, matches, kind = KIND, tx = undefined) {
-	// Outside a commit, the thread's newest entries kept in memory answer, and the older ones once read
-	if (!tx) {
-		const tail = await recent(id)
-		for (let at = tail.entries.length - 1; at >= 0; at--) {
-			const entry = tail.entries[at]
-			if (entry.kind === kind && matches(entry)) return entry
-		}
-		if (!tail.entries.length) await conversation(id)
-		if (tail.whole) return undefined
-		const kept = await older(id, kind)
-		for (let at = kept.length - 1; at >= 0; at--) if (matches(kept[at])) return kept[at]
-		return undefined
-	}
-	const handle = tx ? undefined : await conversation(id)
+	const found = (entry) => entry.kind === kind && matches(entry) && entry
+	if (!tx) return back(id, kind, found)
 	let cursor
 	do {
-		const page = tx
-			? await tx.scanEntries({ conversationId: id, order: 'descending' }, 50, cursor)
-			: await handle.entries({ order: 'descending' }, 50, cursor, context)
-		const found = page.items.find((entry) => entry.kind === kind && matches(entry))
-		if (found) return found
+		const page = await tx.scanEntries({ conversationId: id, order: 'descending' }, 50, cursor)
+		const entry = page.items.find(found)
+		if (entry) return entry
 		cursor = page.next
 	} while (cursor)
+}
+/** The first of `look`'s answers for a thread's entries, newest first: its newest kept in memory, any kind, then its
+ * older ones of `kind`, read once */
+async function back(id, kind, look) {
+	const tail = await recent(id)
+	for (let at = tail.entries.length - 1; at >= 0; at--) {
+		const found = look(tail.entries[at])
+		if (found) return found
+	}
+	if (!tail.entries.length) await conversation(id)
+	if (tail.whole) return undefined
+	const kept = await older(id, kind)
+	for (let at = kept.length - 1; at >= 0; at--) {
+		const found = look(kept[at])
+		if (found) return found
+	}
 }
 async function lastAsked(id) {
 	const names = (await messages(id)).findLast((entry) => entry.data.to)?.data.to ?? []
@@ -1421,18 +1429,7 @@ async function status(id, row, busy, reader) {
 		if (entry.data?.answer || entry.data?.error || entry.data?.shell)
 			return entry.data.error || entry.data.shell?.error ? 'error' : 'done'
 	}
-	const tail = await recent(id)
-	for (let at = tail.entries.length - 1; at >= 0; at--) {
-		const found = said(tail.entries[at])
-		if (found) return found
-	}
-	if (tail.whole) return 'idle'
-	const messages = await older(id, KIND)
-	for (let at = messages.length - 1; at >= 0; at--) {
-		const found = said(messages[at])
-		if (found) return found
-	}
-	return 'idle'
+	return (await back(id, KIND, said)) ?? 'idle'
 }
 
 /** Each thread's people who wrote there so far, and the newest entry read for them, so a thread is read once per server */
@@ -1597,12 +1594,7 @@ async function recipients(
 	if (explicit) return { to: and(await explicit()) }
 	if (joining.length) return { to: and(await fallback()) }
 	if (director) {
-		const { agents } = await thread(id)
-		const here = (
-			await Promise.all(
-				Object.entries(agents).map(([key, agent]) => agentOf(agent.conversation, key)),
-			)
-		).filter(Boolean)
+		const here = await agentsHere(id)
 		if (here.length > 1) {
 			const agent = here.find((agent) => !agent.name)
 			return {
@@ -1908,9 +1900,7 @@ async function compact(id) {
 const core = {
 	/** A thread's doc inside a commit, where a snapshot would wait for the commit itself */
 	threadIn: (tx, id) => tx.doc(Thread, id),
-	work,
 	busy,
-	busiest,
 	person,
 	models,
 	runners,
@@ -1919,6 +1909,7 @@ const core = {
 	address,
 	whom,
 	agentOf,
+	agentsHere,
 	conversation,
 	thread,
 	home,
@@ -1943,7 +1934,6 @@ const core = {
 	waitForTask: (id, within = context) => harness.waitForTask(id, within),
 	post,
 	route,
-	fresh,
 	authors,
 	afterCommit,
 	abortTask: (id) => harness.abortTask(id, context),
@@ -2211,30 +2201,26 @@ const routes = /** @type {[string, Function][]} */ ([
 	['POST /api/threads/:id/compact', async (req, id) => ({ compacted: await compact(id) })],
 	['GET /api/conversations/:id', (req, id) => conversationView(id)],
 	...modules.flatMap((module) =>
-		module.serve
-			? [
-					[
-						`GET /api/${module.name}`,
-						(req, _, url) => module.serve(undefined, url.searchParams, undefined, user(req)),
-					],
-					[
-						`POST /api/${module.name}`,
-						async (req, _, url) =>
-							module.serve(undefined, url.searchParams, await input(req), user(req)),
-					],
+		!module.serve
+			? []
+			: [
+					...['GET', 'POST'].flatMap((method) => {
+						const serve = async (req, id, url) =>
+							module.serve(
+								id,
+								url.searchParams,
+								method === 'POST' ? await input(req) : undefined,
+								user(req),
+							)
+						return [
+							[`${method} /api/${module.name}`, (req, _, url) => serve(req, undefined, url)],
+							[`${method} /api/threads/:id/${module.name}`, serve],
+						]
+					}),
 					...(module.remove
 						? [[`DELETE /api/${module.name}/:name`, (req, name) => module.remove(name)]]
 						: []),
-					[
-						`GET /api/threads/:id/${module.name}`,
-						(req, id, url) => module.serve(id, url.searchParams, undefined, user(req)),
-					],
-					[
-						`POST /api/threads/:id/${module.name}`,
-						async (req, id, url) => module.serve(id, url.searchParams, await input(req), user(req)),
-					],
-				]
-			: [],
+				],
 	),
 ]).map(([key, handle]) => [
 	new RegExp(`^${key.replace(':id', String.raw`(\d+)`).replace(':name', '([^/]+)')}$`),
@@ -2321,7 +2307,7 @@ async function servePackage(res, pathname, head = false) {
 			/\.m?js$/.test(file.pathname) &&
 			(await readFile(file).catch(() => null))
 		if (!body) break
-		res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' })
+		res.writeHead(200, { 'Content-Type': types['.js'] })
 		return res.end(head ? undefined : body)
 	}
 	return send(res, 404, { error: 'Not found' })
@@ -2363,27 +2349,22 @@ async function handleRequest(req, res, serve = false) {
 		return res.end()
 	}
 	const head = req.method === 'HEAD'
-	const asGet = ['GET', 'HEAD'].includes(req.method)
-	if (asGet && url.pathname === '/') {
-		const page = await readFile(new URL('./apps/client/client.html', import.meta.url))
-		res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-		return res.end(head ? undefined : page)
+	const answer = (type, body) => {
+		res.writeHead(200, { 'Content-Type': type })
+		res.end(head ? undefined : body)
 	}
-	if (asGet && url.pathname.startsWith('/packages/')) return servePackage(res, url.pathname, head)
-	if (asGet) {
+	if (['GET', 'HEAD'].includes(req.method)) {
+		if (url.pathname === '/')
+			return answer(
+				'text/html; charset=utf-8',
+				await readFile(new URL('./apps/client/client.html', import.meta.url)),
+			)
+		if (url.pathname.startsWith('/packages/')) return servePackage(res, url.pathname, head)
 		const file = await clientFile(url.pathname)
-		if (file) {
-			res.writeHead(200, { 'Content-Type': file.type })
-			return res.end(head ? undefined : file.body)
-		}
-	}
-	if (asGet && url.pathname === '/runner/updater.js') {
-		res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' })
-		return res.end(head ? undefined : updater)
-	}
-	if (asGet && url.pathname === '/connect-runner') {
-		res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
-		return res.end(head ? undefined : runnerScript(origin(req)))
+		if (file) return answer(file.type, file.body)
+		if (url.pathname === '/runner/updater.js') return answer(types['.js'], updater)
+		if (url.pathname === '/connect-runner')
+			return answer('text/plain; charset=utf-8', runnerScript(origin(req)))
 	}
 	const key = `${req.method} ${url.pathname}`
 	for (const [pattern, handle] of routes) {
@@ -2466,44 +2447,43 @@ const docLists = {
 }
 /** Each thread's place, kept from its doc as it changes: archived or not, its dismissed question, and whether a question waits on a person */
 const placed = new Map()
-/** The work tasks the lists have heard start and not yet end */
-const live = new Set()
+/** Each thread's work tasks heard start and not yet end */
+const workIn = new Map()
 /** Each agent's thread, by the agent's conversation */
 const agentThreads = new Map()
 const place = (id, value) => {
 	const before = placed.get(id)
-	const now = {
-		hidden: Boolean(value.hidden),
-		dismissed: value.dismissed ?? null,
-		asked: before?.asked ?? false,
-		...(before?.checking && { checking: before.checking }),
-	}
+	const now = { hidden: Boolean(value.hidden), dismissed: value.dismissed ?? null }
 	placed.set(id, now)
 	for (const { conversation } of Object.values(value.agents ?? {}))
 		agentThreads.set(conversation, id)
-	// A new thread, a fork most of all, can start with a question it inherited: ask the one definition of an open question
-	if (!before) {
-		now.checking = true
-		askedIn(id)
-			.then((asked) => {
-				const at = placed.get(id)
-				if (asked || at.checking === 'moved') notify(['inbox'])
-				at.asked = asked
-			})
-			.catch(() => {})
-			.finally(() => delete placed.get(id).checking)
-	}
+	// A new thread, a fork most of all, can start with a question it inherited
+	if (!before) recheck(id)
 	return { before, now }
 }
-/** Whether a question waits on a person in a thread, as the inbox and the thread's status read it */
-const askedIn = async (id) => Boolean(await openQuestion?.(id, await thread(id)))
+/** Each thread whose question waits on a person, as the inbox and the thread's status read it */
+const asking = new Set()
+let rechecking = Promise.resolve()
+/** Looks again whether a question waits in a thread, one look after another; the inbox moves when that changes */
+const recheck = (id) =>
+	openQuestion &&
+	(rechecking = rechecking
+		.then(async () => {
+			const asked = Boolean(await openQuestion(id, await thread(id)))
+			if (asked === asking.has(id)) return
+			if (asked) asking.add(id)
+			else asking.delete(id)
+			notify(['inbox'])
+		})
+		.catch(() => {}))
 /** The list a thread's row is in, or both while it's not known yet */
 const listOf = (conversationId) => {
 	const at = placed.get(agentThreads.get(conversationId) ?? conversationId)
 	return at ? [at.hidden ? 'archived' : 'threads'] : ['threads', 'archived']
 }
-/** Which lists one stored commit can move; an agent's own transcript and live doc move none */
-function listsOf({ changes }) {
+/** Which lists one stored commit can move; an agent's own transcript and live doc move none. Threads whose last work
+ * task the commit ended go in `ended`. */
+function listsOf({ changes }, ended) {
 	// A thread's doc first, so the rest of its commit, like its creation, names the list it's in
 	const moves = new Map()
 	for (const change of changes)
@@ -2516,26 +2496,25 @@ function listsOf({ changes }) {
 	return changes.flatMap((change) => {
 		if (change.type === 'conversation') return listOf(change.value.id)
 		if (change.type === 'entry') {
-			const { kind, conversationId, data } = /** @type {any} */ (change.value)
+			const { kind, conversationId } = /** @type {any} */ (change.value)
 			if (!kind.startsWith('ade.')) return []
-			// The inbox moves with a question asked, or a person's message after one
-			const at = placed.get(conversationId)
-			const asks =
-				kind === KIND && at && (data?.waitingOnPerson || (at.asked && !byAgent(data ?? {})))
-			if (asks) at.asked = Boolean(data?.waitingOnPerson)
-			// While a new thread's question is still being looked up, a message there may answer it
-			else if (kind === KIND && at?.checking) at.checking = 'moved'
-			return [...listOf(conversationId), ...(asks ? ['inbox'] : [])]
+			if (kind === KIND) recheck(conversationId)
+			return listOf(conversationId)
 		}
 		if (change.type === 'task') {
 			// A thread or runner works while its task lives: only the task's start and end move a list
 			const { id, kind, conversationId, state } = change.value
-			const runs = [Deliver.definition.name, Shell.definition.name].includes(kind)
-			if (!runs && !moduleWork.includes(kind)) return []
-			if (state.status === 'terminal') live.delete(id)
-			else if (live.has(id)) return []
-			else live.add(id)
-			return [...listOf(conversationId), ...(runs ? ['runners'] : [])]
+			if (!isWork(kind)) return []
+			const tasks = workIn.get(conversationId) ?? new Set()
+			if (state.status !== 'terminal') {
+				if (tasks.has(id)) return []
+				workIn.set(conversationId, tasks.add(id))
+			} else if ((tasks.delete(id), !tasks.size)) {
+				// One live since before start ends here too; `busy` makes sure
+				workIn.delete(conversationId)
+				ended.add(conversationId)
+			}
+			return [...listOf(conversationId), ...(runsOnRunner(kind) ? ['runners'] : [])]
 		}
 		if (change.type === 'submission') return []
 		const { kind } = change.record
@@ -2577,41 +2556,18 @@ function notify(lists) {
 		for (const module of modules) module.changed?.(changed)
 	}, 100)
 }
-/** Each thread's work tasks seen live since start, so the end of its last one is heard */
-const workIn = new Map()
-/** Threads whose work tasks one stored commit ended; each module's `ended` hears once it has no work left */
-function endings({ changes }) {
-	const ended = new Set()
-	for (const change of changes) {
-		if (change.type !== 'task') continue
-		const {
-			id,
-			kind,
-			state: { status },
-			conversationId,
-		} = change.value
-		if (![Deliver.definition.name, Shell.definition.name, ...moduleWork].includes(kind)) continue
-		const tasks = workIn.get(conversationId) ?? new Set()
-		if (status !== 'terminal') workIn.set(conversationId, tasks.add(id))
-		else if ((tasks.delete(id), !tasks.size)) {
-			// One live since before start ends here too; `busy` makes sure
-			workIn.delete(conversationId)
-			ended.add(conversationId)
-		}
-	}
-	return ended
-}
 const taskChanged = modules.flatMap((module) => module.taskChanged ?? [])
-const ended = modules.flatMap((module) => module.ended ?? [])
+const endedHooks = modules.flatMap((module) => module.ended ?? [])
 harness.observeCommits({
 	advance: (publication) => {
-		notify(listsOf(publication))
+		const ended = new Set()
+		notify(listsOf(publication, ended))
 		for (const change of publication.changes)
 			if (change.type === 'task') for (const hook of taskChanged) hook(change.value)
-		for (const threadId of endings(publication))
+		for (const threadId of ended)
 			busy(threadId)
 				.then(async (working) => {
-					if (!working) for (const hook of ended) await hook(threadId)
+					if (!working) for (const hook of endedHooks) await hook(threadId)
 				})
 				.catch((error) => console.error(error))
 	},
@@ -3083,39 +3039,33 @@ async function saveSettings({
 		next.modules = list
 	}
 	if (!next.modules?.length) delete next.modules
-	if (memory !== undefined) {
-		const model = typeof memory.model === 'string' ? memory.model.trim() : ''
+	/** Sets one setting in a section of ade.json, or with `unset`, leaves it out, and the section once it's empty */
+	const put = (section, key, value, unset) => {
+		if (unset) delete next[section]?.[key]
+		else next[section] = { ...next[section], [key]: value }
+		if (next[section] && !Object.keys(next[section]).length) delete next[section]
+	}
+	const trimmed = (value) => (typeof value === 'string' ? value.trim() : '')
+	if (memory?.model !== undefined) {
+		const model = trimmed(memory.model)
 		if (model && !model.includes('@'))
 			throw new Error("A memory model is model@runner, or empty for each thread's agent")
-		if (memory.model !== undefined) {
-			if (model) next.memory = { ...next.memory, model }
-			else if (next.memory) delete next.memory.model
-		}
-		if (memory.compactAt !== undefined) {
-			const tokens = Number(memory.compactAt)
-			if (!Number.isInteger(tokens) || tokens < 10000)
-				throw new Error('memory compacts past at least 10000 tokens')
-			if (tokens === 100000) delete next.memory?.compactAt
-			else next.memory = { ...next.memory, compactAt: tokens }
-		}
-		if (next.memory && !Object.keys(next.memory).length) delete next.memory
+		put('memory', 'model', model, !model)
 	}
-	if (director !== undefined) {
-		if (director.model !== undefined) {
-			const model = typeof director.model === 'string' ? director.model.trim() : ''
-			if (model) next.director = { ...next.director, model }
-			else if (next.director) delete next.director.model
-		}
-		/** Each number as given, checked as the director reads it; a default is left out of ade.json */
-		const fallbacks = { context: 20, timeout: 60, burst: 1.5 }
-		for (const [field, fallback] of Object.entries(fallbacks)) {
-			if (director[field] === undefined) continue
-			const value = Number(director[field])
-			directorTimes({ [field]: value })
-			if (value === fallback) delete next.director?.[field]
-			else next.director = { ...next.director, [field]: value }
-		}
-		if (next.director && !Object.keys(next.director).length) delete next.director
+	if (memory?.compactAt !== undefined) {
+		const tokens = Number(memory.compactAt)
+		if (!Number.isInteger(tokens) || tokens < 10000)
+			throw new Error('memory compacts past at least 10000 tokens')
+		put('memory', 'compactAt', tokens, tokens === 100000)
+	}
+	if (director?.model !== undefined)
+		put('director', 'model', trimmed(director.model), !trimmed(director.model))
+	/** Each number as given, checked as the director reads it; a default is left out of ade.json */
+	for (const [field, fallback] of Object.entries({ context: 20, timeout: 60, burst: 1.5 })) {
+		if (director?.[field] === undefined) continue
+		const value = Number(director[field])
+		directorTimes({ [field]: value })
+		put('director', field, value, value === fallback)
 	}
 	if (name !== undefined) {
 		if (name === '') delete next.owner
@@ -3127,10 +3077,7 @@ async function saveSettings({
 	}
 	if (bots !== undefined) {
 		if (typeof bots.voice !== 'string') throw new Error('bots voice is text')
-		if (bots.voice === DEFAULT_VOICE) {
-			if (next.bots) delete next.bots.voice
-		} else next.bots = { ...next.bots, voice: bots.voice }
-		if (next.bots && !Object.keys(next.bots).length) delete next.bots
+		put('bots', 'voice', bots.voice, bots.voice === DEFAULT_VOICE)
 	}
 	writeFileSync(settings.file, `${JSON.stringify(next, null, '\t')}\n`)
 	const restarts = typeof process.execve === 'function'

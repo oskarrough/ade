@@ -30,6 +30,7 @@ import {
 	smallModel,
 	directorTimes,
 	finished,
+	PAUSED,
 } from '../util.js'
 
 export const on = true
@@ -191,12 +192,7 @@ export function server(core) {
 
 	/** The thread's agents, and those of them who could answer a message by `author` */
 	async function agentsOf(threadId, author) {
-		const { agents } = await core.thread(threadId)
-		const participants = (
-			await Promise.all(
-				Object.entries(agents).map(([key, agent]) => core.agentOf(agent.conversation, key)),
-			)
-		).filter(Boolean)
+		const participants = await core.agentsHere(threadId)
 		return { participants, here: participants.filter((agent) => agent.name !== author) }
 	}
 
@@ -398,7 +394,7 @@ export function server(core) {
 			row.picks?.[author] !== id
 				? { to: [] }
 				: row.paused
-					? { to: [], picked: 'Paused: only @mentions and named recipients get an answer.' }
+					? { to: [], picked: PAUSED }
 					: await pick(threadId, entry, covers, rt.signal)
 		let route
 		await rt.commit(async (tx) => {

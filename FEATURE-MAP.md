@@ -13,11 +13,12 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   invited                          the bots a message @mentions that aren't in the thread yet, which it asks too
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused: Pause, only @mentions and named recipients; `direct` leaves that to the director's Pick task
   ask, route, ROUTE, routed         Admit/Deliver for whom a message asks; the director's pick saved after its message, read as its `to`/`picked`;
-                                    `fresh`/newerThan: a newer message takes over a pending pick
+                                    `fresh`: a message that takes over its author's pending pick
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
-  afterCommit, moduleWork           best-effort work once a server commit is stored; modules' task kinds that count as a thread working
-  busy, endings                     whether a thread has work (a view's `busy`, CLI waits, wake); a thread's last work task ending
-                                    calls modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`
+  afterCommit                       best-effort work once a server commit is stored
+  isWork, busy, workIn              what counts as a thread working (Deliver, Shell, modules' `work` kinds); whether a thread has
+                                    work (a view's `busy`, CLI waits, wake); listsOf hears its last one end, which calls
+                                    modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`
   core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
   core.signal                       a signal to a sleeping task (wake's Ended)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
@@ -27,9 +28,11 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
   threadList, threadRow, threadView, people   what GET /api/threads returns; people kept per thread (writers), read once;
                                     newest, a thread's messages read back from its end (?last, ?after)
-  recent, older, conversationRecord   each thread's newest entries and record kept as commits land, its older ones read once; what lists, status and openQuestion read
+  recent, older, back, conversationRecord   each thread's newest entries and record kept as commits land, its older ones read
+                                    once; `back` looks newest first through both, for status and latestMessage (openQuestion)
   harnessSettings                   Pi's settings, worked out once per change of models
-  listsOf, placed, listOf           which lists a commit moves: a thread's own list, the inbox only for a question asked, answered or dismissed
+  listsOf, placed, listOf, recheck  which lists a commit moves: a thread's own list; the inbox when a thread's open question
+                                    comes or goes (recheck, over openQuestion) or is dismissed
   forkThread, seenBy                forks
   compact, compactingAt             compaction now, or early
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
