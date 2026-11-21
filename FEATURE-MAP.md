@@ -91,10 +91,11 @@ modules/
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)
-  export.js              GET /api/export?dir=<path> (serve) writes every thread, archived ones included, as one
-                         Markdown file and one JSON file each into <path> on the server's own machine (exportAll,
-                         fileName, peopleOf over util's byAgent, toMarkdown, foldShell folding a `$ cmd`'s output
-                         to one line); off by default; cli.js's `export <dir>` is a thin call to it
+  export.js              GET /api/export (serve) answers {files}, every thread's files, archived ones included, as
+                         a map of name to text, one Markdown file and one JSON file each, nothing written on the
+                         server (exportAll, fileName, peopleOf over util's byAgent, toMarkdown, foldShell folding a
+                         `$ cmd`'s output to one line); off by default; cli.js's `export <dir>` fetches it and
+                         writes the files
   pi-sessions.js         conversations as pi session files: server follows each agent's conversation (push, sync, changed) and sends
                          new entries; writePiSession, the runner's `pi-session` op (remote.js serveRunner), maps them to pi's entries.
                          The other way: bring (what pi hands its model from a session, into a new thread: newAgent, setUp, post), serve

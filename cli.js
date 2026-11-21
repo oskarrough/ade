@@ -4,6 +4,7 @@ import { defaultTitle } from './apps/client/title.js'
 import { parseArgs } from 'node:util'
 import { on, once } from 'node:events'
 import { readFileSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import WebSocket from 'ws'
 import { dataDir } from './modules.js'
@@ -34,9 +35,8 @@ const usage = `node cli.js [--server url] <command>
   import <runner> [session]
                    with pi-sessions on: list the pi sessions in the runner's folder (--dir for another),
                    or start a new thread from one, by id or path, and print "thread N"; --title names it
-  export <dir>     with export on: write every thread, archived ones included, as Markdown and JSON
-                   into <dir>, resolved against this shell's folder; the server does the writing, so
-                   this only reaches a server on the same machine`
+  export <dir>     with export on: fetch every thread, archived ones included, and write each as
+                   Markdown and JSON into <dir>, resolved against this shell's folder`
 
 /** @template {import("node:util").ParseArgsOptionsConfig} T
  * @param {T} options */
@@ -267,11 +267,12 @@ const commands = {
 	},
 	async export() {
 		if (!rest[0]) throw new Error('export to which folder?')
-		const { dir, written } = await api(
-			'GET',
-			`/api/export?dir=${encodeURIComponent(path.resolve(rest[0]))}`,
-		)
-		console.log(`wrote ${written} thread${written === 1 ? '' : 's'} to ${dir}`)
+		const { files } = await api('GET', '/api/export')
+		const dir = path.resolve(rest[0])
+		await mkdir(dir, { recursive: true })
+		const names = Object.keys(files)
+		await Promise.all(names.map((name) => writeFile(path.join(dir, name), files[name])))
+		console.log(`wrote ${names.length} file${names.length === 1 ? '' : 's'} to ${dir}`)
 	},
 }
 

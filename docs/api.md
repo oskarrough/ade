@@ -116,13 +116,14 @@ A wake that fires posts `{author, body: note, wake: id, to: [author]}`: the agen
 With `export` on:
 
 ```
-GET    /api/export?dir=<path>   writes every thread, archived ones included, into <path> on the server's own
-                                 machine: one Markdown file and one JSON file each; {dir, written}
+GET    /api/export   {files}, every thread's files, archived ones included, as a map of file name to its text:
+                       one Markdown file and one JSON file per thread; nothing is written anywhere
 ```
 
-The JSON file holds a thread's entries exactly as `GET /api/threads/:id` returns them. The Markdown file is for a
+Each JSON file holds a thread's entries exactly as `GET /api/threads/:id` returns them. Its Markdown file is for a
 person: the title, who wrote in it, then each message as "**author** · time" with the body; a `$ cmd` message's
-shell result folds into one line. Both read without ade installed.
+shell result folds into one line. Both read without ade installed, and the route reaches a server anywhere, not
+only its own machine; `node cli.js export <dir>` fetches it and writes the files.
 
 The routes are in `server.js`, the runner protocol in [remote.js](../remote.js).
 

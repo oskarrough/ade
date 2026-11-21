@@ -1,14 +1,18 @@
 /** MODULES=+bots,+export: every thread, archived ones and forks included, exports as Markdown and JSON read without ade */
+import { execFile } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import {
 	answered,
 	api,
+	base,
 	check,
 	done,
 	owner,
 	person,
+	repo,
 	say,
 	scriptedRunner,
 	server,
@@ -48,30 +52,30 @@ await api('POST', `/api/threads/${ran}/entries`, {
 })
 await until(async () => (await view(ran)).entries.at(-1)?.data.shell)
 
-const out = mkdtempSync(path.join(os.tmpdir(), 'ade-export-'))
-const result = await api('GET', `/api/export?dir=${encodeURIComponent(out)}`)
+// Nothing is written on the server: a plain GET, so it reaches a server anywhere, not only its own machine
+const result = await api('GET', '/api/export')
 check(
-	result.status === 200 && result.json.dir === out,
-	'export answers the folder it wrote, resolved',
+	result.status === 200 && !result.json.dir,
+	'export writes nothing itself: a plain read',
 	JSON.stringify(result),
 )
 
-const files = readdirSync(out)
-const named = (id, ext) => files.find((f) => f.startsWith(`${id}-`) && f.endsWith(ext))
+const { files } = result.json
+const named = (id, ext) => Object.keys(files).find((f) => f.startsWith(`${id}-`) && f.endsWith(ext))
 check(
 	[source, fork, shelved, home, ran].every((id) => named(id, '.md') && named(id, '.json')),
 	'a thread with a fork, an archived thread and a bot thread all come out, each as .md and .json',
-	JSON.stringify(files),
+	JSON.stringify(Object.keys(files)),
 )
 check(
-	result.json.written ===
+	Object.keys(files).length / 2 ===
 		(await api('GET', '/api/threads')).json.length +
 			(await api('GET', '/api/threads/archived')).json.length,
 	'every thread is counted, open and archived',
-	JSON.stringify(result.json),
+	JSON.stringify(Object.keys(files)),
 )
 
-const sourceMd = readFileSync(path.join(out, named(source, '.md')), 'utf8')
+const sourceMd = files[named(source, '.md')]
 check(
 	sourceMd.startsWith('# plans\n') &&
 		sourceMd.includes('People: ') &&
@@ -85,29 +89,42 @@ check(
 )
 
 check(
-	readFileSync(named(home, '.md') && path.join(out, named(home, '.md')), 'utf8').startsWith(
-		'# ada\n',
-	),
+	files[named(home, '.md')].startsWith('# ada\n'),
 	"a bot's home exports under the bot's name",
 	named(home, '.md'),
 )
 
-const sourceJson = JSON.parse(readFileSync(path.join(out, named(source, '.json')), 'utf8'))
 check(
-	JSON.stringify(sourceJson) === JSON.stringify(sourceView.entries),
+	JSON.stringify(JSON.parse(files[named(source, '.json')])) === JSON.stringify(sourceView.entries),
 	"json is the thread's entries exactly as the API returns them",
-	JSON.stringify([sourceJson, sourceView.entries]),
+	JSON.stringify([files[named(source, '.json')], sourceView.entries]),
 )
 
-const runMd = readFileSync(path.join(out, named(ran, '.md')), 'utf8')
+const runMd = files[named(ran, '.md')]
 check(
 	!runMd.includes('line one\nline two') && /exit 0 — line one line two/.test(runMd),
 	"a run's shell result folds into one line instead of its own",
 	runMd,
 )
 
-const missingDir = await api('GET', '/api/export')
-check(missingDir.status >= 400, 'dir is required', JSON.stringify(missingDir))
+// The CLI fetches the same files over HTTP and writes them locally
+const outDir = mkdtempSync(path.join(os.tmpdir(), 'ade-export-'))
+const cli = await promisify(execFile)(
+	process.execPath,
+	['cli.js', '--server', base, 'export', outDir],
+	{ cwd: repo },
+)
+const written = readdirSync(outDir)
+const matches = written.every(
+	(name) => readFileSync(path.join(outDir, name), 'utf8') === files[name],
+)
+check(
+	cli.stdout.includes(`wrote ${Object.keys(files).length} files to ${outDir}`) &&
+		written.length === Object.keys(files).length &&
+		matches,
+	'the CLI writes every file it fetched, unchanged, to the folder it names',
+	JSON.stringify([cli.stdout, written]),
+)
+rmSync(outDir, { recursive: true, force: true })
 
-rmSync(out, { recursive: true, force: true })
 done()

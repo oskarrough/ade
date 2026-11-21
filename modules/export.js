@@ -1,17 +1,15 @@
 /**
- * Every thread, archived ones included, written to a folder as files a person can read without ade installed: one
- * Markdown file and one JSON file each. Off by default; MODULES=+export turns it on.
+ * Every thread, archived ones included, as files a person can read without ade installed: one Markdown file and one
+ * JSON file each. Off by default; MODULES=+export turns it on.
  *
- * `GET /api/export?dir=<path>` writes them on the server's own machine and answers `{dir, written}`, the resolved
- * folder and how many threads it wrote. `node cli.js export <dir>` resolves `<dir>` against the shell's own folder
- * and calls it; cli and server share a machine the way ade runs, so this is the same write, not a download.
+ * `GET /api/export` answers `{files}`, a map of file name to its text; nothing is written on the server, so the
+ * route is a plain read and reaches a server anywhere, not only its own machine. `node cli.js export <dir>` fetches
+ * it and writes each file into `<dir>` itself.
  *
  * Each thread's JSON file holds its entries exactly as `GET /api/threads/:id` returns them. Its Markdown file is for
  * a person: the title, who wrote in it, then every message as "**author** · time" with the body; a `$ cmd` message's
  * shell result folds into one line instead of its full stdout and stderr.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
-import path from 'node:path'
 import { byAgent } from '../util.js'
 
 export const on = false
@@ -53,28 +51,26 @@ export function server(core) {
 		return [...new Set([...wrote, ...Object.keys(reads)])]
 	}
 
-	/** Writes every thread into `dir`, archived ones included: `{dir, written}` */
-	async function exportAll(dir) {
-		if (!dir || typeof dir !== 'string') throw new Error('dir is required')
-		const full = path.resolve(dir)
-		await mkdir(full, { recursive: true })
+	/** Every thread's files, archived ones included: `{files: {<name>: content}}`, nothing written anywhere */
+	async function exportAll() {
 		const rows = [
 			...(await core.threadList(core.owner, false)),
 			...(await core.threadList(core.owner, true)),
 		]
+		const files = {}
 		for (const row of rows) {
 			const entries = await core.messages(row.id)
 			const people = await peopleOf(row.id, entries)
-			const base = path.join(full, fileName(row.id, row.title))
-			await writeFile(`${base}.json`, `${JSON.stringify(entries, null, 2)}\n`)
-			await writeFile(`${base}.md`, toMarkdown(row.title, people, entries))
+			const base = fileName(row.id, row.title)
+			files[`${base}.json`] = `${JSON.stringify(entries, null, 2)}\n`
+			files[`${base}.md`] = toMarkdown(row.title, people, entries)
 		}
-		return { dir: full, written: rows.length }
+		return { files }
 	}
 
-	async function serve(threadId, query, body) {
+	async function serve(threadId) {
 		if (threadId !== undefined) throw new Error('Export has nothing per thread')
-		return exportAll(body?.dir ?? query?.get('dir'))
+		return exportAll()
 	}
 
 	return { serve }
