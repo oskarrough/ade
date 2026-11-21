@@ -1262,7 +1262,7 @@ async function status(id, row, busy, reader) {
 
 /** Each thread's people who wrote there so far, and the newest entry read for them, so a thread is read once per server */
 const writers = new Map()
-/** Who's in a thread needs no state of its own: the people who wrote there, or read. Only an open thread needs it. */
+/** Who's in a thread needs no state of its own: the people who wrote there, or read, the owner and tailnet logins. Only an open thread needs it. */
 async function people(id) {
 	const handle = await conversation(id)
 	const wrote = writers.get(id) ?? { after: 0, authors: new Set() }
@@ -1282,7 +1282,11 @@ async function people(id) {
 		if (!(cursor = page.next)) break
 	}
 	const { reads } = await thread(id)
-	return [...new Set([...wrote.authors, ...Object.keys(reads)])]
+	/** People only, as the server names them: a bot speaking in its own room writes with no agent's mark, and older
+	 * stores hold names anyone could claim */
+	return [...new Set([...wrote.authors, ...Object.keys(reads)])].filter(
+		(name) => name === owner || name.startsWith('~'),
+	)
 }
 
 /** `homes`, each bot's home thread → its name, saves reading them for every row of a list */
