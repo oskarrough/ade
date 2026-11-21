@@ -23,6 +23,7 @@ for (const name of [
 	'ADE_KEY',
 	'ADE_LENT',
 	'ADE_SERVER',
+	'SERVE_PORT',
 ]) {
 	shellEnv[name] = process.env[name]
 	delete process.env[name]

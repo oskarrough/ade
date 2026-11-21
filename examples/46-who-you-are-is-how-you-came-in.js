@@ -24,7 +24,10 @@ import {
 /** tldraw sync's protocol version is exported, though its types leave it out */
 const { getTlsyncProtocolVersion } = /** @type {any} */ (await import('@tldraw/sync-core'))
 // The owner signs as ade.json's `owner`, the name their history has
-writeFileSync(path.join(configDir, 'ade.json'), JSON.stringify({ owner: 'oskar' }))
+writeFileSync(
+	path.join(configDir, 'ade.json'),
+	JSON.stringify({ owner: 'oskar', ownerLogins: ['oskar@github'] }),
+)
 await server({ MODULES: '+canvas' })
 await runner('laptop')
 const tailnet = `http://127.0.0.1:${servePort}`
@@ -70,6 +73,14 @@ const evil = await fetch(`${tailnet}/api/threads`, {
 	body: '{}',
 })
 check(evil.status === 403, 'a page elsewhere can’t write through it', evil.status)
+
+// The owner's own tailnet login, listed in ade.json, is the owner through Serve too
+const ownDevice = await api('GET', '/api/server', undefined, 'oskar')
+check(
+	ownDevice.json.me === owner,
+	'through Serve, a login ade.json lists as the owner’s is the owner',
+	ownDevice.json.me,
+)
 
 // The owner key, from beside the store, is the owner anywhere; a browser keeps it as a cookie its scripts can't read
 const key = readFileSync(path.join(path.dirname(db), 'owner.key'), 'utf8').trim()

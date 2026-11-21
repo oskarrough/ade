@@ -29,7 +29,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   compact, compactingAt             compaction now, or early
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once
-  whoSent, answersTo, owner         owner: ade.json's `owner`, else the login here (ownerName); who sent a request or socket, from how it arrived: the owner key (owner.key beside the store,
+  whoSent, answersTo, owner         owner: ade.json's `owner`, else the login here (ownerName), and `ownerLogins`, tailnet logins that are the owner (loginList); who sent a request or socket, from how it arrived: the owner key (owner.key beside the store,
                                     a bearer or the cookie POST /api/me sets), a direct request on the main listener (the owner),
                                     or Tailscale-User-Login on Serve's listener (SERVE_PORT, listener(true)); Host and Origin checks
   exampleShed                       the walkthrough's example thread, written as its three people (POST /api/threads/shed)

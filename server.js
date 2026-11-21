@@ -179,12 +179,22 @@ function whoSent(req, serve) {
 	if (given && isOwnerKey(given)) return owner
 	if (serve) {
 		const login = req.headers['tailscale-user-login']
-		return typeof login === 'string' && login ? personName(login) : null
+		if (typeof login !== 'string' || !login) return null
+		return ownerLogins.includes(login.toLowerCase()) ? owner : personName(login)
 	}
 	const proxied = ['x-forwarded-for', 'forwarded', 'tailscale-user-login'].some(
 		(header) => header in req.headers,
 	)
 	return loopback(req.socket.remoteAddress ?? '') && loopbackHost(req) && !proxied ? owner : null
+}
+/** Tailnet logins as `name@provider`, as Tailscale-User-Login gives them, compared without case; anything else throws */
+function loginList(logins) {
+	if (
+		!Array.isArray(logins) ||
+		logins.some((login) => typeof login !== 'string' || !/^[^\s@]+@[^\s@]+$/.test(login))
+	)
+		throw new Error('ownerLogins is a list of tailnet logins, like ana@github')
+	return logins.map((login) => login.toLowerCase())
 }
 /** A person a runner names: a tailnet login, `ana@github`, as Serve names them; any other name as it is, the owner's */
 const personal = (name) => (name.includes('@') ? personName(name) : name)
@@ -1738,6 +1748,8 @@ core.config = settings.config
  * the name their history has, and it stays theirs. */
 const owner = ownerName(settings.config.owner ?? os.userInfo().username)
 core.owner = owner
+/** Tailnet logins that are the owner through Serve, `ownerLogins` in ade.json: the owner's own devices */
+const ownerLogins = loginList(settings.config.ownerLogins ?? [])
 const modules = await load('server', core, settings)
 for (const module of modules) if (module.extension) registry.install(module.extension)
 const customModules = (settings.config.modules ?? [])
@@ -1854,6 +1866,7 @@ const routes = /** @type {[string, Function][]} */ ([
 			work: await harness.inspect(context),
 			settings: {
 				owner,
+				ownerLogins,
 				memory: {
 					model: settings.config.memory?.model ?? '',
 					compactAt: compactAt ?? null,
@@ -2668,7 +2681,14 @@ async function upgrade(req, raw, head, serve = false) {
  * the director's a small model on each thread's runner. `bots.voice` empty means no shared instruction; equal to
  * DEFAULT_VOICE it's left out of ade.json, since that's what every bot reads without one.
  */
-async function saveSettings({ modules: wanted = {}, memory, director, bots, owner: name }) {
+async function saveSettings({
+	modules: wanted = {},
+	memory,
+	director,
+	bots,
+	owner: name,
+	ownerLogins: logins,
+}) {
 	const known = [
 		...Object.keys(defaults),
 		...customModules.map((entry) => path.basename(entry, '.js')),
@@ -2732,6 +2752,10 @@ async function saveSettings({ modules: wanted = {}, memory, director, bots, owne
 	if (name !== undefined) {
 		if (name === '') delete next.owner
 		else next.owner = ownerName(name)
+	}
+	if (logins !== undefined) {
+		if (loginList(logins).length) next.ownerLogins = loginList(logins)
+		else delete next.ownerLogins
 	}
 	if (bots !== undefined) {
 		if (typeof bots.voice !== 'string') throw new Error('bots voice is text')
