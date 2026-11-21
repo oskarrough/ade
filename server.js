@@ -357,7 +357,7 @@ const Shell = defineTask({
 				stderr: '',
 			}
 			shells.set(id, run)
-			notify(['threads', 'archived'])
+			notify(listOf(threadId))
 			const env = remoteEnv(
 				runners,
 				input.to.runner,
@@ -368,7 +368,7 @@ const Shell = defineTask({
 				{
 					onOutput: (text, _context, info) => {
 						run[info.stream] = (run[info.stream] + text).slice(-TAIL)
-						notify(['threads', 'archived'])
+						notify(listOf(threadId))
 					},
 				},
 				ctx,
@@ -2004,30 +2004,87 @@ function nudge() {
 	}
 }
 
-/** The lists a browser fetches, by the names its socket hears them changed by: threads, archived, runners, bots and inbox */
-const ROWS = ['threads', 'archived', 'inbox']
-/** Whatever an agent is or does shows in its thread's row and its runner's */
+/**
+ * The lists a browser fetches, by the names its socket hears them changed by: threads, archived, runners, bots and
+ * inbox. A thread's change names the list it's in; the inbox, only a question asked, answered or dismissed.
+ */
+/** A runner coming or going moves every agent on it, in either list */
 const WORK = ['threads', 'archived', 'runners']
 const docLists = {
-	'ade.thread': ROWS,
-	[AgentDoc.definition.kind]: WORK,
 	'ade.runners': WORK,
 	'ade.keys': ['runners'],
 	'ade.lent': ['runners'],
 	'ade.bots': ['threads', 'archived', 'bots'],
 }
+/** Each thread's place, kept from its doc as it changes: archived or not, its dismissed question, and whether a question waits on a person */
+const placed = new Map()
+/** Each agent's thread, by the agent's conversation */
+const agentThreads = new Map()
+const place = (id, value) => {
+	const before = placed.get(id)
+	const now = {
+		hidden: Boolean(value.hidden),
+		dismissed: value.dismissed ?? null,
+		asked: before?.asked ?? false,
+	}
+	placed.set(id, now)
+	for (const { conversation } of Object.values(value.agents ?? {}))
+		agentThreads.set(conversation, id)
+	return { before, now }
+}
+/** The list a thread's row is in, or both while it's not known yet */
+const listOf = (conversationId) => {
+	const at = placed.get(agentThreads.get(conversationId) ?? conversationId)
+	return at ? [at.hidden ? 'archived' : 'threads'] : ['threads', 'archived']
+}
 /** Which lists one stored commit can move; an agent's own transcript and live doc move none */
 function listsOf({ changes }) {
+	// A thread's doc first, so the rest of its commit, like its creation, names the list it's in
+	const moves = new Map()
+	for (const change of changes)
+		if (
+			change.type === 'document' &&
+			change.kind === 'change' &&
+			change.record.kind === 'ade.thread'
+		)
+			moves.set(change, place(change.conversationId, change.value))
 	return changes.flatMap((change) => {
-		if (change.type === 'conversation') return ROWS
-		if (change.type === 'entry') return change.value.kind.startsWith('ade.') ? ROWS : []
+		if (change.type === 'conversation') return listOf(change.value.id)
+		if (change.type === 'entry') {
+			const { kind, conversationId, data } = /** @type {any} */ (change.value)
+			if (!kind.startsWith('ade.')) return []
+			// The inbox moves with a question asked, or a person's message after one
+			const at = placed.get(conversationId)
+			const asks =
+				kind === KIND && at && (data?.waitingOnPerson || (at.asked && !byAgent(data ?? {})))
+			if (asks) at.asked = Boolean(data?.waitingOnPerson)
+			return [...listOf(conversationId), ...(asks ? ['inbox'] : [])]
+		}
 		if (change.type === 'task')
 			return [Deliver.definition.name, Shell.definition.name, ...moduleWork].includes(
 				change.value.kind,
 			)
-				? WORK
+				? [...listOf(change.value.conversationId), 'runners']
 				: []
-		return change.type === 'submission' ? [] : (docLists[change.record.kind] ?? [])
+		if (change.type === 'submission') return []
+		const { kind } = change.record
+		if (kind === 'ade.thread') {
+			if (!moves.has(change)) return ['threads', 'archived', 'inbox']
+			const { before = moves.get(change).now, now } = moves.get(change)
+			const moved = before.hidden !== now.hidden
+			return [
+				...(moved ? ['threads', 'archived'] : listOf(change.conversationId)),
+				...(moved || before.dismissed !== now.dismissed ? ['inbox'] : []),
+			]
+		}
+		if (kind === AgentDoc.definition.kind)
+			return [
+				...(change.type === 'document' && change.conversationId
+					? listOf(change.conversationId)
+					: ['threads', 'archived']),
+				'runners',
+			]
+		return docLists[kind] ?? []
 	})
 }
 
@@ -2050,6 +2107,10 @@ function notify(lists) {
 	}, 100)
 }
 harness.observeCommits({ advance: (publication) => notify(listsOf(publication)), end: () => {} })
+for (const id of await threadIds()) {
+	const row = await thread(id)
+	place(id, row).now.asked = Boolean(await openQuestion?.(id, row))
+}
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
 const FIRST = 15

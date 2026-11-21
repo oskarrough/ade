@@ -1,4 +1,4 @@
-/** A browser's socket names the lists that changed, so it fetches only those again: an agent's work moves threads and runners, never bots */
+/** A browser's socket names the lists that changed, so it fetches only those again: an agent's work moves threads and runners, never bots, and a thread names the list it's in */
 import WebSocket from 'ws'
 import { answered, api, base, check, done, kill, runner, server, sleep, until } from './lib.js'
 
@@ -27,6 +27,33 @@ check(
 	'every list message names what changed, and an agent at work leaves the bot list alone',
 	JSON.stringify(heard),
 )
+heard.length = 0
+await api('POST', `/api/threads/${id}/entries`, { body: 'again', to: 'echo/one@laptop' })
+await answered(id, 2)
+await sleep(300)
+check(
+	named('threads') && !named('archived') && !named('inbox'),
+	'an open thread at work names neither the archived list nor the inbox, which it cannot change',
+	JSON.stringify(heard),
+)
+
+heard.length = 0
+await api('POST', `/api/threads/${id}/archive`, { archived: true })
+check(
+	Boolean(await until(async () => named('threads') && named('archived'))),
+	'archiving a thread names both thread lists',
+	JSON.stringify(heard),
+)
+await sleep(300)
+heard.length = 0
+await api('POST', `/api/threads/${id}/entries`, { body: 'still here', to: null })
+check(
+	Boolean(await until(async () => named('archived'))) && !named('threads'),
+	'a message in an archived thread names the archived list, not the open one',
+	JSON.stringify(heard),
+)
+await api('POST', `/api/threads/${id}/archive`, { archived: false })
+await sleep(300)
 
 heard.length = 0
 await api('POST', `/api/threads/${id}/read`, {}, 'ida')
