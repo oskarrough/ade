@@ -382,7 +382,9 @@ export const {
 			() => setConnected(false),
 		)
 	})
-	const threadOf = (id) => threads.find((thread) => thread.id === id)
+	/** Threads by id, built once per list change, so a lookup tracks one memo instead of every row */
+	const byId = createMemo(() => new Map(threads.map((thread) => [thread.id, thread])))
+	const threadOf = (id) => byId().get(id)
 	/** The open thread's family, as the server sends it: one thread until the list has it, `[null]` for a new one */
 	const family = createMemo(() =>
 		current() ? (threadOf(current())?.family.map((member) => member.id) ?? [current()]) : [null],

@@ -136,6 +136,22 @@ export function RunnerList() {
 	let button, panel
 	const id = createUniqueId()
 	const online = () => runners.filter((runner) => runner.online).length
+	/** Agents working or waiting, read once for every row: a thread's status turns with its agents', so idle threads are skipped whole */
+	const active = createMemo(() =>
+		threads
+			.filter((thread) => thread.status === 'working' || thread.status === 'blocked')
+			.flatMap((thread) =>
+				thread.agents
+					.filter((agent) => agent.status !== 'idle')
+					.map((agent) => ({
+						thread: thread.id,
+						title: thread.title,
+						conversation: agent.conversation,
+						runner: agent.to?.runner,
+						status: agent.status,
+					})),
+			),
+	)
 	return html`
 		<button
 			class="ghost small foot-toggle runner-toggle"
@@ -158,7 +174,7 @@ export function RunnerList() {
 			<${Panes} title="Runners" open=${() => false} onClose=${(_event) => panel.hidePopover()}>
 				<ul class="rows">
 					<${For} each=${() => runners}
-						>${(runner) => html`<${RunnerItem} runner=${() => runner} />`}<//
+						>${(runner) => html`<${RunnerItem} runner=${() => runner} active=${() => active()} />`}<//
 					>
 				</ul>
 				<${ConnectRunner} />
@@ -169,15 +185,7 @@ export function RunnerList() {
 
 function RunnerItem(props) {
 	const asking = (status) =>
-		threads.flatMap((thread) =>
-			thread.agents
-				.filter((agent) => agent.to?.runner === props.runner.name && agent.status === status)
-				.map((agent) => ({
-					thread: thread.id,
-					title: thread.title,
-					conversation: agent.conversation,
-				})),
-		)
+		props.active.filter((agent) => agent.runner === props.runner.name && agent.status === status)
 	const work = createMemo(() => asking('working'))
 	/** Threads asking it while it's away */
 	const waiting = createMemo(() => [...new Set(asking('blocked').map((work) => work.title))])
