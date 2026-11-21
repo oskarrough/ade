@@ -58,6 +58,10 @@ The test: a friend gets the install instructions and their data file and gets ru
 
 No hosted pilot. Hosting versus audience comes back up only if people still won't set up a server once it's easy.
 
+## Schedules
+
+A bot or thread should wake on a timer or a routine without anyone posting to it; that's a core primitive, not a module. arbe's scheduler is the reference to port from, built on Pi Durable's stored sleeps.
+
 ## Parts bin
 
 From arbe, each as a module when a step misses it, not before: limits per thread ([capabilities](https://arbe.0sk.ar/docs/thinking/capabilities/)), shared files ([files](https://arbe.0sk.ar/docs/files/)), workflows ([workflows](https://arbe.0sk.ar/docs/workflows/)), secrets kept out of the model's context ([secrets](https://arbe.0sk.ar/docs/system/access/secrets/)), rented sandboxes as runners ([environments](https://arbe.0sk.ar/docs/system/sandboxes/environments/)), search ([thread search](https://arbe.0sk.ar/docs/system/chat/thread-search/)), usage ([usage & cost](https://arbe.0sk.ar/docs/usage-cost/)), teams ([teams](https://arbe.0sk.ar/docs/system/access/teams/)), and the CLI's best commands ([CLI](https://arbe.0sk.ar/docs/cli/)).
