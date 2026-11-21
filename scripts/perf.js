@@ -326,6 +326,18 @@ async function measure() {
 	const minutes = (performance.now() - window) / 60000
 	const after = await spied()
 	const heard = after.socket.length - before.socket.length
+	const perMinute = (count) => (count / minutes).toFixed(0)
+	/** What the socket said, by its kind: the keys after `thread`, or `changed` */
+	const kinds = Object.entries(
+		Object.groupBy(after.socket.slice(before.socket.length), (line) => {
+			const text = line.slice(line.indexOf(' ') + 1)
+			return [...text.matchAll(/"(\w+)":/g)]
+				.map((match) => match[1])
+				.filter((key) => key !== 'thread')
+				.slice(0, 2)
+				.join('+')
+		}),
+	).map(([kind, lines]) => `${kind} ${perMinute(lines?.length ?? 0)}`)
 	const fetched = after.fetches.slice(before.fetches.length).filter((line) => lists.test(line))
 	await browser('close').catch(() => {})
 	await take()
@@ -372,7 +384,6 @@ async function measure() {
 					`  ${seen.ms.toFixed(1)} ms, ${seen.rows} rows in ${seen.statements}× ${sql.slice(0, 120)}`,
 				)
 		}
-	const perMinute = (count) => (count / minutes).toFixed(0)
 	const byList = Object.entries(
 		Object.groupBy(fetched, (line) => line.split(' ')[1].replace(/\?.*/, '')),
 	).map(([route, lines]) => `${route.replace('/api/', '')} ${perMinute(lines?.length ?? 0)}`)
@@ -385,6 +396,7 @@ async function measure() {
 				['list fetches', perMinute(fetched.length)],
 			],
 		),
+		`  messages: ${kinds.join(', ')}`,
 		`  ${byList.join(', ') || 'no list fetches'} (over ${(minutes * 60).toFixed(0)} s)`,
 		'',
 		table(
