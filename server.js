@@ -1549,7 +1549,13 @@ async function home(conversationId) {
 /** A known request returns before anything tries to resolve its recipients. */
 async function receipt(requestId, command) {
 	if (requestId === undefined) return undefined
-	const saved = (await harness.snapshot(Receipts, requestId, context))?.receipt
+	return usedFor(
+		(await harness.snapshot(Receipts, requestId, context))?.receipt,
+		requestId,
+		command,
+	)
+}
+const usedFor = (saved, requestId, command) => {
 	if (saved && saved.command !== command)
 		throw new Error(`requestId ${requestId} was used for ${saved.command}`)
 	return saved
@@ -1562,11 +1568,8 @@ const once = (requestId, command, work) =>
 		if (typeof requestId !== 'string' || !requestId || requestId.length > 128)
 			throw new Error('requestId must be a string of 1 to 128 characters')
 		const doc = await tx.doc(Receipts, requestId, null)
-		if (doc.receipt) {
-			if (doc.receipt.command !== command)
-				throw new Error(`requestId ${requestId} was used for ${doc.receipt.command}`)
+		if (usedFor(doc.receipt, requestId, command))
 			return JSON.parse(JSON.stringify(doc.receipt.result))
-		}
 		const result = await work(tx)
 		doc.receipt = { command, result }
 		return result
@@ -2580,15 +2583,12 @@ const FIRST = 15
 /** Messages each earlier page brings as a browser scrolls up */
 const PAGE = 50
 
-/** A browser watches one thread, or asks for its page before the ones it has */
-const watch = (socket, id) =>
-	(socket.watches = (socket.watches ?? Promise.resolve())
-		.then(() => rewatch(socket, id))
-		.catch(() => {}))
+/** A browser watches one thread, or asks for its page before the ones it has, one request after another */
+const queued = (socket, run) =>
+	(socket.watches = (socket.watches ?? Promise.resolve()).then(run).catch(() => {}))
+const watch = (socket, id) => queued(socket, () => rewatch(socket, id))
 const earlier = (socket, id, all) =>
-	(socket.watches = (socket.watches ?? Promise.resolve())
-		.then(() => socket.pages?.id === id && socket.pages.back(all))
-		.catch(() => {}))
+	queued(socket, () => socket.pages?.id === id && socket.pages.back(all))
 /** Where an agent's conversation reaches far enough back for the messages from `from` on: a turn before them */
 const covers = (from) => (entries) =>
 	entries.some(
