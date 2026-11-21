@@ -70,6 +70,27 @@ The `page` is a checklist of at most six lines, one per topic, newest last. A li
 
 It never says whether something is running right now; a thread's `status` does.
 
+With `memory` on:
+
+```
+GET    /api/threads/:id/memory?room=30   the memory view: bounds, the cut, and the lines above it, in one read
+GET    /api/threads/:id/memory?zoom=id,n opens one line, as the agent's `zoom` does: {lines} or {message}
+```
+
+`room` goes from 0, the tightest cut, to 100, every line that fits 64 KB, growing geometrically between them. The answer is read from one copy of the thread's lines:
+
+```
+{
+  total: 392,                  // messages
+  least: 565, full: 65069,     // the bytes at room 0 and 100
+  budget: 2347,                // the bytes at this room
+  cut: [{id, n, text}],        // what the agent reads, oldest first
+  tree: [{id, n, text, kind, children?}]
+}
+```
+
+`tree` is the cut opened from the top: a line with `kind: 'cut'` is in the cut, one with `kind: 'above'` is written higher up and holds the cut's lines under it as `children`. A cut with unwritten messages, or one line for the whole thread, comes flat. Like opening the view, the read writes the message lines a thread that remembers is missing.
+
 With `blocked` and `inbox` on:
 
 ```

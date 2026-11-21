@@ -240,7 +240,11 @@ export function server(core) {
 		do {
 			const page = await core.commit((tx) =>
 				tx.scanEntries(
-					{ conversationId: threadId, minEntryId: index.newest + 1, order: 'ascending' },
+					{
+						conversationId: threadId,
+						minEntryId: index.newest + 1,
+						order: 'ascending',
+					},
 					500,
 					cursor,
 				),
@@ -449,7 +453,13 @@ export function server(core) {
 							return read
 						})
 						const items = batch.map(({ l, i }) => {
-							if (!l) return { l, i, ask: `Line: compress message ${i}`, source: messages.get(i) }
+							if (!l)
+								return {
+									l,
+									i,
+									ask: `Line: compress message ${i}`,
+									source: messages.get(i),
+								}
 							const half = 2 ** (l - 1),
 								id = i * 2 ** l
 							return {
@@ -469,7 +479,12 @@ export function server(core) {
 								if (!now.have.has(key(l, i)))
 									await tx.appendEntry(threadId, {
 										kind: KIND,
-										data: { l, i, text: texts[offset], size: bytes(texts[offset]) },
+										data: {
+											l,
+											i,
+											text: texts[offset],
+											size: bytes(texts[offset]),
+										},
 									})
 							return {
 								status: 'running',
@@ -509,7 +524,11 @@ export function server(core) {
 		if (T <= 0) return undefined
 		const most = Math.min(await budget(api.conversationId), PANEL)
 		// Only the lines this cut shows, and those below them; newer messages wait for their own demand
-		const fill = await demand(home.thread, { fill: 'cut', upTo: T, budget: most })
+		const fill = await demand(home.thread, {
+			fill: 'cut',
+			upTo: T,
+			budget: most,
+		})
 		if (fill !== undefined) await core.waitForTask(fill, context)
 		return {
 			summary: render(memory(await core.commit((tx) => lines(tx, home.thread)), T, most)),
@@ -559,20 +578,12 @@ export function server(core) {
 		if (!Number.isInteger(n) || n < 1 || !Number.isInteger(id) || id < 0 || id >= all.length)
 			throw new Error(`No line ${id}+${n}; zoom one from your memory`)
 		if (n === 1) return kept(all[id])
-		const have = await core.commit((tx) => lines(tx, thread))
-		if (!have.has(key(Math.log2(n), id / n)))
-			return all
+		return (
+			halves(await core.commit((tx) => lines(tx, thread)), all.length, id, n) ??
+			all
 				.slice(id, id + n)
 				.map((message, offset) => `${id + offset}|${kept(message)}`)
 				.join('\n\n')
-		const l = Math.log2(n)
-		if (!Number.isInteger(l) || id % n)
-			throw new Error(`No line ${id}+${n}; zoom one from your memory`)
-		const half = (index) => have.get(key(l - 1, index)) ?? unwritten(l - 1, index)
-		return collapse(
-			[half(2 * (id / n)), half(2 * (id / n) + 1)]
-				.filter((line) => (line.i * n) / 2 < all.length)
-				.map(span),
 		)
 	}
 
@@ -636,6 +647,7 @@ export function server(core) {
 			})
 		}
 		if (body !== undefined) return turn(thread, body)
+		if (query.has('room')) return view(thread, Number(query.get('room')))
 		if (query.has('zoom')) {
 			const opened = await open(thread, ...query.get('zoom').split(',').map(Number))
 			return typeof opened === 'string' ? { message: opened } : { lines: opened }
@@ -648,6 +660,30 @@ export function server(core) {
 		return {
 			lines: collapse(memory(await core.commit((tx) => lines(tx, thread)), T, budget).map(span)),
 		}
+	}
+
+	/**
+	 * The memory view at `room`, 0 for the tightest cut to 100 for every line that fits PANEL, read from one copy of the
+	 * lines: its bounds in bytes, the cut, and the cut opened from the top down. Like opening the view, it writes missing
+	 * message lines.
+	 */
+	async function view(thread, room) {
+		if (!(room >= 0 && room <= 100)) throw new Error('room goes from 0 to 100')
+		const T = (await core.messages(thread)).length
+		if (remembers(await core.thread(thread))) await demand(thread, { fill: 'leaves', upTo: T })
+		if (!T) return { total: 0, least: 0, full: 0, budget: 0, cut: [], tree: [] }
+		const have = await core.commit((tx) => lines(tx, thread))
+		const cutAt = (budget) => collapse(memory(have, T, Math.min(budget, PANEL)).map(span))
+		const least = Math.max(100, sizeOf(cutAt(1)))
+		const full = Math.max(least * 2, sizeOf(cutAt(PANEL)))
+		const budget = Math.round(least * (full / least) ** (room / 100))
+		const cut = cutAt(budget)
+		const tree =
+			cut.some((line) => line.text.endsWith('not summarized yet')) ||
+			(cut.length === 1 && cut[0].n >= T)
+				? cut.map((line) => ({ ...line, kind: 'cut' }))
+				: opened(have, T, 0, 2 ** Math.ceil(Math.log2(T)), cut)
+		return { total: T, least, full, budget, cut, tree }
 	}
 
 	/** Told only to agents of a thread that remembers */
@@ -682,7 +718,10 @@ export function server(core) {
 		if (short || first)
 			await tx.createTask(
 				Line,
-				{ ...(short ? { entry: entry.id } : {}), ...(first ? { backfill: true } : {}) },
+				{
+					...(short ? { entry: entry.id } : {}),
+					...(first ? { backfill: true } : {}),
+				},
 				background(threadId),
 			)
 	}
@@ -777,6 +816,40 @@ function page(text, id, at, n = 1) {
 		? `${text.slice(at, end)}\n\n[characters ${at} to ${end} of ${text.length}: zoom(${id}, ${n}, ${end}) goes on]`
 		: text.slice(at)
 }
+
+/** The two lines line id+n was made from, as zoom shows them; nothing when that line isn't written */
+function halves(have, T, id, n) {
+	const l = Math.log2(n)
+	if (n === 1 || !have.has(key(l, id / n))) return undefined
+	const half = (index) => have.get(key(l - 1, index)) ?? unwritten(l - 1, index)
+	return collapse(
+		[half(2 * (id / n)), half(2 * (id / n) + 1)].filter((line) => (line.i * n) / 2 < T).map(span),
+	)
+}
+
+/** The cut's lines under id+n, each under the written lines above it */
+function opened(have, T, id, n, cut) {
+	const within = (line, at, size) => line.id >= at && line.id + line.n <= at + size
+	const same = (a, b) => a.id === b.id && a.n === b.n
+	const below = halves(have, T, id, n)
+	if (!below?.length || (below.length === 1 && same(below[0], { id, n })))
+		return cut.filter((line) => within(line, id, n)).map((line) => ({ ...line, kind: 'cut' }))
+	if (below.length === 1 && !cut.some((line) => same(line, below[0])))
+		return opened(have, T, below[0].id, below[0].n, cut)
+	return below.map((half) => {
+		const mine = cut.filter((line) => within(line, half.id, half.n))
+		return mine.some((line) => same(line, half))
+			? { ...half, kind: 'cut' }
+			: {
+					...half,
+					kind: 'above',
+					children: opened(have, T, half.id, half.n, mine),
+				}
+	})
+}
+
+const sizeOf = (list) =>
+	list.reduce((sum, line) => sum + bytes(`${line.id}+${line.n}|${line.text}`) + 1, 0)
 
 /** Adjacent gaps are one readable, zoomable span, even across binary-tree boundaries. */
 function collapse(list) {
