@@ -132,7 +132,7 @@ async function post() {
 			body,
 			...(flags.to ? { to } : {}),
 			...(flags.steer ? { steer: true } : {}),
-			requestId: crypto.randomUUID(),
+			key: crypto.randomUUID(),
 		}).catch(async (error) => {
 			// A new thread that never got its message isn't worth keeping
 			if (fresh) await api('POST', `/api/threads/${id}/archive`, { archived: true }).catch(() => {})

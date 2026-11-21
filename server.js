@@ -1658,8 +1658,17 @@ async function invited(id, body) {
 }
 
 /** No `to` asks the director in a group, or the last recipient in a solo chat or command. */
+/** A message's own key dedupes within its thread: `post {id}/{key}`'s reused by a retry, Matrix's event id, or a future webhook, never by another thread's. */
+function scopedKey(id, key) {
+	if (key === undefined) return undefined
+	if (typeof key !== 'string' || !key || key.length > 100)
+		throw new Error('key must be a string of 1 to 100 characters')
+	return `post ${id}/${key}`
+}
+
 async function postEntry(id, author, input) {
-	const saved = await receipt(input.requestId, `post ${id}`)
+	const requestId = scopedKey(id, input.key)
+	const saved = await receipt(requestId, `post ${id}`)
 	if (saved) return withPick(id, saved.result)
 	await conversation(id)
 	const images = imageList(input.images)
@@ -1677,7 +1686,7 @@ async function postEntry(id, author, input) {
 	if (command) await reach(to, author, await known())
 	if (!command && to.filter((to) => !to.name).length > 1)
 		throw new Error('A thread has one agent: ask one model here, plus any bots')
-	const result = await once(input.requestId, `post ${id}`, async (tx) =>
+	const result = await once(requestId, `post ${id}`, async (tx) =>
 		command
 			? (await tx.createTask(Shell, { author, command, to: to[0] }, { ...own, conversationId: id }),
 				{ command, to: to[0] })
@@ -1754,7 +1763,7 @@ async function exampleShed({ requestId }) {
 	const { SHED } = await import('./apps/client/tutorial-shed.js')
 	const { id } = await createThread({ title: 'The shed', requestId })
 	for (const [index, [author, body]] of SHED.entries())
-		await postEntry(id, personName(author), { body, to: null, requestId: `shed-${id}-${index}` })
+		await postEntry(id, personName(author), { body, to: null, key: `shed-${index}` })
 	return { id }
 }
 

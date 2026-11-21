@@ -9,6 +9,7 @@ The basics:
 - one command to start anywhere: `npx github:oskarrough/ade`
 - one command to let agents work on another machine
 - threads survive crashes, restarts and reloads
+- a repeated send with the same key lands once, so a retry, Matrix or a webhook never posts twice
 - works with any model provider, via pi
 
 I run it on my office computer, which is always on, at localhost:3000. That's all I need for daily work, and my laptop and home PC can join as runners when I want agents working there.

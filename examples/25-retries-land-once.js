@@ -31,16 +31,16 @@ const id = made.json.id
 const said = await api('POST', `/api/threads/${id}/entries`, {
 	body: 'hello',
 	to,
-	requestId: 'say-1',
+	key: 'say-1',
 })
 const resent = await api('POST', `/api/threads/${id}/entries`, {
 	body: 'hello',
 	to,
-	requestId: 'say-1',
+	key: 'say-1',
 })
 check(
 	JSON.stringify(resent.json) === JSON.stringify(said.json),
-	'a retried message returns the first result',
+	'a retried message, by its own key, returns the first result',
 	JSON.stringify([said.json, resent.json]),
 )
 await answered(id)
@@ -50,7 +50,7 @@ srv = await server()
 const later = await api('POST', `/api/threads/${id}/entries`, {
 	body: 'hello',
 	to,
-	requestId: 'say-1',
+	key: 'say-1',
 })
 const remade = await api('POST', '/api/threads', { title: 'once', requestId: 'make-1' })
 check(
@@ -61,9 +61,9 @@ check(
 
 const ran = await api('POST', `/api/threads/${id}/entries`, {
 	body: '$ echo hi',
-	requestId: 'run-1',
+	key: 'run-1',
 })
-await api('POST', `/api/threads/${id}/entries`, { body: '$ echo hi', requestId: 'run-1' })
+await api('POST', `/api/threads/${id}/entries`, { body: '$ echo hi', key: 'run-1' })
 await until(async () => (await view(id)).entries.some((e) => e.data.shell))
 await quiet()
 const v = await view(id)
@@ -76,15 +76,17 @@ check(answers(v).length === 1, 'one answer', JSON.stringify(answers(v).length))
 check(v.entries.filter((e) => e.data.shell).length === 1, 'one command run')
 check((await threads()).length === 1, 'one thread')
 
-const other = await api('POST', '/api/threads', { title: 'other', requestId: 'say-1' })
-const wrong = await api('POST', `/api/threads/${id}/entries`, {
-	body: 'hello',
-	requestId: 'make-1',
+const other = await api('POST', '/api/threads', { title: 'other', requestId: 'other-1' })
+const otherId = other.json.id
+const here = await api('POST', `/api/threads/${id}/entries`, { body: 'hi there', key: 'shared' })
+const elsewhere = await api('POST', `/api/threads/${otherId}/entries`, {
+	body: 'hi here',
+	key: 'shared',
 })
 check(
-	other.status === 400 && wrong.status === 400 && (await threads()).length === 1,
-	'a request id for another command is refused',
-	JSON.stringify([other.json, wrong.json]),
+	here.status === 201 && elsewhere.status === 201 && here.json.entry !== elsewhere.json.entry,
+	'a key is scoped to its thread: the same key in another thread is a different message',
+	JSON.stringify([here.json, elsewhere.json]),
 )
 
 done()
