@@ -696,7 +696,11 @@ const here = (thread = current()) => threadOf(thread)?.agents ?? []
 const lastTo = (thread = current()) =>
 	(entries[thread] ?? []).findLast((event) => event.data.to?.length)?.data.to
 const fallback = (runner) =>
-	compose.settings[runner.name] ?? { runner: runner.name, model: runner.model }
+	compose.settings[runner.name] ?? {
+		runner: runner.name,
+		model: runner.model,
+		...(runner.thinkingLevel && { thinkingLevel: runner.thinkingLevel }),
+	}
 /** Whom the next message asks as the agent: in a bot's home the bot, else the pick, else the thread's agent as it runs */
 export const agent = (thread = current()) => {
 	const bot = homeBot(thread)
