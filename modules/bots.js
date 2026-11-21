@@ -43,6 +43,7 @@ export function server(core) {
 		if (typeof name !== 'string' || !/^[\w.-]{1,40}$/.test(name))
 			throw new Error('A name is 1 to 40 letters, digits, _ . or -')
 		if ((await core.known())[name]) throw new Error(`${name} is a runner; pick another name`)
+		if (name === core.owner) throw new Error(`${name} is the owner's name; pick another name`)
 		if (name === AGENT)
 			throw new Error(`${AGENT} is what every thread calls its own; pick another name`)
 	}

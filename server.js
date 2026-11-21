@@ -42,6 +42,7 @@ import {
 	said,
 	byAgent,
 	personName,
+	ownerName,
 	finished,
 	directorTimes,
 } from './util.js'
@@ -139,8 +140,6 @@ const ownerKeyFile = path.join(path.dirname(file), 'owner.key')
 if (!existsSync(ownerKeyFile))
 	writeFileSync(ownerKeyFile, `aok_${randomBytes(24).toString('base64url')}\n`, { mode: 0o600 })
 const ownerKey = readFileSync(ownerKeyFile, 'utf8').trim()
-/** The owner as a person, by the name they log in to this machine with */
-const owner = personName(os.userInfo().username)
 /** The cookie a browser keeps the owner key in; per port, since cookies ignore ports */
 const ownerCookie = () => `ade_owner_${port}`
 const isOwnerKey = (given) =>
@@ -184,6 +183,8 @@ function whoSent(req, serve) {
 	)
 	return loopback(req.socket.remoteAddress ?? '') && loopbackHost(req) && !proxied ? owner : null
 }
+/** A person a runner names: a tailnet login, `ana@github`, as Serve names them; any other name as it is, the owner's */
+const personal = (name) => (name.includes('@') ? personName(name) : name)
 const nobody = (serve) =>
 	serve
 		? 'Tailscale Serve named nobody: open it from a device logged in to the tailnet'
@@ -1730,6 +1731,10 @@ const defaults = await builtIn()
 /** ade.json, as it started; the page changes it, and a restart takes it up */
 const settings = await readConfig()
 core.config = settings.config
+/** The owner's name, as their messages are signed: `owner` in ade.json, else their login on this machine. Set it to
+ * the name their history has, and it stays theirs. */
+const owner = ownerName(settings.config.owner ?? os.userInfo().username)
+core.owner = owner
 const modules = await load('server', core, settings)
 for (const module of modules) if (module.extension) registry.install(module.extension)
 const customModules = (settings.config.modules ?? [])
@@ -1845,6 +1850,7 @@ const routes = /** @type {[string, Function][]} */ ([
 			runners: Object.keys(await keys()).length,
 			work: await harness.inspect(context),
 			settings: {
+				owner,
 				memory: {
 					model: settings.config.memory?.model ?? '',
 					compactAt: compactAt ?? null,
@@ -2605,10 +2611,10 @@ async function upgrade(req, raw, head, serve = false) {
 	if (connection.phase === 'closed') return
 	const runner = {
 		/** Whom it takes work from: people by their names here, and `@runner` for agents working on that runner */
-		owner: query('owner') && personName(query('owner')),
+		owner: query('owner') && personal(query('owner')),
 		allow: url.searchParams
 			.getAll('allow')
-			.map((who) => (who.startsWith('@') ? who : personName(who))),
+			.map((who) => (who.startsWith('@') ? who : personal(who))),
 		host: query('host'),
 		home: query('home'),
 		dir: query('dir') || '/',
@@ -2659,7 +2665,7 @@ async function upgrade(req, raw, head, serve = false) {
  * the director's a small model on each thread's runner. `bots.voice` empty means no shared instruction; equal to
  * DEFAULT_VOICE it's left out of ade.json, since that's what every bot reads without one.
  */
-async function saveSettings({ modules: wanted = {}, memory, director, bots }) {
+async function saveSettings({ modules: wanted = {}, memory, director, bots, owner: name }) {
 	const known = [
 		...Object.keys(defaults),
 		...customModules.map((entry) => path.basename(entry, '.js')),
@@ -2719,6 +2725,10 @@ async function saveSettings({ modules: wanted = {}, memory, director, bots }) {
 			else next.director = { ...next.director, [field]: value }
 		}
 		if (next.director && !Object.keys(next.director).length) delete next.director
+	}
+	if (name !== undefined) {
+		if (name === '') delete next.owner
+		else next.owner = ownerName(name)
 	}
 	if (bots !== undefined) {
 		if (typeof bots.voice !== 'string') throw new Error('bots voice is text')

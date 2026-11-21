@@ -1,6 +1,6 @@
 /** Who wrote a message comes from how the request arrived, never from a name it gives: the owner on the server's own
  * machine, a friend by the login Tailscale Serve names, nobody without one; and posts, read marks and the canvas agree */
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import WebSocket from 'ws'
 import { createTLSchema } from '@tldraw/tlschema'
@@ -9,6 +9,7 @@ import {
 	api,
 	base,
 	check,
+	configDir,
 	db,
 	done,
 	owner,
@@ -22,10 +23,12 @@ import {
 
 /** tldraw sync's protocol version is exported, though its types leave it out */
 const { getTlsyncProtocolVersion } = /** @type {any} */ (await import('@tldraw/sync-core'))
+// The owner signs as ade.json's `owner`, the name their history has
+writeFileSync(path.join(configDir, 'ade.json'), JSON.stringify({ owner: 'oskar' }))
 await server({ MODULES: '+canvas' })
 await runner('laptop')
 const tailnet = `http://127.0.0.1:${servePort}`
-check(owner?.startsWith('~'), 'on its own machine, you are the owner', owner)
+check(owner === 'oskar', 'on its own machine, you are the owner, by the name ade.json gives', owner)
 
 const {
 	json: { id },

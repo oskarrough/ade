@@ -5,7 +5,7 @@ await server()
 await runner('laptop')
 
 check(
-	(await api('GET', '/api/server')).json.me?.startsWith('~'),
+	Boolean((await api('GET', '/api/server')).json.me),
 	'the server says who it takes you for: on its own machine, its owner',
 )
 

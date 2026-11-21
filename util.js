@@ -102,6 +102,19 @@ export const personName = (login) =>
 		.replace(/[\p{Cc}\p{Cf}\s]/gu, '')
 		.replaceAll('@', '+')}`
 
+/** The owner's name as written in ade.json: one line, no `@`, which would make it an agent, and no leading `~`, which
+ * marks a tailnet login; else it throws */
+export function ownerName(name) {
+	const clean = String(name ?? '')
+		.normalize('NFKC')
+		.replace(/[\p{Cc}\p{Cf}]/gu, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
+	if (!clean || clean.length > 40 || clean.includes('@') || clean.startsWith('~'))
+		throw new Error("owner is the owner's name: 1 to 40 characters, no @, not starting with ~")
+	return clean
+}
+
 export function field(value, name) {
 	if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`)
 	return value.trim()
