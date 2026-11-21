@@ -1174,11 +1174,29 @@ async function status(id, row, busy, reader) {
 	return 'idle'
 }
 
+/** Each thread's people who wrote there so far, and the newest entry read for them, so a thread is read once per server */
+const writers = new Map()
 /** Who's in a thread needs no state of its own: the people who wrote there, or read. Only an open thread needs it. */
 async function people(id) {
-	const wrote = (await messages(id)).filter((entry) => !byAgent(entry.data))
+	const handle = await conversation(id)
+	const wrote = writers.get(id) ?? { after: 0, authors: new Set() }
+	writers.set(id, wrote)
+	for (let cursor; ;) {
+		const page = await handle.entries(
+			{ order: 'ascending', minEntryId: wrote.after + 1 },
+			500,
+			cursor,
+			context,
+		)
+		for (const record of page.items) {
+			const entry = /** @type {import("@earendil-works/pi-durable").TypedEntry<Message>} */ (record)
+			if (entry.kind === KIND && !byAgent(entry.data)) wrote.authors.add(entry.data.author)
+			wrote.after = Math.max(wrote.after, entry.id)
+		}
+		if (!(cursor = page.next)) break
+	}
 	const { reads } = await thread(id)
-	return [...new Set([...wrote.map((entry) => entry.data.author), ...Object.keys(reads)])]
+	return [...new Set([...wrote.authors, ...Object.keys(reads)])]
 }
 
 /** `homes`, each bot's home thread → its name, saves reading them for every row of a list */
