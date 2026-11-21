@@ -652,13 +652,14 @@ export function server(core) {
 			const opened = await open(thread, ...query.get('zoom').split(',').map(Number))
 			return typeof opened === 'string' ? { message: opened } : { lines: opened }
 		}
-		const T = (await core.messages(thread)).length
+		await core.conversation(thread)
+		const T = (await indexOf(thread)).ids.length
 		// Opening the memory view writes its missing message lines, never merges
 		if (!query.size && remembers(await core.thread(thread)))
 			await demand(thread, { fill: 'leaves', upTo: T })
 		const budget = Math.min(Number(query.get('budget')) || PANEL, PANEL)
 		return {
-			lines: collapse(memory(await core.commit((tx) => lines(tx, thread)), T, budget).map(span)),
+			lines: collapse(memory((await indexOf(thread)).have, T, budget).map(span)),
 		}
 	}
 
@@ -669,10 +670,22 @@ export function server(core) {
 	 */
 	async function view(thread, room) {
 		if (!(room >= 0 && room <= 100)) throw new Error('room goes from 0 to 100')
-		const T = (await core.messages(thread)).length
+		await core.conversation(thread)
+		const T = (await indexOf(thread)).ids.length
 		if (remembers(await core.thread(thread))) await demand(thread, { fill: 'leaves', upTo: T })
 		if (!T) return { total: 0, least: 0, full: 0, budget: 0, cut: [], tree: [] }
-		const have = await core.commit((tx) => lines(tx, thread))
+		// The lines this thread's index keeps; the same messages and lines at the same room give the same view
+		const { have } = await indexOf(thread)
+		const version = `${T} ${have.size} ${room}`
+		const seen = views.get(thread)
+		if (seen?.version === version) return seen.view
+		const shown = layOut(have, T, room)
+		views.set(thread, { version, view: shown })
+		return shown
+	}
+	/** Each thread's last memory view, with the messages, lines and room it was laid out for */
+	const views = new Map()
+	function layOut(have, T, room) {
 		const cutAt = (budget) => collapse(memory(have, T, Math.min(budget, PANEL)).map(span))
 		const least = Math.max(100, sizeOf(cutAt(1)))
 		const full = Math.max(least * 2, sizeOf(cutAt(PANEL)))

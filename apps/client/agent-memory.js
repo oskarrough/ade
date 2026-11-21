@@ -108,8 +108,22 @@ function ThreadMemory(props) {
 	const path = untrack(() => `/api/threads/${props.thread}/memory`)
 	const read = (query = '') => api(path + query)
 	const view = createMemo(() => read(`?room=${props.room}`))
+	/** Read again every 3 s while lines are still being written, else once a message lands */
+	const count = () => entries[props.thread]?.length ?? 0
 	onSettled(() => {
-		const timer = setInterval(() => refresh(view), 3000)
+		let seen = untrack(count)
+		const timer = setInterval(() => {
+			const writing = untrack(() => {
+				try {
+					return view().cut.some((line) => line.text.includes('not summarized yet'))
+				} catch {
+					return true
+				}
+			})
+			if (!writing && untrack(count) === seen) return
+			seen = untrack(count)
+			refresh(view)
+		}, 3000)
 		return () => clearInterval(timer)
 	})
 	const Lines = (props) => html`
