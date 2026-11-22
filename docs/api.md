@@ -188,7 +188,7 @@ PORT=3001 npx github:oskarrough/ade     # a fixed port; otherwise the first free
 DB_PATH=other.sqlite npx github:oskarrough/ade
 ```
 
-These win over the file; leave them unset to choose from the page.
+These win over the file; leave them unset to choose from the page. Only the owner changes settings: `POST /api/settings` from anyone else is refused with 403, since settings name the owner and the tailnet logins that count as them.
 
 ```sh
 MODULES=+web-search,-talk npx github:oskarrough/ade

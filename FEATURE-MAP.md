@@ -52,7 +52,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   cutOf                             an agent's newest compaction cut, sent with its first batch so its turns reach back only to the messages sent
   earlier, covers                   an earlier page on request, after the agent turns that reach back to it
   mintKey, revoke, upgrade          runner keys and the runner's socket; a module's own thread socket (its `connect`)
-  saveSettings, restart, connectSelf   settings, restart, the server lending its own machine, under the name it first got
+  saveSettings, restart, connectSelf   settings (POST /api/settings, the owner only), restart, the server lending its own machine, under the name it first got
 echo.js                  echo/try scripted model responses: file tools, slow commands, posts, `ask` questions, `wake` calls, `search`, bots, director and recap
 runner.js                a runner: offers its models and folder shortcuts, connects, runs agents in any folder on its machine
 runner-updater.js        what `curl <server>/connect-runner | sh` starts (it saves the key in ~/.config/ade/key.<name>); keeps the runner up to date

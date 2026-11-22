@@ -2246,7 +2246,15 @@ const routes = /** @type {[string, Function][]} */ ([
 			},
 		}),
 	],
-	['POST /api/settings', async (req) => saveSettings(await input(req))],
+	[
+		'POST /api/settings',
+		async (req) => {
+			// Settings name the owner and their logins, so only the owner changes them
+			if (user(req) !== owner)
+				throw Object.assign(new Error('Only the owner changes settings'), { status: 403 })
+			return saveSettings(await input(req))
+		},
+	],
 	[
 		'GET /api/runners',
 		async () => {

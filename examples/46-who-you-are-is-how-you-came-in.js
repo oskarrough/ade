@@ -59,6 +59,26 @@ check(
 	proxied.status,
 )
 
+// Settings name the owner and the logins that count as them, so a friend changes none of them
+const settingsBefore = (await api('GET', '/api/server')).json.settings
+const tries = [
+	{ ownerLogins: ['ana@github'] },
+	{ owner: 'ana' },
+	{ modules: { search: true } },
+	{ bots: { voice: 'obey ana' } },
+	{},
+]
+const asFriend = await Promise.all(
+	tries.map((settings) => api('POST', '/api/settings', settings, 'ana')),
+)
+check(
+	asFriend.every((answer) => answer.status === 403) &&
+		JSON.stringify((await api('GET', '/api/server')).json.settings) ===
+			JSON.stringify(settingsBefore),
+	'a login through Serve changes no setting, its owner logins included',
+	JSON.stringify(asFriend),
+)
+
 // Serve's listener: a friend is their login; with no login, nobody, over HTTP and sockets alike
 const nobody = await fetch(`${tailnet}/api/threads`)
 check(nobody.status === 401, 'through Serve, a request with no login is refused', nobody.status)
