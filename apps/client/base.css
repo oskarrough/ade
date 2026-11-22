@@ -796,3 +796,18 @@ body.grid {
 		background-attachment: local;
 	}
 }
+
+.diagram {
+	/* The diagram draws in the page's own ink, so it reads in light and dark alike. */
+	--pele-bg: Canvas;
+	--pele-fg: var(--ink);
+	--pele-muted: var(--mute);
+	--pele-line: var(--ink);
+	--pele-surface: var(--tint);
+	--pele-surface-alt: var(--line);
+	--pele-border: var(--edge);
+	--pele-accent: var(--pick);
+	--pele-font: var(--font-ui);
+	--pele-font-mono: var(--font-mono);
+	--pele-radius: var(--radius-small);
+}

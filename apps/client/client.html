@@ -26,7 +26,8 @@
 				"@solidjs/signals": "/packages/@solidjs/signals/dev.js",
 				"@solidjs/web": "/packages/@solidjs/web/web.dev.js",
 				"@solidjs/html": "/packages/@solidjs/html/html.js",
-				"marked": "/packages/marked/marked.esm.js"
+				"marked": "/packages/marked/marked.esm.js",
+				"pele": "/packages/pele/pele.js"
 			}
 		}
 	</script>
@@ -208,14 +209,5 @@ sequenceDiagram
 			<div class="stage" id="stage"></div>
 		</main>
 		<script type="module" src="/client.js"></script>
-		<script type="module">
-			import { mount } from '/packages/pele/pele.js'
-			for (const pre of document.querySelectorAll('pre.mermaid')) {
-				const box = document.createElement('div')
-				box.className = 'diagram'
-				pre.replaceWith(box)
-				mount(box, pre.textContent, { zoom: false })
-			}
-		</script>
 	</body>
 </html>

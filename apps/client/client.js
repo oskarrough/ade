@@ -21,11 +21,13 @@ import { sideOf, toggleSide } from './side.js'
 import { Dot } from './dot.js'
 import { System } from './system.js'
 import { Tutorial } from './tutorial.js'
+import { storyDiagram } from './mermaid.js'
 
 function Client() {
 	document.body.classList.toggle('grid', params.has('grid'))
 	createEffect(chat, (on) => {
 		document.body.classList.toggle('chat', on)
+		if (!on) void storyDiagram()
 		drawer(null)
 		const next = new URL(location.href)
 		if (on) next.searchParams.delete('story')

@@ -11,7 +11,7 @@ import {
 	Show,
 } from 'solid-js'
 import { entries, homeBot, threadOf, titleOf } from './server.js'
-import { Cross, Name } from './thread.js'
+import { Cross, MessageMarkdown, Name } from './thread.js'
 import { doing, messageText, touched } from './agent.js'
 
 /**
@@ -81,7 +81,9 @@ export function Turn(props) {
 								<//>
 							`}<//
 						>
-						<${Show} when=${said}><li class="said">${said}</li><//>
+						<${Show} when=${said}
+							><li class="said"><${MessageMarkdown} text=${said} live=${true} /></li
+						><//>
 					</ol>
 				<//>
 			</details>

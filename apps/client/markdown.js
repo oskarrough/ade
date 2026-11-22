@@ -5,7 +5,7 @@
  */
 import { marked } from 'marked'
 
-/** @typedef {import('marked').MarkedOptions & { threadLink?: (title: string) => { href: string, id: number, title: string }, botColor?: (name: string) => string }} LinkOptions */
+/** @typedef {import('marked').MarkedOptions & { mermaid?: boolean, threadLink?: (title: string) => { href: string, id: number, title: string }, botColor?: (name: string) => string }} LinkOptions */
 
 const escape = (text) =>
 	text.replace(
@@ -62,6 +62,18 @@ marked.use({
 	],
 	breaks: true,
 	renderer: {
+		code(token) {
+			if (
+				!(/** @type {LinkOptions} */ (this.options).mermaid) ||
+				!/^mermaid(?:\s|$)/i.test(token.lang ?? '')
+			)
+				return false
+			// Marked accepts an unfinished fence too; only an explicit closing fence gets a diagram.
+			const opening = token.raw.match(/^ {0,3}(`{3,}|~{3,})/)?.[1]
+			const closing = token.raw.trimEnd().match(/\n {0,3}(`{3,}|~{3,})$/)?.[1]
+			if (!opening || !closing?.startsWith(opening)) return false
+			return `<pre data-mermaid><code class="language-mermaid">${escape(token.text)}\n</code></pre>\n`
+		},
 		html: ({ text, block }) => (block ? `<p>${escape(text.trim())}</p>\n` : escape(text)),
 		link({ href, title, tokens }) {
 			const label = this.parser.parseInline(tokens)

@@ -447,18 +447,6 @@ body:not(.chat) {
 		.diagram {
 			margin: var(--space-5) 0 var(--space-2);
 			padding: var(--space-4);
-			/* The diagram draws in the page's own ink, so it reads in light and dark alike. */
-			--pele-bg: Canvas;
-			--pele-fg: var(--ink);
-			--pele-muted: var(--mute);
-			--pele-line: var(--ink);
-			--pele-surface: var(--tint);
-			--pele-surface-alt: var(--line);
-			--pele-border: var(--edge);
-			--pele-accent: var(--pick);
-			--pele-font: var(--font-ui);
-			--pele-font-mono: var(--font-mono);
-			--pele-radius: var(--radius-small);
 			background: Canvas;
 			border: 1px solid var(--line);
 			border-radius: var(--radius);

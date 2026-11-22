@@ -972,6 +972,25 @@ agent-memory {
 	}
 }
 
+.markdown .message-diagram {
+	margin-block: var(--space-3);
+	max-width: 100%;
+
+	.diagram {
+		overflow-x: auto;
+
+		svg {
+			display: block;
+		}
+	}
+
+	summary {
+		width: fit-content;
+		font-size: var(--text-small);
+		color: var(--mute);
+	}
+}
+
 /* A message's markdown: as compact as the chat around it, headings barely bigger than text. */
 .markdown {
 	white-space: normal;

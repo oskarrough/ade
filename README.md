@@ -71,6 +71,7 @@ So, what's different about this one? Not much, but it adds patterns I've found u
 - Matrix rooms become threads (`matrix`, off by default)
 - a short recap per thread says where it stands (`recap`, off by default)
 - a canvas per thread that people and agents draw on together, with tldraw (`canvas`, off by default)
+- Mermaid code blocks in messages become diagrams, with their source one click away (`mermaid`, off by default)
 - move threads to and from pi (`pi-sessions`, off by default)
 - agents leave you questions only you can answer, and carry on meanwhile; the thread waits on you until you write, and one inbox lists every open question, answered right there (`inbox`, off by default)
 - agents come back to a thread later, once, every so often, or when another thread is done, and you see and cancel what's pending (`wake`, off by default), or on a GitHub push, a failed CI run or any service's webhook (`hooks`, off by default)

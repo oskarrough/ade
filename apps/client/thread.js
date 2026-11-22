@@ -42,6 +42,7 @@ import {
 	setEarlier,
 	setEntries,
 	setPeople,
+	server,
 	threadRows,
 	titleOf,
 	watch,
@@ -68,6 +69,7 @@ import { Dot } from './dot.js'
 import { report } from './notice.js'
 import { imageUrl } from './images.js'
 import { markdown } from './markdown.js'
+import { messageDiagrams } from './mermaid.js'
 import { sideOf, toggleSide } from './side.js'
 import { heardActivity } from './director.js'
 import { CanvasRow } from './canvas.js'
@@ -1122,15 +1124,33 @@ export const Body = (props) => html`
 		when=${() => !props.data.shell && !props.data.error}
 		fallback=${html`<span class="body">${() => props.data.body}</span>`}
 	>
-		<div
-			class="body markdown"
-			innerHTML=${() => markdown(props.data.body, links)}
-			onClick=${(event) => {
-				const link = event.target.closest('a[data-thread]')
-				if (link) followThread(event, Number(link.dataset.thread))
-			}}
-		/><//>
+		<${MessageMarkdown} text=${() => props.data.body}
+	/><//>
 `
+
+export function MessageMarkdown(props) {
+	const markup = createMemo(() => {
+		const text = props.text ?? ''
+		const mermaid = server().modules.includes('mermaid')
+		if (props.live && !(mermaid && /(?:`{3,}|~{3,})mermaid\b/i.test(text))) return null
+		const markup = markdown(text, { ...links, mermaid })
+		return props.live && !markup.includes('<pre data-mermaid>') ? null : markup
+	})
+	return html`<${Show} when=${() => markup() !== null} fallback=${() => props.text}>
+		${() => {
+			let draw
+			createEffect(markup, (markup) => draw?.(markup))
+			return html`<div
+				class="body markdown"
+				ref=${(element) => (draw = messageDiagrams(element))}
+				onClick=${(event) => {
+					const link = event.target.closest('a[data-thread]')
+					if (link) followThread(event, Number(link.dataset.thread))
+				}}
+			/>`
+		}}<//
+	> `
+}
 
 const Images = (props) => html`
 	<${Show} when=${() => props.images?.length}>

@@ -87,6 +87,7 @@ modules/
                          activity events for the Director tab; settings model, context, timeout, burst
                          those asked take turns (`turns`); a bot's answer @mentioning a bot asks it, resting
                          after three bot answers in a row (botTurns); tells bots to @mention, not post (section)
+  mermaid.js             encourages agents to use Mermaid where a diagram explains better; off by default
   recap.js               a thread's recap, a checklist of `- [x]`/`- [ ]` lines: WRITER (the prompt), Recap doc, Write task (one writer,
                          rounds while more is new), since (the new messages, numbered), misshapen (one retry), checklist (the cap), looking (who has it open),
                          serve, the `recap` tool; off by default
@@ -220,6 +221,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          CSS-anchored (base.css `.quote-anchor`) to a marker it plants at the selection's end inside a
                          message list, calling composer.js's appendQuote for that thread; nothing on a touch screen
   images.js, markdown.js image shrinking to pi's limits; message markdown, and threadMention, the `@"title"` a picked thread writes
+  mermaid.js            messageDiagrams keeps closed Mermaid blocks as SVG with a Source disclosure, or as code when Pele fails; storyDiagram loads the walkthrough diagram
   base.css               tokens, reset, every control's look (buttons and their variants), popover, rows, panes, status dot
   app.css                the chat's layout: list, threads, messages, composer, sheet, picker, settings, phone
   walkthrough.css        the story page and the live system's boxes and wires, all under body:not(.chat)
