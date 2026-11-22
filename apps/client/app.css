@@ -708,10 +708,6 @@ agent-memory {
 					.whole > p {
 						white-space: pre-wrap;
 					}
-
-					.whole > .answer {
-						margin-top: var(--space-2);
-					}
 				}
 
 				/* A crossed row is two lines: the other side, its model and a post's mark; then, indented and grey, the
