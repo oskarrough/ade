@@ -70,7 +70,9 @@ func loadSettings() (s settings) {
 // localhost:3000.
 func startURL(flagged string) string {
 	if flagged != "" {
-		saveSettings(settings{URL: flagged})
+		s := loadSettings()
+		s.URL, s.Last = flagged, ""
+		saveSettings(s)
 		return flagged
 	}
 	if saved := loadSettings(); saved.Last != "" {
@@ -148,7 +150,9 @@ func (Desktop) SetServer(raw string) error {
 	if !ok {
 		return fmt.Errorf("%q is not an http or https address", raw)
 	}
-	saveSettings(settings{URL: found})
+	s := loadSettings()
+	s.URL, s.Last = found, ""
+	saveSettings(s)
 	mygo.App.Relaunch()
 	return nil
 }
@@ -191,7 +195,11 @@ func waitForServer(target string) {
 	offline.waiting = true
 	offline.Unlock()
 
+	if local(origin) {
+		startHouse()
+	}
 	page := strings.ReplaceAll(offlinePage, "{{server}}", html.EscapeString(origin))
+	page = strings.ReplaceAll(page, "{{house}}", html.EscapeString(houseNote))
 	mygo.RunOnMain(func() { win.Page().LoadHTML(page, "") })
 	for !reachable() {
 		select {
@@ -207,6 +215,8 @@ func waitForServer(target string) {
 }
 
 func main() {
+	flagHouse := flag.String("house", "", `start ade in this folder when it's down, e.g. ~/sites/ade ("off" never does)`)
+	flagHouseCommand := flag.String("house-command", "", `with -house, the command that starts it (default "ade")`)
 	flagURL := flag.String("url", "", "the ade server, e.g. http://localhost:3000 or http://box.tailnet.ts.net:3000")
 	flag.Parse()
 
@@ -219,6 +229,18 @@ func main() {
 	mygo.Use(updater.New(updater.Options{Interval: time.Hour}))
 
 	mygo.App.WhenReady(func() {
+		if *flagHouse != "" {
+			h := loadHouse()
+			on := *flagHouse != "off"
+			h.Start = &on
+			if on {
+				h.Dir, h.Command = *flagHouse, *flagHouseCommand
+			}
+			saveHouse(h)
+		}
+		// Alt, or F10, opens it in the window's corner
+		mygo.App.SetMenu(houseMenu())
+		updateHouseMenu()
 		start := startURL(*flagURL)
 		found, ok := originOf(start)
 		if !ok {
@@ -251,7 +273,9 @@ func main() {
 		// Open where you left off next time, as a browser tab would.
 		win.OnClose(func(*mygo.CloseEvent) {
 			if last := win.Page().URL(); sameOrigin(last) {
-				saveSettings(settings{URL: origin, Last: last})
+				s := loadSettings()
+				s.URL, s.Last = origin, last
+				saveSettings(s)
 			}
 		})
 

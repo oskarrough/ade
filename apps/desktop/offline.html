@@ -81,6 +81,12 @@
 			button {
 				cursor: pointer;
 			}
+			.house:empty {
+				display: none;
+			}
+			.house {
+				margin-top: 0.5rem;
+			}
 			.actions {
 				margin-top: 1rem;
 			}
@@ -99,6 +105,7 @@
 				Nothing answers at <code>{{server}}</code>. Trying again every few seconds; the page comes
 				back by itself.
 			</p>
+			<p class="house">{{house}}</p>
 			<p class="actions"><button type="button" id="try">Try now</button></p>
 			<details>
 				<summary>Use another server</summary>

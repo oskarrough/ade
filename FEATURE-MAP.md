@@ -184,6 +184,7 @@ Where a feature lives:
 - Threads side by side: client server.js followThread/besideKey/openBeside, `columns`.
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
 - A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js.
+- The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log).
 - The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js, release.sh.
 
 ## UI parts

@@ -12,6 +12,19 @@ ade in its own window: the page an ade server serves, in the system's webview (W
 
 Changes to ade itself need none of this: the window loads the client from the server, and the page offers "Update" in the list's foot when ade changed. A new desktop release is only for changes in this folder.
 
+## The house
+
+When the window's address is on this machine (localhost) and nothing answers, arbe desktop can start ade itself: on Windows inside WSL, elsewhere directly, in a login shell, so it finds node and ade as your terminal does. It asks the first time. The server keeps running when you close the window, so agents finish their work. If something already answers, it starts nothing.
+
+The House menu (Alt or F10 on Windows) has Start house, Stop house, the switch, and the log. Stop house stops only a house the app started: `house.sh` keeps its process group and a token in `~/.local/state/arbe-desktop/house.pid`, and a process without that token is never touched. The log, with startup crashes, is `~/.local/state/arbe-desktop/house.log` (in WSL on Windows).
+
+What it runs lives in `house.json` beside the app's settings (`%AppData%\arbe desktop` on Windows): `start`, `dir` (default `~`) and `command` (default `ade`). Or set it once from a terminal:
+
+```
+"arbe desktop.exe" -house ~/sites/ade -house-command "SERVE_PORT=3001 ade"
+"arbe desktop.exe" -house off
+```
+
 ## Run it from source
 
 You need Go; `go.mod` names the version MyGo needs, and `GOTOOLCHAIN=auto` fetches it if yours is older. On Linux and WSL you also need WebKitGTK 4.1 (`sudo dnf install webkit2gtk4.1`).

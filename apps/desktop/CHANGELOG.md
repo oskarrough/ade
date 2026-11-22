@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Starts your house: when nothing answers at a localhost address, arbe desktop starts the ade server and its runner (inside WSL on Windows) and leaves them running when you close the window. It asks once; the House menu (Alt) turns it off, starts or stops the house it started, and opens its log.
+
 ## 0.1.4
 
 - Settings shows which arbe desktop you're running, at the bottom.
