@@ -266,15 +266,38 @@ agent-memory {
 	overflow-y: auto;
 }
 
-/* New thread and New bot side by side, above both lists; their rows sit on the same grid as the ones below, the + where a dot sits. */
-.thread-list > ul.new-rows {
+/* Search, New thread and New bot on one row above both lists: the field takes what's left, the two sit compact at its end; the first one's icon where a row's dot sits. */
+.thread-list > ul.top-row {
 	flex: none;
 	display: flex;
-	flex-wrap: wrap;
 	overflow: visible;
 
 	> li {
 		flex: none;
+	}
+
+	> li.search {
+		flex: 1;
+	}
+
+	&:has(> li.search) > li:not(.search) > .row {
+		gap: var(--space-1);
+		padding-inline: var(--space-1);
+	}
+}
+
+/* The inbox on its own row: muted while nothing waits, in full ink on a soft tint while something does. */
+.thread-list > ul.inbox-row {
+	flex: none;
+	overflow: visible;
+
+	> li {
+		color: var(--mute);
+	}
+
+	> li.waiting {
+		background: var(--tint);
+		color: var(--ink);
 	}
 }
 
@@ -2349,12 +2372,8 @@ body.resizing {
 }
 
 /* The search field sits in a row like the new bot's name, its magnifier where a row's dot is; first in the sidebar, one gap above New thread/New bot. */
-.thread-list > ul.search-row {
-	flex: none;
-	overflow: visible;
-	margin-bottom: var(--space-4);
-
-	> li > form.row > input {
+.thread-list > ul.top-row > li.search {
+	> form.row > input {
 		margin-left: 0;
 		padding-left: 0;
 	}

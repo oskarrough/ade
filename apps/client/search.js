@@ -55,36 +55,34 @@ export function SearchField() {
 		timer = setTimeout(() => openSearch(text), 150)
 	}
 	return html`
-		<ul class="search-row">
-			<li class=${() => ['new', { current: searchFor() !== null }]}>
-				<form
-					class="row"
-					role="search"
-					onSubmit=${(event) => {
-						event.preventDefault()
-						clearTimeout(timer)
-						if (draft().trim()) openSearch(draft())
-						drawer(null)
+		<li class=${() => ['new', 'search', { current: searchFor() !== null }]}>
+			<form
+				class="row"
+				role="search"
+				onSubmit=${(event) => {
+					event.preventDefault()
+					clearTimeout(timer)
+					if (draft().trim()) openSearch(draft())
+					drawer(null)
+				}}
+			>
+				<span class="plus" aria-hidden="true"><${Icon} name="search" /></span>
+				<input
+					type="search"
+					class="bare"
+					aria-label="Search messages"
+					placeholder="Search"
+					enterkeyhint="search"
+					autocomplete="off"
+					spellcheck="false"
+					value=${() => draft()}
+					onInput=${(event) => typed(event.currentTarget.value)}
+					onKeyDown=${(event) => {
+						if (event.key === 'Escape') close()
 					}}
-				>
-					<span class="plus" aria-hidden="true"><${Icon} name="search" /></span>
-					<input
-						type="search"
-						class="bare"
-						aria-label="Search messages"
-						placeholder="Search"
-						enterkeyhint="search"
-						autocomplete="off"
-						spellcheck="false"
-						value=${() => draft()}
-						onInput=${(event) => typed(event.currentTarget.value)}
-						onKeyDown=${(event) => {
-							if (event.key === 'Escape') close()
-						}}
-					/>
-				</form>
-			</li>
-		</ul>
+				/>
+			</form>
+		</li>
 	`
 }
 

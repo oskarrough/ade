@@ -59,10 +59,10 @@ export function ThreadList() {
 				when=${() => !archivedPage()}
 				fallback=${html`<${ArchivedPage} onBack=${(_e) => setArchivedPage(false)} />`}
 			>
-				<${Show} when=${() => server().modules.includes('search')}>
-					<${SearchField} />
-				<//>
-				<ul class="new-rows">
+				<ul class="top-row">
+					<${Show} when=${() => server().modules.includes('search')}>
+						<${SearchField} />
+					<//>
 					<${NewRow}
 						label="Thread"
 						title="New thread"
@@ -74,11 +74,12 @@ export function ThreadList() {
 					<//>
 				</ul>
 				<${Show} when=${() => server().modules.includes('inbox')}>
-					<ul>
-						<li class=${() => ['new', { current: inboxOpen() }]}>
+					<ul class="inbox-row">
+						<li class=${() => ['new', { current: inboxOpen(), waiting: inbox.length > 0 }]}>
 							<button
 								type="button"
 								class="row"
+								title="Show what needs your attention"
 								aria-pressed=${() => String(inboxOpen())}
 								aria-label=${() => (inbox.length ? `Inbox, ${inbox.length}` : 'Inbox')}
 								onClick=${(_e) => {
