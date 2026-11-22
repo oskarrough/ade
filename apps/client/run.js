@@ -57,11 +57,9 @@ export function Turn(props) {
 			.join(', ')
 	}
 	const said = () => messageText(live()?.message)
-	/** Its agent's name above it, as a message has, unless the row above is already theirs */
-	const named = () => props.above !== props.agent.name
 	return html`
-		<li class=${() => ({ turn: true, live: !!props.live, same: !named() })}>
-			<${Show} when=${named}><${Name} author=${() => props.agent.name} /><//>
+		<li class=${() => ({ turn: true, live: !!props.live, same: !props.name })}>
+			<${Show} when=${() => props.name}><${Name} author=${() => props.name} /><//>
 			<details onToggle=${(event) => setOpen(event.currentTarget.open)}>
 				<summary>
 					<small><span class="now">${line}</span></small>

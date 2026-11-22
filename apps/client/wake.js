@@ -117,7 +117,7 @@ export function WakeSet(props) {
 
 /** Under a message a wake posted */
 export const WokeLine = (props) => html`
-	<${Show} when=${() => props.data.wake}>
+	<${Show} when=${() => props.woke}>
 		<div class="links" title="An agent's own note, back at the time it set">
 			⏰ its
 			wake${() => (props.data.event ? `, with what came from ${props.data.event.from}, outside ade:` : '')}

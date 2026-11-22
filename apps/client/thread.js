@@ -112,6 +112,22 @@ export function Thread(props) {
 		}
 		return at
 	})
+	/**
+	 * What every row's who-said-it-to-whom reads, worked out once per thread: whether this is a bot's home, the people
+	 * other than you who wrote here, whether it's a group (another person, or more than one agent or bot), and
+	 * `soloAgent`, one agent and only you, where a name shows only when the agent changes.
+	 */
+	const isBotHome = createMemo(() => Boolean(homeBot(props.id)))
+	const otherPeople = createMemo(
+		() =>
+			new Set(
+				messages()
+					.filter((entry) => byPerson(entry) && entry.data.author !== me())
+					.map((entry) => entry.data.author),
+			),
+	)
+	const isGroup = createMemo(() => otherPeople().size > 0 || (thread()?.agents ?? []).length > 1)
+	const soloAgent = createMemo(() => !isBotHome() && !isGroup())
 	/** Each message's position in the thread, from 0, as memory and the recap count them */
 	const positions = createMemo(() => new Map(messages().map((entry, at) => [entry.id, at])))
 	/** In a bot's home, the threads others asked it in: it's their one agent, and they started outside its family. A room has more than one. */
@@ -351,15 +367,7 @@ export function Thread(props) {
 				walked.set(conversation, at)
 				return turns[at]
 			}
-			/** A person wrote it here: not an agent, a bot, a report from another thread, a wake or a Stop */
-			const byPerson = (entry) =>
-				!entry.data.from &&
-				!entry.data.answer &&
-				!entry.data.error &&
-				!entry.data.wake &&
-				!entry.data.stopped &&
-				!entry.data.author?.includes('@') &&
-				!bots.some((bot) => bot.name === entry.data.author)
+			const naming = isGroup()
 			let previous, written
 			for (const entry of all) {
 				const { answer, from, author } = entry.data
@@ -367,6 +375,7 @@ export function Thread(props) {
 				const replied = turn?.held.length ? byId.get(Math.max(...turn.held)) : undefined
 				// Only a person is worth naming, and only when a person's message sits right above
 				if (
+					naming &&
 					replied &&
 					byPerson(replied) &&
 					previous &&
@@ -385,7 +394,7 @@ export function Thread(props) {
 				at: entry.id,
 				time: timeOf(entry),
 				sent: sentTo(entry),
-				replyTo: replyTo.get(entry.id),
+				to: replyTo.get(entry.id),
 				waiting: waiting(entry),
 			}))
 			// One cut line, the newest compaction's; what the agent reads as lines folds into them, unless opened from it
@@ -413,20 +422,47 @@ export function Thread(props) {
 				if (row.break && (run?.turn || run?.live) && run.agent?.name === row.entry.data.author)
 					[run.break, row.break] = [row.break, undefined]
 			}
-			// A message or run line names its author only when it isn't the last one's that wasn't yours, or one before a break: your own are marked by where they sit.
-			// A run's name goes above its line, so the answer under it, being the same agent's, goes unnamed. Only rows that name
-			// their speaker carry it: an ask or a memory line leaves the last one as it was
-			// Alone with an agent, outside a bot's home, its name shows only when it changes from the last answer's, so a model
-			// switch still says so; your own messages between don't count
-			const alone =
-				!homeBot(props.id) && !all.some((entry) => byPerson(entry) && entry.data.author !== me())
+			// Who said it, to whom, from where, once for every row; templates show only what this gives them.
+			// `voice`: mine (your bubble), said (here, by someone else), stopped (a Stop's line), sent or received (crossed
+			// threads, with `other` the far side). `name` is the speaker, only where it changed: from the last one that
+			// wasn't yours, or alone with one agent, from the last agent's; a break or a `to` names it again
+			const solo = soloAgent()
 			let last, answering
 			for (const row of rows) {
 				if (row.break) last = answering = undefined
-				const agentRow = row.turn || row.live || (row.entry && !byPerson(row.entry))
-				row.above = alone && agentRow ? answering : last
-				const author = row.entry
-					? !row.entry.data.from && row.entry.data.author
+				const data = row.entry?.data
+				if (data) {
+					const here = row.thread ?? props.id
+					const sent = row.sent
+					row.voice = sent
+						? 'sent'
+						: data.from && data.from !== here
+							? 'received'
+							: data.stopped
+								? 'stopped'
+								: data.author === me()
+									? 'mine'
+									: 'said'
+					// Flat fields, so an unchanged row compares equal and keeps its identity
+					if (sent || row.voice === 'received') {
+						row.otherAuthor = (sent ?? row.entry).data.author
+						row.otherThread = (sent ?? row.entry).data.from
+					}
+					row.clamp = byPerson(row.entry) || data.author === me()
+					row.failed = Boolean(data.error)
+					row.woke = Boolean(data.wake)
+					if (data.picked) {
+						row.picked = data.picked
+						row.pickedNobody = !data.to?.length
+					}
+				}
+				const speaker =
+					row.turn || row.live ? row.agent?.name : row.voice === 'said' ? data.author : undefined
+				const agentRow = Boolean(row.turn || row.live || (row.entry && !byPerson(row.entry)))
+				const prior = solo && agentRow ? answering : last
+				if (speaker && (speaker !== prior || row.to)) row.name = speaker
+				const author = data
+					? !data.from && data.author
 					: row.turn || row.live
 						? row.agent?.name
 						: null
@@ -812,9 +848,7 @@ export function Thread(props) {
 											earlier[props.id] || row().thread
 												? undefined
 												: positions().get(row().entry.id)}
-										sent=${() => row().sent}
-										above=${() => row().above}
-										replyTo=${() => row().replyTo}
+										row=${() => row()}
 										waiting=${() => row().waiting}
 									/>
 								`}
@@ -889,7 +923,7 @@ export function Thread(props) {
 										agent=${() => row().agent}
 										turn=${() => row().turn}
 										live=${() => row().live}
-										above=${() => row().above}
+										name=${() => row().name}
 									/>
 								<//>
 							<//>
@@ -903,25 +937,31 @@ export function Thread(props) {
 	`
 }
 
-/** A message's or run's author, above it, in their colour; an answer to someone further up says whom */
+/** A person wrote it here: not an agent, a bot, a report from another thread, a wake or a Stop */
+const byPerson = (entry) =>
+	!entry.data.from &&
+	!entry.data.answer &&
+	!entry.data.error &&
+	!entry.data.wake &&
+	!entry.data.stopped &&
+	!entry.data.author?.includes('@') &&
+	!bots.some((bot) => bot.name === entry.data.author)
+
+/** A message's or run's author, above it, in their colour; with `to`, whom it answers */
 export const Name = (props) => html`
 	<small title=${() => props.author}
 		><span style=${() => colorOf(props.author)}>${() => authorLabel(props.author)}</span
-		><${Show} when=${() => props.replyTo}
-			>${' to '}<span style=${() => colorOf(props.replyTo)}
-				>${() => shortLabel(props.replyTo)}</span
-			><//
+		><${Show} when=${() => props.to}
+			>${' to '}<span style=${() => colorOf(props.to)}>${() => shortLabel(props.to)}</span><//
 		></small
 	>
 `
 
+/** One message as the thread's projection describes it: its `row` says whose voice, which name to show and to whom */
 function Message(props) {
 	const data = () => props.entry.data
-	const elsewhere = () => data().from && data().from !== props.thread
-	const crossed = () => !!(elsewhere() || props.sent)
-	// A person's own words, a paste most of all; an agent's or bot's answer is what you came to read, so it stays whole
-	const person = () =>
-		!data().author?.includes('@') && !bots.some((bot) => bot.name === data().author)
+	const row = () => props.row
+	const crossed = () => ['sent', 'received'].includes(row().voice)
 	const forks = () => props.forks?.get(`${props.thread} ${props.entry.id}`) ?? []
 	return html`
 		<li
@@ -930,51 +970,47 @@ function Message(props) {
 			class=${() => ({
 				handed: litIn(props.thread, props.entry.id),
 				elsewhere: crossed(),
-				failed: !!data().error,
-				mine: !elsewhere() && data().author === me() && !data().stopped,
-				same:
-					!crossed() &&
-					data().author !== me() &&
-					props.above === data().author &&
-					!props.replyTo &&
-					!data().stopped,
+				failed: row().failed,
+				mine: row().voice === 'mine',
+				same: row().voice === 'said' && !row().name,
 			})}
 		>
-			<${Show}
-				when=${crossed}
+			<${Switch}
 				fallback=${html`
-					<${Show}
-						when=${() => !data().stopped}
-						fallback=${html`<div class="links mute" title="Stop ended the thread's work">
-							${() => `stopped by ${shortLabel(data().author)}`}
-						</div>`}
-					>
-						<${Name} author=${() => data().author} replyTo=${() => props.replyTo} />
-						<${Show} when=${person} fallback=${html`<${Body} data=${() => data()} />`}>
-							<${Clamp}><${Body} data=${() => data()} /><//>
-						<//>
-						<${Images} images=${() => data().images} />
+					<${Show} when=${() => row().name}>
+						<${Name} author=${() => row().name} to=${() => row().to} />
 					<//>
+					<${Show} when=${() => row().clamp} fallback=${html`<${Body} data=${() => data()} />`}>
+						<${Clamp}><${Body} data=${() => data()} /><//>
+					<//>
+					<${Images} images=${() => data().images} />
 				`}
 			>
-				<ol class="steps">
-					<${Cross}
-						sent=${() => !!props.sent}
-						author=${() => props.sent?.data.author ?? data().author}
-						thread=${() => props.sent?.data.from ?? data().from}
-						data=${() => data()}
-					/>
-				</ol>
+				<${Match} when=${crossed}>
+					<ol class="steps">
+						<${Cross}
+							sent=${() => row().voice === 'sent'}
+							author=${() => row().otherAuthor}
+							thread=${() => row().otherThread}
+							data=${() => data()}
+						/>
+					</ol>
+				<//>
+				<${Match} when=${() => row().voice === 'stopped'}>
+					<div class="links mute" title="Stop ended the thread's work">
+						${() => `stopped by ${shortLabel(data().author)}`}
+					</div>
+				<//>
 			<//>
-			<${Show} when=${() => data().picked}>
+			<${Show} when=${() => row().picked}>
 				<div class="links" title="The director chose whom this asks">
-					${() => (data().to?.length ? 'director picked ' : 'director picked nobody: ')}
+					${() => (row().pickedNobody ? 'director picked nobody: ' : 'director picked ')}
 					<${For} each=${() => data().to ?? []}
 						>${(name) => html`<span style=${() => colorOf(name)}>${() => authorLabel(name)}</span>: `}<//
-					>${() => data().picked}
+					>${() => row().picked}
 				</div>
 			<//>
-			<${WokeLine} data=${() => data()} />
+			<${WokeLine} woke=${() => row().woke} />
 			<${For} each=${forks}
 				>${(fork) => html`
 					<div class="links">
