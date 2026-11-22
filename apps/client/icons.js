@@ -5,6 +5,7 @@ const paths = {
 	up: 'M12 19V5M6 11l6-6 6 6',
 	back: 'M15 6l-6 6 6 6',
 	plus: 'M12 5v14M5 12h14',
+	download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
 	close: 'M6 6l12 12M18 6L6 18',
 	next: 'M9 6l6 6-6 6',
 	check: 'M5 12l5 5 9-10',

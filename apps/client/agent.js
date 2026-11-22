@@ -70,6 +70,13 @@ export const lastToolCall = (agents) =>
 		})
 		.find(Boolean)
 
+/** What a thread is doing right now, in a few words: the call it's on when this page watches it, else its state */
+export const liveOf = (thread) =>
+	(thread.status === 'working' &&
+		lastToolCall(thread.agents.map((agent) => ({ ...agent, thread: thread.id })))) ||
+	{ working: 'working', blocked: 'waiting', error: 'failed', done: 'answered' }[thread.status] ||
+	'idle'
+
 export const touched = (args = {}) =>
 	args.command ?? args.path ?? args.pattern ?? args.query ?? args.code ?? args.body
 

@@ -2779,3 +2779,112 @@ body.resizing {
 		}
 	}
 }
+
+/* A hover card: a popover tethered beside its row, its top on the row's, flipping up or to the other side to stay in the window; quiet lines under the row's own words, rows of threads as the other popovers list them. */
+@media (hover: hover) and (pointer: fine) {
+	@supports (anchor-name: --x) {
+		.hover-card {
+			min-width: 12rem;
+			overflow-x: hidden;
+			position-area: right span-bottom;
+			position-try-fallbacks:
+				flip-block,
+				flip-inline,
+				flip-block flip-inline;
+			margin: 0 var(--space-2);
+			width: max-content;
+			max-width: min(20rem, calc(100vw - 1rem));
+			display: none;
+			flex-direction: column;
+			gap: var(--space-1);
+
+			&:popover-open {
+				display: flex;
+			}
+
+			> p {
+				margin: 0;
+				padding: 0 var(--space-2);
+				overflow-wrap: anywhere;
+
+				&.live {
+					display: flex;
+					align-items: center;
+					gap: var(--space-2);
+					color: var(--mute);
+				}
+			}
+
+			> small {
+				padding: 0 var(--space-2);
+				color: var(--mute);
+				font-size: var(--text-small);
+				overflow-wrap: anywhere;
+			}
+
+			> .rows > li {
+				padding: 0;
+
+				> a.row {
+					display: flex;
+					align-items: center;
+					gap: var(--space-2);
+					flex: 1;
+					min-width: 0;
+					padding: var(--space-1) var(--space-2);
+					text-decoration: none;
+
+					> span:not(.dot) {
+						flex: 1;
+						min-width: 0;
+						overflow: hidden;
+						text-overflow: ellipsis;
+						white-space: nowrap;
+					}
+
+					> small {
+						display: block;
+						flex: 0 1 auto;
+						max-width: 50%;
+						overflow: hidden;
+						text-overflow: ellipsis;
+						white-space: nowrap;
+					}
+				}
+			}
+
+			&.app-card {
+				width: 18rem;
+				gap: var(--space-2);
+
+				> img {
+					display: block;
+					width: 100%;
+					height: auto;
+					border-radius: var(--radius-small);
+				}
+			}
+		}
+	}
+}
+
+/* Above the sidebar's foot, a line of mute words that sits with the foot, as narrow as its words. */
+.get-app {
+	position: sticky;
+	bottom: var(--foot-height);
+	margin-top: auto;
+	flex: none;
+	display: flex;
+	background: Canvas;
+
+	> button {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding-inline: calc(var(--space-2) - 1px);
+	}
+
+	+ .list-foot {
+		margin-top: 0;
+	}
+}

@@ -21,11 +21,13 @@ import {
 	page,
 	restart,
 	restarting,
+	runners,
 	server,
 	threadOf,
 	threadRows,
 } from './server.js'
 import { Dot } from './dot.js'
+import { liveOf } from './agent.js'
 import { report } from './notice.js'
 import { busy } from './busy.js'
 import { copyText, nativeMenu } from './desktop.js'
@@ -35,6 +37,7 @@ import { openTaskForm, ScheduledTaskList } from './schedule.js'
 import { Settings } from './settings.js'
 import { BotItem, NewBot } from './bot.js'
 import { SearchField } from './search.js'
+import { cards, HoverCard } from './hover-card.js'
 
 /** Whether New bot's name field shows at the top of the bots; jump.js opens it too */
 export const [creatingBot, setCreatingBot] = createSignal(false)
@@ -133,6 +136,7 @@ export function ThreadList() {
 					<//>
 				</ul>
 			<//>
+			<${GetApp} />
 			<footer class="list-foot">
 				<${Settings} />
 				<${RunnerList} />
@@ -170,6 +174,71 @@ function Update() {
 				><small class="count" aria-hidden="true">${() => changes().length}</small><//
 			>
 		</button>
+	<//>`
+}
+
+/** Set once the first desktop release with these stable names is out (desktop-v0.1.6) */
+const RELEASED = false
+const LATEST = 'https://github.com/oskarrough/ade/releases/latest/download/'
+const HIDE_APP = 'ade.hideGetApp'
+/** The app for this computer: an installer, a disk image, or on Linux the line that installs it where it updates itself */
+const app = (() => {
+	const platform = /** @type {any} */ (navigator).userAgentData?.platform ?? navigator.platform
+	if (/^Win/i.test(platform)) return { os: 'Windows', href: `${LATEST}arbe-desktop-windows.exe` }
+	if (/^Mac/i.test(platform) && navigator.maxTouchPoints < 2)
+		return { os: 'macOS', href: `${LATEST}arbe-desktop-mac.dmg` }
+	if (/Linux/i.test(platform) && !/Android/i.test(navigator.userAgent))
+		return { os: 'Linux', command: `curl -fsSL ${LATEST}install.sh | sh` }
+})()
+
+/** A quiet line above a browser's sidebar foot, never in arbe desktop: its card shows the app and one download */
+function GetApp() {
+	const [hidden, setHidden] = createSignal(localStorage.getItem(HIDE_APP) === '1')
+	const [copied, setCopied] = createSignal(false)
+	const shown = () => RELEASED && app && cards && !(/** @type {any} */ (window).mygo) && !hidden()
+	return html`<${Show} when=${shown}>
+		<div class="get-app">
+			<button type="button" class="ghost small">
+				<${Icon} name="download" />
+				<span>Get the app</span>
+			</button>
+			<${HoverCard}
+				class="app-card"
+				content=${() => html`
+					<img
+						src="/icons/app.png"
+						alt="arbe desktop, a thread and its sidebar"
+						width="640"
+						height="400"
+					/>
+					<${Show}
+						when=${() => app.href}
+						fallback=${html`<button
+							type="button"
+							class="primary"
+							title=${app.command}
+							onClick=${() => copyText(app.command).then(() => setCopied(true), report)}
+						>
+							${() => (copied() ? 'Copied; paste it in a terminal' : 'Copy the install line for Linux')}
+						</button>`}
+					>
+						<button type="button" class="primary" onClick=${() => location.assign(app.href)}>
+							Download for ${app.os}
+						</button>
+					<//>
+					<button
+						type="button"
+						class="ghost small"
+						onClick=${() => {
+							localStorage.setItem(HIDE_APP, '1')
+							setHidden(true)
+						}}
+					>
+						Don’t show again
+					</button>
+				`}
+			/>
+		</div>
 	<//>`
 }
 
@@ -264,7 +333,7 @@ export const rename = (id) => {
 export function ThreadItem(props) {
 	return html`
 		<li
-			title=${() => props.thread.title}
+			title=${() => (cards ? undefined : props.thread.title)}
 			style=${() => `--depth: ${props.depth ?? 0}`}
 			class=${() => ({ current: props.thread.id === current() })}
 		>
@@ -278,6 +347,7 @@ export function ThreadItem(props) {
 				<${Dot} state=${() => props.thread.status} />
 				<span>${() => props.thread.title}</span>
 			</a>
+			<${HoverCard} content=${() => html`<${ThreadCard} thread=${() => props.thread} />`} />
 			<${Show} when=${() => !homeBot(props.thread.id)}>
 				<button
 					type="button"
@@ -289,5 +359,56 @@ export function ThreadItem(props) {
 				</button>
 			<//>
 		</li>
+	`
+}
+
+const homeShort = (dir) => dir.replace(/^\/(home|Users)\/[^/]+/, '~')
+
+/** Where an agent works: its folder, under its runner's own when relative */
+const workingIn = (to) => {
+	const root = runners.find((runner) => runner.name === to.runner)?.dir
+	const dir = to.dir ?? root
+	if (!dir) return
+	return homeShort(/^([/\\]|[A-Za-z]:)/.test(dir) || !root ? dir : `${root}/${dir}`)
+}
+
+/** A thread's title and what it's doing now; then each agent's model on its runner, the folder they work in, and the thread it sits under */
+function ThreadCard(props) {
+	const agents = () => props.thread.agents.filter((agent) => agent.to)
+	const parent = () => threadOf(props.thread.parent)
+	return html`
+		<p class="title">${() => props.thread.title}</p>
+		<p class="live">
+			<${Dot} state=${() => props.thread.status} />
+			<span>${() => liveOf(props.thread)}</span>
+		</p>
+		<${For} each=${agents}>
+			${(agent) =>
+				html`<small>
+					${() =>
+						agent.to.name ??
+						[
+							agent.to.model?.split('/').pop(),
+							agent.to.thinkingLevel !== 'off' && agent.to.thinkingLevel,
+						]
+							.filter(Boolean)
+							.join(' ')}
+					on ${() => agent.to.runner}
+				</small>`}
+		<//>
+		<${For}
+			each=${() => [
+				...new Set(
+					agents()
+						.map((agent) => workingIn(agent.to))
+						.filter(Boolean),
+				),
+			]}
+		>
+			${(folder) => html`<small>${folder}</small>`}
+		<//>
+		<${Show} when=${parent}>
+			<small>Under ${() => parent().title}</small>
+		<//>
 	`
 }

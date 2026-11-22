@@ -19,7 +19,7 @@ import {
 	threadRows,
 	write,
 } from './server.js'
-import { formatAgent } from './agent.js'
+import { formatAgent, liveOf } from './agent.js'
 import { agent, openPicker } from './composer.js'
 import { copyText, nativeMenu } from './desktop.js'
 import { Dot, Switch } from './dot.js'
@@ -28,6 +28,7 @@ import { openTaskForm } from './schedule.js'
 import { openSide } from './side.js'
 import { Sure } from './sure.js'
 import { rename } from './thread-list.js'
+import { cards, HoverCard } from './hover-card.js'
 
 const botFamily = (bot) => new Set(familyOf(bot.home).map((member) => member.id))
 
@@ -70,7 +71,7 @@ export function BotItem(props) {
 			<a
 				class="row"
 				href=${() => hrefOf(props.bot.home)}
-				title=${() => props.bot.instructions.split('\n')[0]}
+				title=${() => (cards ? undefined : props.bot.instructions.split('\n')[0])}
 				onClick=${(event) => followThread(event, props.bot.home)}
 				onContextMenu=${(event) => nativeMenu(event, botMenu(props.bot))}
 			>
@@ -80,6 +81,7 @@ export function BotItem(props) {
 					<small title="Threads working">${() => props.bot.working}</small>
 				<//>
 			</a>
+			<${HoverCard} content=${() => html`<${BotCard} bot=${() => props.bot} />`} />
 		</li>
 	`
 }
@@ -271,3 +273,37 @@ export function NewBot(props) {
 		</li>
 	`
 }
+
+/** A bot's open threads, working ones first, each a link */
+const botCardThreads = (bot) => {
+	const { own, elsewhere } = botThreads(bot)
+	const open = [...own, ...elsewhere].filter((thread) => thread && !thread.archived)
+	return [
+		...open.filter((thread) => thread.status === 'working'),
+		...open.filter((thread) => thread.status !== 'working'),
+	]
+}
+
+const BotCard = (props) => html`
+	<${Show} when=${() => props.bot.instructions}>
+		<small class="about">${() => props.bot.instructions.split('\n')[0]}</small>
+	<//>
+	<${Show} when=${() => botCardThreads(props.bot).length}>
+		<ul class="rows">
+			<${For} each=${() => botCardThreads(props.bot)}>
+				${(thread) =>
+					html`<li>
+						<a
+							class="row"
+							href=${() => hrefOf(thread.id)}
+							onClick=${(event) => followThread(event, thread.id)}
+						>
+							<${Dot} state=${() => thread.status} />
+							<span>${() => thread.title}</span>
+							<small>${() => liveOf(thread)}</small>
+						</a>
+					</li>`}
+			<//>
+		</ul>
+	<//>
+`
