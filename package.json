@@ -10,6 +10,7 @@
 		"runner": "node runner.js",
 		"examples": "node examples/all.js",
 		"perf": "node scripts/perf.js",
+		"fuzz": "node scripts/fuzz.js",
 		"check": "oxfmt && oxlint --type-aware --type-check",
 		"desktop:release": "apps/desktop/release.sh"
 	},
@@ -49,6 +50,7 @@
 		"ws": "8.21.0"
 	},
 	"devDependencies": {
+		"@antithesishq/bombadil": "^0.8.0",
 		"@nkzw/oxlint-config": "^2.0.1",
 		"@types/ws": "^8.18.2",
 		"oxfmt": "^0.79.0",

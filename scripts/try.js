@@ -10,6 +10,11 @@
 import { api, base, hookPort, runner, server, servePort, shellEnv } from '../examples/lib.js'
 import { personas } from '../echo.js'
 
+// No scratch run reaches a paid model: the provider keys in your shell stay out of the server and runner it starts
+for (const name of Object.keys(process.env))
+	if (/_API_KEY$|_TOKEN(_FILE)?$|^(ANTHROPIC|AWS|AZURE|GOOGLE|GCLOUD)_/.test(name))
+		delete process.env[name]
+
 // MODULES=+web-search layers changes on top of this script's own modules.
 const modules = ['+bots,+director', shellEnv.MODULES].filter(Boolean).join(',')
 await server({ MODULES: modules, DIRECTOR_MODEL: 'echo/try@bot' })

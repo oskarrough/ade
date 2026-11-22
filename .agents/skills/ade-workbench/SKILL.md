@@ -1,6 +1,6 @@
 ---
 name: ade-workbench
-description: How to run, check and measure ade while working on it - the try.js scratch server and its scripted bot's commands, the CLI, agent-browser, a copy of the real data, a real-model runner, pnpm perf, and jj workspace mechanics. Load it before you start a server, open a browser, measure a run, or work in a .work/ workspace.
+description: How to run, check and measure ade while working on it - the try.js scratch server and its scripted bot's commands, the CLI, agent-browser, a copy of the real data, a real-model runner, pnpm perf, pnpm fuzz, and jj workspace mechanics. Load it before you start a server, open a browser, measure a run, or work in a .work/ workspace.
 ---
 
 # Ade workbench
@@ -20,7 +20,7 @@ AGENTS.md has the rules; this is the how.
 
 Start `node scripts/try.js &` from `.work/<your-name>/`, since it writes files where it starts, and keep `$!` with absolute log and pid paths. Its store lives in a fresh temp folder deleted the moment it exits, so there's no restarting try.js itself on the same data; for that, run `server.js` directly with your own `DB_PATH` and `XDG_CONFIG_HOME` (as under "Real data" below) and start it again with the same ones. In a second it has bots and director on, three bots (bot1, bot2, bot3) that answer with their name, persona and what they were handed, a real runner on the scripted model `echo/try@bot`, and one answered thread. It prints its address, its Serve port (people come in with `Tailscale-User-Login`), the `export ADE_SERVER=…` for the CLI and the `kill` that stops it.
 
-`MODULES=+web-search node scripts/try.js` layers module changes on its own list; try.js locks module switches, so the settings panel's Save can only be exercised through memory's compact-at field. A shell started from a server's runner inherits `SERVE_PORT` and `MODULES`: start a scratch server with `env -u SERVE_PORT -u MODULES …` or it takes the real one's.
+`MODULES=+web-search node scripts/try.js` layers module changes on its own list; try.js locks module switches, so the settings panel's Save can only be exercised through memory's compact-at field. A shell started from a server's runner inherits `SERVE_PORT` and `MODULES`: start a scratch server with `env -u SERVE_PORT -u MODULES …` or it takes the real one's. try.js drops every provider key (`*_API_KEY`, `*_TOKEN`, `ANTHROPIC_*`, `AWS_*` and the like) from what its server and runner see, so a scratch run never reaches a paid model; a real model goes through the runner under "Real data" below.
 
 To take a runner offline mid-work, kill its node process (`pgrep -f "^node [^ ]*runner.js --server <url> --name <name> "`), not the wrapper shell.
 
@@ -54,6 +54,7 @@ A change to how transcript rows, sidebar dots or reply labels render gets checke
 - A real model: `POST /api/runners {"name":"oskar"}` for a key, then `ADE_KEY=<key> node runner.js --server <url> --name oskar --dir <folder>`, and use `gpt-6-luna:low@oskar`.
 - A run's tool calls and token usage: `GET /api/conversations/:id`, the agent's `conversation` from `GET /api/threads/N`.
 - `pnpm perf` copies the real store into `.work/perf/` and times the lists, the biggest thread, the socket and page load; `--why` names the costly statements. Its `typing in N meanwhile` line is the one for drafts and typing.
+- `pnpm fuzz [3m]` lets Bombadil click, type and reload around a fresh try.js for that long, one headless Chrome at the lowest priority, and prints `nothing broke` or the broken property with its replay command; log and trace go in `.work/fuzz/<time>/`, and `node_modules/.bin/bombadil browser inspect <trace>` shows it step by step. What it holds the client to is `scripts/fuzz-spec.js`: no errors, drafts that survive leaving and reloading, sends that land or come back, each thread once in the sidebar. A property's bookkeeping lives in an extractor and sessionStorage, not module variables, which Bombadil doesn't keep across states. It's on demand, not part of `pnpm check`. Bombadil stops dead on a lone surrogate in any text it reads (`decoding response for Debugger.evaluateOnCallFrame`): that's a string cut mid-character, an ade bug to fix where it's cut.
 
 ## Packaging
 
