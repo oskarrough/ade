@@ -38,9 +38,7 @@ What we have. I live in it.
 
 Friends in my house. The question: does steering agents together in one thread work when several people are in it, who's talking, who the director answers, nobody stepping on anyone?
 
-The smallest thing it needs is the server knowing who's talking: a message's author comes from how the request arrived (the owner key, or localhost while invites are off; the tailnet login), never from a name the client sends. `?user=` goes away once this is in; it was only ever for faking people. No invites needed here: Tailscale's node sharing lets me add people from outside my tailnet, and the server already knows who's who from their login.
-
-Friends join through the tailnet: Tailscale's node sharing lets me add people from outside my own tailnet, and the server knows who's who from their login. Done apart from the test with a real friend, not a simulation.
+The smallest thing it needs is the server knowing who's talking: a message's author comes from how the request arrived (the owner key, or localhost while invites are off; the tailnet login), never from a name the client sends. Friends join through the tailnet: Tailscale's node sharing lets me add people from outside my own, and the server knows who's who from their login. Done apart from the test with a real friend, not a simulation.
 
 Inviting someone shows every runner in the house and whose machine each one is. Guests see the same list. No runner-side setting: a runner only joins a house its owner gave it the key to.
 
