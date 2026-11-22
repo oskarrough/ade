@@ -223,7 +223,6 @@ const KIND = 'ade.message'
 const ROUTE = 'ade.route'
 /** A message its author took back before any agent read it: `{message}`; the message reads as `withdrawn` from then on */
 const WITHDRAWAL = 'ade.withdrawal'
-/** What a withdrawn message's queued input settles with */
 const WITHDRAWN = 'withdrawn'
 /** An agent's input in its conversation; `held` names the thread messages it gave */
 const DELIVERY = 'ade.delivery'
@@ -539,7 +538,6 @@ const runners = createRunners({ onChange: () => nudge() })
 const changes = new Set()
 /** What each running `$ cmd` has printed so far */
 const shells = new Map()
-/** The runner this server ships, and the updater that fetches it */
 const bundle = await runnerBundle(import.meta.dirname)
 const updater = await readFile(new URL('./runner-updater.js', import.meta.url))
 
@@ -605,7 +603,6 @@ registry.install(
 	}),
 )
 registry.install(defineExtension({ name: 'ade', tasks: [Anchor, Admit, Deliver, Shell] }))
-/** An agent on runner `own` may run commands on `name`: any runner whose owner takes its work */
 function mayRun(own, name, all) {
 	try {
 		return Boolean(all[name]) && (reach([{ runner: name }], `@${own}`, all), true)
@@ -654,7 +651,6 @@ const harnessSettings = () =>
 		}),
 		...(compactAt && { compaction: compactingAt(compactAt) }),
 	})
-/** A runner's models, as Pi's provider `runner:<name>` */
 const provide = (name, runnerModels) => {
 	models.setProvider(runnerProvider(runners, name, runnerModels))
 	harnessed = undefined
@@ -825,7 +821,6 @@ const user = (req) => senders.get(req)
 const origin = (req) =>
 	`${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${String(req.headers.host).replace(/[^\w.:[\]-]/g, '')}`
 const sha256 = (text) => createHash('sha256').update(text).digest('hex')
-/** The start-up table and every runner event after it share one column */
 const say = (label, text) => console.log(`  ${label.padEnd(8)} ${text}`)
 const tilde = (dir) => (dir?.startsWith(os.homedir()) ? `~${dir.slice(os.homedir().length)}` : dir)
 const loopback = (address) =>
@@ -833,7 +828,6 @@ const loopback = (address) =>
 
 // ── Addressing: whom a message asks ───────────────────────────────────────
 
-/** A command needs no model */
 async function address(to, command = false, signal, useDefaultThinking = true) {
 	const name = field(to?.runner, 'to.runner')
 	if (!(await keys())[name]) throw new Error(`No runner named ${name}`)
@@ -921,7 +915,6 @@ async function modelOn(name, runner, asked, signal, useDefaultThinking) {
 	return { model: ref, ...(level ? { thinkingLevel: level } : {}) }
 }
 
-/** A runner with an owner takes work from its owner and the names it allows */
 function reach(to, by, available) {
 	for (const { runner: name } of to) {
 		const { owner, allow = [] } = available[name]
@@ -959,7 +952,6 @@ async function agentOf(id, key, tx, all) {
 	}
 }
 
-/** Each agent in a thread, the thread's own and its bots, as a {@link To} */
 const agentsHere = async (threadId) =>
 	(
 		await Promise.all(
@@ -1236,7 +1228,6 @@ async function append(
 	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
 }
 
-/** Every message's id in a thread, oldest first, which a new agent hasn't seen */
 const messageIds = async (tx, threadId) =>
 	(
 		await collect((cursor) =>
@@ -1385,7 +1376,6 @@ async function renameIn(tx, ids, from, to) {
 	}
 }
 
-/** Whether a person wrote it: not an agent, in this thread or from another, nor a bot of this thread, nor a Stop */
 const person = (row, { data }) => !byAgent(data) && !data.stopped && !row.agents[keyOf(data.author)]
 
 /** @returns {Recipient} */
@@ -1522,7 +1512,6 @@ async function people(id) {
 		(name) => name === owner || name.startsWith('~'),
 	)
 }
-/** The people who wrote in a thread, not counting who only read it */
 async function authors(id) {
 	const handle = await conversation(id)
 	const wrote = writers.get(id) ?? { after: 0, authors: new Set() }
@@ -1907,7 +1896,6 @@ async function setTitleIn(tx, id, title, expected) {
 	return { title: row.title }
 }
 
-/** Changes the thread's tools and its agent's and bots' selection together */
 async function setTools(id, { tools }) {
 	await conversation(id)
 	tools = toolList(tools)
@@ -2018,7 +2006,6 @@ function compactingAt(tokens) {
 	return { modelOverrides }
 }
 
-/** Compacts each agent of the thread now, as Pi does when its context fills; what each came to is its outcome */
 async function compact(id) {
 	const { agents } = await thread(id)
 	return Promise.all(
@@ -2090,7 +2077,6 @@ const core = {
 	once,
 	receipt,
 }
-/** Each module in modules/ → on by default, as its own file says */
 const defaults = await builtIn()
 /** ade.json, as it started; the page changes it, and a restart takes it up */
 const settings = await readConfig()
@@ -2106,7 +2092,6 @@ for (const module of modules) if (module.extension) registry.install(module.exte
 const customModules = (settings.config.modules ?? [])
 	.map((entry) => entry.replace(/^[+-]/, ''))
 	.filter((entry) => entry.includes('/'))
-/** Each module's name → what it does, from its own file */
 const aboutModules = Object.fromEntries(
 	await Promise.all(
 		[...Object.keys(defaults), ...customModules].map(async (entry) => [
@@ -2127,37 +2112,20 @@ const withdrawn = modules.flatMap((module) => module.withdrawn ?? [])
 /** Task kinds of modules' own work in a thread, counted as the thread working */
 const moduleWork = modules.flatMap((module) => module.work ?? [])
 const archiving = modules.flatMap((module) => module.archiving ?? [])
-const [
-	direct,
-	directing,
-	supersede,
-	sent,
-	typing,
-	turns,
-	reply,
-	catchUp,
-	botAgent,
-	instructionsOf,
-	botNames,
-	homesOf,
-	expand,
-	openQuestion,
-] = [
-	'direct',
-	'directing',
-	'supersede',
-	'sent',
-	'typing',
-	'turns',
-	'reply',
-	'catchUp',
-	'botAgent',
-	'instructionsOf',
-	'botNames',
-	'homesOf',
-	'expand',
-	'openQuestion',
-].map(hook)
+const direct = hook('direct')
+const directing = hook('directing')
+const supersede = hook('supersede')
+const sent = hook('sent')
+const typing = hook('typing')
+const turns = hook('turns')
+const reply = hook('reply')
+const catchUp = hook('catchUp')
+const botAgent = hook('botAgent')
+const instructionsOf = hook('instructionsOf')
+const botNames = hook('botNames')
+const homesOf = hook('homesOf')
+const expand = hook('expand')
+const openQuestion = hook('openQuestion')
 compactAt = hook('compactAt')
 /** An outside service's POST to /hooks/:id, on a listener of its own; none without a module that takes it */
 const webhook = hook('webhook')
@@ -2209,9 +2177,8 @@ async function conversationView(id) {
 
 /** @type {[RegExp, Function][]} */
 const routes = /** @type {[string, Function][]} */ ([
-	[
-		'GET /api/server',
-		async (req) => ({
+	...Object.entries({
+		'GET /api/server': async (req) => ({
 			port,
 			file,
 			/** What a reload of the page would get; a page loaded with another is behind */
@@ -2245,19 +2212,13 @@ const routes = /** @type {[string, Function][]} */ ([
 				restarts: typeof process.execve === 'function',
 			},
 		}),
-	],
-	[
-		'POST /api/settings',
-		async (req) => {
+		'POST /api/settings': async (req) => {
 			// Settings name the owner and their logins, so only the owner changes them
 			if (user(req) !== owner)
 				throw Object.assign(new Error('Only the owner changes settings'), { status: 403 })
 			return saveSettings(await input(req))
 		},
-	],
-	[
-		'GET /api/runners',
-		async () => {
+		'GET /api/runners': async () => {
 			const [all, last] = [await work(), await known()]
 			return Object.keys(await keys()).map((name) => {
 				const { models, offers, ...runner } = last[name] ?? {}
@@ -2282,64 +2243,45 @@ const routes = /** @type {[string, Function][]} */ ([
 				}
 			})
 		},
-	],
-	['POST /api/runners', async (req) => mintKey(String((await input(req)).name ?? ''), origin(req))],
-	['DELETE /api/runners/:name', (req, name) => revoke(name)],
-	[
-		'GET /api/runners/:name/available',
-		async (req, name) => {
+		'POST /api/runners': async (req) => mintKey(String((await input(req)).name ?? ''), origin(req)),
+		'DELETE /api/runners/:name': (req, name) => revoke(name),
+		'GET /api/runners/:name/available': async (req, name) => {
 			if (!runners.isOnline(name)) throw new Error(`${name} is offline`)
 			return runners.call(name, { op: 'available' }, {})
 		},
-	],
-	[
-		'GET /api/changes',
-		async (_req, _id, url) => {
+		'GET /api/changes': async (_req, _id, url) => {
 			const since = url.searchParams.get('since') ?? ''
 			if (!/^[\da-f]{7,40}$/.test(since)) return { commits: [] }
 			const log = await git('log', '--format=%s', `${since}..HEAD`)
 			return { commits: log ? log.split('\n') : [] }
 		},
-	],
-	['GET /runner/bundle', () => bundle],
-	['GET /api/threads', (req) => threadList(user(req))],
-	['GET /api/threads/archived', (req) => threadList(user(req), true)],
-	['POST /api/threads', async (req) => createThread(await input(req))],
-	['POST /api/threads/shed', async (req) => exampleShed(await input(req))],
-	[
-		'GET /api/threads/:id',
-		(req, id, url) => {
+		'GET /runner/bundle': () => bundle,
+		'GET /api/threads': (req) => threadList(user(req)),
+		'GET /api/threads/archived': (req) => threadList(user(req), true),
+		'POST /api/threads': async (req) => createThread(await input(req)),
+		'POST /api/threads/shed': async (req) => exampleShed(await input(req)),
+		'GET /api/threads/:id': (req, id, url) => {
 			const number = (name) =>
 				url.searchParams.has(name) ? Number(url.searchParams.get(name)) : undefined
 			return threadView(id, user(req), { after: number('after'), last: number('last') })
 		},
-	],
-	[
-		'POST /api/threads/:id/archive',
-		async (req, id) => archiveThread(id, (await input(req)).archived),
-	],
-	['POST /api/threads/:id/entries', async (req, id) => postEntry(id, user(req), await input(req))],
-	[
-		'POST /api/threads/:id/withdraw',
-		async (req, id) => withdraw(id, user(req), (await input(req)).entry),
-	],
-	['POST /api/threads/:id/fork', async (req, id) => forkThread(id, await input(req))],
-	['POST /api/threads/:id/title', async (req, id) => setTitle(id, await input(req))],
-	['POST /api/threads/:id/tools', async (req, id) => setTools(id, await input(req))],
-	['POST /api/threads/:id/pause', async (req, id) => setPaused(id, await input(req))],
-	[
-		'POST /api/threads/:id/typing',
-		async (req, id) => {
+		'POST /api/threads/:id/archive': async (req, id) =>
+			archiveThread(id, (await input(req)).archived),
+		'POST /api/threads/:id/entries': async (req, id) => postEntry(id, user(req), await input(req)),
+		'POST /api/threads/:id/withdraw': async (req, id) =>
+			withdraw(id, user(req), (await input(req)).entry),
+		'POST /api/threads/:id/fork': async (req, id) => forkThread(id, await input(req)),
+		'POST /api/threads/:id/title': async (req, id) => setTitle(id, await input(req)),
+		'POST /api/threads/:id/tools': async (req, id) => setTools(id, await input(req)),
+		'POST /api/threads/:id/pause': async (req, id) => setPaused(id, await input(req)),
+		'POST /api/threads/:id/typing': async (req, id) => {
 			await conversation(id)
 			const { typing: on, seq } = await input(req)
 			await typing?.(id, user(req), on === true, Number.isSafeInteger(seq) ? seq : 0)
 			return { typing: on === true }
 		},
-	],
-	['POST /api/threads/:id/read', (req, id) => markRead(id, user(req))],
-	[
-		'POST /api/threads/:id/stop',
-		async (req, id) => {
+		'POST /api/threads/:id/read': (req, id) => markRead(id, user(req)),
+		'POST /api/threads/:id/stop': async (req, id) => {
 			const working = await busy(id)
 			await (await conversation(id)).abort(context)
 			// Everyone in the thread sees who ended its work; the agents read it with what comes next
@@ -2347,9 +2289,9 @@ const routes = /** @type {[string, Function][]} */ ([
 				await commit((tx) => append(tx, id, { author: user(req), body: 'stopped', stopped: true }))
 			return { stopped: id }
 		},
-	],
-	['POST /api/threads/:id/compact', async (req, id) => ({ compacted: await compact(id) })],
-	['GET /api/conversations/:id', (req, id) => conversationView(id)],
+		'POST /api/threads/:id/compact': async (req, id) => ({ compacted: await compact(id) }),
+		'GET /api/conversations/:id': (req, id) => conversationView(id),
+	}),
 	...modules.flatMap((module) =>
 		!module.serve
 			? []
@@ -3232,7 +3174,6 @@ async function restart(again) {
 	})
 }
 
-/** The server connects this machine too, in its `--dir` folders */
 let lent
 async function connectSelf(url) {
 	if (flags['no-runner'] || lent) return
@@ -3261,7 +3202,6 @@ async function connectSelf(url) {
 		},
 	)
 	lent.name = name
-	// Through this process's own output, so the log has it too
 	lent.stdout.on('data', (chunk) => process.stdout.write(chunk))
 	lent.stderr.on('data', (chunk) => process.stderr.write(chunk))
 	for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => lent.kill(signal))
