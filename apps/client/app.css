@@ -702,9 +702,18 @@ agent-memory {
 					}
 
 					/* A wake's note and what an outside event brought, as they came */
-					/* Opened, the whole message lines up under the title, where its first line was */
+					/* Opened, the whole message starts where its first line was, in the same grey, so nothing moves */
 					> details > .whole {
 						padding-left: 1rem;
+						color: var(--mute);
+
+						> .body {
+							margin-top: 0;
+
+							> :first-child {
+								margin-top: 0;
+							}
+						}
 					}
 
 					.whole > p {

@@ -439,9 +439,9 @@ export function Thread(props) {
 				const prior = solo && agentRow ? answering : last
 				if (speaker && (speaker !== prior || row.to)) row.name = speaker
 				// A crossed row shows the other thread and a wake is its own quiet line, so nobody here spoke last; whoever
-				// speaks next is named
+				// speaks next is named, unless they're the thread's only agent going on
 				if (['sent', 'received', 'woke'].includes(row.voice)) {
-					last = answering = undefined
+					last = undefined
 					continue
 				}
 				const author = data ? data.author : run ? row.agent?.name : null
