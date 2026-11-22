@@ -1056,7 +1056,9 @@ function Message(props) {
 		<li
 			data-message=${() => props.at}
 			data-entry=${() => props.entry.id}
-			onContextMenu=${(event) => nativeMenu(event, messageMenu(event.currentTarget))}
+			onContextMenu=${(event) =>
+				// An image or a link keeps the webview's own menu: Copy image, Copy link
+				event.target.closest('img, a[href]') || nativeMenu(event, messageMenu(event.currentTarget))}
 			class=${() => ({
 				sending: arriving,
 				handed: litIn(props.thread, props.entry.id),
