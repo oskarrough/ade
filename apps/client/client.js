@@ -46,12 +46,16 @@ function Client() {
 		const phone = matchMedia('(max-width: 700px)')
 		// iOS Safari ignores interactive-widget: the keyboard shrinks only the visual viewport, so the stage follows that.
 		const viewport = window.visualViewport
+		// Safari pans the visual viewport inside the still-full-height layout viewport, both to keep a focused field
+		// above the keyboard and when pinch-zoomed; our own --visual-height already keeps the composer above the
+		// keyboard, so that pan only fights it, and must be undone. Undo it once per real pan, not on every
+		// steady-state resize/scroll tick while typing, which just re-reports the pan already undone and would
+		// otherwise snap the whole page to the top on every keystroke.
+		let pannedTo = 0
 		const fit = () => {
 			document.documentElement.style.setProperty('--visual-height', `${viewport.height}px`)
-			// offsetTop also goes nonzero as iOS nudges the page while you type with the keyboard open, not only when
-			// pinch-zoomed; undoing a pinch-zoom pan is the point, so only scroll back when actually zoomed, or every
-			// keystroke's nudge snaps the whole page to the top.
-			if (viewport.scale !== 1) scrollTo(0, 0)
+			if (viewport.offsetTop && viewport.offsetTop !== pannedTo) scrollTo(0, 0)
+			pannedTo = viewport.offsetTop
 		}
 		// An installed app on iOS sometimes misses the resize as the keyboard slides in, so focus follows the viewport until it holds still.
 		let settling = 0
