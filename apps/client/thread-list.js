@@ -36,8 +36,10 @@ import { SearchField } from './search.js'
 /** Whether New bot's name field shows at the top of the bots; jump.js opens it too */
 export const [creatingBot, setCreatingBot] = createSignal(false)
 
+/** Whether the Archived page has the list's place; New bot from Jump leaves it */
+export const [archivedPage, setArchivedPage] = createSignal(false)
+
 export function ThreadList() {
-	const [archivedPage, setArchivedPage] = createSignal(false)
 	/** Most recently answered first, anywhere, not only at home; a bot that's never answered sits last, oldest-made first */
 	const sortedBots = () =>
 		[...bots].sort((a, b) =>

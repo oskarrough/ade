@@ -26,7 +26,7 @@ import { Dot } from './dot.js'
 import { Icon } from './icons.js'
 import { placePopover } from './popover.js'
 import { marked, showMessage } from './search.js'
-import { setCreatingBot } from './thread-list.js'
+import { setArchivedPage, setCreatingBot } from './thread-list.js'
 
 const RECENT = 'ade.recent'
 const readRecent = () => {
@@ -59,6 +59,8 @@ const fit = (text, name) => {
 	return words.split(/[^\p{L}\p{N}]+/u).some((word) => word.startsWith(typed)) ? 1 : 2
 }
 const idOf = (key) => `jump-${key.replace(/[^\w-]+/g, '-')}`
+/** An open popover that Jump opening would close: any but a manual one, like the @ list */
+const OTHER_OPEN = '[popover]:not([popover="manual"], .jump):popover-open'
 const mac = /Mac|iPhone|iPad/.test(navigator.platform)
 const phone = () => matchMedia('(max-width: 700px)').matches
 const on = (module) => server().modules.includes(module)
@@ -111,6 +113,7 @@ export function Jump() {
 				label: 'New bot',
 				run: () => {
 					if (phone()) drawer('list')
+					setArchivedPage(false)
 					setCreatingBot(true)
 				},
 			},
@@ -251,6 +254,9 @@ export function Jump() {
 			if (event.altKey || event.shiftKey || (key !== 'k' && key !== 'o')) return
 			if (!(mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return
 			event.preventDefault()
+			if (event.repeat) return
+			// Over another open popover, like the model picker, it waits: opening would close that one
+			if (!panel.matches(':popover-open') && document.querySelector(OTHER_OPEN)) return
 			panel.togglePopover()
 		}
 		addEventListener('keydown', keydown)

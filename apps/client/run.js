@@ -511,9 +511,9 @@ export function Changed(props) {
 	`
 }
 
-/** A lasting change told as one plain sentence on its own row, read as a step; opened, what's under it */
+/** A lasting change told as one plain sentence on its own row, read as a step; opened, what's under it. `entry`, when it is a message of its own, lets search and Jump land on it */
 export const PlainStep = (props) => html`
-	<li class="elsewhere">
+	<li class="elsewhere" data-entry=${() => props.entry}>
 		<ol class="steps">
 			<li class="call changed plain">
 				<details onToggle=${(event) => props.onToggle?.(event)}>

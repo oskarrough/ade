@@ -704,16 +704,28 @@ agent-memory {
 						grid-row: 1;
 					}
 
-					/* Line 1: the other side, its model and a post's mark; line 2, under it: the brief and the ▸ */
+					/* Line 1: the other side, its model and a post's mark; line 2, under it: the brief and the ▸. A long
+					   title gives way with …, so the model and the mark stay in sight on a narrow screen. */
 					.tool {
 						grid-column: 2;
 						grid-row: 1;
+						display: flex;
+						align-items: baseline;
+						min-width: 0;
 						max-width: none;
 						font-weight: normal;
 						color: var(--ink);
 
 						.thread-link {
+							min-width: 0;
+							overflow: hidden;
+							text-overflow: ellipsis;
 							color: inherit;
+						}
+
+						> span {
+							flex: none;
+							white-space: pre;
 						}
 					}
 

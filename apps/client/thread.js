@@ -878,7 +878,7 @@ export function Thread(props) {
 									/>
 								<//>
 								<${Match} when=${() => row().voice === 'woke'}>
-									<${Woke} data=${() => row().entry.data} />
+									<${Woke} data=${() => row().entry.data} entry=${() => row().entry.id} />
 								<//>
 								<${Match} when=${() => row().wake}>
 									<${WakeSet} step=${() => row().wake} agent=${() => row().agent} />
