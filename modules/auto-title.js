@@ -2,7 +2,7 @@
  */
 import { defineDoc, defineExtension, defineTask } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { complete, AGENT, agentTo, background, finished } from '../util.js'
+import { complete, AGENT, agentTo, background, finished, smallModel } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
 
 export const on = true
@@ -99,7 +99,14 @@ export function server(core) {
 					const own = await core.agentOf(row.agents[AGENT]?.conversation ?? input.conversation)
 					const choice = modelName
 						? agentTo(modelName.includes('@') ? modelName : `${modelName}@${own.runner}`)
-						: { runner: own.runner, model: own.model, thinkingLevel: 'off' }
+						: core.runners.isOnline(own.runner)
+							? { runner: own.runner, model: own.model, thinkingLevel: 'off' }
+							: smallModel(
+									{ runner: own.runner, model: own.model, thinkingLevel: 'off' },
+									await core.known(),
+									'off',
+									core.runners.isOnline,
+								)
 					await core.runners.online(choice.runner, rt.signal)
 					const to = await core.address(choice, false, rt.signal)
 					const reply = await complete(

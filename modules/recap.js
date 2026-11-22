@@ -6,7 +6,16 @@ import { num, obj, opt } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTask, defineTool } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
 import { indexOf, memory, rendered } from './memory.js'
-import { complete, AGENT, agentTo, background, byAgent, finished, written } from '../util.js'
+import {
+	complete,
+	AGENT,
+	agentTo,
+	background,
+	byAgent,
+	finished,
+	smallModel,
+	written,
+} from '../util.js'
 
 export const on = false
 
@@ -71,8 +80,13 @@ export function server(core) {
 		const agent = agents[AGENT] ?? Object.values(agents)[0]
 		const own = agent && (await core.agentOf(agent.conversation))
 		if (!own) return undefined
-		await core.runners.online(own.runner, signal)
-		return { runner: own.runner, model: own.model, thinkingLevel: 'off' }
+		const to = { runner: own.runner, model: own.model, thinkingLevel: 'off' }
+		// Its agent's runner offline, a small model on any runner that's online writes it
+		const writer = core.runners.isOnline(own.runner)
+			? to
+			: smallModel(to, await core.known(), 'off', core.runners.isOnline)
+		await core.runners.online(writer.runner, signal)
+		return writer === to ? to : core.address(writer, false, signal)
 	}
 
 	function since(all, through, titles) {

@@ -145,8 +145,10 @@ export function server(core) {
 			? [AGENT, agents[AGENT]]
 			: (Object.entries(agents)[0] ?? [])
 		const to = recipient && (await core.agentOf(recipient.conversation, slot))
-		if (to) await core.runners.online(to.runner, signal)
-		return to && core.address(smallModel(to, await core.known(), 'low'), false, signal)
+		if (!to) return to
+		const small = smallModel(to, await core.known(), 'low', core.runners.isOnline)
+		await core.runners.online(small.runner, signal)
+		return core.address(small, false, signal)
 	}
 
 	/**

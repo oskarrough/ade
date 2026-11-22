@@ -64,7 +64,7 @@ runner-updater.js        what `curl <server>/connect-runner | sh` starts (it sav
 remote.js                the runner protocol, both ends: createRunners (server), serveRunner (runner),
                          runnerProvider (a model over the wire), remoteEnv (tools in the runner's folder)
 cli.js                   the API from a terminal; the owner key as a bearer off localhost (ADE_OWNER_KEY); `link`, the owner's browser link
-util.js                  helpers server and modules share: personName (`~login`, `@` as `+`), agentTo, writtenTo, smallModel (Haiku/Luna if the runner lists it, else the agent's own), mentioned, keyOf, speaker, said, written, byAgent,
+util.js                  helpers server and modules share: personName (`~login`, `@` as `+`), agentTo, writtenTo, smallModel (Haiku/Luna if the runner offers it, else the agent's own; its runner offline, Haiku or Luna on any online runner), mentioned, keyOf, speaker, said, written, byAgent,
                          finished (task result), background (thread-owned task), collect and firstIn (every item of a paged scan, or the first match), complete (module model calls, optional Pi retries, what each spent to core.spent)
 modules.js               builtIn (each module's own `on` default), dataDir ($XDG_DATA_HOME/ade, default ~/.local/share/ade), ade.json ($XDG_CONFIG_HOME/ade, default ~/.config/ade), MODULES, and loading each module's server/runner half
 modules/

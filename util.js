@@ -62,15 +62,32 @@ export const agentTo = (name) => {
 		...(eq > 0 ? { name: name.slice(0, eq) } : {}),
 	}
 }
-/** A small model for side work, like memory's lines or the director's picks: Haiku for Anthropic or Claude Code agents,
- * Luna otherwise, on `to`'s runner when that runner lists it; else `to` itself. `runners` is what each runner lists. */
-export function smallModel(to, runners, thinkingLevel) {
+/**
+ * A model for side work, like memory's lines or the director's picks: Haiku for Anthropic or Claude Code agents, Luna
+ * otherwise, on `to`'s runner when it offers it, else `to` itself. With `to`'s runner offline (`online` says), any online
+ * runner offering a small model, Haiku or Luna, so side work never waits for one machine. `runners` is what each runner
+ * lists: the models it offers and those it has run.
+ */
+export function smallModel(to, runners, thinkingLevel, online = (_name) => true) {
 	const provider = to.model.split('/')[0]
-	const model =
+	const own =
 		provider === 'anthropic' || provider === 'claude-code'
 			? `${provider}/claude-haiku-5-5`
 			: 'openai-codex/gpt-6-luna'
-	return runners[to.runner]?.models?.[model] ? { runner: to.runner, model, thinkingLevel } : to
+	const offers = (name, model) =>
+		Boolean(runners[name]?.models?.[model] || runners[name]?.offers?.includes(model))
+	if (online(to.runner))
+		return offers(to.runner, own) ? { runner: to.runner, model: own, thinkingLevel } : to
+	const small = [
+		own,
+		'claude-code/claude-haiku-5-5',
+		'anthropic/claude-haiku-5-5',
+		'openai-codex/gpt-6-luna',
+	]
+	for (const model of small)
+		for (const name of Object.keys(runners))
+			if (online(name) && offers(name, model)) return { runner: name, model, thinkingLevel }
+	return to
 }
 /** The director's numbers in ade.json, in seconds there, as whole milliseconds; out of range throws, so a typo never
  * makes a timer fire at once. Left out, each takes its default. */

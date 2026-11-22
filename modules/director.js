@@ -14,7 +14,8 @@
  *
  * The chooser is `director.model` in ade.json, `provider/model:thinking`, optionally @runner (else the thread's), with
  * DIRECTOR_MODEL winning over it. Left empty, it's Haiku or Luna with thinking off when the thread agent's runner lists
- * them (the first bot's in a bot-only group), else that agent's own model. `director.context` is how many recent
+ * them (the first bot's in a bot-only group), else that agent's own model. With that runner offline, it's Haiku or Luna
+ * on any runner that's online and offers one. `director.context` is how many recent
  * messages it reads (20), `director.timeout` the seconds before a pick fails (60) and `director.burst` the quiet it
  * waits for (1.5). `director.picks: false` disables model picks. A failed pick asks the thread's agent and records why
  * on the message; with no thread agent it asks nobody and records the failure.
@@ -229,13 +230,17 @@ export function server(core) {
 			.slice(-context)
 			.map(({ data }) => ({ author: data.author, body: (data.body ?? '').slice(0, SAID) }))
 		const setup = participants.find((agent) => !agent.name) ?? participants[0]
-		const chooser = name
-			? agentTo(name.includes('@') ? name : `${name}@${setup.runner}`)
-			: smallModel(
-					{ runner: setup.runner, model: setup.model, thinkingLevel: 'off' },
-					await core.known(),
-					'off',
-				)
+		const chosen = name && agentTo(name.includes('@') ? name : `${name}@${setup.runner}`)
+		// The model it's set to, while its runner is online; else a small one on any runner that is
+		const chooser =
+			chosen && core.runners.isOnline(chosen.runner)
+				? chosen
+				: smallModel(
+						chosen ?? { runner: setup.runner, model: setup.model, thinkingLevel: 'off' },
+						await core.known(),
+						'off',
+						core.runners.isOnline,
+					)
 		chooser.thinkingLevel ??= 'off'
 		const timeout = AbortSignal.timeout(timeoutMs)
 		const signal = AbortSignal.any([timeout, stopped])
