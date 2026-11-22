@@ -1216,14 +1216,35 @@ const Images = (props) => html`
 						return URL.createObjectURL(new Blob([bytes], { type: image.mimeType }))
 					})
 					createEffect(url, (url) => () => URL.revokeObjectURL(url))
+					// A plain click shows it over the page; a modified one still opens a tab.
+					const [shown, setShown] = createSignal(false)
+					let dialog
+					const open = (event) => {
+						if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+							return
+						event.preventDefault()
+						setShown(true)
+						dialog.showModal()
+					}
 					return html`<a
-						href=${() => url()}
-						target="_blank"
-						rel="noopener noreferrer"
-						aria-label="Open image full size"
-					>
-						<img src=${() => imageUrl(image)} alt="" loading="lazy" />
-					</a>`
+							href=${() => url()}
+							target="_blank"
+							rel="noopener noreferrer"
+							aria-label="Open image full size"
+							onClick=${open}
+						>
+							<img src=${() => imageUrl(image)} alt="" loading="lazy" />
+						</a>
+						<dialog
+							class="lightbox"
+							closedby="any"
+							aria-label="Image"
+							ref=${(element) => (dialog = element)}
+							onClick=${() => dialog.close()}
+							onClose=${() => setShown(false)}
+						>
+							<${Show} when=${shown}><img src=${() => url()} alt="" /><//>
+						</dialog>`
 				}}<//
 			>
 		</div>

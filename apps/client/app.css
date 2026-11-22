@@ -1865,13 +1865,70 @@ body.resizing {
 		max-width: 100%;
 	}
 
-	img {
+	a > img {
 		display: block;
 		height: calc(16 * var(--baseline));
 		width: auto;
 		max-width: 100%;
 		object-fit: contain;
 		border-radius: var(--radius);
+	}
+}
+
+/* An image opened over the page: as big as the window allows, never upscaled past its own size; a click or Escape anywhere closes it. */
+.lightbox {
+	max-width: 100vw;
+	max-height: 100dvh;
+	padding: var(--space-3);
+	border: 0;
+	background: none;
+	cursor: zoom-out;
+
+	img {
+		display: block;
+		max-width: calc(100vw - 2 * var(--space-3));
+		max-height: calc(100dvh - 2 * var(--space-3));
+		object-fit: contain;
+		border-radius: var(--radius);
+	}
+
+	&::backdrop {
+		background: rgb(0 0 0 / 0.8);
+	}
+}
+
+.thread > ul > li div.images a {
+	cursor: zoom-in;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.lightbox,
+	.lightbox::backdrop {
+		transition:
+			opacity var(--duration-press) var(--ease-out),
+			scale var(--duration-press) var(--ease-out),
+			display var(--duration-press) allow-discrete,
+			overlay var(--duration-press) allow-discrete;
+	}
+
+	.lightbox:not([open]),
+	.lightbox:not([open])::backdrop {
+		opacity: 0;
+	}
+
+	.lightbox:not([open]) {
+		scale: 0.96;
+	}
+
+	@starting-style {
+		.lightbox[open],
+		.lightbox[open]::backdrop {
+			opacity: 0;
+		}
+
+		.lightbox[open] {
+			scale: 0.96;
+		}
 	}
 }
 
