@@ -128,7 +128,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   search.js              SearchField, Search, Result, marked, showMessage
   jump.js                Jump (Cmd-K), openJump, go
   usage.js               Usage, Mix, Days, ThreadUsage
-  inbox.js               Inbox, Question, RecapLine, Unread, Dismiss
+  inbox.js               Inbox, brief, Question, Failed, Finished, Meta, RecapLine
   thread-details.js      DetailsPage: threads, scheduled, then Settings and Usage folded, for a thread and a bot's home
   pi-sessions.js         PiSessionList, PiSource
   canvas.js              Canvas: load, board, fitLabels, reportSeen; CanvasRow, showOnCanvas

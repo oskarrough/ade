@@ -9,7 +9,7 @@ import {
 	current,
 	drawer,
 	homeBot,
-	inbox,
+	waiting,
 	page,
 	params,
 	server,
@@ -113,7 +113,8 @@ function Client() {
 						<span
 							>${() => {
 								const here = page()
-								if (here.kind === 'inbox') return `Inbox${inbox.length ? ` ${inbox.length}` : ''}`
+								if (here.kind === 'inbox')
+									return `Inbox${waiting().length ? ` ${waiting().length}` : ''}`
 								if (here.kind === 'search') return `Search: ${here.query}`
 								if (here.kind === 'usage') return 'Usage'
 								return current() ? titleOf(current()) : 'New thread'

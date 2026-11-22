@@ -13,7 +13,7 @@ import {
 	colorOf,
 	current,
 	drawer,
-	inbox,
+	waiting,
 	openInbox,
 	openBeside,
 	openSearch,
@@ -125,7 +125,7 @@ export function Jump() {
 			},
 			on('inbox') && {
 				label: 'Inbox',
-				note: inbox.length ? String(inbox.length) : '',
+				note: waiting().length ? String(waiting().length) : '',
 				run: openInbox,
 			},
 			{ label: 'Settings', run: press('.settings-toggle') },

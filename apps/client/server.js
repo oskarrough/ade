@@ -625,6 +625,9 @@ export const {
 	}
 })
 
+/** What stops until you act: open questions and failed runs. The inbox's count is these, never unread answers. */
+export const waiting = () => inbox.filter((item) => item.kind !== 'answered')
+
 /** Subscribe to a dynamic view while `nameOf()` returns a view name; releases when it changes or disposes */
 export function feedView(nameOf, options) {
 	const [active, setActive] = createSignal(/** @type {any} */ (null))

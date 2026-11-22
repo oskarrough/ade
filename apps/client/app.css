@@ -2530,16 +2530,32 @@ body.resizing {
 	margin-inline: calc((var(--dot) - var(--icon)) / 2);
 }
 
-/* The inbox: a column in the threads' place, a question per row, each with the thread's own composer under it. */
+/* The inbox: a column in the threads' place. One sentence says how things stand; what waits on you comes in full, a question with the thread's own composer under it; what finished is a line each. */
 .thread.inbox {
 	--compose-height: 0px;
+
+	> ul > li.brief {
+		padding-bottom: var(--space-5);
+		font-weight: 600;
+	}
 
 	> ul > li.question {
 		padding-bottom: var(--space-5);
 		border-bottom: 1px solid var(--line);
 
-		> small > .dot {
-			margin-right: var(--space-2);
+		> small.meta {
+			display: flex;
+			align-items: baseline;
+			white-space: pre-wrap;
+
+			> .dot {
+				align-self: center;
+				margin-right: var(--space-2);
+			}
+
+			> .dismiss {
+				margin-left: auto;
+			}
 		}
 
 		> .recap-line {
@@ -2551,6 +2567,57 @@ body.resizing {
 		form {
 			width: 100%;
 			margin: var(--space-3) 0 0;
+		}
+	}
+
+	> ul > li.band > h3 {
+		margin: var(--space-3) 0 0;
+		color: var(--mute);
+		font-size: var(--text-small);
+		font-weight: 400;
+	}
+
+	> ul > li.finished {
+		margin-top: 0;
+		padding-block: var(--space-1);
+
+		> .line {
+			display: flex;
+			align-items: baseline;
+			gap: var(--space-2);
+			min-width: 0;
+
+			> .dot {
+				flex: none;
+				align-self: center;
+			}
+
+			> a {
+				flex: none;
+				max-width: 40%;
+				color: var(--ink);
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			> button.in {
+				flex: 1;
+				min-width: 0;
+				padding: 0;
+				overflow: hidden;
+				background: none;
+				color: var(--mute);
+				font: inherit;
+				text-align: start;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			> small {
+				flex: none;
+				color: var(--mute);
+			}
 		}
 	}
 }

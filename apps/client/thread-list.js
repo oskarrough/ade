@@ -13,7 +13,7 @@ import {
 	fork,
 	homeBot,
 	hrefOf,
-	inbox,
+	waiting,
 	api,
 	me,
 	openInbox,
@@ -82,14 +82,14 @@ export function ThreadList() {
 				<${Show} when=${() => server().modules.includes('inbox')}>
 					<ul class="inbox-row">
 						<li
-							class=${() => ['new', { current: page().kind === 'inbox', waiting: inbox.length > 0 }]}
+							class=${() => ['new', { current: page().kind === 'inbox', waiting: waiting().length > 0 }]}
 						>
 							<button
 								type="button"
 								class="row"
 								title="Show what needs your attention"
 								aria-pressed=${() => String(page().kind === 'inbox')}
-								aria-label=${() => (inbox.length ? `Inbox, ${inbox.length}` : 'Inbox')}
+								aria-label=${() => (waiting().length ? `Inbox, ${waiting().length}` : 'Inbox')}
 								onClick=${(_e) => {
 									setArchivedPage(false)
 									if (page().kind === 'inbox') openThread(current())
@@ -98,8 +98,8 @@ export function ThreadList() {
 							>
 								<span class="plus" aria-hidden="true"></span>
 								Inbox
-								<${Show} when=${() => inbox.length}
-									><small aria-hidden="true">${() => inbox.length}</small><//
+								<${Show} when=${() => waiting().length}
+									><small aria-hidden="true">${() => waiting().length}</small><//
 								>
 							</button>
 						</li>
