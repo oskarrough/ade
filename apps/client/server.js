@@ -404,53 +404,24 @@ export const {
 	}
 	/** An inbox row is what it is in its thread: a thread's answer that becomes a question is a new row, not the same one changed */
 	const inboxKey = (item) => `${item.kind} ${item.thread}`
-	/** A list keyed by `key`, fetched only while its module is on, minus the rows you removed that the server hasn't confirmed */
-	const removable = (path, key, module, idOf = (row) => row[key]) => {
-		const [rows, setRows] = createStore(/** @type {any} */ ([]))
-		const removing = new Set()
-		let fetched = []
-		const show = () =>
-			setRows(
-				reconcile(
-					fetched.filter((row) => !removing.has(idOf(row))),
-					key,
-				),
-			)
-		const reload = () =>
-			reloadList(
-				path,
-				(data) => {
-					fetched = data
-					show()
-				},
-				!module || server().modules.includes(module),
-			)
-		const remove = (id, request) =>
-			optimistically(
-				() => removing.add(id),
-				() => removing.delete(id),
-				show,
-				request,
-				reload,
-			)
-		return { rows, reload, remove }
-	}
+	const inboxRank = { question: 0, failed: 1, answered: 2 }
+	const inboxTime = (item) => (item.question ?? item.message).data.createdAt ?? ''
+	const inboxSort = (left, right) =>
+		inboxRank[left.kind] - inboxRank[right.kind] ||
+		(inboxTime(left) < inboxTime(right) ? 1 : inboxTime(left) > inboxTime(right) ? -1 : 0)
 	const [runners, setOptimisticRunners] = viewStore('runners', 'name')
 	const [bots, setOptimisticBots] = viewStore('bots', 'name')
 	/** What needs you, one entry per thread: open questions, then failures, then unread answers */
-	const inboxList = removable(
-		'inbox',
-		inboxKey,
-		'inbox',
-		(item) => item.question?.id ?? item.message.id,
-	)
+	const [inbox, setOptimisticInbox] = viewStore('inbox', inboxKey, { sort: inboxSort })
 	/** A question is hidden for everyone until its thread asks again; a failure or an answer is marked read, for you */
-	const dismiss = (item) =>
-		inboxList.remove(item.question?.id ?? item.message.id, () =>
-			item.question
-				? api(`/api/threads/${item.thread}/inbox`, { dismiss: item.question.id })
-				: api(`/api/threads/${item.thread}/read`, {}),
-		)
+	const dismiss = action(function* (item) {
+		const key = inboxKey(item)
+		setOptimisticInbox((rows) => rows.filter((row) => inboxKey(row) !== key))
+		const { seq } = yield item.question
+			? write(`/api/threads/${item.thread}/inbox`, { dismiss: item.question.id })
+			: write(`/api/threads/${item.thread}/read`, {})
+		yield caughtUp('inbox', seq)
+	})
 	/** Changes to a thread's row (archived, title) that the server hasn't confirmed; both lists show them over every fetch until it does */
 	const pending = new Map()
 	let fetchedThreads = []
@@ -500,14 +471,11 @@ export const {
 		server: reloadServer,
 		threads: reloadThreads,
 		archived: reloadArchivedThreads,
-		inbox: inboxList.reload,
 		schedule: () => setScheduleChanged((count) => count + 1),
 	}
 	/** Every remaining unmigrated list, once the socket is open */
 	const reload = () => {
-		reloadServer().then(() => {
-			inboxList.reload()
-		})
+		reloadServer()
 		reloadThreads()
 		reloadArchivedThreads()
 	}
@@ -575,7 +543,7 @@ export const {
 		behind,
 		changes,
 		bots,
-		inbox: inboxList.rows,
+		inbox,
 		dismiss,
 		threadOf,
 		threadRows,

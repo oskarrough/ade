@@ -63,7 +63,8 @@ export function server(core) {
 				if (!question || question.id === row.dismissed) return undefined
 				/** The conversation of the agent that asked, whom an answer from the inbox goes to */
 				const asker = row.agents[keyOf(question.data.author)]?.conversation ?? null
-				return { thread, kind: 'question', question, asker }
+				const askerTo = asker ? await core.agentOf(asker, keyOf(question.data.author)) : null
+				return { thread, kind: 'question', question, asker, askerTo }
 			}),
 		)
 		return found.filter(Boolean).sort(newest)
@@ -102,23 +103,42 @@ export function server(core) {
 	const newest = (a, b) => (time(a) < time(b) ? 1 : -1)
 	const time = (item) => (item.question ?? item.message).data.createdAt ?? ''
 
+	const list = async (reader) => {
+		const asked = await questions()
+		const waiting = new Set(asked.map((item) => item.thread))
+		return [...asked, ...(await unread(reader)).filter((item) => !waiting.has(item.thread))]
+	}
+	core.feed.define('inbox', {
+		perViewer: true,
+		keyOf: (item) => `${item.kind} ${item.thread}`,
+		all: list,
+		match: (change) => {
+			if (change.type === 'entry') return change.value.kind === 'ade.message'
+			if (change.type === 'document') return change.record.kind === 'ade.thread'
+			if (change.type === 'task') return core.isWork(change.value.kind)
+			if (change.type === 'conversation') return !change.value.owner
+			return false
+		},
+	})
+
 	async function serve(threadId, _query, body, reader) {
 		if (threadId === undefined) {
 			if (body !== undefined) throw new Error('Dismiss a question in its thread')
-			const asked = await questions()
-			const waiting = new Set(asked.map((item) => item.thread))
-			return [...asked, ...(await unread(reader)).filter((item) => !waiting.has(item.thread))]
+			return list(reader)
 		}
 		if (!Number.isInteger(body?.dismiss)) throw new Error('dismiss is the question message id')
 		await core.conversation(threadId)
 		// Only the question still open: a late dismissal of an older one must not hide a newer one
-		const dismissed = await core.commit(async (tx) => {
-			const row = await core.threadIn(tx, threadId)
-			if ((await openQuestion(threadId, row, tx))?.id !== body.dismiss) return null
-			row.dismissed = body.dismiss
-			return body.dismiss
-		})
-		return { dismissed }
+		return core.once(
+			core.scopedKey(`dismiss ${threadId}`, body.key),
+			`dismiss ${threadId}`,
+			async (tx) => {
+				const row = await core.threadIn(tx, threadId)
+				if ((await openQuestion(threadId, row, tx))?.id !== body.dismiss) return { dismissed: null }
+				row.dismissed = body.dismiss
+				return { dismissed: body.dismiss }
+			},
+		)
 	}
 
 	/** The thread's open question: its newest `ask_person` message, unless a person has written since; with `tx`, read in that commit */

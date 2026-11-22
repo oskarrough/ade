@@ -3116,14 +3116,10 @@ const place = (id, value, record = records.get(id)) => {
 	const now = {
 		hidden: Boolean(value.hidden),
 		parent,
-		dismissed: value.dismissed ?? null,
-		reads: JSON.stringify(value.reads ?? {}),
 	}
 	placed.set(id, now)
 	for (const { conversation } of Object.values(value.agents ?? {}))
 		agentThreads.set(conversation, id)
-	// A new thread, a fork most of all, can start with a question it inherited
-	if (!before) recheck(id)
 	return { before, now }
 }
 /** Open threads' family around `id`: its root through parents and forks, then every open descendant, newest first */
@@ -3155,21 +3151,6 @@ function familyOf(id) {
 			}
 	return family
 }
-/** Each thread whose question waits on a person, as the inbox and the thread's status read it */
-const asking = new Set()
-let rechecking = Promise.resolve()
-/** Looks again whether a question waits in a thread, one look after another; the inbox moves when that changes */
-const recheck = (id) =>
-	openQuestion &&
-	(rechecking = rechecking
-		.then(async () => {
-			const asked = Boolean(await openQuestion(id, await thread(id)))
-			if (asked === asking.has(id)) return
-			if (asked) asking.add(id)
-			else asking.delete(id)
-			notify(['inbox'])
-		})
-		.catch(() => {}))
 /** The list a thread's row is in, or both while it's not known yet */
 const listOf = (conversationId) => {
 	const at = placed.get(agentThreads.get(conversationId) ?? conversationId)
@@ -3192,7 +3173,6 @@ function listsOf({ changes }, ended) {
 		if (change.type === 'entry') {
 			const { kind, conversationId } = /** @type {any} */ (change.value)
 			if (!kind.startsWith('ade.')) return []
-			if (kind === KIND) recheck(conversationId)
 			return listOf(conversationId)
 		}
 		if (change.type === 'task') {
@@ -3200,35 +3180,23 @@ function listsOf({ changes }, ended) {
 			const { id, kind, conversationId, state } = change.value
 			if (!isWork(kind)) return []
 			const tasks = workIn.get(conversationId) ?? new Set()
-			/** A thread starting or ending work: with the inbox on, what it lists as failed or unread changes */
-			let turned = false
 			if (state.status !== 'terminal') {
 				if (tasks.has(id)) return []
-				turned = !tasks.size
 				workIn.set(conversationId, tasks.add(id))
 			} else if ((tasks.delete(id), !tasks.size)) {
 				// One live since before start ends here too; `busy` makes sure
 				workIn.delete(conversationId)
 				ended.add(conversationId)
-				turned = true
 			}
-			return [...listOf(conversationId), ...(turned && openQuestion ? ['inbox'] : [])]
+			return listOf(conversationId)
 		}
 		if (change.type === 'submission') return []
 		const { kind } = change.record
 		if (kind === 'ade.thread') {
-			if (!moves.has(change)) return ['threads', 'archived', 'inbox']
+			if (!moves.has(change)) return ['threads', 'archived']
 			const { before = moves.get(change).now, now } = moves.get(change)
 			const moved = before.hidden !== now.hidden
-			return [
-				...(moved ? ['threads', 'archived'] : listOf(change.conversationId)),
-				// With the inbox on, a read clears what it listed as unread
-				...(moved ||
-				before.dismissed !== now.dismissed ||
-				(openQuestion && before.reads !== now.reads)
-					? ['inbox']
-					: []),
-			]
+			return moved ? ['threads', 'archived'] : listOf(change.conversationId)
 		}
 		if (kind === AgentDoc.definition.kind)
 			return [

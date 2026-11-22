@@ -90,6 +90,7 @@ function Question(props) {
 	const data = () => props.item.question.data
 	/** The agent that asked, by its conversation, as the thread list has it now */
 	const asks = () =>
+		props.item.askerTo ??
 		threadOf(thread)?.agents.find((agent) => agent.conversation === props.item.asker)?.to
 	return html`
 		<li class="question" data-thread=${thread}>

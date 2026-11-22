@@ -114,23 +114,31 @@ check(
 await post(late, 'fine')
 await answered(late, 3)
 
-// A fork that inherits a question is in the inbox, and answering it there tells every page's socket
+// A fork that inherits a question is in the inbox, and answering it there removes it on the inbox feed
 const heard = []
 const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
 socket.onmessage = ({ data }) => heard.push(JSON.parse(String(data)))
 await new Promise((resolve) => (socket.onopen = resolve))
+socket.send(JSON.stringify({ sub: 'inbox' }))
+await until(async () => heard.some((message) => message.view === 'inbox' && message.reset))
 const source = await createThread('source')
 await post(source, 'ask: fork me?')
 const asked = await until(async () => (await inbox()).find((item) => item.thread === source))
 const { json: fork } = await api('POST', `/api/threads/${source}/fork`, { at: asked.question.id })
-const forked = await until(async () => (await inbox()).some((item) => item.thread === fork.id))
-await until(async () => heard.some((message) => message.changed?.includes('inbox')), 3000)
+const forked = await until(async () =>
+	heard.some(
+		(message) =>
+			message.view === 'inbox' && message.put?.some((item) => item.key === `question ${fork.id}`),
+	),
+)
 heard.length = 0
 await api('POST', `/api/threads/${fork.id}/entries`, { body: 'no' })
-const told = await until(async () => heard.some((message) => message.changed?.includes('inbox')))
+const told = await until(async () =>
+	heard.some((message) => message.view === 'inbox' && message.del?.includes(`question ${fork.id}`)),
+)
 check(
 	Boolean(forked && told) && !(await inbox()).some((item) => item.thread === fork.id),
-	"answering a fork's inherited question takes it out, and the socket names the inbox",
+	"answering a fork's inherited question takes it out on the inbox feed",
 	JSON.stringify([fork, heard, await inbox()]),
 )
 socket.close()
@@ -187,15 +195,25 @@ const heardRead = []
 const readSocket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
 readSocket.onmessage = ({ data }) => heardRead.push(JSON.parse(String(data)))
 await new Promise((resolve) => (readSocket.onopen = resolve))
+readSocket.send(JSON.stringify({ sub: 'inbox' }))
+await until(async () => heardRead.some((message) => message.view === 'inbox' && message.reset))
 await api('POST', `/api/threads/${answeredHere}/read`, {})
 await api('POST', `/api/threads/${failedHere}/read`, {})
 all = await until(async () =>
 	((list) => kinds(list, ids) === `question ${askedHere}` && list)(await everything()),
 )
-await until(async () => heardRead.some((message) => message.changed?.includes('inbox')))
+const cleared = await until(
+	async () =>
+		heardRead.some(
+			(message) => message.view === 'inbox' && message.del?.includes(`answered ${answeredHere}`),
+		) &&
+		heardRead.some(
+			(message) => message.view === 'inbox' && message.del?.includes(`failed ${failedHere}`),
+		),
+)
 check(
-	Boolean(all) && heardRead.some((message) => message.changed?.includes('inbox')),
-	'reading a thread clears its failure or answer, and the socket names the inbox',
+	Boolean(all && cleared),
+	'reading a thread clears its failure or answer on the inbox feed',
 	JSON.stringify([kinds(await everything(), ids), heardRead]),
 )
 readSocket.close()
@@ -215,7 +233,7 @@ check(
 	JSON.stringify([stoppedRow, (await view(stopped)).status]),
 )
 
-// Work starting on a failed thread takes it out at once, and the socket names the inbox as it starts
+// Work starting on a failed thread takes it out at once on the inbox feed
 const retried = await createThread('retried')
 await post(retried, 'fail please')
 await until(async () => (await everything()).some((item) => item.thread === retried))
@@ -223,15 +241,19 @@ const heardStart = []
 const startSocket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
 startSocket.onmessage = ({ data }) => heardStart.push(JSON.parse(String(data)))
 await new Promise((resolve) => (startSocket.onopen = resolve))
+startSocket.send(JSON.stringify({ sub: 'inbox' }))
+await until(async () => heardStart.some((message) => message.view === 'inbox' && message.reset))
 await api('POST', `/api/threads/${retried}/entries`, { body: '$ sleep 3', to: 'echo/echo@laptop' })
 await until(async () => (await view(retried)).busy)
 const toldStart = await until(async () =>
-	heardStart.some((message) => message.changed?.includes('inbox')),
+	heardStart.some(
+		(message) => message.view === 'inbox' && message.del?.includes(`failed ${retried}`),
+	),
 )
 const stillBusy = (await view(retried)).busy
 check(
 	Boolean(toldStart) && stillBusy && !(await everything()).some((item) => item.thread === retried),
-	'a failed thread that starts work again leaves the inbox, and the socket says so while it runs',
+	'a failed thread that starts work again leaves the inbox on the feed while it runs',
 	JSON.stringify([heardStart, stillBusy]),
 )
 startSocket.close()
