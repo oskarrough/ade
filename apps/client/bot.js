@@ -14,16 +14,20 @@ import {
 	paint,
 	reloadThreads,
 	saveBot,
+	server,
 	threadOf,
 	threadRows,
 	write,
 } from './server.js'
 import { formatAgent } from './agent.js'
 import { agent, openPicker } from './composer.js'
+import { copyText, nativeMenu } from './desktop.js'
 import { Dot, Switch } from './dot.js'
 import { report } from './notice.js'
+import { openTaskForm } from './schedule.js'
+import { openSide } from './side.js'
 import { Sure } from './sure.js'
-import { ThreadItem } from './thread-list.js'
+import { rename, ThreadItem } from './thread-list.js'
 
 const familyOf = (bot) => new Set((threadOf(bot.home)?.family ?? []).map((member) => member.id))
 
@@ -42,6 +46,24 @@ export function botThreads(bot) {
 	return { own: own.map(threadOf).filter(Boolean), elsewhere: elsewhere.map(threadOf) }
 }
 
+/** A bot row's right-click menu in arbe desktop */
+const botMenu = (bot) => [
+	{ label: 'Open', run: () => openThread(bot.home) },
+	{
+		label: 'Settings',
+		run: () => {
+			openThread(bot.home)
+			openSide(bot.home, 'details')
+		},
+	},
+	{ label: 'Rename…', run: () => rename(bot.home) },
+	{ label: 'Copy link', run: () => copyText(new URL(hrefOf(bot.home), location.href).href) },
+	server().modules.includes('schedule') && {
+		label: 'Schedule a task…',
+		run: () => openTaskForm(bot.home),
+	},
+]
+
 export function BotItem(props) {
 	return html`
 		<li class=${() => ({ current: props.bot.home === current() })}>
@@ -50,6 +72,7 @@ export function BotItem(props) {
 				href=${() => hrefOf(props.bot.home)}
 				title=${() => props.bot.instructions.split('\n')[0]}
 				onClick=${(event) => followThread(event, props.bot.home)}
+				onContextMenu=${(event) => nativeMenu(event, botMenu(props.bot))}
 			>
 				<${Dot} state=${() => props.bot.status} />
 				<span style=${() => colorOf(props.bot.name)}>${() => props.bot.name}</span>

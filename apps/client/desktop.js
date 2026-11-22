@@ -7,14 +7,23 @@ import { report } from './notice.js'
 const mygo = /** @type {any} */ (window).mygo
 
 /**
- * Shows `items`, `{label, run}` or `null` for a separator, as the window's menu at the pointer, and runs the one picked.
- * Does nothing outside the desktop window, nor over a selection or a field, whose menu is the webview's (Copy, Paste).
+ * Shows `items`, `{label, run}`, `null` for a separator, or `false`/`undefined` (omitted), as the window's menu at the
+ * pointer, and runs the one picked. Does nothing outside the desktop window, nor over a selection or a field, whose
+ * menu is the webview's (Copy, Paste).
  */
 export function nativeMenu(event, items) {
 	if (!mygo || event.target.closest?.('input, textarea, [contenteditable]')) return
 	// No separator first, last or twice
-	const shown = items.filter((item, at) => item || (at > 0 && items[at - 1]))
-	while (shown.length && !shown.at(-1)) shown.pop()
+	const shown = []
+	for (const item of items) {
+		if (item === false || item === undefined) continue
+		if (item === null) {
+			if (shown.length && shown.at(-1) !== null) shown.push(null)
+			continue
+		}
+		shown.push(item)
+	}
+	if (shown.at(-1) === null) shown.pop()
 	if (!shown.length) return
 	event.preventDefault()
 	mygo

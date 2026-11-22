@@ -66,6 +66,7 @@ import {
 import { Break, breakOf, Stamp } from './time.js'
 import { appendQuote, Composer, heardDraft } from './composer.js'
 import { copyText, nativeMenu, selectedIn } from './desktop.js'
+import { threadMenu } from './thread-list.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
 import { imageUrl } from './images.js'
@@ -805,6 +806,12 @@ export function Thread(props) {
 						aria-pressed=${() => String(sideOf(props.id)?.key === 'details')}
 						style=${() => colorOf(homeBot(props.id)?.name ?? '')}
 						onClick=${titleClick}
+						onContextMenu=${(event) =>
+							props.id &&
+							nativeMenu(
+								event,
+								threadMenu(props.id, { archived: thread()?.archived, open: false }),
+							)}
 					>
 						<span>${() => (props.id ? thread()?.title : 'a new thread')}</span>
 						<${Dot} state=${() => thread()?.status} />

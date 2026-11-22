@@ -318,7 +318,7 @@ Where a feature lives:
 - Pi session files, both ways: modules/pi-sessions.js; the runner's messages are `pi-session`, `pi-session-list` and `pi-session-read` in remote.js serveRunner, shipped with the runner through RUNNER_FILES; cli.js `import`.
 - Scheduled tasks: modules/schedule.js, modules/hooks.js (outside events), util.js said (`scheduledTask` marks the message; an `event` follows it as `<outside-event>`), client schedule.js, composer.js (the strip), thread-list.js (the list in the foot), thread-details.js and jump.js (Schedule a task), thread.js (rows, ScheduledRun), time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, client settings.js.
-- Right-click menus in arbe desktop: client desktop.js (nativeMenu, only with `window.mygo`), thread-list.js threadMenu (thread rows), thread.js Message messageMenu (Quote, Copy, Fork from here).
+- Right-click menus in arbe desktop: client desktop.js (nativeMenu, only with `window.mygo`), thread-list.js threadMenu (thread rows), thread.js (header pill via threadMenu, and Message messageMenu: Quote, Copy, Fork from here), bot.js botMenu (bot rows).
 - A page behind its ade: server.js hashOf/clientVersion (`client` in GET /api/server, `server` named on the socket when apps/client changes), git, GET /api/changes (the commits since the page's), client server.js `behind`/`changes`, thread-list.js (Update in the list's foot, with the count of commits).
 - The desktop window: apps/desktop main.go (window, links, offline page, notifications, updater, `Desktop.Menu` for right-click menus), preload.js (notifications from the thread list, the clipboard on plain http), release.sh (`pnpm desktop:release`).
 

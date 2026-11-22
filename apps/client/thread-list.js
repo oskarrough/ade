@@ -29,7 +29,7 @@ import { report } from './notice.js'
 import { copyText, nativeMenu } from './desktop.js'
 import { openSide } from './side.js'
 import { RunnerList } from './runner.js'
-import { ScheduledTaskList } from './schedule.js'
+import { openTaskForm, ScheduledTaskList } from './schedule.js'
 import { Settings } from './settings.js'
 import { BotItem, NewBot } from './bot.js'
 import { SearchField } from './search.js'
@@ -193,39 +193,50 @@ function NewRow(props) {
 	`
 }
 
-/** A thread row's right-click menu in arbe desktop: the row's and the details' own actions */
-const threadMenu = (id, archived) => [
-	{ label: 'Open', run: () => openThread(id) },
-	{ label: 'Rename…', run: () => rename(id) },
-	{
-		label: 'Fork',
-		run: async () => {
-			const { entries } = await api(`/api/threads/${id}?last=1`)
-			const last = entries.at(-1)
-			if (last) await fork(id, last.id)
-		},
-	},
-	{ label: 'Copy link', run: () => copyText(new URL(hrefOf(id), location.href).href) },
-	// The details' Regenerate: the model writes a new title, over one set by hand too
-	server().modules.includes('auto-title') && !homeBot(id)
-		? {
+/** A thread's right-click menu in arbe desktop: used by thread rows and the thread header pill */
+export const threadMenu = (id, { archived = false, open = true } = {}) => {
+	const paused = !!threadOf(id)?.paused
+	return [
+		open && { label: 'Open', run: () => openThread(id) },
+		{ label: 'Rename…', run: () => rename(id) },
+		// The details' Regenerate: the model writes a new title, over one set by hand too
+		server().modules.includes('auto-title') &&
+			!homeBot(id) && {
 				label: 'Regenerate title',
 				run: () => api(`/api/threads/${id}/auto-title`, {}).then(() => reloadThreads()),
-			}
-		: null,
-	...(homeBot(id)
-		? []
-		: [
-				null,
-				{ label: archived ? 'Unarchive' : 'Archive', run: () => archiveThread(id, !archived) },
-			]),
-]
-/** Opens the thread with its details, its title field ready to type in */
-const rename = (id) => {
+			},
+		{
+			label: 'Fork',
+			run: async () => {
+				const { entries } = await api(`/api/threads/${id}?last=1`)
+				const last = entries.at(-1)
+				if (last) await fork(id, last.id)
+			},
+		},
+		{ label: 'Copy link', run: () => copyText(new URL(hrefOf(id), location.href).href) },
+		server().modules.includes('schedule') && {
+			label: 'Schedule a task…',
+			run: () => openTaskForm(id),
+		},
+		!archived && {
+			label: paused ? 'Resume' : 'Pause',
+			run: () => api(`/api/threads/${id}/pause`, { paused: !paused }).then(() => reloadThreads()),
+		},
+		...(homeBot(id)
+			? []
+			: [
+					null,
+					{ label: archived ? 'Unarchive' : 'Archive', run: () => archiveThread(id, !archived) },
+				]),
+	]
+}
+/** Opens the thread with its details, its title or bot name field ready to type in */
+export const rename = (id) => {
 	openThread(id)
 	openSide(id, 'details')
+	const label = homeBot(id) ? 'Bot name' : 'Thread title'
 	requestAnimationFrame(() => {
-		const field = document.querySelector('input[aria-label="Thread title"]')
+		const field = document.querySelector(`input[aria-label="${label}"]`)
 		if (!(field instanceof HTMLInputElement)) return
 		field.focus()
 		field.select()
@@ -243,7 +254,8 @@ export function ThreadItem(props) {
 				class="row"
 				href=${() => hrefOf(props.thread.id)}
 				onClick=${(event) => followThread(event, props.thread.id)}
-				onContextMenu=${(event) => nativeMenu(event, threadMenu(props.thread.id, props.archived))}
+				onContextMenu=${(event) =>
+					nativeMenu(event, threadMenu(props.thread.id, { archived: props.archived }))}
 			>
 				<${Dot} state=${() => props.thread.status} />
 				<span>${() => props.thread.title}</span>
