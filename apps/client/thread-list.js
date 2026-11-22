@@ -65,8 +65,8 @@ export function ThreadList() {
 					<${SearchField} />
 				<//>
 				<${Show} when=${() => server().modules.includes('inbox')}>
-					<ul>
-						<li class=${() => ({ current: inboxOpen() })}>
+					<ul class="inbox-row">
+						<li class=${() => ['new', { current: inboxOpen() }]}>
 							<button
 								type="button"
 								class="row"

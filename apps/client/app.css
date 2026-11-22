@@ -266,7 +266,12 @@ agent-memory {
 	overflow-y: auto;
 }
 
-/* New thread and New bot side by side, above both lists */
+/* Inbox is its own section, one gap below New thread/New bot, the same it gets above Bots. */
+.thread-list > ul.inbox-row {
+	margin-top: var(--space-4);
+}
+
+/* New thread and New bot side by side, above both lists; their rows sit on the same grid as the ones below, the + where a dot sits. */
 .thread-list > ul.new-rows {
 	flex: none;
 	display: flex;
@@ -275,15 +280,6 @@ agent-memory {
 
 	> li {
 		flex: none;
-	}
-
-	/* +Thread, +Bot: the plus against its word */
-	.row {
-		gap: 0;
-	}
-
-	.plus {
-		width: auto;
 	}
 }
 
