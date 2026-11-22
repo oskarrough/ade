@@ -349,6 +349,9 @@ export function runnerProvider(runners, name, resolved = {}) {
 				onMessage: ({ event }) => {
 					if (event.partial) partial = event.partial
 					else if (!['done', 'error'].includes(event.type)) event.partial = partial
+					// The answer says which runner wrote it, which usage meters by
+					if (event.type === 'done') event.message = { ...event.message, runner: name }
+					if (event.type === 'error') event.error = { ...event.error, runner: name }
 					events.push(event)
 				},
 			})

@@ -10,8 +10,8 @@
  * With the module off, nothing is kept.
  *
  * The cost is the list price, which a subscription login (Claude Code, ChatGPT) never bills, so it's `billed` only
- * where a runner offers the provider on an API key (its `metered` providers, less its `free` models) or the provider
- * reported the cost itself (OpenRouter). Tokens are the honest number either way.
+ * where the runner that ran it offers the provider on an API key (its `metered` providers, less its `free` models) or
+ * the provider reported the cost itself (OpenRouter). Each turn and module call keeps its runner for that. Tokens are the honest number either way.
  *
  * `GET /api/usage?since=&until=&zone=` answers the house's `{total, models, days, threads, by, threadCount}`: days
  * start at the asker's midnight, `zone` being what its clock adds to UTC in milliseconds; `by` is who or what spent it,
@@ -54,23 +54,24 @@ export function server(core) {
 	db.exec(`
 		create table spend (
 			id integer primary key, entry integer unique, conversation integer, at integer, purpose text not null,
-			provider text, model text, calls integer, input real, output real, cache_read real, cache_write real,
+			runner text, provider text, model text, calls integer, input real, output real, cache_read real, cache_write real,
 			cost real, from_provider integer
 		);
 		create index spend_by_conversation on spend (conversation, at);
 	`)
 	const insert = db.prepare(`
 		insert or ignore into spend
-			(entry, conversation, at, purpose, provider, model, calls, input, output, cache_read, cache_write, cost, from_provider)
-		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(entry, conversation, at, purpose, runner, provider, model, calls, input, output, cache_read, cache_write, cost, from_provider)
+		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
-	/** One row: an entry's turn (`entry` its id), or a module's or compaction's (none) */
-	const put = (entry, conversation, at, purpose, provider, model, calls, usage) =>
+	/** One row: an entry's turn (`entry` its id), or a module's or compaction's (none); `runner` the one that ran it, if known */
+	const put = (entry, conversation, at, purpose, runner, provider, model, calls, usage) =>
 		insert.run(
 			entry,
 			conversation,
 			at,
 			purpose,
+			runner ?? '',
 			provider ?? '',
 			model ?? '',
 			calls,
@@ -92,6 +93,7 @@ export function server(core) {
 					entry.conversationId,
 					message.timestamp ?? 0,
 					'',
+					message.runner,
 					message.provider,
 					message.model,
 					1,
@@ -106,10 +108,20 @@ export function server(core) {
 	function calls(thread, buckets) {
 		forget.run(thread)
 		for (const bucket of Object.values(buckets ?? {}))
-			put(null, thread, bucket.at, bucket.purpose, bucket.provider, bucket.model, bucket.calls, {
-				...bucket,
-				reported: bucket.reported ? 1 : 0,
-			})
+			put(
+				null,
+				thread,
+				bucket.at,
+				bucket.purpose,
+				bucket.runner,
+				bucket.provider,
+				bucket.model,
+				bucket.calls,
+				{
+					...bucket,
+					reported: bucket.reported ? 1 : 0,
+				},
+			)
 	}
 
 	/** What a module's own model call spent, added to its thread's hour */
@@ -117,12 +129,13 @@ export function server(core) {
 		if (thread === undefined || !purpose) return
 		const at = Math.floor(Date.now() / HOUR) * HOUR
 		const { usage } = reply
-		const key = `${at}|${purpose}|${reply.provider}/${reply.model}`
+		const key = `${at}|${purpose}|${reply.provider}/${reply.model}@${reply.runner ?? ''}`
 		const buckets = await core.commit(async (tx) => {
 			const doc = await tx.doc(Spent, thread)
 			doc.buckets[key] ??= {
 				at,
 				purpose,
+				...(reply.runner ? { runner: reply.runner } : {}),
 				provider: reply.provider,
 				model: reply.model,
 				calls: 0,
@@ -177,7 +190,7 @@ export function server(core) {
 				Object.entries(beyond).map(([key, value]) => [key, value / times.length]),
 			)
 			for (const at of times)
-				put(null, conversation, at, COMPACTION, provider, model, 1, {
+				put(null, conversation, at, COMPACTION, '', provider, model, 1, {
 					...share,
 					reported: usage.cost?.totalFromProvider ? 1 : 0,
 				})
@@ -233,14 +246,19 @@ export function server(core) {
 		return ready
 	}
 
-	/** Whether a model's cost is a bill: some runner offers its provider on an API key, and it isn't one of the free ones */
+	/**
+	 * Whether a model's cost is a bill: the runner that ran it offers its provider on an API key, and it isn't one of
+	 * the free ones there. A row that doesn't know its runner, compaction's or one from before rows kept it, is a bill
+	 * when any runner meters it so.
+	 */
 	async function meteredOf() {
-		const runners = Object.values(await core.known())
-		return (provider, model) =>
-			runners.some(
-				(runner) =>
-					runner.metered?.includes(provider) && !runner.free?.includes(`${provider}/${model}`),
-			)
+		const all = await core.known()
+		const meters = (runner, provider, model) =>
+			Boolean(runner?.metered?.includes(provider) && !runner.free?.includes(`${provider}/${model}`))
+		return (provider, model, runner) =>
+			runner
+				? meters(all[runner], provider, model)
+				: Object.values(all).some((one) => meters(one, provider, model))
 	}
 
 	const DAY = 86_400_000
@@ -274,32 +292,48 @@ export function server(core) {
 			.sort((one, other) => other[1].cost - one[1].cost)
 	}
 
+	// Each grouped by runner too, as one model may be a bill on one runner and a subscription on another
 	const byModel = db.prepare(`
-		select provider, model, ${SUMS} from spend where at >= :since and at < :until
-		group by provider, model order by sum(cost) desc
+		select runner, provider, model, ${SUMS} from spend where at >= :since and at < :until
+		group by runner, provider, model
 	`)
 	const byConversation = db.prepare(`
-		select conversation, purpose, provider, model, ${SUMS} from spend where at >= :since and at < :until
-		group by conversation, purpose, provider, model
+		select conversation, purpose, runner, provider, model, ${SUMS} from spend where at >= :since and at < :until
+		group by conversation, purpose, runner, provider, model
 	`)
 	const byDay = db.prepare(`
-		select cast((at + :zone) / ${DAY} as integer) as day, provider, model, ${SUMS} from spend
-		where at >= :since and at < :until group by day, provider, model
+		select cast((at + :zone) / ${DAY} as integer) as day, runner, provider, model, ${SUMS} from spend
+		where at >= :since and at < :until group by day, runner, provider, model
 	`)
 	const ofConversation = db.prepare(`
-		select purpose, provider, model, ${SUMS} from spend
+		select purpose, runner, provider, model, ${SUMS} from spend
 		where conversation = :conversation and at >= :since and at < :until
-		group by purpose, provider, model order by sum(cost) desc
+		group by purpose, runner, provider, model
 	`)
+	/** Priced rows of one model on several runners as one row, most expensive first; `also` the other fields that keep rows apart */
+	const merged = (rows, also = []) =>
+		grouped(rows, (row) =>
+			JSON.stringify([...also.map((key) => row[key]), row.provider, row.model]),
+		).map(([group, sums]) => {
+			const values = JSON.parse(group)
+			const [provider, model] = values.slice(also.length)
+			return {
+				...Object.fromEntries(also.map((key, index) => [key, values[index]])),
+				provider,
+				model,
+				...sums,
+			}
+		})
 
 	/** The house: its total, each model, each day, the threads that cost most, and each bot across its threads */
 	async function house(query) {
 		await built()
 		const between = range(query)
 		const metered = await meteredOf()
-		const priced = (/** @type {any} */ row) => counted(row, metered(row.provider, row.model))
+		const priced = (/** @type {any} */ { runner, ...row }) =>
+			counted(row, metered(row.provider, row.model, runner))
 		const { zone: _, ...within } = between
-		const models = /** @type {any[]} */ (byModel.all(within)).map(priced)
+		const models = merged(/** @type {any[]} */ (byModel.all(within)).map(priced))
 		const days = grouped(/** @type {any[]} */ (byDay.all(between)).map(priced), (row) => row.day)
 			.map(([day, sums]) => ({ day: day * DAY - between.zone, ...sums }))
 			.sort((one, other) => one.day - other.day)
@@ -350,13 +384,17 @@ export function server(core) {
 			(one) => one.id === id || one.owner?.conversationId === id,
 		)
 		const { zone: _, ...within } = between
-		const models = owned.flatMap((one) =>
-			/** @type {any[]} */ (ofConversation.all({ conversation: one.id, ...within })).map((row) => ({
-				agent: row.purpose || (names.get(one.id) ?? AGENT),
-				...counted(row, metered(row.provider, row.model)),
-			})),
+		const models = merged(
+			owned.flatMap((one) =>
+				/** @type {any[]} */ (ofConversation.all({ conversation: one.id, ...within })).map(
+					({ runner, purpose, ...row }) => ({
+						agent: purpose || (names.get(one.id) ?? AGENT),
+						...counted(row, metered(row.provider, row.model, runner)),
+					}),
+				),
+			),
+			['agent'],
 		)
-		models.sort((one, other) => other.cost - one.cost)
 		return { total: add(models), models }
 	}
 
