@@ -346,10 +346,15 @@ export function server(core) {
 		archiving,
 		start: () => settling(),
 		ended: settling,
-		/** A wake set, gone to sleep again, fired or cancelled: the pages on its thread fetch its wakes again */
-		taskChanged: ({ kind, conversationId }) =>
-			kind === Wake.definition.name &&
-			core.activity(conversationId, { purpose: 'wake', kind: 'changed' }),
+		/**
+		 * A wake set, gone to sleep again, fired or cancelled: the pages on its thread fetch its wakes again, and every
+		 * page hears `wakes` changed, for the house's list
+		 */
+		taskChanged: ({ kind, conversationId }) => {
+			if (kind !== Wake.definition.name) return
+			core.activity(conversationId, { purpose: 'wake', kind: 'changed' })
+			core.notify(['wakes'])
+		},
 		extension: defineExtension({
 			name: 'ade.wake',
 			tools: [wake],

@@ -10,7 +10,7 @@ import {
 	Show,
 } from 'solid-js'
 import { Icon } from './icons.js'
-import { api, connected, openThread, titleOf } from './server.js'
+import { api, connected, openThread, titleOf, wakesChanged } from './server.js'
 import { placePopover } from './popover.js'
 import { Panes } from './panes.js'
 import { shortLabel } from './agent.js'
@@ -42,12 +42,11 @@ const span = (ms) => {
 /** Each thread's count of wake changes heard on its socket, which its strip fetches again on */
 const [heard, setHeard] = createRoot(() => createStore({}))
 export function heardWake(thread, event) {
-	if (event.purpose === 'wake') changed(thread)
+	if (event.purpose === 'wake')
+		setHeard((all) => {
+			all[thread] = (all[thread] ?? 0) + 1
+		})
 }
-const changed = (thread) =>
-	setHeard((all) => {
-		all[thread] = (all[thread] ?? 0) + 1
-	})
 
 /** When a wake goes off next, or what it waits for, and how often it repeats */
 const whenOf = (wake) =>
@@ -57,17 +56,20 @@ const whenOf = (wake) =>
 			? `${ahead(wake.at)}${wake.every ? `, then every ${span(wake.every)}` : ''}`
 			: `once ${titleOf(wake.after)} is done`
 
-/** Every wake in the house, in a popover from the list's foot: its thread, when, its note, and × to cancel it; fetched each time it opens */
+/** Every wake in the house, in a popover from the list's foot: its thread, when, its note, and × to cancel it; fetched when it opens and, while open, on each wake change */
 export function WakeList() {
 	let button, panel
 	const id = createUniqueId()
 	const [wakes, setWakes] = createSignal([])
 	const load = () => api('/api/wake').then(setWakes, report)
-	const cancel = (wake) =>
-		api('/api/wake', { cancel: wake.id }).then(() => {
-			changed(wake.thread)
-			return load()
-		}, report)
+	/** Open, it fetches again whenever the socket says a wake changed or comes back */
+	createEffect(
+		() => [wakesChanged(), connected()],
+		([, online]) => {
+			if (online && panel?.matches(':popover-open')) load()
+		},
+	)
+	const cancel = (wake) => api('/api/wake', { cancel: wake.id }).catch(report)
 	/** A row opens its thread */
 	const go = (wake) => {
 		panel.hidePopover()
@@ -104,7 +106,8 @@ export function WakeList() {
 								tabindex="0"
 								title=${() => `${shortLabel(wake().agent)} wakes ${whenOf(wake())}: ${wake().note}`}
 								onClick=${(_e) => go(wake())}
-								onKeyDown=${(event) => event.key === 'Enter' && go(wake())}
+								onKeyDown=${(event) =>
+									event.key === 'Enter' && event.target === event.currentTarget && go(wake())}
 							>
 								<div>
 									<b>${() => titleOf(wake().thread)}</b>

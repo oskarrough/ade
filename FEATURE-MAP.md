@@ -107,7 +107,7 @@ modules/
                          POST a dismissal, kept as the Thread doc's `dismissed`); off by default
   wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
                          sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and on the
-                         server's `ended`, over core.busy), taskChanged tells the thread's pages (`wake` activity), pending (the thread's or the house's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake and /api/wake),
+                         server's `ended`, over core.busy), taskChanged tells the thread's pages (`wake` activity) and every page (`wakes` changed, core.notify), pending (the thread's or the house's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake and /api/wake),
                          archiving cancels them; duration parses 5m, 1h30m; with hooks on, a wake `on` an event sleeps on
                          Hooked `event-N` (listen) and posts its note with the event as `event`; off by default
   hooks.js               outside events for wakes: Hook (the wake's task doc: secret, events taken; issue), webhook (server.js's
@@ -188,7 +188,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   runner.js              runner list, a runner's agents, ConnectRunner
   bot.js                 a bot's settings, its threads row, new bot; botThreads shares its own/elsewhere lists
   thread-list.js         the thread list, its family rows (including children and bot homes), and with inbox on, the Inbox toggle
-  wake.js                WakeList, every wake in the house in a popover from the list's foot (GET/POST /api/wake), × cancels one;
+  wake.js                WakeList, every wake in the house in a popover from the list's foot (GET/POST /api/wake), × cancels one,
+                         fetched again while open on the socket's `wakes` change (server.js wakesChanged);
                          Wakes, the thread's pending wakes above the composer as one-line `.notice` lines (`.line`, open on click) with × (refetched on connect and on
                          each `wake` activity its socket hears, heardWake);
                          WakeSet, a wake call's row in the chat (run.js LASTING); WokeLine under a message a wake posted

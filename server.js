@@ -2051,6 +2051,8 @@ const core = {
 	commit,
 	once,
 	receipt,
+	/** Names lists that changed to every page, as the server's own do */
+	notify,
 }
 const defaults = await builtIn()
 /** ade.json, as it started; the page changes it, and a restart takes it up */
