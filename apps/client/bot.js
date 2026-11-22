@@ -2,11 +2,9 @@
 import html from '@solidjs/html'
 import { createEffect, createMemo, createSignal, For, onSettled, Show, snapshot } from 'solid-js'
 import {
-	api,
 	bots,
 	colorOf,
 	current,
-	defaultHueOf,
 	forgetBot,
 	followThread,
 	hrefOf,
@@ -14,11 +12,11 @@ import {
 	hues,
 	openThread,
 	paint,
-	reloadBots,
 	reloadThreads,
 	saveBot,
 	threadOf,
 	threadRows,
+	write,
 } from './server.js'
 import { formatAgent } from './agent.js'
 import { agent, openPicker } from './composer.js'
@@ -45,16 +43,6 @@ export function botThreads(bot) {
 }
 
 export function BotItem(props) {
-	const family = createMemo(() => [...familyOf(props.bot)].map(threadOf).filter(Boolean))
-	const working = createMemo(() => family().filter((thread) => thread.status === 'working').length)
-	// Its threads' work, questions and failures, which its home lists; an unread answer only in the home itself, since
-	// opening the home is what clears it
-	const status = createMemo(
-		() =>
-			['working', 'blocked', 'error'].find((status) =>
-				family().some((thread) => thread.status === status),
-			) ?? (threadOf(props.bot.home)?.status === 'done' ? 'done' : 'idle'),
-	)
 	return html`
 		<li class=${() => ({ current: props.bot.home === current() })}>
 			<a
@@ -63,10 +51,10 @@ export function BotItem(props) {
 				title=${() => props.bot.instructions.split('\n')[0]}
 				onClick=${(event) => followThread(event, props.bot.home)}
 			>
-				<${Dot} state=${() => status()} />
+				<${Dot} state=${() => props.bot.status} />
 				<span style=${() => colorOf(props.bot.name)}>${() => props.bot.name}</span>
-				<${Show} when=${() => working()}>
-					<small title="Threads working">${() => working()}</small>
+				<${Show} when=${() => props.bot.working}>
+					<small title="Threads working">${() => props.bot.working}</small>
 				<//>
 			</a>
 		</li>
@@ -162,14 +150,11 @@ export function BotSettings(props) {
 				<button
 					type="button"
 					class="ghost small"
-					aria-pressed=${() => String(props.bot.color === undefined)}
+					aria-pressed=${() => String(!props.bot.customColor)}
 					title="The colour it gets by the order bots were made"
 					onClick=${() => setColor(null)}
 				>
-					<span
-						class="dot"
-						style=${() => `background: ${paint(defaultHueOf(props.bot.name))}`}
-					></span>
+					<span class="dot" style=${() => `background: ${paint(props.bot.defaultColor)}`}></span>
 					Default
 				</button>
 				<${For} each=${hues}
@@ -177,7 +162,7 @@ export function BotSettings(props) {
 						html`<button
 							type="button"
 							class=${() => ['ghost small', { taken: !!holder(hue) }]}
-							aria-pressed=${() => String(props.bot.color === hue)}
+							aria-pressed=${() => String(props.bot.customColor && props.bot.color === hue)}
 							aria-label=${() => (holder(hue) ? `Hue ${hue}, ${holder(hue)}'s` : `Hue ${hue}`)}
 							title=${() => (holder(hue) ? `${holder(hue)}'s colour` : '')}
 							onClick=${() => setColor(hue)}
@@ -240,11 +225,10 @@ export function NewBot(props) {
 		try {
 			const pick = snapshot(agent() ?? agent(null))
 			if (!pick) throw new Error('Pick a model first in New thread')
-			const { home } = await api('/api/bots', {
+			const { home } = await write('/api/bots', {
 				name: entered,
 				to: { ...pick, name: undefined },
 			})
-			reloadBots()
 			openThread(home)
 			props.onDone()
 		} catch (failure) {

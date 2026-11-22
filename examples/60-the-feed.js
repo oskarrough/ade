@@ -2,7 +2,7 @@
 import WebSocket from 'ws'
 import { api, base, check, done, kill, runner, server, until } from './lib.js'
 
-await server()
+await server({ MODULES: '+bots' })
 
 const open = () =>
 	new Promise((resolve, reject) => {
@@ -120,6 +120,54 @@ check(
 	seqs.every((seq, index) => index === 0 || seq > seqs[index - 1]),
 	'a view never sends an older seq after a newer one',
 	JSON.stringify(seqs),
+)
+
+// Bots on the feed: server sends color, defaultColor, working and status; forgetting lands once and deletes
+await runner('laptop')
+again.socket.send(JSON.stringify({ sub: 'bots' }))
+const botsBoot = await until(async () => again.frames.find((frame) => frame.view === 'bots'))
+check(
+	Boolean(botsBoot?.reset),
+	'subscribing to bots bootstraps with reset',
+	JSON.stringify(botsBoot),
+)
+const madeBot = await api('POST', '/api/bots', {
+	name: 'ada',
+	to: 'echo/one@laptop',
+	instructions: 'You are ada.',
+	key: 'make-ada',
+})
+const botPut = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === 'bots' &&
+			!frame.reset &&
+			frame.seq >= madeBot.json.seq &&
+			frame.put?.some((item) => item.key === 'ada'),
+	),
+)
+const ada = botPut?.put.find((item) => item.key === 'ada')?.row
+check(
+	Boolean(ada) &&
+		typeof ada.color === 'number' &&
+		ada.defaultColor === ada.color &&
+		ada.customColor === false &&
+		ada.working === 0 &&
+		ada.status === 'idle',
+	'a bot arrives on the feed with server-computed color, working and status',
+	JSON.stringify(ada),
+)
+const forgot = await api('DELETE', '/api/bots/ada?key=forget-ada')
+const forgotAgain = await api('DELETE', '/api/bots/ada?key=forget-ada')
+const botDel = await until(async () =>
+	again.frames.find(
+		(frame) => frame.view === 'bots' && frame.seq >= forgot.json.seq && frame.del?.includes('ada'),
+	),
+)
+check(
+	forgot.status === 200 && forgotAgain.status === 200 && Boolean(botDel),
+	'forgetting a bot lands once per key and deletes it on the feed',
+	JSON.stringify([forgot.json, forgotAgain.json, botDel]),
 )
 
 again.socket.close()

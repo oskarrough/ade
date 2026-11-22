@@ -771,7 +771,7 @@ harness.observeCommits({
 				heardEntry(change.value)
 				heardAuthor(change.value)
 			}
-			if (change.type === 'conversation' && records.has(change.value.id))
+			if (change.type === 'conversation' && !change.value.owner)
 				records.set(change.value.id, change.value)
 		}
 	},
@@ -2174,514 +2174,7 @@ async function compact(id) {
 	)
 }
 
-// ── Modules ───────────────────────────────────────────────────────────────
-
-const core = {
-	/** A thread's doc inside a commit, where a snapshot would wait for the commit itself */
-	threadIn: (tx, id) => tx.doc(Thread, id),
-	busy,
-	/** The offline runners a thread's work waits for */
-	waitingFor: async (threadId) => [
-		...new Set(
-			(await work())
-				.filter((job) => job.thread === threadId && job.status === 'blocked' && job.runner)
-				.map((job) => job.runner),
-		),
-	],
-	person,
-	models,
-	runners,
-	known,
-	folder,
-	reach,
-	address,
-	whom,
-	agentOf,
-	agentsHere,
-	conversation,
-	thread,
-	home,
-	threadList,
-	entries,
-	messages,
-	latestMessage,
-	/** A document's value as stored, read without a commit */
-	snapshot: (doc, id) => harness.snapshot(doc, id, context),
-	/** What a module's own model call spent, for the usage module to record; without it, nothing */
-	spent: async (thread, purpose, reply) => {
-		for (const hook of spentHooks)
-			await hook(thread, purpose, reply).catch((error) => console.error(error))
-	},
-	/** With inbox on, a thread's open `ask_person` message, else undefined; inside a commit, before its writes, with its `tx` */
-	openQuestion: (id, row, tx) => openQuestion?.(id, row, tx),
-	lastAsked,
-	recipients,
-	instructionsOf: (name) => instructionsOf?.(name),
-	botAgent: (name) => botAgent?.(name),
-	botNames: () => botNames?.() ?? [],
-	/** Each bot's home: `{[thread]: name}` */
-	homes: async () => (await homesOf?.()) ?? {},
-	startThread,
-	newAgent,
-	setUp,
-	setTitleIn,
-	threadIds,
-	conversations,
-	renameIn,
-	/** `within` is a caller's own context, such as a hook's, so its cancellation ends the wait */
-	waitForTask: (id, within = context) => harness.waitForTask(id, within),
-	post,
-	route,
-	authors,
-	afterCommit,
-	abortTask: (id) => harness.abortTask(id, context),
-	/** One task's latest record, or every task matching `query` (Pi's TaskQuery) */
-	task: (id) => storage.task(id, context),
-	tasks: (query) => collect((cursor) => storage.scanTasks(query, 200, cursor, context)),
-	/** Delivers a signal to a sleeping task: Pi's `delivered`, `duplicate`, `closed` or `not_found` */
-	signal: (taskId, kind, key, value) => harness.signal(taskId, kind, key, value, context),
-	/**
-	 * Tells each page watching a thread what a module is doing there, as it happens; nothing is kept. An event is
-	 * `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), others are the module's own.
-	 */
-	activity: (threadId, event) => {
-		const sent = JSON.stringify({ thread: threadId, activity: { at: Date.now(), ...event } })
-		for (const socket of clients) if (socket.pages?.id === threadId) socket.send(sent)
-	},
-	seenBy,
-	commit,
-	once,
-	receipt,
-	/** Names lists that changed to every page, as the server's own do */
-	notify,
-}
-const defaults = await builtIn()
-/** ade.json, as it started; the page changes it, and a restart takes it up */
-const settings = await readConfig()
-core.config = settings.config
-/** The owner's name, as their messages are signed: `owner` in ade.json, else their login on this machine. Set it to
- * the name their history has, and it stays theirs. */
-const owner = ownerName(settings.config.owner ?? os.userInfo().username)
-core.owner = owner
-/** Tailnet logins that are the owner through Serve, `ownerLogins` in ade.json: the owner's own devices */
-const ownerLogins = loginList(settings.config.ownerLogins ?? [])
-const modules = await load('server', core, settings)
-// The prompt keeps its sections in this order, and a cached prompt survives up to its first change, so the sections
-// that change most go last: a module's `volatility`, 0 unless it says otherwise
-for (const module of modules.toSorted((a, b) => (a.volatility ?? 0) - (b.volatility ?? 0)))
-	if (module.extension) registry.install(module.extension)
-const customModules = (settings.config.modules ?? [])
-	.map((entry) => entry.replace(/^[+-]/, ''))
-	.filter((entry) => entry.includes('/'))
-const aboutModules = Object.fromEntries(
-	await Promise.all(
-		[...Object.keys(defaults), ...customModules].map(async (entry) => [
-			entry.includes('/') ? path.basename(entry, '.js') : entry,
-			await about(entry),
-		]),
-	),
-)
-/** One module answers each of these; two claiming one is a mistake, not an order */
-const hook = (name) => {
-	const [first, second] = modules.filter((module) => module[name])
-	if (second)
-		throw new Error(`${name}: ${first.name} and ${second.name} both answer it; turn one off`)
-	return first?.[name]
-}
-const posted = modules.flatMap((module) => module.posted ?? [])
-const withdrawn = modules.flatMap((module) => module.withdrawn ?? [])
-/** Task kinds of modules' own work in a thread, counted as the thread working */
-const moduleWork = modules.flatMap((module) => module.work ?? [])
-const archiving = modules.flatMap((module) => module.archiving ?? [])
-const direct = hook('direct')
-const directing = hook('directing')
-const supersede = hook('supersede')
-const sent = hook('sent')
-const typing = hook('typing')
-const turns = hook('turns')
-const reply = hook('reply')
-const catchUp = hook('catchUp')
-const botAgent = hook('botAgent')
-const instructionsOf = hook('instructionsOf')
-const botNames = hook('botNames')
-const homesOf = hook('homesOf')
-const expand = hook('expand')
-const openQuestion = hook('openQuestion')
-const spentHooks = modules.flatMap((module) => module.spent ?? [])
-compactAt = hook('compactAt')
-/** An outside service's POST to /hooks/:id, on a listener of its own; none without a module that takes it */
-const webhook = hook('webhook')
-harnessed = undefined
-const remembers = hook('remembers')
-for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
-harness.resume()
-for (const module of modules) await module.start?.()
-
-// ── HTTP: input, routes, static files, runner script ──────────────────────
-
-/** Pi's own cap on an image, in base64 */
-const IMAGE_BYTES = 4.5 * 1024 * 1024
-async function input(req) {
-	let body = ''
-	for await (const chunk of req) {
-		body += chunk
-		if (body.length > 8 * IMAGE_BYTES + 200000) throw new Error('Request too large')
-	}
-	return JSON.parse(body || '{}')
-}
-
-async function archiveThread(id, archived) {
-	await conversation(id)
-	await commit(async (tx) => {
-		if (archived) for (const hook of archiving) await hook(tx, id)
-		;(await tx.doc(Thread, id)).hidden = Boolean(archived)
-	})
-	return { id, archived: Boolean(archived) }
-}
-
-async function markRead(id, reader) {
-	const newest = (await (await conversation(id)).entries({}, 1, undefined, context)).items[0]?.id
-	if (newest && (await thread(id)).reads[reader] !== newest)
-		await commit(async (tx) => {
-			;(await tx.doc(Thread, id)).reads[reader] = newest
-		})
-	return { read: newest ?? null }
-}
-
-/** Pi's view of a conversation, with every entry instead of its window of the newest */
-async function conversationView(id) {
-	const watch = await (await harness.conversation(id, context))?.watch(context, { min: 1 })
-	if (!watch) throw Object.assign(new Error('Conversation not found'), { status: 404 })
-	await watch.stop()
-	const { before: _before, ...view } = watch.value
-	return { ...view, entries: await entries(id) }
-}
-
-/** @type {[RegExp, Function][]} */
-const routes = /** @type {[string, Function][]} */ ([
-	...Object.entries({
-		'GET /api/server': async (req) => ({
-			port,
-			file,
-			/** What a reload of the page would get; a page loaded with another is behind */
-			client,
-			/** The commit the server's checkout is on, when it runs from one; null for an install */
-			commit: (await git('rev-parse', 'HEAD')) || null,
-			/** Who the server takes the asker to be, for showing; it proves nothing */
-			me: user(req),
-			modules: modules.map((module) => module.name),
-			off: Object.keys(defaults).filter((name) => !modules.some((module) => module.name === name)),
-			about: aboutModules,
-			threads: (await threadIds()).length,
-			runners: Object.keys(await keys()).length,
-			work: await harness.inspect(context),
-			settings: {
-				owner,
-				ownerLogins,
-				memory: {
-					model: settings.config.memory?.model ?? '',
-					compactAt: compactAt ?? null,
-				},
-				...Object.fromEntries(
-					modules
-						.filter((module) => module.settings)
-						.map((module) => [module.name, module.settings]),
-				),
-				/** Set in the environment, these win over ade.json */
-				overrides: ['MODULES', 'MEMORY_MODEL', 'DIRECTOR_MODEL'].filter(
-					(name) => process.env[name],
-				),
-				restarts: typeof process.execve === 'function',
-			},
-		}),
-		'POST /api/settings': async (req) => {
-			// Settings name the owner and their logins, so only the owner changes them
-			if (user(req) !== owner)
-				throw Object.assign(new Error('Only the owner changes settings'), { status: 403 })
-			return saveSettings(await input(req))
-		},
-		'GET /api/runners': runnerList,
-		'POST /api/runners': async (req) => {
-			const body = await input(req)
-			return mintKey(String(body.name ?? ''), origin(req), body.key)
-		},
-		'DELETE /api/runners/:name': (req, name, url) =>
-			revoke(name, url.searchParams.get('key') ?? undefined),
-		'GET /api/runners/:name/available': async (req, name) => {
-			if (!runners.isOnline(name)) throw new Error(`${name} is offline`)
-			return runners.call(name, { op: 'available' }, {})
-		},
-		'GET /api/changes': async (_req, _id, url) => {
-			const since = url.searchParams.get('since') ?? ''
-			if (!/^[\da-f]{7,40}$/.test(since)) return { commits: [] }
-			const log = await git('log', '--format=%s', `${since}..HEAD`)
-			return { commits: log ? log.split('\n') : [] }
-		},
-		'GET /runner/bundle': () => bundle,
-		'GET /api/threads': (req) => threadList(user(req)),
-		'GET /api/threads/archived': (req) => threadList(user(req), true),
-		'POST /api/threads': async (req) => createThread(await input(req), user(req)),
-		'GET /api/draft': (req) => draftIn(NEW, user(req)),
-		'POST /api/draft': async (req) => saveDraft(NEW, user(req), await input(req)),
-		'POST /api/threads/shed': async (req) => exampleShed(await input(req)),
-		'GET /api/threads/:id': (req, id, url) => {
-			const number = (name) =>
-				url.searchParams.has(name) ? Number(url.searchParams.get(name)) : undefined
-			return threadView(id, user(req), { after: number('after'), last: number('last') })
-		},
-		'POST /api/threads/:id/archive': async (req, id) =>
-			archiveThread(id, (await input(req)).archived),
-		'POST /api/threads/:id/entries': async (req, id) => postEntry(id, user(req), await input(req)),
-		'POST /api/threads/:id/withdraw': async (req, id) =>
-			withdraw(id, user(req), (await input(req)).entry),
-		'POST /api/threads/:id/fork': async (req, id) => forkThread(id, await input(req), user(req)),
-		'GET /api/threads/:id/draft': (req, id) => draftIn(id, user(req)),
-		'POST /api/threads/:id/draft': async (req, id) => saveDraft(id, user(req), await input(req)),
-		'POST /api/threads/:id/title': async (req, id) => setTitle(id, await input(req)),
-		'POST /api/threads/:id/tools': async (req, id) => setTools(id, await input(req)),
-		'POST /api/threads/:id/pause': async (req, id) => setPaused(id, await input(req)),
-		'POST /api/threads/:id/move': async (req, id) => moveAgent(id, await input(req)),
-		'POST /api/threads/:id/typing': async (req, id) => {
-			await conversation(id)
-			const { typing: on, seq } = await input(req)
-			await typing?.(id, user(req), on === true, Number.isSafeInteger(seq) ? seq : 0)
-			return { typing: on === true }
-		},
-		'POST /api/threads/:id/read': (req, id) => markRead(id, user(req)),
-		'POST /api/threads/:id/stop': async (req, id) => {
-			const working = await busy(id)
-			await (await conversation(id)).abort(context)
-			// Everyone in the thread sees who ended its work; the agents read it with what comes next
-			if (working)
-				await commit((tx) => append(tx, id, { author: user(req), body: 'stopped', stopped: true }))
-			return { stopped: id }
-		},
-		'POST /api/threads/:id/compact': async (req, id) => ({ compacted: await compact(id) }),
-		'GET /api/conversations/:id': (req, id) => conversationView(id),
-	}),
-	...modules.flatMap((module) =>
-		!module.serve
-			? []
-			: [
-					...['GET', 'POST'].flatMap((method) => {
-						const serve = async (req, id, url) =>
-							module.serve(
-								id,
-								url.searchParams,
-								method === 'POST' ? await input(req) : undefined,
-								user(req),
-							)
-						return [
-							[`${method} /api/${module.name}`, (req, _, url) => serve(req, undefined, url)],
-							[`${method} /api/threads/:id/${module.name}`, serve],
-						]
-					}),
-					...(module.remove
-						? [[`DELETE /api/${module.name}/:name`, (req, name) => module.remove(name)]]
-						: []),
-				],
-	),
-]).map(([key, handle]) => [
-	new RegExp(`^${key.replace(':id', String.raw`(\d+)`).replace(':name', '([^/]+)')}$`),
-	handle,
-])
-
-/**
- * What a reload of the page would get, as a short hash: the client's files as they are now, and the server's own code as
- * it started. A page compares it with the one it loaded with, so it knows when it is behind; a change to the client's
- * files names `server` on every socket.
- */
-const hashOf = async (dir, recursive, pattern = /\.\w+$/) => {
-	const names = (await readdir(dir, { recursive })).filter((name) => pattern.test(name)).sort()
-	const hash = createHash('sha256')
-	for (const name of names)
-		hash.update(name).update(await readFile(path.join(dir, name)).catch(() => ''))
-	return hash.digest('hex')
-}
-const clientDir = path.join(import.meta.dirname, 'apps/client')
-const serverCode = createHash('sha256')
-	.update(await hashOf(import.meta.dirname, false, /\.js$/))
-	.update(await hashOf(path.join(import.meta.dirname, 'modules'), true, /\.js$/))
-	.digest('hex')
-const clientVersion = async () =>
-	createHash('sha256')
-		.update(serverCode)
-		.update(await hashOf(clientDir, true))
-		.digest('hex')
-		.slice(0, 12)
-let client = await clientVersion()
-let rehashing
-/** Unref'd, so watching never keeps a stopping server alive */
-watchFiles(clientDir, { recursive: true }, () => {
-	clearTimeout(rehashing)
-	rehashing = setTimeout(async () => {
-		const now = await clientVersion()
-		if (now === client) return
-		client = now
-		notify(['server'])
-	}, 150)
-}).unref()
-
-/** git in the server's own folder; '' when it isn't a checkout, git is missing or the command fails */
-const git = (...args) =>
-	new Promise((resolve) =>
-		execFile('git', ['-C', import.meta.dirname, ...args], { timeout: 5000 }, (error, out) =>
-			resolve(error ? '' : out.trim()),
-		),
-	)
-
-/** The client: apps/client/client.html at /, and every module and stylesheet beside it */
-const types = {
-	'.js': 'text/javascript; charset=utf-8',
-	'.css': 'text/css; charset=utf-8',
-	'.woff2': 'font/woff2',
-	'.png': 'image/png',
-	'.webmanifest': 'application/manifest+json',
-}
-async function clientFile(pathname) {
-	if (!/^\/(?:[\w-]+\/)*[\w.-]+$/.test(pathname)) return null
-	const type = types[path.extname(pathname)]
-	if (!type) return null
-	const body = await readFile(new URL(`./apps/client${pathname}`, import.meta.url)).catch(
-		() => null,
-	)
-	return body ? { type, body } : null
-}
-/** Browser packages resolve through Node, so npm's hoisted installs work too. */
-const browserPackages = new Map([
-	['solid-js', new URL('./', import.meta.resolve('solid-js'))],
-	['@solidjs/web', new URL('./', import.meta.resolve('@solidjs/web'))],
-	['@solidjs/html', new URL('./', import.meta.resolve('@solidjs/html'))],
-	['@solidjs/signals', new URL('./dist/', import.meta.resolve('@solidjs/signals/package.json'))],
-	['pele', new URL('./', import.meta.resolve('pele'))],
-	['marked', new URL('./', import.meta.resolve('marked'))],
-])
-async function servePackage(res, pathname, head = false) {
-	for (const [name, root] of browserPackages) {
-		const prefix = `/packages/${name}/`
-		if (!pathname.startsWith(prefix)) continue
-		const file = new URL(`./${pathname.slice(prefix.length)}`, root)
-		const body =
-			file.href.startsWith(root.href) &&
-			/\.m?js$/.test(file.pathname) &&
-			(await readFile(file).catch(() => null))
-		if (!body) break
-		res.writeHead(200, { 'Content-Type': types['.js'] })
-		return res.end(head ? undefined : body)
-	}
-	return send(res, 404, { error: 'Not found' })
-}
-
-function send(res, status, value) {
-	res.writeHead(status, { 'Content-Type': 'application/json' })
-	res.end(JSON.stringify(value))
-}
-
-async function handleRequest(req, res, serve = false) {
-	const url = new URL(req.url, 'http://localhost')
-	if (!answersTo(req, serve))
-		return send(res, 421, { error: `This server doesn't answer to ${req.headers.host}` })
-	if (
-		!['GET', 'HEAD'].includes(req.method) &&
-		req.headers.origin &&
-		req.headers.origin !== origin(req)
-	)
-		return send(res, 403, { error: 'Cross-origin writes are refused; use the server’s own page' })
-	if (url.pathname.startsWith('/api/')) {
-		const sender = whoSent(req, serve)
-		if (!sender) return send(res, 401, { error: nobody(serve) })
-		senders.set(req, sender)
-	}
-	/** A browser brought in with the owner's key keeps it as a cookie its scripts can't read */
-	if (req.method === 'POST' && url.pathname === '/api/me') {
-		const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
-		if (!given || !isOwnerKey(given)) return send(res, 403, { error: 'That is not the owner key' })
-		const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
-		res.setHeader(
-			'Set-Cookie',
-			`${ownerCookie()}=${given}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`,
-		)
-		return send(res, 201, { me: owner })
-	}
-	if (req.method === 'OPTIONS') {
-		res.writeHead(204)
-		return res.end()
-	}
-	const head = req.method === 'HEAD'
-	const answer = (type, body) => {
-		res.writeHead(200, { 'Content-Type': type })
-		res.end(head ? undefined : body)
-	}
-	if (['GET', 'HEAD'].includes(req.method)) {
-		if (url.pathname === '/')
-			return answer(
-				'text/html; charset=utf-8',
-				await readFile(new URL('./apps/client/client.html', import.meta.url)),
-			)
-		if (url.pathname.startsWith('/packages/')) return servePackage(res, url.pathname, head)
-		const file = await clientFile(url.pathname)
-		if (file) return answer(file.type, file.body)
-		if (url.pathname === '/runner/updater.js') return answer(types['.js'], updater)
-		if (url.pathname === '/connect-runner')
-			return answer('text/plain; charset=utf-8', runnerScript(origin(req)))
-	}
-	const key = `${req.method} ${url.pathname}`
-	for (const [pattern, handle] of routes) {
-		const match = pattern.exec(key)
-		if (!match) continue
-		try {
-			const result = await handle(
-				req,
-				match[1] && (/^\d+$/.test(match[1]) ? Number(match[1]) : decodeURIComponent(match[1])),
-				url,
-			)
-			send(
-				res,
-				req.method === 'POST' ? 201 : 200,
-				req.method !== 'GET' && result && typeof result === 'object' && !Array.isArray(result)
-					? { ...result, seq: feed.seq() }
-					: result,
-			)
-		} catch (error) {
-			send(res, error.status ?? 400, { error: error.message })
-		}
-		return
-	}
-	send(res, 404, { error: 'Not found' })
-}
-
-/** Finds bun or Node, then hands over to the updater, which keeps the runner up to date with this server */
-const runnerScript = (server) => `#!/bin/sh
-# Connects a machine without ade to the ade server at ${server}, with a key from \`ade key laptop\` there:
-#   curl -fsSL ${server}/connect-runner | ADE_KEY=air_… sh -s -- --dir ~/code [--name laptop] [--read-only] [--no-update]
-set -e
-if command -v bun >/dev/null 2>&1; then run=bun; elif command -v node >/dev/null 2>&1; then run=node; else
-  echo "ade's runner needs Node.js 24 or newer"; exit 1
-fi
-data="\${XDG_DATA_HOME:-$HOME/.local/share}/ade"
-mkdir -p "$data"
-if [ -n "$ADE_KEY" ]; then
-  config="\${XDG_CONFIG_HOME:-$HOME/.config}/ade"
-  name=$("$run" -e "process.stdout.write(require('node:os').hostname())")
-  next_name=
-  for arg do
-    if [ -n "$next_name" ]; then name=$arg; next_name=; continue; fi
-    case "$arg" in --name) next_name=1 ;; --name=*) name=\${arg#--name=} ;; esac
-  done
-  case "$name" in ''|*[!a-zA-Z0-9._-]*) echo 'Invalid runner name' >&2; exit 1 ;; esac
-  mkdir -p "$config"
-  keyfile="$config/key.$name"
-  (umask 077 && printf %s "$ADE_KEY" > "$keyfile")
-  set -- "$@" --name "$name" --key-file "$keyfile"
-fi
-curl -fsSL "${server}/runner/updater.js" -o "$data/runner-updater.js"
-printf "Next time, without curl: %s '%s' '%s'" "$run" "$data/runner-updater.js" '${server}'
-for arg do printf " '%s'" "$(printf %s "$arg" | sed "s/'/'\\\\''/g")"; done
-printf '\\n'
-exec "$run" "$data/runner-updater.js" "${server}" "$@"
-`
-
-// ── WebSocket: feed, notify, watch ────────────────────────────────────────
+// ── Feed: one versioned stream per socket ────────────────────────────────
 
 /**
  * One versioned feed per socket: each subscribed view holds its last sent rows and `seq` (Pi Durable's commit seq,
@@ -2986,6 +2479,529 @@ function createFeed() {
 	}
 }
 
+const feed = createFeed()
+
+// ── Modules ───────────────────────────────────────────────────────────────
+
+const core = {
+	/** A thread's doc inside a commit, where a snapshot would wait for the commit itself */
+	threadIn: (tx, id) => tx.doc(Thread, id),
+	busy,
+	work,
+	isWork,
+	familyOf: (id) => familyOf(id),
+	statusOf: async (id, jobs, reader) => status(id, await thread(id), jobs, reader),
+	agentDocKind: AgentDoc.definition.kind,
+	feed,
+	scopedKey,
+	/** The offline runners a thread's work waits for */
+	waitingFor: async (threadId) => [
+		...new Set(
+			(await work())
+				.filter((job) => job.thread === threadId && job.status === 'blocked' && job.runner)
+				.map((job) => job.runner),
+		),
+	],
+	person,
+	models,
+	runners,
+	known,
+	folder,
+	reach,
+	address,
+	whom,
+	agentOf,
+	agentsHere,
+	conversation,
+	thread,
+	home,
+	threadList,
+	entries,
+	messages,
+	latestMessage,
+	/** A document's value as stored, read without a commit */
+	snapshot: (doc, id) => harness.snapshot(doc, id, context),
+	/** What a module's own model call spent, for the usage module to record; without it, nothing */
+	spent: async (thread, purpose, reply) => {
+		for (const hook of spentHooks)
+			await hook(thread, purpose, reply).catch((error) => console.error(error))
+	},
+	/** With inbox on, a thread's open `ask_person` message, else undefined; inside a commit, before its writes, with its `tx` */
+	openQuestion: (id, row, tx) => openQuestion?.(id, row, tx),
+	lastAsked,
+	recipients,
+	instructionsOf: (name) => instructionsOf?.(name),
+	botAgent: (name) => botAgent?.(name),
+	botNames: () => botNames?.() ?? [],
+	/** Each bot's home: `{[thread]: name}` */
+	homes: async () => (await homesOf?.()) ?? {},
+	startThread,
+	newAgent,
+	setUp,
+	setTitleIn,
+	threadIds,
+	conversations,
+	renameIn,
+	/** `within` is a caller's own context, such as a hook's, so its cancellation ends the wait */
+	waitForTask: (id, within = context) => harness.waitForTask(id, within),
+	post,
+	route,
+	authors,
+	afterCommit,
+	abortTask: (id) => harness.abortTask(id, context),
+	/** One task's latest record, or every task matching `query` (Pi's TaskQuery) */
+	task: (id) => storage.task(id, context),
+	tasks: (query) => collect((cursor) => storage.scanTasks(query, 200, cursor, context)),
+	/** Delivers a signal to a sleeping task: Pi's `delivered`, `duplicate`, `closed` or `not_found` */
+	signal: (taskId, kind, key, value) => harness.signal(taskId, kind, key, value, context),
+	/**
+	 * Tells each page watching a thread what a module is doing there, as it happens; nothing is kept. An event is
+	 * `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), others are the module's own.
+	 */
+	activity: (threadId, event) => {
+		const sent = JSON.stringify({ thread: threadId, activity: { at: Date.now(), ...event } })
+		for (const socket of clients) if (socket.pages?.id === threadId) socket.send(sent)
+	},
+	seenBy,
+	commit,
+	once,
+	receipt,
+	/** Names lists that changed to every page, as the server's own do */
+	notify,
+}
+const defaults = await builtIn()
+/** ade.json, as it started; the page changes it, and a restart takes it up */
+const settings = await readConfig()
+core.config = settings.config
+/** The owner's name, as their messages are signed: `owner` in ade.json, else their login on this machine. Set it to
+ * the name their history has, and it stays theirs. */
+const owner = ownerName(settings.config.owner ?? os.userInfo().username)
+core.owner = owner
+/** Tailnet logins that are the owner through Serve, `ownerLogins` in ade.json: the owner's own devices */
+const ownerLogins = loginList(settings.config.ownerLogins ?? [])
+const modules = await load('server', core, settings)
+// The prompt keeps its sections in this order, and a cached prompt survives up to its first change, so the sections
+// that change most go last: a module's `volatility`, 0 unless it says otherwise
+for (const module of modules.toSorted((a, b) => (a.volatility ?? 0) - (b.volatility ?? 0)))
+	if (module.extension) registry.install(module.extension)
+const customModules = (settings.config.modules ?? [])
+	.map((entry) => entry.replace(/^[+-]/, ''))
+	.filter((entry) => entry.includes('/'))
+const aboutModules = Object.fromEntries(
+	await Promise.all(
+		[...Object.keys(defaults), ...customModules].map(async (entry) => [
+			entry.includes('/') ? path.basename(entry, '.js') : entry,
+			await about(entry),
+		]),
+	),
+)
+/** One module answers each of these; two claiming one is a mistake, not an order */
+const hook = (name) => {
+	const [first, second] = modules.filter((module) => module[name])
+	if (second)
+		throw new Error(`${name}: ${first.name} and ${second.name} both answer it; turn one off`)
+	return first?.[name]
+}
+const posted = modules.flatMap((module) => module.posted ?? [])
+const withdrawn = modules.flatMap((module) => module.withdrawn ?? [])
+/** Task kinds of modules' own work in a thread, counted as the thread working */
+const moduleWork = modules.flatMap((module) => module.work ?? [])
+const archiving = modules.flatMap((module) => module.archiving ?? [])
+const direct = hook('direct')
+const directing = hook('directing')
+const supersede = hook('supersede')
+const sent = hook('sent')
+const typing = hook('typing')
+const turns = hook('turns')
+const reply = hook('reply')
+const catchUp = hook('catchUp')
+const botAgent = hook('botAgent')
+const instructionsOf = hook('instructionsOf')
+const botNames = hook('botNames')
+const homesOf = hook('homesOf')
+const expand = hook('expand')
+const openQuestion = hook('openQuestion')
+const spentHooks = modules.flatMap((module) => module.spent ?? [])
+compactAt = hook('compactAt')
+/** An outside service's POST to /hooks/:id, on a listener of its own; none without a module that takes it */
+const webhook = hook('webhook')
+harnessed = undefined
+const remembers = hook('remembers')
+for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
+harness.resume()
+for (const module of modules) await module.start?.()
+
+// ── HTTP: input, routes, static files, runner script ──────────────────────
+
+/** Pi's own cap on an image, in base64 */
+const IMAGE_BYTES = 4.5 * 1024 * 1024
+async function input(req) {
+	let body = ''
+	for await (const chunk of req) {
+		body += chunk
+		if (body.length > 8 * IMAGE_BYTES + 200000) throw new Error('Request too large')
+	}
+	return JSON.parse(body || '{}')
+}
+
+async function archiveThread(id, archived) {
+	await conversation(id)
+	await commit(async (tx) => {
+		if (archived) for (const hook of archiving) await hook(tx, id)
+		;(await tx.doc(Thread, id)).hidden = Boolean(archived)
+	})
+	return { id, archived: Boolean(archived) }
+}
+
+async function markRead(id, reader) {
+	const newest = (await (await conversation(id)).entries({}, 1, undefined, context)).items[0]?.id
+	if (newest && (await thread(id)).reads[reader] !== newest)
+		await commit(async (tx) => {
+			;(await tx.doc(Thread, id)).reads[reader] = newest
+		})
+	return { read: newest ?? null }
+}
+
+/** Pi's view of a conversation, with every entry instead of its window of the newest */
+async function conversationView(id) {
+	const watch = await (await harness.conversation(id, context))?.watch(context, { min: 1 })
+	if (!watch) throw Object.assign(new Error('Conversation not found'), { status: 404 })
+	await watch.stop()
+	const { before: _before, ...view } = watch.value
+	return { ...view, entries: await entries(id) }
+}
+
+/** @type {[RegExp, Function][]} */
+const routes = /** @type {[string, Function][]} */ ([
+	...Object.entries({
+		'GET /api/server': async (req) => ({
+			port,
+			file,
+			/** What a reload of the page would get; a page loaded with another is behind */
+			client,
+			/** The commit the server's checkout is on, when it runs from one; null for an install */
+			commit: (await git('rev-parse', 'HEAD')) || null,
+			/** Who the server takes the asker to be, for showing; it proves nothing */
+			me: user(req),
+			modules: modules.map((module) => module.name),
+			off: Object.keys(defaults).filter((name) => !modules.some((module) => module.name === name)),
+			about: aboutModules,
+			threads: (await threadIds()).length,
+			runners: Object.keys(await keys()).length,
+			work: await harness.inspect(context),
+			settings: {
+				owner,
+				ownerLogins,
+				memory: {
+					model: settings.config.memory?.model ?? '',
+					compactAt: compactAt ?? null,
+				},
+				...Object.fromEntries(
+					modules
+						.filter((module) => module.settings)
+						.map((module) => [module.name, module.settings]),
+				),
+				/** Set in the environment, these win over ade.json */
+				overrides: ['MODULES', 'MEMORY_MODEL', 'DIRECTOR_MODEL'].filter(
+					(name) => process.env[name],
+				),
+				restarts: typeof process.execve === 'function',
+			},
+		}),
+		'POST /api/settings': async (req) => {
+			// Settings name the owner and their logins, so only the owner changes them
+			if (user(req) !== owner)
+				throw Object.assign(new Error('Only the owner changes settings'), { status: 403 })
+			return saveSettings(await input(req))
+		},
+		'GET /api/runners': runnerList,
+		'POST /api/runners': async (req) => {
+			const body = await input(req)
+			return mintKey(String(body.name ?? ''), origin(req), body.key)
+		},
+		'DELETE /api/runners/:name': (req, name, url) =>
+			revoke(name, url.searchParams.get('key') ?? undefined),
+		'GET /api/runners/:name/available': async (req, name) => {
+			if (!runners.isOnline(name)) throw new Error(`${name} is offline`)
+			return runners.call(name, { op: 'available' }, {})
+		},
+		'GET /api/changes': async (_req, _id, url) => {
+			const since = url.searchParams.get('since') ?? ''
+			if (!/^[\da-f]{7,40}$/.test(since)) return { commits: [] }
+			const log = await git('log', '--format=%s', `${since}..HEAD`)
+			return { commits: log ? log.split('\n') : [] }
+		},
+		'GET /runner/bundle': () => bundle,
+		'GET /api/threads': (req) => threadList(user(req)),
+		'GET /api/threads/archived': (req) => threadList(user(req), true),
+		'POST /api/threads': async (req) => createThread(await input(req), user(req)),
+		'GET /api/draft': (req) => draftIn(NEW, user(req)),
+		'POST /api/draft': async (req) => saveDraft(NEW, user(req), await input(req)),
+		'POST /api/threads/shed': async (req) => exampleShed(await input(req)),
+		'GET /api/threads/:id': (req, id, url) => {
+			const number = (name) =>
+				url.searchParams.has(name) ? Number(url.searchParams.get(name)) : undefined
+			return threadView(id, user(req), { after: number('after'), last: number('last') })
+		},
+		'POST /api/threads/:id/archive': async (req, id) =>
+			archiveThread(id, (await input(req)).archived),
+		'POST /api/threads/:id/entries': async (req, id) => postEntry(id, user(req), await input(req)),
+		'POST /api/threads/:id/withdraw': async (req, id) =>
+			withdraw(id, user(req), (await input(req)).entry),
+		'POST /api/threads/:id/fork': async (req, id) => forkThread(id, await input(req), user(req)),
+		'GET /api/threads/:id/draft': (req, id) => draftIn(id, user(req)),
+		'POST /api/threads/:id/draft': async (req, id) => saveDraft(id, user(req), await input(req)),
+		'POST /api/threads/:id/title': async (req, id) => setTitle(id, await input(req)),
+		'POST /api/threads/:id/tools': async (req, id) => setTools(id, await input(req)),
+		'POST /api/threads/:id/pause': async (req, id) => setPaused(id, await input(req)),
+		'POST /api/threads/:id/move': async (req, id) => moveAgent(id, await input(req)),
+		'POST /api/threads/:id/typing': async (req, id) => {
+			await conversation(id)
+			const { typing: on, seq } = await input(req)
+			await typing?.(id, user(req), on === true, Number.isSafeInteger(seq) ? seq : 0)
+			return { typing: on === true }
+		},
+		'POST /api/threads/:id/read': (req, id) => markRead(id, user(req)),
+		'POST /api/threads/:id/stop': async (req, id) => {
+			const working = await busy(id)
+			await (await conversation(id)).abort(context)
+			// Everyone in the thread sees who ended its work; the agents read it with what comes next
+			if (working)
+				await commit((tx) => append(tx, id, { author: user(req), body: 'stopped', stopped: true }))
+			return { stopped: id }
+		},
+		'POST /api/threads/:id/compact': async (req, id) => ({ compacted: await compact(id) }),
+		'GET /api/conversations/:id': (req, id) => conversationView(id),
+	}),
+	...modules.flatMap((module) =>
+		!module.serve
+			? []
+			: [
+					...['GET', 'POST'].flatMap((method) => {
+						const serve = async (req, id, url) =>
+							module.serve(
+								id,
+								url.searchParams,
+								method === 'POST' ? await input(req) : undefined,
+								user(req),
+							)
+						return [
+							[`${method} /api/${module.name}`, (req, _, url) => serve(req, undefined, url)],
+							[`${method} /api/threads/:id/${module.name}`, serve],
+						]
+					}),
+					...(module.remove
+						? [
+								[
+									`DELETE /api/${module.name}/:name`,
+									(req, name, url) => module.remove(name, url.searchParams.get('key') ?? undefined),
+								],
+							]
+						: []),
+				],
+	),
+]).map(([key, handle]) => [
+	new RegExp(`^${key.replace(':id', String.raw`(\d+)`).replace(':name', '([^/]+)')}$`),
+	handle,
+])
+
+/**
+ * What a reload of the page would get, as a short hash: the client's files as they are now, and the server's own code as
+ * it started. A page compares it with the one it loaded with, so it knows when it is behind; a change to the client's
+ * files names `server` on every socket.
+ */
+const hashOf = async (dir, recursive, pattern = /\.\w+$/) => {
+	const names = (await readdir(dir, { recursive })).filter((name) => pattern.test(name)).sort()
+	const hash = createHash('sha256')
+	for (const name of names)
+		hash.update(name).update(await readFile(path.join(dir, name)).catch(() => ''))
+	return hash.digest('hex')
+}
+const clientDir = path.join(import.meta.dirname, 'apps/client')
+const serverCode = createHash('sha256')
+	.update(await hashOf(import.meta.dirname, false, /\.js$/))
+	.update(await hashOf(path.join(import.meta.dirname, 'modules'), true, /\.js$/))
+	.digest('hex')
+const clientVersion = async () =>
+	createHash('sha256')
+		.update(serverCode)
+		.update(await hashOf(clientDir, true))
+		.digest('hex')
+		.slice(0, 12)
+let client = await clientVersion()
+let rehashing
+/** Unref'd, so watching never keeps a stopping server alive */
+watchFiles(clientDir, { recursive: true }, () => {
+	clearTimeout(rehashing)
+	rehashing = setTimeout(async () => {
+		const now = await clientVersion()
+		if (now === client) return
+		client = now
+		notify(['server'])
+	}, 150)
+}).unref()
+
+/** git in the server's own folder; '' when it isn't a checkout, git is missing or the command fails */
+const git = (...args) =>
+	new Promise((resolve) =>
+		execFile('git', ['-C', import.meta.dirname, ...args], { timeout: 5000 }, (error, out) =>
+			resolve(error ? '' : out.trim()),
+		),
+	)
+
+/** The client: apps/client/client.html at /, and every module and stylesheet beside it */
+const types = {
+	'.js': 'text/javascript; charset=utf-8',
+	'.css': 'text/css; charset=utf-8',
+	'.woff2': 'font/woff2',
+	'.png': 'image/png',
+	'.webmanifest': 'application/manifest+json',
+}
+async function clientFile(pathname) {
+	if (!/^\/(?:[\w-]+\/)*[\w.-]+$/.test(pathname)) return null
+	const type = types[path.extname(pathname)]
+	if (!type) return null
+	const body = await readFile(new URL(`./apps/client${pathname}`, import.meta.url)).catch(
+		() => null,
+	)
+	return body ? { type, body } : null
+}
+/** Browser packages resolve through Node, so npm's hoisted installs work too. */
+const browserPackages = new Map([
+	['solid-js', new URL('./', import.meta.resolve('solid-js'))],
+	['@solidjs/web', new URL('./', import.meta.resolve('@solidjs/web'))],
+	['@solidjs/html', new URL('./', import.meta.resolve('@solidjs/html'))],
+	['@solidjs/signals', new URL('./dist/', import.meta.resolve('@solidjs/signals/package.json'))],
+	['pele', new URL('./', import.meta.resolve('pele'))],
+	['marked', new URL('./', import.meta.resolve('marked'))],
+])
+async function servePackage(res, pathname, head = false) {
+	for (const [name, root] of browserPackages) {
+		const prefix = `/packages/${name}/`
+		if (!pathname.startsWith(prefix)) continue
+		const file = new URL(`./${pathname.slice(prefix.length)}`, root)
+		const body =
+			file.href.startsWith(root.href) &&
+			/\.m?js$/.test(file.pathname) &&
+			(await readFile(file).catch(() => null))
+		if (!body) break
+		res.writeHead(200, { 'Content-Type': types['.js'] })
+		return res.end(head ? undefined : body)
+	}
+	return send(res, 404, { error: 'Not found' })
+}
+
+function send(res, status, value) {
+	res.writeHead(status, { 'Content-Type': 'application/json' })
+	res.end(JSON.stringify(value))
+}
+
+async function handleRequest(req, res, serve = false) {
+	const url = new URL(req.url, 'http://localhost')
+	if (!answersTo(req, serve))
+		return send(res, 421, { error: `This server doesn't answer to ${req.headers.host}` })
+	if (
+		!['GET', 'HEAD'].includes(req.method) &&
+		req.headers.origin &&
+		req.headers.origin !== origin(req)
+	)
+		return send(res, 403, { error: 'Cross-origin writes are refused; use the server’s own page' })
+	if (url.pathname.startsWith('/api/')) {
+		const sender = whoSent(req, serve)
+		if (!sender) return send(res, 401, { error: nobody(serve) })
+		senders.set(req, sender)
+	}
+	/** A browser brought in with the owner's key keeps it as a cookie its scripts can't read */
+	if (req.method === 'POST' && url.pathname === '/api/me') {
+		const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
+		if (!given || !isOwnerKey(given)) return send(res, 403, { error: 'That is not the owner key' })
+		const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
+		res.setHeader(
+			'Set-Cookie',
+			`${ownerCookie()}=${given}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`,
+		)
+		return send(res, 201, { me: owner })
+	}
+	if (req.method === 'OPTIONS') {
+		res.writeHead(204)
+		return res.end()
+	}
+	const head = req.method === 'HEAD'
+	const answer = (type, body) => {
+		res.writeHead(200, { 'Content-Type': type })
+		res.end(head ? undefined : body)
+	}
+	if (['GET', 'HEAD'].includes(req.method)) {
+		if (url.pathname === '/')
+			return answer(
+				'text/html; charset=utf-8',
+				await readFile(new URL('./apps/client/client.html', import.meta.url)),
+			)
+		if (url.pathname.startsWith('/packages/')) return servePackage(res, url.pathname, head)
+		const file = await clientFile(url.pathname)
+		if (file) return answer(file.type, file.body)
+		if (url.pathname === '/runner/updater.js') return answer(types['.js'], updater)
+		if (url.pathname === '/connect-runner')
+			return answer('text/plain; charset=utf-8', runnerScript(origin(req)))
+	}
+	const key = `${req.method} ${url.pathname}`
+	for (const [pattern, handle] of routes) {
+		const match = pattern.exec(key)
+		if (!match) continue
+		try {
+			const result = await handle(
+				req,
+				match[1] && (/^\d+$/.test(match[1]) ? Number(match[1]) : decodeURIComponent(match[1])),
+				url,
+			)
+			send(
+				res,
+				req.method === 'POST' ? 201 : 200,
+				req.method !== 'GET' && result && typeof result === 'object' && !Array.isArray(result)
+					? { ...result, seq: feed.seq() }
+					: result,
+			)
+		} catch (error) {
+			send(res, error.status ?? 400, { error: error.message })
+		}
+		return
+	}
+	send(res, 404, { error: 'Not found' })
+}
+
+/** Finds bun or Node, then hands over to the updater, which keeps the runner up to date with this server */
+const runnerScript = (server) => `#!/bin/sh
+# Connects a machine without ade to the ade server at ${server}, with a key from \`ade key laptop\` there:
+#   curl -fsSL ${server}/connect-runner | ADE_KEY=air_… sh -s -- --dir ~/code [--name laptop] [--read-only] [--no-update]
+set -e
+if command -v bun >/dev/null 2>&1; then run=bun; elif command -v node >/dev/null 2>&1; then run=node; else
+  echo "ade's runner needs Node.js 24 or newer"; exit 1
+fi
+data="\${XDG_DATA_HOME:-$HOME/.local/share}/ade"
+mkdir -p "$data"
+if [ -n "$ADE_KEY" ]; then
+  config="\${XDG_CONFIG_HOME:-$HOME/.config}/ade"
+  name=$("$run" -e "process.stdout.write(require('node:os').hostname())")
+  next_name=
+  for arg do
+    if [ -n "$next_name" ]; then name=$arg; next_name=; continue; fi
+    case "$arg" in --name) next_name=1 ;; --name=*) name=\${arg#--name=} ;; esac
+  done
+  case "$name" in ''|*[!a-zA-Z0-9._-]*) echo 'Invalid runner name' >&2; exit 1 ;; esac
+  mkdir -p "$config"
+  keyfile="$config/key.$name"
+  (umask 077 && printf %s "$ADE_KEY" > "$keyfile")
+  set -- "$@" --name "$name" --key-file "$keyfile"
+fi
+curl -fsSL "${server}/runner/updater.js" -o "$data/runner-updater.js"
+printf "Next time, without curl: %s '%s' '%s'" "$run" "$data/runner-updater.js" '${server}'
+for arg do printf " '%s'" "$(printf %s "$arg" | sed "s/'/'\\\\''/g")"; done
+printf '\\n'
+exec "$run" "$data/runner-updater.js" "${server}" "$@"
+`
+
+// ── WebSocket: notify, watch ──────────────────────────────────────────────
+
 async function runnerList() {
 	const [all, last] = [await work(), await known()]
 	return Object.keys(await keys()).map((name) => {
@@ -3011,7 +3027,6 @@ async function runnerList() {
 	})
 }
 
-const feed = createFeed()
 feed.define('runners', {
 	keyOf: (row) => row.name,
 	all: runnerList,
@@ -3041,18 +3056,20 @@ function nudge() {
 const WORK = ['threads', 'archived']
 const docLists = {
 	'ade.runners': WORK,
-	'ade.bots': ['threads', 'archived', 'bots'],
+	'ade.bots': ['threads', 'archived'],
 }
-/** Each thread's place, kept from its doc as it changes: archived or not, and its dismissed question */
+/** Each thread's place, kept from its doc as it changes: archived or not, parent, and its dismissed question */
 const placed = new Map()
 /** Each thread's work tasks heard start and not yet end */
 const workIn = new Map()
 /** Each agent's thread, by the agent's conversation */
 const agentThreads = new Map()
-const place = (id, value) => {
+const place = (id, value, record = records.get(id)) => {
 	const before = placed.get(id)
+	const parent = value.parent ?? record?.parent?.conversationId ?? before?.parent ?? null
 	const now = {
 		hidden: Boolean(value.hidden),
+		parent,
 		dismissed: value.dismissed ?? null,
 		reads: JSON.stringify(value.reads ?? {}),
 	}
@@ -3062,6 +3079,35 @@ const place = (id, value) => {
 	// A new thread, a fork most of all, can start with a question it inherited
 	if (!before) recheck(id)
 	return { before, now }
+}
+/** Open threads' family around `id`: its root through parents and forks, then every open descendant, newest first */
+function familyOf(id) {
+	if (placed.get(id)?.hidden) return [{ id, depth: 0 }]
+	const open = new Map()
+	for (const [threadId, meta] of placed) if (!meta.hidden) open.set(threadId, meta)
+	if (!open.has(id)) return [{ id, depth: 0 }]
+	const children = new Map()
+	const sorted = [...open.keys()].sort((left, right) => right - left)
+	for (const threadId of sorted) {
+		const parent = open.get(threadId).parent
+		if (parent && open.has(parent)) {
+			let list = children.get(parent)
+			if (!list) children.set(parent, (list = []))
+			list.push(threadId)
+		}
+	}
+	let root = id
+	for (let hops = 0; open.has(open.get(root)?.parent) && hops < 20; hops++)
+		root = open.get(root).parent
+	const family = [{ id: root, depth: 0 }]
+	const seen = new Set([root])
+	for (let index = 0; index < family.length; index++)
+		for (const child of children.get(family[index].id) ?? [])
+			if (!seen.has(child)) {
+				seen.add(child)
+				family.push({ id: child, depth: family[index].depth + 1 })
+			}
+	return family
 }
 /** Each thread whose question waits on a person, as the inbox and the thread's status read it */
 const asking = new Set()
@@ -3189,7 +3235,12 @@ harness.observeCommits({
 	},
 	end: () => {},
 })
-for (const id of await threadIds()) place(id, await thread(id))
+for (const conv of await conversations()) {
+	if (!conv.owner) {
+		records.set(conv.id, conv)
+		place(conv.id, await thread(conv.id), conv)
+	}
+}
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
 const FIRST = 15
@@ -3525,6 +3576,7 @@ async function upgrade(req, raw, head, serve = false) {
 		if (connection && runners.disconnect(connection)) {
 			say('runner', `${name} offline`)
 			feed.touch('runners')
+			feed.touch('bots')
 			notify(WORK)
 		}
 	}
@@ -3602,6 +3654,7 @@ async function upgrade(req, raw, head, serve = false) {
 	listen(runners.receive)
 	runners.connect(connection, (text) => socket.send(text))
 	feed.touch('runners')
+	feed.touch('bots')
 	notify(WORK)
 	socket.send(JSON.stringify({ op: 'ready' }))
 	if (runner.version && runner.version !== bundle.version) {

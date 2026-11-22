@@ -21,13 +21,66 @@ const Bots = defineDoc({
 })
 
 export function server(core) {
+	const madeHue = (index) => Math.round(50 + index * 137.508) % 360
 	const bots = () => core.commit(async (tx) => JSON.parse(JSON.stringify(await tx.doc(Bots))))
-	const list = async () =>
-		Object.entries(await bots()).map(([name, bot]) => ({
-			name,
-			...bot,
-			answeredAt: bot.answeredAt ?? null,
-		}))
+	const list = async (viewer) => {
+		const all = await bots()
+		const order = Object.entries(all).sort(([, left], [, right]) => left.home - right.home)
+		const defaults = new Map(order.map(([name], index) => [name, madeHue(index)]))
+		const allWork = await core.work()
+		return Promise.all(
+			Object.entries(all).map(async ([name, bot]) => {
+				const defaultColor = defaults.get(name)
+				const family = core.familyOf(bot.home)
+				let working = 0
+				let blocked = false
+				let errored = false
+				let homeDone = false
+				for (const { id } of family) {
+					const busy = allWork.filter((job) => job.thread === id)
+					const state = await core.statusOf(id, busy, viewer)
+					if (state === 'working') working++
+					else if (state === 'blocked') blocked = true
+					else if (state === 'error') errored = true
+					else if (state === 'done' && id === bot.home) homeDone = true
+				}
+				const status = working
+					? 'working'
+					: blocked
+						? 'blocked'
+						: errored
+							? 'error'
+							: homeDone
+								? 'done'
+								: 'idle'
+				return {
+					name,
+					...bot,
+					color: bot.color ?? defaultColor,
+					defaultColor,
+					customColor: bot.color !== undefined,
+					working,
+					status,
+					answeredAt: bot.answeredAt ?? null,
+				}
+			}),
+		)
+	}
+	core.feed.define('bots', {
+		perViewer: true,
+		keyOf: (row) => row.name,
+		all: (viewer) => list(viewer),
+		match: (change) => {
+			if (change.type === 'document')
+				return ['ade.bots', 'ade.thread', 'ade.runners', core.agentDocKind].includes(
+					change.record.kind,
+				)
+			if (change.type === 'entry') return change.value.kind === 'ade.message'
+			if (change.type === 'task') return core.isWork(change.value.kind)
+			if (change.type === 'conversation') return true
+			return false
+		},
+	})
 
 	const voice = core.config?.bots?.voice ?? DEFAULT_VOICE
 
@@ -112,18 +165,22 @@ export function server(core) {
 				return { thread, question, answer }
 			}),
 		)
-	async function serve(id, query, body) {
+	async function serve(id, query, body, by) {
 		if (id !== undefined && body === undefined && query.has('asked'))
 			return askedHome(query.get('asked').split(',').filter(Boolean).map(Number))
 		if (id !== undefined)
 			throw new Error('Bots live at /api/bots; a home reads the threads that asked with ?asked=1,2')
-		if (body === undefined) return list()
+		if (body === undefined) return list(by)
 		const asked = await change(body)
 		const ids = asked.rename ? await core.threadIds() : []
-		return core.once(body.requestId, `bot ${asked.name}`, (tx) => write(tx, asked, ids))
+		return core.once(
+			core.scopedKey(`bot ${asked.name}`, body.key ?? body.requestId),
+			`bot ${asked.name}`,
+			(tx) => write(tx, asked, ids),
+		)
 	}
-	const remove = (name) =>
-		core.commit(async (tx) => {
+	const remove = (name, requestKey) =>
+		core.once(core.scopedKey(`forget ${name}`, requestKey), `forget ${name}`, async (tx) => {
 			const all = await tx.doc(Bots)
 			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
 			delete all[name]

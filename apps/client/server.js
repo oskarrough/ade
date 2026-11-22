@@ -226,7 +226,6 @@ export const {
 	closeColumn,
 	reloadThreads,
 	reloadArchivedThreads,
-	reloadBots,
 	changeThread,
 	forgetBot,
 	revokeRunner,
@@ -437,7 +436,7 @@ export const {
 		return { rows, reload, remove }
 	}
 	const [runners, setOptimisticRunners] = viewStore('runners', 'name')
-	const botList = removable('bots', 'name', 'bots')
+	const [bots, setOptimisticBots] = viewStore('bots', 'name')
 	/** What needs you, one entry per thread: open questions, then failures, then unread answers */
 	const inboxList = removable(
 		'inbox',
@@ -487,8 +486,11 @@ export const {
 			() => Promise.all([reloadThreads(), reloadArchivedThreads()]),
 		)
 	}
-	const forgetBot = (name) =>
-		botList.remove(name, () => api(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE'))
+	const forgetBot = action(function* (name) {
+		setOptimisticBots((rows) => rows.filter((row) => row.name !== name))
+		const { seq } = yield write(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE')
+		yield caughtUp('bots', seq)
+	})
 	const revokeRunner = action(function* (name) {
 		setOptimisticRunners((rows) => rows.filter((row) => row.name !== name))
 		const { seq } = yield write(`/api/runners/${encodeURIComponent(name)}`, undefined, 'DELETE')
@@ -498,14 +500,12 @@ export const {
 		server: reloadServer,
 		threads: reloadThreads,
 		archived: reloadArchivedThreads,
-		bots: botList.reload,
 		inbox: inboxList.reload,
 		schedule: () => setScheduleChanged((count) => count + 1),
 	}
 	/** Every remaining unmigrated list, once the socket is open */
 	const reload = () => {
 		reloadServer().then(() => {
-			botList.reload()
 			inboxList.reload()
 		})
 		reloadThreads()
@@ -574,7 +574,7 @@ export const {
 		server,
 		behind,
 		changes,
-		bots: botList.rows,
+		bots,
 		inbox: inboxList.rows,
 		dismiss,
 		threadOf,
@@ -584,7 +584,6 @@ export const {
 		closeColumn,
 		reloadThreads,
 		reloadArchivedThreads,
-		reloadBots: botList.reload,
 		changeThread,
 		forgetBot,
 		revokeRunner,
@@ -610,27 +609,20 @@ export function archiveThread(id, archived) {
 }
 export const renameThread = (id, title) =>
 	changeThread(id, { title }, () => api(`/api/threads/${id}/title`, { title }))
-/** Changes a bot, then shows it changed */
-export const saveBot = (name, change) =>
-	api('/api/bots', { name, ...change }).then(() => reloadBots())
+/** Changes a bot; the feed updates the row */
+export const saveBot = (name, change) => write('/api/bots', { name, ...change })
 
 export const fork = async (id, at) => openThread((await api(`/api/threads/${id}/fork`, { at })).id)
 
 export const homeBot = (id) => bots.find((bot) => bot.home === id)
 export const botAgent = (bot) => ({ ...bot.to, name: bot.name })
-/**
- * The hue a bot gets unless someone picked one: golden-angle steps in the order bots were made, so the first several
- * sit far apart and a new bot changes no one's; forgetting one shifts the bots made after it that have none picked.
- */
-const madeHue = (index) => Math.round(50 + index * 137.508) % 360
-export const defaultHueOf = (name) => {
-	const index = bots.toSorted((a, b) => a.home - b.home).findIndex((bot) => bot.name === name)
-	return index < 0 ? undefined : madeHue(index)
-}
-export const hues = Array.from({ length: 8 }, (_, index) => madeHue(index)).sort((a, b) => a - b)
+export const hues = Array.from(
+	{ length: 8 },
+	(_, index) => Math.round(50 + index * 137.508) % 360,
+).sort((a, b) => a - b)
 export const paint = (hue) => `light-dark(oklch(0.56 0.15 ${hue}), oklch(0.74 0.13 ${hue}))`
-/** A bot's colour, as a style for `property`: the hue picked for it, else its default; anyone else has none */
-export const hueOf = (name) => bots.find((bot) => bot.name === name)?.color ?? defaultHueOf(name)
+/** A bot's colour, as a style for `property`: the server sends the effective hue; anyone else has none */
+export const hueOf = (name) => bots.find((bot) => bot.name === name)?.color
 export const colorOf = (name, property = 'color') => {
 	const hue = hueOf(name)
 	return hue === undefined ? '' : `${property}: ${paint(hue)}`
