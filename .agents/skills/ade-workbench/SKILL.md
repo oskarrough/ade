@@ -10,7 +10,7 @@ AGENTS.md has the rules; this is the how.
 ## Workspace and landing
 
 - `jj workspace add .work/<name> -r main`, then `pnpm install --frozen-lockfile`. Workspaces have no `.git`: use `jj status`, `jj file list`, `jj log -r main@origin`. Scratch files and screenshots go in `~/sites/ade/.work/<your-name>/`, which outlives the workspace.
-- Commit only your paths: `jj commit -m … <paths>`, and keep the id it prints. Check `jj diff -r <id> --git` holds only your lines.
+- Run `pnpm check` and `pnpm examples` once, then commit only your paths: `jj commit -m … <paths>`, and keep the id it prints. Check `jj diff -r <id> --git` holds only your lines.
 - `jj git fetch`, `jj rebase -s <id> -o main@origin` (`-s`, not `-r`, or the commit stays behind), `jj bookmark set main -r <id>`, `jj git push`. If SSH is refused, push over HTTPS with the GitHub CLI login.
 - A refused push ("stale info", a conflicted bookmark) means main moved: fetch, rebase onto `main@origin`, set the bookmark, push again. Never `--allow-backwards`, `--ignore-immutable` or a forced push; that's how main has lost commits before. If it won't converge because of a real conflict, stop and report.
 - Then bring Oskar's checkout up: in `~/sites/ade`, `jj rebase -s default@ -o main`, and `jj workspace update-stale` if it says stale. Conflicts in files you didn't touch are his. Finally `jj workspace forget` yours and delete its folder.
