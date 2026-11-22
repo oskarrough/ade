@@ -8,6 +8,13 @@ import { PlainStep } from './run.js'
 import { ahead } from './time.js'
 import { report } from './notice.js'
 
+/** What a wake can be `on`, as the server's wake.js says it */
+const EVENTS = {
+	push: 'each GitHub push',
+	ci: 'each failed GitHub CI run',
+	hook: 'each call to its hook',
+}
+
 /** `5m`, `1h30m` from milliseconds, as the agent wrote it */
 const UNITS = /** @type {[number, string][]} */ ([
 	[86_400_000, 'd'],
@@ -47,9 +54,11 @@ export function Wakes(props) {
 			>${(wake) => {
 				const [open, setOpen] = createSignal(false)
 				const when = () =>
-					wake().after === undefined
-						? `${ahead(wake().at)}${wake().every ? `, then every ${span(wake().every)}` : ''}`
-						: `once ${titleOf(wake().after)} is done`
+					wake().on !== undefined
+						? `on ${EVENTS[wake().on]}`
+						: wake().after === undefined
+							? `${ahead(wake().at)}${wake().every ? `, then every ${span(wake().every)}` : ''}`
+							: `once ${titleOf(wake().after)} is done`
 				return html`
 					<p class=${() => ({ notice: true, open: open() })} role="status">
 						<span
@@ -79,6 +88,7 @@ export function WakeSet(props) {
 	const when = () => {
 		const args = props.step.args
 		if (args.cancel !== undefined) return 'cancelled a wake'
+		if (args.on !== undefined) return `wakes on ${EVENTS[args.on] ?? args.on}`
 		if (args.after !== undefined) return `wakes once ${titleOf(args.after)} is done`
 		return `wakes in ${args.in ?? args.every}${args.every ? `, then every ${args.every}` : ''}`
 	}

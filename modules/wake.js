@@ -12,7 +12,11 @@
  * and once on start, settle signals each such wake whose thread has no work left (core.busy: no agent answering or
  * waiting for its runner, no `$ cmd`, no director pick); one set while N is already idle fires at once. Every change to a
  * wake tells the pages watching its thread (`wake` activity), which fetch its wakes again.
+ *
+ * With hooks on too, a wake `on` an outside event (hooks.js) sleeps on its next Hooked signal, one key per event, and
+ * posts each under a message key the event names, so a redelivered one posts once; it listens until cancelled.
  */
+import { randomBytes } from 'node:crypto'
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
 import { background, finished, writtenTo } from '../util.js'
@@ -38,8 +42,27 @@ export function duration(text, name) {
 
 /** The thread a wake waits on has no work left */
 const Ended = defineSignal({ name: 'ade.thread-ended', version: 1, schema: obj({}) })
+/** An outside event for a wake `on` one: the message key it posts under, and what it says */
+export const Hooked = defineSignal({
+	name: 'ade.hooked',
+	version: 1,
+	schema: obj({ key: str(), said: str() }),
+})
+/** What a wake can be `on`, as the strip says it */
+export const EVENTS = {
+	push: 'each GitHub push',
+	ci: 'each failed GitHub CI run',
+	hook: 'each call to its hook',
+}
+/** A wake `on` events sleeps until its nth */
+const listen = (n) => ({
+	status: /** @type {const} */ ('sleeping'),
+	signals: [Hooked.key(`event-${n}`)],
+	checkpoint: { phase: 'fire', n },
+})
 
 export function server(core) {
+	const hooks = core.modulesOn.includes('hooks')
 	/** Wakes in one thread or all, `sleeping` or not yet (`pending`); those already cancelled are gone */
 	const sleeping = async (threadId, status = 'sleeping') =>
 		(
@@ -55,9 +78,11 @@ export function server(core) {
 		return (await sleeping(threadId))
 			.map(({ id, input, state }) => ({
 				id,
-				...(input.after === undefined
-					? { at: /** @type {any} */ (state).until }
-					: { after: input.after }),
+				...(input.on !== undefined
+					? { on: input.on }
+					: input.after === undefined
+						? { at: /** @type {any} */ (state).until }
+						: { after: input.after }),
 				...(input.every ? { every: input.every } : {}),
 				note: input.note,
 				agent: input.author,
@@ -102,7 +127,8 @@ export function server(core) {
 	/**
 	 * Sleeps until `at`, then posts the note to the agent that set it (its conversation, which a bot's rename keeps), as
 	 * that agent; with `every`, sleeps until the next slot of its first rhythm, skipping those missed. An agent no longer
-	 * in the thread, or an archived thread, ends it quietly.
+	 * in the thread, or an archived thread, ends it quietly. One `on` events sleeps on Hooked `event-N`, posts the note
+	 * with what came, once per its key, and sleeps on `event-N+1`.
 	 */
 	const Wake = defineTask({
 		name: 'ade.wake',
@@ -110,24 +136,45 @@ export function server(core) {
 		initial: () => ({ phase: 'sleep' }),
 		phases: {
 			sleep: ({ input }, rt, ctx) =>
-				input.after === undefined
-					? rt.sleepUntil(input.at, { phase: 'fire' }, ctx)
-					: rt.commit(
-							() => ({
-								status: 'sleeping',
-								signals: [Ended.key('ended')],
-								checkpoint: { phase: 'fire' },
-							}),
-							ctx,
-						),
-			fire: ({ id, conversationId: threadId, input, state }, rt, ctx) =>
-				rt.commit(async (tx) => {
+				input.on !== undefined
+					? rt.commit(() => listen(0), ctx)
+					: input.after === undefined
+						? rt.sleepUntil(input.at, { phase: 'fire' }, ctx)
+						: rt.commit(
+								() => ({
+									status: 'sleeping',
+									signals: [Ended.key('ended')],
+									checkpoint: { phase: 'fire' },
+								}),
+								ctx,
+							),
+			fire: async ({ id, conversationId: threadId, input, state }, rt, ctx) => {
+				const at = /** @type {any} */ (state).checkpoint.n
+				const heard =
+					input.on === undefined ? undefined : await rt.readSignal(Hooked, `event-${at}`, ctx)
+				return rt.commit(async (tx) => {
 					const row = await core.threadIn(tx, threadId)
 					const key = Object.keys(row.agents).find(
 						(key) => row.agents[key].conversation === input.conversation,
 					)
 					const to = !row.hidden && key && (await core.agentOf(input.conversation, key, tx))
 					if (!to) return finished()
+					if (input.on !== undefined) {
+						if (heard && 'value' in heard)
+							await core.postKeyed(
+								tx,
+								threadId,
+								heard.value.key,
+								{
+									author: writtenTo(to),
+									body: `${input.note}\n\n${heard.value.said}`,
+									wake: id,
+									to: [to],
+								},
+								{ member: true },
+							)
+						return listen(at + 1)
+					}
 					await core.post(
 						tx,
 						threadId,
@@ -138,15 +185,15 @@ export function server(core) {
 					const slot = /** @type {any} */ (state).checkpoint.at ?? input.at
 					const next = slot + Math.max(1, Math.ceil((rt.now() - slot) / input.every)) * input.every
 					return { status: 'sleeping', until: next, checkpoint: { phase: 'fire', at: next } }
-				}, ctx),
+				}, ctx)
+			},
 		},
 		abort: (_task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
 	})
 
 	const wake = defineTool({
 		name: 'wake',
-		description:
-			'Come back to this thread later: your note arrives here as a message to you after `in`, and again every `every` if you give it, or once thread `after` has finished its work. Returns at once. Or cancel a wake by its id.',
+		description: `Come back to this thread later: your note arrives here as a message to you after \`in\`, and again every \`every\` if you give it, or once thread \`after\` has finished its work${hooks ? ', or on each outside event `on` names until you cancel it' : ''}. Returns at once. Or cancel a wake by its id.`,
 		parameters: obj({
 			in: opt(str({ description: 'How long until the first wake: 90s, 5m, 1h30m, 2d' })),
 			every: opt(str({ description: 'Wake again this often, at least 1m; `in` defaults to it' })),
@@ -159,12 +206,22 @@ export function server(core) {
 			note: opt(
 				str({ description: "What to do when you wake, written so you'll know without context" }),
 			),
+			...(hooks
+				? {
+						on: opt(
+							str({
+								description:
+									"Wake on an outside event instead: 'push' or 'ci' (a failed run) from a GitHub webhook, 'hook' from any service's POST. The answer says where it posts and its secret.",
+							}),
+						),
+					}
+				: {}),
 			cancel: opt(num({ description: "A pending wake's id, to cancel it instead" })),
 		}),
 		replay: 'safe',
 		execute: async (input, api) => {
 			const args =
-				/** @type {{ in?: string, every?: string, after?: number, note?: string, cancel?: number }} */ (
+				/** @type {{ in?: string, every?: string, after?: number, on?: string, note?: string, cancel?: number }} */ (
 					input
 				)
 			const at = await core.home(api.conversationId)
@@ -181,7 +238,12 @@ export function server(core) {
 			const note = args.note?.trim()
 			if (!note) throw new Error('note is required')
 			let when
-			if (args.after !== undefined) {
+			if (hooks && args.on !== undefined) {
+				if (!(args.on in EVENTS)) throw new Error('on is push, ci or hook')
+				if (args.in !== undefined || args.every !== undefined || args.after !== undefined)
+					throw new Error('on wakes on events, at no time: leave in, every and after out')
+				when = { on: args.on, secret: `awh_${randomBytes(24).toString('base64url')}` }
+			} else if (args.after !== undefined) {
 				if (args.in !== undefined || args.every !== undefined)
 					throw new Error('after wakes once, at no time: leave in and every out')
 				if (args.after === at.thread) throw new Error('after is another thread')
@@ -210,12 +272,20 @@ export function server(core) {
 						type: 'text',
 						text: [
 							`Set wake ${id}. Your note comes back here as a message; end your turn.`,
+							...(when.on === undefined
+								? []
+								: [
+										when.on === 'hook'
+											? `It wakes on each POST to /hooks/${id} on this server that sends \`Authorization: Bearer ${when.secret}\`; an \`Idempotency-Key\` header, or else the same body, marks a repeat.`
+											: `Add a GitHub webhook (JSON, ${when.on === 'push' ? 'push events' : 'workflow runs'}) posting to /hooks/${id} on this server, with secret ${when.secret}.`,
+										'Keep the secret out of the thread. It listens until cancelled.',
+									]),
 							...(others.length
 								? [
 										'Other wakes pending here:',
 										...others.map(
 											(one) =>
-												`- ${one.id} ${one.after === undefined ? `at ${new Date(one.at).toISOString()}${one.every ? ', repeating' : ''}` : `after thread ${one.after}`}: ${one.note}`,
+												`- ${one.id} ${one.on !== undefined ? `on ${EVENTS[one.on]}` : one.after === undefined ? `at ${new Date(one.at).toISOString()}${one.every ? ', repeating' : ''}` : `after thread ${one.after}`}: ${one.note}`,
 										),
 									]
 								: []),

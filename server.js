@@ -1636,18 +1636,21 @@ const usedFor = (saved, requestId, command) => {
 }
 
 /** Does `work` once per request id, or every time without one; a retry gets the first result */
-const once = (requestId, command, work) =>
-	commit(async (tx) => {
-		if (requestId === undefined) return work(tx)
-		if (typeof requestId !== 'string' || !requestId || requestId.length > 128)
-			throw new Error('requestId must be a string of 1 to 128 characters')
-		const doc = await tx.doc(Receipts, requestId, null)
-		if (usedFor(doc.receipt, requestId, command))
-			return JSON.parse(JSON.stringify(doc.receipt.result))
-		const result = await work(tx)
-		doc.receipt = { command, result }
-		return result
-	})
+const once = (requestId, command, work) => commit((tx) => onceIn(tx, requestId, command, work))
+/** `once` inside the caller's own commit, before its writes */
+async function onceIn(tx, requestId, command, work) {
+	if (requestId === undefined) return work(tx)
+	if (typeof requestId !== 'string' || !requestId || requestId.length > 128)
+		throw new Error('requestId must be a string of 1 to 128 characters')
+	const doc = await tx.doc(Receipts, requestId, null)
+	if (usedFor(doc.receipt, requestId, command))
+		return JSON.parse(JSON.stringify(doc.receipt.result))
+	const result = await work(tx)
+	doc.receipt = { command, result }
+	return result
+}
+/** A message `key`'s receipt in its thread, as POST entries keeps it: `[requestId, command]` */
+const messageKey = (threadId, key) => [scopedKey(`post ${threadId}`, key), `post ${threadId}`]
 
 /**
  * The director first, then an explicit recipient. Only solo chats and commands reuse the last recipient. `direct`
@@ -1694,7 +1697,7 @@ async function invited(id, body) {
 
 /**
  * A caller's own key, namespaced by its scope so two scopes' keys never share a receipt: a message's `post {id}/{key}`
- * is reused by a retry, Matrix's event id, or a future webhook; a thread's `create thread/{key}` by nothing else.
+ * is reused by a retry, Matrix's event id, or a hook wake's delivery; a thread's `create thread/{key}` by nothing else.
  */
 function scopedKey(scope, key) {
 	if (key === undefined) return undefined
@@ -1705,8 +1708,8 @@ function scopedKey(scope, key) {
 
 /** No `to` asks the director in a group, or the last recipient in a solo chat or command. */
 async function postEntry(id, author, input) {
-	const requestId = scopedKey(`post ${id}`, input.key)
-	const saved = await receipt(requestId, `post ${id}`)
+	const [requestId, scope] = messageKey(id, input.key)
+	const saved = await receipt(requestId, scope)
 	if (saved) return withPick(id, saved.result)
 	await conversation(id)
 	const images = imageList(input.images)
@@ -1724,7 +1727,7 @@ async function postEntry(id, author, input) {
 	if (command) await reach(to, author, await known())
 	if (!command && to.filter((to) => !to.name).length > 1)
 		throw new Error('A thread has one agent: ask one model here, plus any bots')
-	const result = await once(requestId, `post ${id}`, async (tx) =>
+	const result = await once(requestId, scope, async (tx) =>
 		command
 			? (await tx.createTask(Shell, { author, command, to: to[0] }, { ...own, conversationId: id }),
 				{ command, to: to[0] })
@@ -2089,6 +2092,11 @@ const core = {
 	commit,
 	once,
 	receipt,
+	/** Posts inside a commit, before its writes, once per message `key`, as a repeated POST with that key does */
+	postKeyed: (tx, threadId, key, message, options) =>
+		onceIn(tx, ...messageKey(threadId, key), (tx) => post(tx, threadId, message, options)),
+	/** A message `key` already used in the thread */
+	keyUsed: async (threadId, key) => Boolean(await receipt(...messageKey(threadId, key))),
 }
 /** Each module in modules/ → on by default, as its own file says */
 const defaults = await builtIn()
@@ -2159,6 +2167,8 @@ const [
 	'openQuestion',
 ].map(hook)
 compactAt = hook('compactAt')
+/** An outside service's POST to /hooks/:id, which only the module checks; none without one */
+const webhook = hook('webhook')
 harnessed = undefined
 const remembers = hook('remembers')
 for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
@@ -2169,6 +2179,18 @@ for (const module of modules) await module.start?.()
 
 /** Pi's own cap on an image, in base64 */
 const IMAGE_BYTES = 4.5 * 1024 * 1024
+/** A request's body as it came, for a module that checks its signature; up to a megabyte */
+async function rawInput(req) {
+	const chunks = []
+	let size = 0
+	for await (const chunk of req) {
+		size += chunk.length
+		if (size > 1_000_000) throw Object.assign(new Error('Request too large'), { status: 413 })
+		chunks.push(chunk)
+	}
+	return Buffer.concat(chunks)
+}
+
 async function input(req) {
 	let body = ''
 	for await (const chunk of req) {
@@ -2340,6 +2362,15 @@ const routes = /** @type {[string, Function][]} */ ([
 	],
 	['POST /api/threads/:id/compact', async (req, id) => ({ compacted: await compact(id) })],
 	['GET /api/conversations/:id', (req, id) => conversationView(id)],
+	// Outside /api, so no owner or login: the module checks the hook's own secret
+	...(webhook
+		? [
+				[
+					'POST /hooks/:id',
+					async (req, id) => webhook(id, { headers: req.headers, body: await rawInput(req) }),
+				],
+			]
+		: []),
 	...modules.flatMap((module) =>
 		!module.serve
 			? []

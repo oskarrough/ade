@@ -41,7 +41,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   forkThread, seenBy                forks
   compact, compactingAt             compaction now, or early
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
-  receipt, once                     a retried request does its work once
+  receipt, once                     a retried request does its work once; onceIn inside a commit, messageKey a message
+                                    `key`'s receipt (core.postKeyed, core.keyUsed)
   whoSent, answersTo, owner         owner: ade.json's `owner`, else the login here (ownerName), and `ownerLogins`, tailnet logins that are the owner (loginList); who sent a request or socket, from how it arrived: the owner key (owner.key beside the store,
                                     a bearer or the cookie POST /api/me sets), a direct request on the main listener (the owner),
                                     or Tailscale-User-Login on Serve's listener (SERVE_PORT, listener(true)); Host and Origin checks
@@ -99,7 +100,11 @@ modules/
   wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
                          sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and on the
                          server's `ended`, over core.busy), taskChanged tells the thread's pages (`wake` activity), pending (the thread's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake),
-                         archiving cancels them; duration parses 5m, 1h30m; off by default
+                         archiving cancels them; duration parses 5m, 1h30m; with hooks on, a wake `on` an event sleeps on
+                         Hooked `event-N` (listen) and posts each through core.postKeyed, once per message key; off by default
+  hooks.js               POST /hooks/:id (server.js's `webhook` hook, raw body, outside /api): checks the wake's own secret
+                         (bearer, or GitHub's X-Hub-Signature-256), github (what a push or failed CI run says), signals
+                         Hooked on the wake's next free key, keyed by the delivery so a repeat posts once; off by default
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)
@@ -242,7 +247,7 @@ Where a feature lives:
 - Status dots: server.js status/busiest, client dot.js. Explicit questions waiting on a person: modules/inbox.js openQuestion, util.js byAgent.
 - The inbox: modules/inbox.js (`ask_person`, openQuestion, questions), client inbox.js, server.js inbox/dismiss/inboxOpen, thread-list.js (its toggle), system.js (in the threads' place), composer.js `inbox`.
 - Pi session files, both ways: modules/pi-sessions.js; the runner's messages are `pi-session`, `pi-session-list` and `pi-session-read` in remote.js serveRunner, shipped with the runner through RUNNER_FILES; cli.js `import`.
-- Wakes: modules/wake.js, util.js byAgent/said (`wake` marks the message), client wake.js, composer.js (the strip), thread.js (rows, WokeLine), time.js `ahead`.
+- Wakes: modules/wake.js, modules/hooks.js (outside events), util.js byAgent/said (`wake` marks the message), client wake.js, composer.js (the strip), thread.js (rows, WokeLine), time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, client settings.js.
 - A page behind its ade: server.js hashOf/clientVersion (`client` in GET /api/server, `server` named on the socket when apps/client changes), git, GET /api/changes (the commits since the page's), client server.js `behind`/`changes`, thread-list.js (Update in the list's foot, with the count of commits).
 - The desktop window: apps/desktop main.go (window, links, offline page, notifications, updater), preload.js (notifications from the thread list, the clipboard on plain http), release.sh (`pnpm desktop:release`).
