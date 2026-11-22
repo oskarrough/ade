@@ -50,6 +50,9 @@ export function ThreadList() {
 				when=${() => !archivedPage()}
 				fallback=${html`<${ArchivedPage} onBack=${(_e) => setArchivedPage(false)} />`}
 			>
+				<${Show} when=${() => server().modules.includes('search')}>
+					<${SearchField} />
+				<//>
 				<ul class="new-rows">
 					<${NewRow}
 						label="Thread"
@@ -61,9 +64,6 @@ export function ThreadList() {
 						<${NewRow} label="Bot" title="New bot" onPick=${(_e) => setCreating(true)} />
 					<//>
 				</ul>
-				<${Show} when=${() => server().modules.includes('search')}>
-					<${SearchField} />
-				<//>
 				<${Show} when=${() => server().modules.includes('inbox')}>
 					<ul class="inbox-row">
 						<li class=${() => ['new', { current: inboxOpen() }]}>

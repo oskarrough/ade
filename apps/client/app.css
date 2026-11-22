@@ -2199,13 +2199,15 @@ body.resizing {
 	}
 }
 
-/* The search field sits in a row like the new bot's name, its magnifier where a row's dot is. */
+/* The search field sits in a row like the new bot's name, its magnifier where a row's dot is; first in the sidebar, one gap above New thread/New bot. */
 .thread-list > ul.search-row {
 	flex: none;
 	overflow: visible;
+	margin-bottom: var(--space-4);
 
 	> li > form.row > input {
 		margin-left: 0;
+		padding-left: 0;
 	}
 
 	input::-webkit-search-cancel-button {

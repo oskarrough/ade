@@ -42,7 +42,7 @@ export function SearchField() {
 	}
 	return html`
 		<ul class="search-row">
-			<li class=${() => ({ current: searchFor() !== null })}>
+			<li class=${() => ['new', { current: searchFor() !== null }]}>
 				<form
 					class="row"
 					role="search"
