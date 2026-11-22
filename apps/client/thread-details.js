@@ -12,6 +12,7 @@ import {
 	familyOf,
 	forkedFrom,
 	homeBot,
+	inbox,
 	newThreadTools,
 	people,
 	renameThread,
@@ -31,8 +32,8 @@ import { agent, folderOf, openPicker } from './composer.js'
 import { report } from './notice.js'
 import { Sure } from './sure.js'
 
-/** Thread states that come first in a bot's threads: running, waiting, failed, or answered and unread */
-const LIVE = ['working', 'blocked', 'error', 'done']
+/** A thread that's live whatever its inbox says: running, waiting on a person, or failed */
+const LIVE = ['working', 'blocked', 'error']
 
 /**
  * A thread's details as a page of the side column, the same four parts for a thread and a bot's home: its threads,
@@ -85,8 +86,33 @@ export function DetailsPage(props) {
 	// A bot's threads are a page of their own: a bot with hundreds of them must not push the rest off the page
 	const [page, setPage] = createSignal(false)
 	const botFamily = createMemo(() => (bot() ? botThreads(bot()) : { own: [], elsewhere: [] }))
-	const botAll = createMemo(() => [...botFamily().own, ...botFamily().elsewhere])
-	const live = createMemo(() => botAll().filter((thread) => LIVE.includes(thread.status)))
+	/** Every thread around this one: the bot's, or the thread's own line without itself */
+	const others = createMemo(() =>
+		bot()
+			? [...botFamily().own, ...botFamily().elsewhere]
+			: lineage()
+					.filter((member) => member !== id())
+					.map(threadOf)
+					.filter(Boolean),
+	)
+	/** The inbox's own say on what's unread: only answers you'd read, not the hundreds agents gave each other, which a thread's status counts too. Without an inbox, the status stands. */
+	const unread = (thread) =>
+		server().modules.includes('inbox')
+			? inbox.some((item) => item.kind !== 'question' && item.thread === thread.id)
+			: thread.status === 'done'
+	const latest = (thread) => thread.latest ?? thread.id
+	/** The newest first */
+	const byLatest = (a, b) => latest(b) - latest(a)
+	/** Only what's live: working on top, then the rest by latest activity; the others wait behind All threads */
+	const live = createMemo(() =>
+		others()
+			.filter((thread) => LIVE.includes(thread.status) || unread(thread))
+			.sort(
+				(a, b) => Number(b.status === 'working') - Number(a.status === 'working') || byLatest(a, b),
+			),
+	)
+	/** All threads, by latest activity */
+	const allByLatest = (threads) => [...threads].sort(byLatest)
 	const scheduling = () => server().modules.includes('schedule')
 	return html`
 		<aside class="side thread-details" aria-label="Thread details">
@@ -97,8 +123,17 @@ export function DetailsPage(props) {
 				open=${page}
 				onBack=${(_event) => setPage(false)}
 				detailTitle="Threads"
-				detail=${html`<ul class="thread-family">
-						<${For} each=${() => botFamily().own}
+				detail=${html`<${Show}
+					when=${bot}
+					fallback=${html`<ul class="thread-family">
+						<${For} each=${() => lineage().map(threadOf).filter(Boolean)}>
+							${(thread) =>
+								html`<${ThreadItem} thread=${() => thread} depth=${() => depth(thread.id)} />`}
+						<//>
+					</ul>`}
+				>
+					<ul class="thread-family">
+						<${For} each=${() => allByLatest(botFamily().own)}
 							>${(thread) =>
 								html`<${ThreadItem}
 									thread=${() => thread}
@@ -109,11 +144,12 @@ export function DetailsPage(props) {
 					<${Show} when=${() => botFamily().elsewhere.length}>
 						<h2>Also in</h2>
 						<ul class="thread-family">
-							<${For} each=${() => botFamily().elsewhere}
+							<${For} each=${() => allByLatest(botFamily().elsewhere)}
 								>${(thread) => html`<${ThreadItem} thread=${() => thread} />`}<//
 							>
 						</ul>
-					<//>`}
+					<//>
+				<//>`}
 			>
 				<${Show}
 					when=${id}
@@ -123,39 +159,24 @@ export function DetailsPage(props) {
 					<${Show} when=${() => server().modules.includes('pi-sessions')}>
 						<${PiSource} thread=${id()} />
 					<//>
-					<${Show}
-						when=${bot}
-						fallback=${html`<${Show} when=${() => lineage().length > 1}>
-							<h2>Threads</h2>
-							<ul class="thread-family">
-								<${For} each=${() => lineage().map(threadOf).filter(Boolean)}>
-									${(thread) =>
-										html`<${ThreadItem} thread=${() => thread} depth=${() => depth(thread.id)} />`}
-								<//>
-							</ul>
-						<//>`}
-					>
-						<${Show} when=${() => botAll().length}>
-							<h2>Threads</h2>
-							<ul class="thread-family">
-								<${For} each=${live}
-									>${(thread) => html`<${ThreadItem} thread=${() => thread} />`}<//
+					<${Show} when=${() => others().length}>
+						<h2>Threads</h2>
+						<ul class="thread-family">
+							<${For} each=${live}>${(thread) => html`<${ThreadItem} thread=${() => thread} />`}<//>
+							<li class="new">
+								<button
+									type="button"
+									class="row"
+									aria-label=${() =>
+										`All ${others().length} ${others().length === 1 ? 'thread' : 'threads'}`}
+									onClick=${(_event) => setPage(true)}
 								>
-								<li class="new">
-									<button
-										type="button"
-										class="row"
-										aria-label=${() =>
-											`All ${botAll().length} ${botAll().length === 1 ? 'thread' : 'threads'}`}
-										onClick=${(_event) => setPage(true)}
-									>
-										<span class="plus" aria-hidden="true"></span>
-										All threads
-										<small aria-hidden="true">${() => botAll().length}</small>
-									</button>
-								</li>
-							</ul>
-						<//>
+									<span class="plus" aria-hidden="true"></span>
+									All threads
+									<small aria-hidden="true">${() => others().length}</small>
+								</button>
+							</li>
+						</ul>
 					<//>
 					<${Show} when=${scheduling}>
 						<h2>Scheduled</h2>

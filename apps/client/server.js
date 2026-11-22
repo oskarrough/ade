@@ -464,7 +464,7 @@ export const {
 	})
 	/** The row moves the moment you ask; if the server refuses, it moves back and this throws why */
 	const archiveThread = action(function* (id, archived) {
-		if (archived && family().includes(id)) openThread(null)
+		if (archived && id === current()) openThread(null)
 		const moving = (archived ? threads : archivedThreads).find((row) => row.id === id)
 		const moved = moving ? { ...snapshot(moving), archived } : null
 		if (archived) {
