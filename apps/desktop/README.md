@@ -44,14 +44,22 @@ GOTOOLCHAIN=auto go tool mygo build -platform windows/amd64   # dist/windows-amd
 
 ## Release a new version
 
-1. Add a section to the top of `CHANGELOG.md`, `## 0.1.2` with a few lines under it. Its version is the app's version, and its lines are the notes the update window shows.
-2. From the repo, in WSL, run `pnpm desktop:release`.
+1. Add a section to the top of `CHANGELOG.md`, `## 0.1.7` with a few lines under it, and push it to main. Its version is the app's version, and its lines are the notes the update window shows.
+2. Run `pnpm desktop:release`.
 
-That builds Windows and Linux, signs the updates, uploads them to the GitHub release `desktop-v0.1.2` and publishes it without making it the repo's latest release. Installed apps find it within the hour, or 10 seconds after they next start. It needs `gh` signed in to oskarrough/ade, and the update key.
+That tags main `desktop-v0.1.7` and pushes the tag. GitHub Actions ([desktop-release.yml](../../.github/workflows/desktop-release.yml)) checks the tag against `CHANGELOG.md`, builds Windows, Linux and macOS, signs the updates, uploads them and publishes the release as the repo's latest. Installed apps find it within the hour, or 10 seconds after they next start. If a build fails, "Re-run failed jobs" builds it again into the same draft.
+
+Each release also carries copies under names without the version, so these links always get the newest:
+
+- https://github.com/oskarrough/ade/releases/latest/download/arbe-desktop-windows.exe
+- https://github.com/oskarrough/ade/releases/latest/download/arbe-desktop-mac.dmg (one app for Apple silicon and Intel)
+- https://github.com/oskarrough/ade/releases/latest/download/arbe-desktop-linux.tar.gz, or `curl -fsSL https://github.com/oskarrough/ade/releases/latest/download/install.sh | sh`, which installs it in `~/.local`
+
+The versioned files beside them are what updates use: apps look for the newest `desktop-v*` release and its `update-<platform>.json`, so renaming those would strand installs.
 
 ## The update key
 
-Releases are signed with a key pair. The public half is in `mygo.config.ts`; the secret half is at
+Releases are signed with a key pair. The public half is in `mygo.config.ts`; the secret half is the repo's Actions secret `MYGO_UPDATER_PRIVATE_KEY`, and at
 
 ```
 ~/.config/mygo/update-keys/mygo-update.key   (WSL, Oskar's machine)
@@ -64,50 +72,5 @@ and belongs in the password manager too. Installed apps take only updates signed
 The apps aren't code-signed.
 
 - Windows: running a downloaded installer, SmartScreen says "Windows protected your PC" with "Unknown publisher". Click "More info", then "Run anyway". Updates the app installs itself don't ask again.
-- macOS (not built by the release yet): an app from another Mac is signed ad hoc, and Gatekeeper refuses it: "Apple could not verify "arbe desktop" is free of malware". Open it once from System Settings › Privacy & Security › Open Anyway. Signing and notarizing take an Apple Developer ID.
+- macOS: an app from another Mac is signed ad hoc, and Gatekeeper refuses it: "Apple could not verify "arbe desktop" is free of malware". Open it once from System Settings › Privacy & Security › Open Anyway. Signing and notarizing take an Apple Developer ID.
 - Linux asks nothing.
-
-## Later: releases from GitHub Actions
-
-mygo's workflow, for when releases should build on push instead of from WSL. It would go in `.github/workflows/desktop-release.yml`, with the update key added first: `gh secret set MYGO_UPDATER_PRIVATE_KEY < ~/.config/mygo/update-keys/mygo-update.key`. It still drafts the release, so publish it with `--latest=false`.
-
-```yaml
-name: Desktop release
-on:
-  push:
-    tags: ['desktop-v*']
-permissions:
-  contents: write
-jobs:
-  draft-release:
-    runs-on: ubuntu-latest
-    steps:
-      - env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 ||
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$GITHUB_REF_NAME"
-  build:
-    needs: draft-release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: macos-latest, platform: 'darwin/arm64,darwin/amd64' }
-          - { os: ubuntu-latest, platform: 'windows/amd64,linux/amd64' }
-    defaults:
-      run:
-        working-directory: apps/desktop
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: apps/desktop/go.mod
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y nsis
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-        run: go tool mygo build -platform "${{ matrix.platform }}" -upload
-```

@@ -81,7 +81,7 @@ modules/
   usage.js               tokens and cost: spend, build, entryStored, settle, spent; serve
   pi-sessions.js         threads as pi session files (push, sync, changed, writePiSession) and back (bring);
                          serve, listPiSessions, readPiSession
-apps/desktop/            arbe desktop, a Go app on mygo (main.go, preload.js, offline.html, release.sh; README.md there)
+apps/desktop/            arbe desktop, a Go app on mygo (main.go, preload.js, offline.html, release.sh; README.md there); .github/workflows/desktop-release.yml builds its releases
 apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   type declarations for CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
@@ -186,7 +186,7 @@ Where a feature lives:
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
 - A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js.
 - The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log).
-- The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js, release.sh.
+- The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js; releases: release.sh tags, .github/workflows/desktop-release.yml builds and publishes.
 
 ## UI parts
 

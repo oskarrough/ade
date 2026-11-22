@@ -1,0 +1,94 @@
+# Builds arbe desktop for Windows, Linux and macOS when a desktop-v* tag is pushed, and publishes the release as the
+# repository's latest, so releases/latest/download/arbe-desktop-<system>.<ext> always gets the newest. See apps/desktop/README.md.
+name: Desktop release
+on:
+  push:
+    tags: ['desktop-v*']
+permissions:
+  contents: write
+concurrency: desktop-release
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag against CHANGELOG.md
+        run: |
+          version=$(sed -n 's/^## \([0-9][^ ]*\).*/\1/p' apps/desktop/CHANGELOG.md | head -1)
+          [ "$GITHUB_REF_NAME" = "desktop-v$version" ] || { echo "::error::$GITHUB_REF_NAME, but CHANGELOG.md's newest version is $version"; exit 1; }
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$GITHUB_REF_NAME" \
+              --notes "$(awk '/^## /{n++} n==1 && !/^## /' apps/desktop/CHANGELOG.md)"
+
+  build:
+    needs: draft
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One at a time: each build merges its checksums into the release's SHA256SUMS, which install.ps1 reads
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              name: Windows,
+              os: ubuntu-latest,
+              platform: windows/amd64,
+              from: windows-amd64/arbe-desktop-setup-*-amd64.exe,
+              to: arbe-desktop-windows.exe,
+            }
+          - {
+              name: Linux,
+              os: ubuntu-latest,
+              platform: linux/amd64,
+              from: linux-amd64/arbe-desktop-*-linux-amd64.tar.gz,
+              to: arbe-desktop-linux.tar.gz,
+            }
+          - {
+              name: macOS,
+              os: macos-latest,
+              platform: darwin/universal,
+              from: darwin-universal/arbe-desktop-*.dmg,
+              to: arbe-desktop-mac.dmg,
+            }
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/desktop/go.mod
+          cache-dependency-path: apps/desktop/go.sum
+      # mygo reads mygo.config.ts with Node
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - if: matrix.name == 'Windows'
+        run: sudo apt-get update && sudo apt-get install -y nsis
+      - name: Build, sign the updates and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: go tool mygo build -platform "${{ matrix.platform }}" -upload
+      # The versioned files stay, for updates and deltas; this adds a copy under a name without the version.
+      - name: Upload under a stable name
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -- dist/${{ matrix.from }}
+          [ $# = 1 ] && [ -f "$1" ] || { echo "::error::expected one file for ${{ matrix.from }}, got: $*"; exit 1; }
+          cp "$1" "dist/${{ matrix.to }}"
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "dist/${{ matrix.to }}"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
