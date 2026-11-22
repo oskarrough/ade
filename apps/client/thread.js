@@ -196,7 +196,7 @@ export function Thread(props) {
 	})
 	/** Scrolled near the top, the rows above come, then the page before, unless what's above is folded into memory lines */
 	const nearTop = () => {
-		if (!list || list.scrollTop >= list.clientHeight) return
+		if (!list || scrollMode.kind === 'gliding' || list.scrollTop >= list.clientHeight) return
 		const top = rows.findIndex((row) => row.at >= (shownFrom() ?? -Infinity))
 		if (top > 0) {
 			hold()
@@ -435,11 +435,27 @@ export function Thread(props) {
 	const titleClick = () =>
 		current() !== props.id ? openThread(props.id) : toggleSide(props.id, 'details')
 	let list,
+		room,
 		followed,
 		sizes,
 		changes,
-		stuck = true
+		/** One scroll mode at a time: following, gliding, holding, anchoring, or detached. */
+		scrollMode = { kind: 'following' },
+		/** Your last message's row and how much of the view the answer gets under it, decided once when you send */
+		answerRoom = null,
+		/** Temporary padding added under a closed <details> near the bottom */
+		padded = false,
+		bottom = () => {},
+		hold = () => {},
+		startGlide = () => {}
+	const setScrollMode = (next) => {
+		if (scrollMode.kind === 'gliding') scrollMode.cancel()
+		scrollMode = next
+	}
+	const atBottom = () =>
+		Boolean(list && list.scrollTop + list.clientHeight >= list.scrollHeight - 4)
 	onSettled(() => () => {
+		setScrollMode({ kind: 'detached' })
 		sizes?.disconnect()
 		changes?.disconnect()
 	})
@@ -457,7 +473,7 @@ export function Thread(props) {
 		(latest, previous) => {
 			if (!latest || !previous || latest.split(':')[0] !== previous.split(':')[0]) return
 			const [id, , voice] = latest.split(':')
-			if (voice === 'mine') stuck = true
+			if (voice === 'mine' && scrollMode.kind === 'detached') setScrollMode({ kind: 'following' })
 			markRead(Number(id))
 		},
 	)
@@ -499,9 +515,10 @@ export function Thread(props) {
 					})
 				return asking
 			})
-			stuck = true
+			setScrollMode({ kind: 'following' })
 			setShownFrom(null)
-			sent = null
+			answerRoom = null
+			padded = false
 			if (room) room.style.height = '0px'
 			markRead(id)
 			const onVisible = () => markRead(id)
@@ -547,36 +564,32 @@ export function Thread(props) {
 			}
 		},
 	)
-	/** Your last message's row; the room under it is what the answer hasn't filled yet. The row, not its offset, so rows folding above it (a compaction) move it too */
-	let sent = null,
-		room,
-		/** Set by a send: the next follow glides there instead of jumping; true while it's under way */
-		glide = false,
-		gliding = false,
-		/** How much of the view the answer gets under your message, decided once when you send */
-		reserve = null,
-		bottom = () => {},
-		hold = () => {}
 	// What you send keeps some of the view free under it, so the answer fills that without moving anything, and what came before stays in sight
 	createEffect(
 		() => messages().at(-1)?.sending,
 		(mine) => {
 			if (!mine || !list) return
-			stuck = true
-			glide = true
-			reserve = null
-			sent = [...list.querySelectorAll(':scope > li.mine')].at(-1) ?? null
-			bottom()
+			padded = false
+			const row = [...list.querySelectorAll(':scope > li.mine')].at(-1) ?? null
+			answerRoom = row ? { sent: row, reserve: null } : null
+			startGlide()
 		},
 	)
 	/** Following the bottom watches the list's real size: a row added or growing, an image loading, the list itself resized */
 	const follow = (list) => {
-		unfollow.set(list, () => (stuck = false))
+		unfollow.set(list, () => {
+			answerRoom = null
+			setScrollMode({ kind: 'detached' })
+		})
 		const fill = () => {
-			if (sent === null) return
+			if (!answerRoom) return
 			// Your message comes back from the server as a new row
-			if (!sent.isConnected) sent = [...list.querySelectorAll(':scope > li.mine')].at(-1) ?? null
-			if (sent === null) return void (room.style.height = '0px')
+			if (!answerRoom.sent.isConnected)
+				answerRoom.sent = [...list.querySelectorAll(':scope > li.mine')].at(-1) ?? null
+			if (!answerRoom.sent) {
+				answerRoom = null
+				return void (room.style.height = '0px')
+			}
 			const style = getComputedStyle(list)
 			const top = Number.parseFloat(style.paddingTop)
 			const seen = list.clientHeight - top - Number.parseFloat(style.paddingBottom)
@@ -584,28 +597,29 @@ export function Thread(props) {
 				element.getBoundingClientRect()[edge] - list.getBoundingClientRect().top + list.scrollTop
 			const end = offset(room, 'top')
 			// Measured from the room by layout, so your message sliding in doesn't move what it's measured against
-			const mine = end - (room.offsetTop - sent.offsetTop - sent.offsetHeight)
+			const mine = end - (room.offsetTop - answerRoom.sent.offsetTop - answerRoom.sent.offsetHeight)
 			// Space already left under your message, from an answer shorter than its room, is enough when it's a good part of the
 			// view; otherwise enough that your message rises to the top with the answer's page under it
-			if (reserve === null) {
+			if (answerRoom.reserve === null) {
 				// Less what your message itself took, so the room gives that back and nothing moves
-				const left = end + room.offsetHeight - mine - Math.max(0, list.scrollHeight - followed)
-				reserve =
-					left >= 0.4 * seen ? left : Math.max(0.4 * seen, seen - sent.offsetHeight - 2 * top)
+				const growth = Math.max(0, list.scrollHeight - (followed ?? list.scrollHeight))
+				const left = end + room.offsetHeight - mine - growth
+				answerRoom.reserve =
+					left >= 0.4 * seen
+						? left
+						: Math.max(0.4 * seen, seen - answerRoom.sent.offsetHeight - 2 * top)
 			}
-			const under = reserve
+			const under = answerRoom.reserve
 			// A short thread already has the room, below the view's own end
 			const short = mine + under <= top + seen
 			const free = short ? 0 : Math.max(0, mine + under - end)
 			room.style.height = `${free}px`
 			if (free) return
 			// The answer outgrew the room: the view stays where it is, and following picks up again once you scroll to the end
-			if (!short) stuck = false
-			sent = null
+			answerRoom = null
+			if (!short) setScrollMode({ kind: 'detached' })
 		}
 		/** The line you tap holds still: what opens grows downward, and what closes near the end leaves room under it until something new comes */
-		let held = null,
-			padded = false
 		list.addEventListener(
 			'click',
 			(event) => {
@@ -613,11 +627,13 @@ export function Thread(props) {
 				if (!summary || !list.contains(summary)) return
 				const details = summary.parentElement
 				const was = details.open
-				const hold = (held = { summary, top: summary.getBoundingClientRect().top })
+				const next = { kind: 'holding', summary, top: summary.getBoundingClientRect().top }
+				setScrollMode(next)
 				const release = () =>
 					requestAnimationFrame(() =>
 						requestAnimationFrame(() => {
-							if (held === hold) held = null
+							if (scrollMode === next)
+								setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
 						}),
 					)
 				// A line fills in once it hears its own toggle, so the hold lasts until that has been laid out
@@ -633,55 +649,82 @@ export function Thread(props) {
 			true,
 		)
 		const keep = () => {
-			const shift = held.summary.getBoundingClientRect().top - held.top
+			if (!scrollMode.summary.isConnected)
+				return setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+			const shift = scrollMode.summary.getBoundingClientRect().top - scrollMode.top
 			const short = list.scrollTop + shift + list.clientHeight - list.scrollHeight
 			if (short > 0) {
 				room.style.height = `${room.offsetHeight + short}px`
 				padded = true
 			}
 			if (shift) list.scrollTop += shift
-			// Opening a line is the reader's move: following goes on only if the view still ends at the bottom
-			stuck = list.scrollTop + list.clientHeight >= list.scrollHeight - 4
 			followed = list.scrollHeight
 		}
 		/**
 		 * The first row in view before an earlier page goes on top, and where its end sat; it stays there until that page is
 		 * laid out. Its end, since its author's name goes once the row above it is theirs too.
 		 */
-		let kept = null
 		hold = () => {
 			const edge = list.getBoundingClientRect().top
 			const row = [...list.children].find((row) => row.getBoundingClientRect().bottom > edge)
 			if (!row) return
-			kept = { row, bottom: row.getBoundingClientRect().bottom }
-			requestAnimationFrame(() => requestAnimationFrame(() => (kept = null)))
+			const next = { kind: 'anchoring', row, bottom: row.getBoundingClientRect().bottom }
+			setScrollMode(next)
+			requestAnimationFrame(() =>
+				requestAnimationFrame(() => {
+					if (scrollMode === next) setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+				}),
+			)
+		}
+		startGlide = () => {
+			setScrollMode({ kind: 'following' })
+			fill()
+			if (scrollMode.kind !== 'following') {
+				followed = list.scrollHeight
+				return
+			}
+			const target = list.scrollHeight
+			const distance = target - list.clientHeight - list.scrollTop
+			if (distance > 1 && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+				const done = () => {
+					if (scrollMode.kind !== 'gliding' || scrollMode.done !== done) return
+					const landedNearTarget = list.scrollTop + list.clientHeight >= target - 4
+					const grown = list.scrollHeight > target
+					if (landedNearTarget && grown) list.scrollTop = list.scrollHeight
+					setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+					followed = list.scrollHeight
+				}
+				const timer = setTimeout(done, 1000)
+				list.addEventListener('scrollend', done, { once: true })
+				setScrollMode({
+					kind: 'gliding',
+					done,
+					cancel: () => {
+						clearTimeout(timer)
+						list.removeEventListener('scrollend', done)
+					},
+				})
+				list.scrollTo({ top: target, behavior: 'smooth' })
+			} else {
+				list.scrollTop = target
+			}
+			followed = list.scrollHeight
 		}
 		bottom = () => {
-			if (kept) {
-				list.scrollTop += kept.row.getBoundingClientRect().bottom - kept.bottom
-				followed = list.scrollHeight
-				return nearTop()
+			if (scrollMode.kind === 'anchoring') {
+				if (!scrollMode.row.isConnected) {
+					setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+				} else {
+					list.scrollTop += scrollMode.row.getBoundingClientRect().bottom - scrollMode.bottom
+					followed = list.scrollHeight
+					return nearTop()
+				}
 			}
-			if (held) return keep()
-			if (padded && sent === null) room.style.height = '0px'
+			if (scrollMode.kind === 'holding') return keep()
+			if (padded && !answerRoom) room.style.height = '0px'
 			padded = false
 			fill()
-			if (stuck && glide) {
-				glide = false
-				const distance = list.scrollHeight - list.clientHeight - list.scrollTop
-				if (distance > 1 && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-					gliding = true
-					const done = () => {
-						if (!gliding) return
-						gliding = false
-						stuck = list.scrollTop + list.clientHeight >= list.scrollHeight - 4
-						followed = list.scrollHeight
-					}
-					list.addEventListener('scrollend', done, { once: true })
-					setTimeout(done, 1000)
-					list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' })
-				} else list.scrollTop = list.scrollHeight
-			} else if (stuck && !gliding) list.scrollTop = list.scrollHeight
+			if (scrollMode.kind === 'following') list.scrollTop = list.scrollHeight
 			followed = list.scrollHeight
 			nearTop()
 		}
@@ -766,8 +809,11 @@ export function Thread(props) {
 					}}
 					onScroll=${() => {
 						// Only a scroll at the height we last followed is the reader's; one from content moving under them keeps following
-						if (list.scrollHeight === followed && !gliding)
-							stuck = list.scrollTop + list.clientHeight >= list.scrollHeight - 4
+						if (
+							list.scrollHeight === followed &&
+							(scrollMode.kind === 'following' || scrollMode.kind === 'detached')
+						)
+							setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
 						nearTop()
 					}}
 					aria-label="Messages"
