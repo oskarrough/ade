@@ -3314,8 +3314,14 @@ if (webhook) {
 				const id =
 					req.method === 'POST' && /^\/hooks\/(\d{1,15})$/.exec(String(req.url).split('?')[0])?.[1]
 				if (!id) throw Object.assign(new Error('Not found'), { status: 404 })
-				if (Number(req.headers['content-length'] ?? 0) > HOOK.bytes)
+				if (Number(req.headers['content-length'] ?? 0) > HOOK.bytes) {
+					// Drain what the sender is still writing before refusing, so its request doesn't see the
+					// connection close mid-upload (a write past a closed socket is a broken pipe, not a 413)
+					for await (const _ of req) {
+						/* discard */
+					}
 					throw Object.assign(new Error('Request too large'), { status: 413 })
+				}
 				send(res, 200, await webhook(Number(id), { headers: req.headers, body }))
 			} catch (error) {
 				refuse(res, error.status ?? 400, error.message)

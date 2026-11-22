@@ -41,7 +41,7 @@ Each step is one command: `node cli.js post --to bot1 --to bot2 "hi"` starts a t
 ## In the browser: agent-browser
 
 - `agent-browser --session <yours> open <url>` opens straight on the chat app. `--headers` doesn't reach the app on `open`; run `set headers` first, for example to come in with a `Tailscale-User-Login` through the Serve port. Add `story` to its query (`/?story`) for the walkthrough instead.
-- `fill textarea "<text>"`, `press Enter`. `fill` sets text without key events, so anything that reacts to typing, like the @mention list, needs `keyboard type`; pick an option with `find role option click --name <bot>`, or `tap @ref` from `snapshot` at phone width.
+- `fill textarea "<text>"`, `press Enter`. `fill` sets text without key events, so anything that reacts to typing, like the @mention list, needs `keyboard type`; pick an option with `click` on its CSS selector, or `tap @ref` from `snapshot` at phone width.
 - Read back with `node cli.js wait N`, `snapshot` (the model button's name says whom the message asks), or one `eval` of `document.querySelector('.thread').innerText`; a run's steps show once you click `li.turn:last-of-type summary`.
 - Give agent-browser absolute paths, since it saves relative to its own folder, and read a screenshot only after the command that made it has returned, since calls sent together run at once.
 - agent-browser never reports a mouse, so hover rules inside `@media (hover: hover)` show only on a real one; check those in the CSS and say so.
