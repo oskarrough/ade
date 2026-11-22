@@ -23,6 +23,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
                                     work (a view's `busy`, CLI waits, wake); listsOf hears its last one end, which calls
                                     modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`; every stored entry,
                                     modules' `entryStored(entry)`
+  core.conversations                every conversation's record, threads and the agents' they own
   core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
   core.signal                       a signal to a sleeping task (wake's Ended)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
@@ -132,6 +133,10 @@ modules/
                          `entryStored` hook, each entry once Pi stores it: a message once, out again when withdrawn), search
                          (matchOf: words quoted, the last a prefix; best first, snippets), serve (GET /api/search?q=), the `search` tool;
                          off by default
+  usage.js               tokens and list-price cost from each agent's stored turns (pi.assistant usage), in an in-memory SQLite table
+                         read once on the first request (build, a fork's own entries only), then kept by entryStored; billed where a
+                         runner meters the provider (core.known's metered/free) or the provider reported it; serve: house (total,
+                         models, threads) and thread (a row per agent and model); off by default
   pi-sessions.js         conversations as pi session files: server follows each agent's conversation (push, sync, changed) and sends
                          new entries; writePiSession, the runner's `pi-session` op (remote.js serveRunner), maps them to pi's entries.
                          The other way: bring (what pi hands its model from a session, into a new thread: newAgent, setUp, post), serve
@@ -202,6 +207,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   search.js              SearchField, the sidebar's field (results as you type, Escape closes); Search, its results in the threads' place
                          (server.js searchFor/openSearch; system.js), inbox rows with the match in <mark>; showMessage opens a thread
                          on an entry id (`data-entry`), loading earlier pages if needed, and thread.js `reveal` lights it, as recap links do
+  usage.js               UsageList, the house's usage in a popover from the list's foot (total, models, threads that cost most);
+                         ThreadUsage, a thread's in its details (thread-details.js); Range, today/7/30 days/all
   inbox.js               Inbox, in the threads' place while open (server.js inboxOpen/openInbox; system.js): a `.thread.inbox` column whose
                          rows (Question) hold the thread link, who asked and when, the recap's newest open line (RecapLine, recap.js topicsOf),
                          the question (thread.js Body) and composer.js `Composer` with `inbox`, which sends without opening the thread; Dismiss

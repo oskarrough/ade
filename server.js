@@ -788,12 +788,12 @@ const conversation = async (id) => {
 	return found
 }
 
+/** Every conversation, newest first: threads, and the agents' they own (`owner`) */
+const conversations = () =>
+	collect((cursor) => commit((tx) => tx.scanConversations({ order: 'descending' }, 500, cursor)))
+
 const threadIds = async () =>
-	(
-		await collect((cursor) =>
-			commit((tx) => tx.scanConversations({ order: 'descending' }, 500, cursor)),
-		)
-	)
+	(await conversations())
 		.filter((conversation) => !conversation.owner)
 		.map((conversation) => conversation.id)
 
@@ -2047,6 +2047,7 @@ const core = {
 	setUp,
 	setTitleIn,
 	threadIds,
+	conversations,
 	renameIn,
 	/** `within` is a caller's own context, such as a hook's, so its cancellation ends the wait */
 	waitForTask: (id, within = context) => harness.waitForTask(id, within),
