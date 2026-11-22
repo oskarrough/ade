@@ -32,7 +32,9 @@ Agents start in the folder you run it from. Add shortcuts with `--dir ~/sites --
 
 To let agents work on another machine, click "Add runner" (or run `npx github:oskarrough/ade key laptop`) for the command to run there; keep it private, it holds a key.
 
-On the server's own machine, `ade runner` in a folder lends that folder too, as a runner named after it; it makes its own key.
+On the server's own machine, `ade runner` in a folder lends that folder too, as a runner named after it; it makes its own key. A name that already holds a key belongs to another runner, offline or not: `ade runner` asks for its own name, and takes that one over only when you name it with `--name`. A new key for a runner that has one, from Add runner or `ade key`, says it replaces it.
+
+Nothing moves to another runner on its own. When work waits for a runner that's offline, a thread's agent, a bot asked there, or a scheduled task that starts a new thread on it, it says so: "vps is offline. Run on", with a button for each online runner that has its model. Pressing one moves it there, as picking that runner in the model picker would: same model and thinking, its folder starting over in that runner's, and a turn held up by the runner it leaves goes on there. For a bot, the bot moves, so asking it anywhere asks it there; for a scheduled task, its runs start there from now on. The model picker lists offline runners greyed out, and says when a pick on another runner starts the folder over.
 
 An agent works on its own runner, but can run a command on any runner that accepts its commands: `runners` lists the house's runners, and `bash` takes a `runner` to run it there, in that runner's folder. Its conversation stays put; a command whose runner drops mid-call reports it may have run.
 

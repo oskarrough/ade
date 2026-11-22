@@ -37,6 +37,7 @@ import { PlainStep } from './run.js'
 import { ahead } from './time.js'
 import { report } from './notice.js'
 import { showMessage } from './search.js'
+import { runnersWith } from './runner.js'
 
 /** What a task can run `on`, as the server's hooks.js says it */
 const EVENTS = {
@@ -150,6 +151,38 @@ const whenWas = (at) => {
 	return date.toDateString() === new Date().toDateString()
 		? clock
 		: `${date.toLocaleDateString('en-GB', { weekday: 'short' })} ${clock}`
+}
+
+/**
+ * A task that starts a new thread on a runner that's offline: a button for every online runner that has its model,
+ * which its runs ask from now on
+ */
+function OfflineRunner(props) {
+	const to = () => props.task.to
+	const offline = () => to() && !runners.find((runner) => runner.name === to().runner)?.online
+	return html`
+		<${Show} when=${offline}>
+			<small>
+				${() =>
+					`${to().runner} is offline.${runnersWith(to().model).length ? ' Run on' : ' No runner online has its model.'}`}
+				<${For} each=${() => runnersWith(to().model)}
+					>${(runner) => html`
+						<button
+							type="button"
+							class="ghost small"
+							title=${() => `Its runs start on ${runner.name} from now on, in ${runner.dir}`}
+							onClick=${(event) => {
+								event.stopPropagation()
+								api('/api/schedule', { move: props.task.id, runner: runner.name }).catch(report)
+							}}
+						>
+							${() => runner.name}
+						</button>
+					`}<//
+				>
+			</small>
+		<//>
+	`
 }
 
 /** Its last run: when, opening the message it posted; or that it was skipped, and why */
@@ -367,6 +400,7 @@ export function ScheduledTaskList() {
 															: `Next ${whenOf(task())}`}</small
 												>
 												<${LastRun} task=${() => task()} onOpen=${() => panel.hidePopover()} />
+												<${OfflineRunner} task=${() => task()} />
 												<small class="said"
 													>${() => `${shortLabel(task().by)}: ${task().instructions}`}</small
 												>

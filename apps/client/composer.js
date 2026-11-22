@@ -47,6 +47,7 @@ import { Compaction, Memory } from './agent-memory.js'
 import { Panes } from './panes.js'
 import { Notice, report } from './notice.js'
 import { ScheduledTasks } from './schedule.js'
+import { Stranded } from './runner.js'
 import { imageContent, imageUrl } from './images.js'
 
 export function Composer(props) {
@@ -330,6 +331,9 @@ export function Composer(props) {
 				add(files)
 			}}
 		>
+			<${Show} when=${() => props.thread} keyed>
+				${(thread) => html`<${Stranded} thread=${thread} />`}
+			<//>
 			<${Show} when=${() => server().modules?.includes('schedule') && props.thread} keyed>
 				${(thread) => html`<${ScheduledTasks} thread=${thread} />`}
 			<//>
@@ -624,6 +628,7 @@ export function Composer(props) {
 				<${ModelPicker}
 					getTo=${(runner) => toFor(runner, props.thread)}
 					selectedRunner=${() => agent(props.thread)?.runner}
+					fromRunner=${() => here(props.thread).find((one) => one.to && !one.to.name)?.to.runner}
 					onChoose=${(to) => {
 						choose(to, true, props.thread)
 						picker.hidePopover()

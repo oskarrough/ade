@@ -1,4 +1,4 @@
-/** A thread has one agent: ask it as another model, thinking, runner or folder and it switches in place, as in pi, keeping its conversation, and is told when it moves */
+/** A thread has one agent: ask it as another model, thinking, runner or folder and it switches in place, as in pi, keeping its conversation, and is told when it moves; one waiting for an offline runner moves with one request, its turn going on there */
 import { createModels } from '@earendil-works/pi-ai/models'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { mkdirSync } from 'node:fs'
@@ -15,12 +15,14 @@ import {
 	conversationOf,
 	dir,
 	done,
+	executing,
 	localRunner,
 	owner,
 	person,
 	say,
 	scriptedRunner,
 	server,
+	settled,
 	text,
 	view,
 } from './lib.js'
@@ -206,5 +208,31 @@ check(
 		back.answer === `desk in ${dir}`,
 	"another runner without a folder starts at that runner's own",
 	JSON.stringify([back.cwd, back.told, brief(back.v)]),
+)
+
+// A runner going offline mid-turn: the turn waits for it, until the agent moves
+const laptop = await scriptedRunner('lap', (request) =>
+	request.messages.findLast((m) => m.role !== 'system').role === 'toolResult'
+		? say('lap is back')
+		: call('bash', { command: 'sleep 1' }),
+)
+const stranded = await createThread('stranded')
+await postEntry(stranded, 'work', { runner: 'lap', model: 'echo/echo' })
+await executing('lap')
+laptop.close()
+const waiting = await settled(stranded, { blocked: true })
+const agent = waiting.agents[0]
+const movedOn = await api('POST', `/api/threads/${stranded}/move`, {
+	conversation: agent.conversation,
+	runner: 'desk',
+})
+const after = await answered(stranded)
+check(
+	movedOn.status === 201 &&
+		waiting.status === 'blocked' &&
+		after.agents[0].to.runner === 'desk' &&
+		answers(after).at(-1).data.author === 'echo@desk',
+	'an agent waiting for an offline runner moves with one request, and the turn held up there goes on where it moved',
+	JSON.stringify([movedOn.json, waiting.status, brief(after)]),
 )
 done()

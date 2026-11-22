@@ -49,6 +49,7 @@ POST   /api/threads/:id/fork {at, title?}
 POST   /api/threads/:id/title {title}
 POST   /api/threads/:id/tools {tools}  as pi --tools takes them
 POST   /api/threads/:id/pause {paused}  only @mentions and named recipients get an answer while paused
+POST   /api/threads/:id/move {conversation, runner}  moves that agent in place to another runner: its model and thinking there, its folder starting over; what it waits to answer goes with it
 POST   /api/threads/:id/typing {typing}  you're typing (a beat lasts 6 s) or stopped; the director's picks wait for it
 POST   /api/threads/:id/read
 POST   /api/threads/:id/stop
@@ -134,6 +135,7 @@ POST   /api/schedule {cancel}           cancels a task by its id: {cancelled}, o
 POST   /api/schedule {pause, note?} | {resume}  pauses one by its id, with a note why, or resumes it: {paused} or {resumed};
                                           it sleeps that way a moment later
 POST   /api/schedule {run}              runs it once now, outside its schedule: {ran}
+POST   /api/schedule {move, runner}     a task that starts a new thread each run asks that runner from now on, its model there: {moved, runner}
 ```
 
 The same POSTs under `/api/threads/:id/schedule` refuse a task from another thread. `schedule` is `{at}` once, `{at, every}` every so often from its first run, `{repeat, hour, minute, dayOfWeek?, timeZone}` by the clock, `{after}` or `{on}`. `at` is its next run and `from` where the wait for it began, the run before or when a one-off was set; a paused task has neither, and `note` says why. `last` is its last run, `{at, thread, entry}`, the message it posted, or `{at, skipped}`: a timed run that comes due while its last run's thread still works is skipped, Temporal's default overlap, and `skipped` says why, as `vps offline` when that run waits for an offline runner, else `the run before still working`. A run missed while the server was down runs once on start. `agent` is the agent that set it, `bot` the bot whose home it runs in, `to` the model a new thread each run asks.

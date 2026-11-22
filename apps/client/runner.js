@@ -1,7 +1,7 @@
 /** Runners show their agents and choose whom the composer asks. */
 import html from '@solidjs/html'
 import { createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
-import { api, minted, revokeRunner, runners, setMinted, threadRows } from './server.js'
+import { api, minted, revokeRunner, runners, setMinted, threadOf, threadRows } from './server.js'
 import { rowOf, lastToolCall, modelsOf, thinkingWord } from './agent.js'
 import { choose, configure, recipients, toFor } from './composer.js'
 import { placePopover } from './popover.js'
@@ -319,5 +319,72 @@ export function ConnectRunner(props) {
 				<//>
 			<//>
 		</div>
+	`
+}
+
+/** Online runners that have `model`: offering it, or having run it; the scripted echo is on every runner */
+export const runnersWith = (model) =>
+	runners.filter(
+		(runner) =>
+			runner.online &&
+			(model?.startsWith('echo/') ||
+				runner.offers?.includes(model) ||
+				runner.models?.includes(model)),
+	)
+
+/**
+ * Above a thread's composer, each agent waiting for its offline runner, with a button for every online runner that has
+ * its model: pressed, it runs there, as the picker would move it, its folder starting over there. A bot moves itself,
+ * so asking it anywhere asks it there.
+ */
+export function Stranded(props) {
+	const waiting = createMemo(() =>
+		(threadOf(props.thread)?.agents ?? []).filter(
+			(agent) =>
+				agent.status === 'blocked' &&
+				agent.to?.runner &&
+				!runners.find((runner) => runner.name === agent.to.runner)?.online,
+		),
+	)
+	const move = (agent, runner) =>
+		(agent.to.name
+			? api('/api/bots', {
+					name: agent.to.name,
+					to: {
+						runner,
+						model: agent.to.model,
+						...(agent.to.thinkingLevel && { thinkingLevel: agent.to.thinkingLevel }),
+					},
+				})
+			: Promise.resolve()
+		)
+			.then(() =>
+				api(`/api/threads/${props.thread}/move`, { conversation: agent.conversation, runner }),
+			)
+			.catch(report)
+	return html`
+		<${For} each=${waiting}
+			>${(agent) => html`
+				<p class="notice" role="status">
+					<span
+						>${() =>
+							`${agent.to.runner} is offline${agent.to.name ? `, so ${agent.to.name} waits` : ''}.${runnersWith(agent.to.model).length ? ' Run on' : ' No runner online has its model.'}`}</span
+					>
+					<${For} each=${() => runnersWith(agent.to.model)}
+						>${(runner) => html`
+							<button
+								type="button"
+								class="ghost small"
+								title=${() =>
+									`${agent.to.name ? `Moves ${agent.to.name} to ${runner.name}, here and wherever it's asked` : `Moves this thread's agent to ${runner.name}`}; its folder starts over in ${runner.dir}`}
+								onClick=${(_event) => move(agent, runner.name)}
+							>
+								${() => runner.name}
+							</button>
+						`}<//
+					>
+				</p>
+			`}<//
+		>
 	`
 }

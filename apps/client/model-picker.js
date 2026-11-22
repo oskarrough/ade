@@ -41,8 +41,10 @@ export function ModelPicker(props) {
 	const [keyed, setKeyed] = createSignal(-1)
 	const highlighted = () => (keyed() < 0 && search() ? 0 : keyed())
 	const online = () => runners.filter((runner) => runner.online)
+	/** Online runners first; an offline one shows greyed, so you see where a thread waits, and can't be picked */
+	const listed = () => [...online(), ...runners.filter((runner) => !runner.online && runner.dir)]
 	const askedRunner = () =>
-		online().find((runner) => runner.name === props.selectedRunner) ?? online()[0]
+		runners.find((runner) => runner.name === props.selectedRunner && runner.dir) ?? online()[0]
 	const options = () => [...(list?.querySelectorAll('button.model') ?? [])]
 	const clear = () => {
 		input.value = ''
@@ -115,7 +117,7 @@ export function ModelPicker(props) {
 			<ul class="model-list" ref=${(el) => (list = el)}>
 				<${Show} when=${() => !search()}>${() => props.before}<//>
 				<${For}
-					each=${online}
+					each=${listed}
 					fallback=${html`
 						<li class="mute no-runner">
 							No runner is online.
@@ -145,7 +147,7 @@ function PickerRunner(runner, props, search) {
 	const [available, setAvailable] = createSignal([])
 	let asked = false
 	createEffect(
-		() => (search() || all() ? runner.name : null),
+		() => ((search() || all()) && runner.online ? runner.name : null),
 		(name) => {
 			if (!name || asked) return
 			asked = true
@@ -165,6 +167,7 @@ function PickerRunner(runner, props, search) {
 		<button
 			type="button"
 			class="ghost model"
+			disabled=${() => !runner.online}
 			aria-pressed=${() => String(selected() && to().model === model)}
 			onClick=${() => props.onChoose({ ...to(), model })}
 		>
@@ -176,15 +179,16 @@ function PickerRunner(runner, props, search) {
 	`
 	return html`
 		<${Show} when=${() => scopedFound().length || rest().length}>
-			<li class=${() => ({ on: selected() })}>
+			<li class=${() => ({ on: selected(), mute: !runner.online })}>
 				<div class="who">
-					<${Dot} state=${() => (runner.status === 'idle' ? 'on' : runner.status)} /><b
-						>${() => runner.name}</b
-					>
+					<${Dot}
+						state=${() => (!runner.online ? '' : runner.status === 'idle' ? 'on' : runner.status)}
+					/><b>${() => runner.name}</b>
+					<${Show} when=${() => !runner.online}><small>offline</small><//>
 				</div>
 				<div class="models">
 					<${For} each=${scopedFound}>${choice}<//>
-					<${Show} when=${() => !search() && !all()}>
+					<${Show} when=${() => !search() && !all() && runner.online}>
 						<button type="button" class="ghost model" onClick=${() => setAll(true)}>
 							<span>All models</span>
 						</button>
@@ -210,6 +214,12 @@ function PickerFoot(runner, props) {
 				: folder
 	return html`
 		<div class="foot">
+			<${Show} when=${() => props.fromRunner && props.fromRunner !== runner.name}>
+				<p class="mute">
+					${() =>
+						`Moving from ${props.fromRunner} to ${runner.name} starts its folder over in ${runner.dir}, unless you name one below.`}
+				</p>
+			<//>
 			<h3>Thinking</h3>
 			<div class="thinking">
 				<${For} each=${() => THINKING_LEVELS}

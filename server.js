@@ -1774,6 +1774,27 @@ async function postEntry(id, author, input) {
 	return withPick(id, result)
 }
 
+/**
+ * An agent in a thread moved in place to another runner, as asking it there would move it: its model and thinking,
+ * its folder starting over there. What it waits to answer, and a turn held up by the runner it leaves, go with it.
+ */
+async function moveAgent(threadId, input) {
+	const runner = field(input.runner, 'runner')
+	const { agents } = await conversation(threadId).then(() => thread(threadId))
+	const key = Object.keys(agents).find((key) => agents[key].conversation === input.conversation)
+	if (!key)
+		throw Object.assign(new Error(`No agent ${input.conversation} in thread ${threadId}`), {
+			status: 404,
+		})
+	const { dir: _, ...was } = await agentOf(agents[key].conversation, key)
+	const to = /** @type {To} */ (
+		await address({ ...was, runner }, false, undefined, !was.thinkingLevel)
+	)
+	await commit(async (tx) => reconfigure(tx, (await tx.doc(Thread, threadId)).agents[key], to))
+	notify(listOf(threadId))
+	return { conversation: input.conversation, to }
+}
+
 /** A post's answer once the director's pick for its message is in, as one with `to` says whom it asks; a retry too */
 async function withPick(id, result) {
 	if (!result.pick) return result
@@ -2340,6 +2361,7 @@ const routes = /** @type {[string, Function][]} */ ([
 		'POST /api/threads/:id/title': async (req, id) => setTitle(id, await input(req)),
 		'POST /api/threads/:id/tools': async (req, id) => setTools(id, await input(req)),
 		'POST /api/threads/:id/pause': async (req, id) => setPaused(id, await input(req)),
+		'POST /api/threads/:id/move': async (req, id) => moveAgent(id, await input(req)),
 		'POST /api/threads/:id/typing': async (req, id) => {
 			await conversation(id)
 			const { typing: on, seq } = await input(req)

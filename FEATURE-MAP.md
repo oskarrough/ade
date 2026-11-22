@@ -31,6 +31,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
   outcome, tell, restore, faulted   what a finished delivery posts back (a bot's answer asks whom direct says), or a failure says
   reachable                         a message waits for its agent's runner, following the agent if it moves
+  moveAgent, keysOf                 an agent moved in place to another runner (POST /api/threads/:id/move); reconfigure marks the runner it
+                                    left so calls held up there (remote.js `moved`, by model session or conversation) give up and Pi retries
   finishShell                       commit a shell's printed output and terminal outcome together
   gone                              an agent's folder that no longer exists: it doesn't run, the thread says so
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
@@ -205,12 +207,16 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     folderOf, where                                          the folder the next message's agent works in, said on its button
     PickerBot            bots in the picker
   agent.js               agents' labels and live work (doing); client's agentTo, formatAgent, lastToolCall, modelsOf
-  model-picker.js        model search, thinking and folder controls (composer and settings share them); matches;
+  model-picker.js        model search, thinking and folder controls (composer and settings share them); matches; offline runners
+                         greyed after the online ones; the foot says a pick on another runner than the thread's (fromRunner) starts its folder over;
                          metered and Metered, the $ on a model billed per token (the runner's `metered` providers, less its `free` models)
-  runner.js              runner list, a runner's agents, ConnectRunner
+  runner.js              runner list, a runner's agents, ConnectRunner; Stranded, above the composer, each agent waiting for an offline
+                         runner with a button per online runner that has its model (runnersWith), which moves it (POST /api/threads/:id/move,
+                         and for a bot /api/bots first)
   bot.js                 a bot's settings, its threads row, new bot; botThreads shares its own/elsewhere lists
   thread-list.js         the thread list, its family rows (including children and bot homes), and with inbox on, the Inbox toggle
   schedule.js            ScheduledTaskList, every task in the house in a popover from the list's foot (GET/POST /api/schedule),
+                         OfflineRunner on a new-thread task whose runner is offline (POST {move, runner}),
                          fetched again while open on the socket's `schedule` change (server.js scheduleChanged), with New task
                          opening TaskForm over it (Panes detail; Runs in a bot, a thread or a new thread with ModelPicker in its
                          own popover; Repeat; Time on this browser's clock); openTaskForm opens it from a thread's details or Jump;

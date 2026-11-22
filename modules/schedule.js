@@ -223,7 +223,7 @@ const Ended = defineSignal({ name: 'ade.thread-ended', version: 1, schema: obj({
 const Control = defineSignal({
 	name: 'ade.scheduled-task-control',
 	version: 1,
-	schema: obj({ paused: opt(bool()), note: opt(str()), run: opt(bool()) }),
+	schema: obj({ paused: opt(bool()), note: opt(str()), run: opt(bool()), runner: opt(str()) }),
 })
 
 /** What a task sleeps on at `checkpoint`: its next run's time, its next event or Ended, and its next Control key */
@@ -287,7 +287,7 @@ export function server(core) {
 					by: input.by,
 					...(input.conversation === undefined ? {} : { agent: input.by }),
 					...(input.bot === undefined ? {} : { bot: input.bot }),
-					...(input.to === undefined ? {} : { to: input.to }),
+					...(input.to === undefined ? {} : { to: checkpoint.to ?? input.to }),
 				}
 			})
 			.sort(
@@ -350,7 +350,14 @@ export function server(core) {
 		const { checkpoint } = /** @type {any} */ (record.state)
 		if (record.state.status === 'terminal' || record.abortRequested)
 			throw Object.assign(new Error(`Scheduled task ${id} has ended`), { status: 409 })
-		if (word.run || Boolean(checkpoint?.paused) !== word.paused) {
+		if (word.runner) {
+			const to = checkpoint?.to ?? record.input.to
+			if (!to)
+				throw new Error('Only a task that starts a new thread each run runs on a runner of its own')
+			// Its model there, as the picker would move it: refused if that runner doesn't have it
+			await core.address({ ...to, runner: word.runner })
+		}
+		if (word.run || word.runner || Boolean(checkpoint?.paused) !== word.paused) {
 			let sent = await core.signal(id, Control, `control-${checkpoint?.c ?? 0}`, word)
 			// Its key expired as its time came: once that run sleeps again, on the next key
 			for (let tries = 0; sent === 'closed' && tries < 100; tries++) {
@@ -366,16 +373,22 @@ export function server(core) {
 			if (sent !== 'delivered')
 				throw Object.assign(new Error(`Scheduled task ${id} has ended`), { status: 409 })
 		}
-		return word.run ? { ran: id } : word.paused ? { paused: id } : { resumed: id }
+		return word.run
+			? { ran: id }
+			: word.runner
+				? { moved: id, runner: word.runner }
+				: word.paused
+					? { paused: id }
+					: { resumed: id }
 	}
 
 	/**
 	 * Whom a run asks and how, worked out before its commit: the agent that set it, as itself; a bot, in her home; a
 	 * person's message in their thread, as they'd send it; or a new thread's agent
 	 */
-	async function recipients(threadId, input, signal) {
+	async function recipients(threadId, input, signal, to = undefined) {
 		if (input.conversation !== undefined) return {}
-		if (input.to !== undefined) return { to: [await core.address(input.to, false, signal)] }
+		if (input.to !== undefined) return { to: [await core.address(to ?? input.to, false, signal)] }
 		if (input.bot !== undefined) {
 			const name = (await core.homes())[threadId]
 			return name ? { to: [await core.whom(threadId, name, false, signal)] } : null
@@ -456,10 +469,12 @@ export function server(core) {
 				const { schedule } = input
 				/** Posts one run and sleeps on as `next` says, with where it landed as `last`; none left to ask, it ends */
 				const post = async (heard, next) => {
-					const asked = await recipients(threadId, input, rt.signal).catch((error) => {
-						rt.report(error)
-						return null
-					})
+					const asked = await recipients(threadId, input, rt.signal, checkpoint.to).catch(
+						(error) => {
+							rt.report(error)
+							return null
+						},
+					)
 					return rt.commit(async (tx) => {
 						const event =
 							heard && 'value' in heard ? JSON.parse(JSON.stringify(heard.value)) : undefined
@@ -477,6 +492,16 @@ export function server(core) {
 					const moved = { ...checkpoint, c: checkpoint.c + 1 }
 					// Run now posts once and keeps its schedule
 					if (word.run) return post(undefined, (last) => asleep(schedule, { ...moved, last }))
+					// Its runs ask another runner from now on, its model there
+					if (word.runner)
+						return rt.commit(
+							() =>
+								asleep(schedule, {
+									...moved,
+									to: { ...(checkpoint.to ?? input.to), runner: word.runner },
+								}),
+							ctx,
+						)
 					const next = { ...moved, paused: word.paused, note: word.paused ? word.note : undefined }
 					// Resumed, a one-off overdue runs now; a repeating one at its next run from now
 					if (!word.paused && checkpoint.at !== undefined)
@@ -678,11 +703,16 @@ export function server(core) {
 			if (threadId !== undefined) body = { ...body, thread: threadId }
 			return create(body, user)
 		}
-		for (const action of ['cancel', 'pause', 'resume', 'run'])
+		for (const action of ['cancel', 'pause', 'resume', 'run', 'move'])
 			if (body[action] !== undefined) {
 				if (!Number.isInteger(body[action])) throw new Error(`${action} is the task's id`)
 				if (action === 'cancel') return cancel(threadId, body.cancel)
 				if (action === 'run') return control(threadId, body.run, { run: true })
+				if (action === 'move') {
+					if (typeof body.runner !== 'string' || !body.runner)
+						throw new Error('move takes the runner its runs ask from now on')
+					return control(threadId, body.move, { runner: body.runner })
+				}
 				const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : ''
 				return control(threadId, body[action], {
 					paused: action === 'pause',
@@ -690,7 +720,7 @@ export function server(core) {
 				})
 			}
 		throw new Error(
-			'POST cancel, pause, resume or run with a task id, or instructions for a new task',
+			'POST cancel, pause, resume or run with a task id, move with one and a runner, or instructions for a new task',
 		)
 	}
 
