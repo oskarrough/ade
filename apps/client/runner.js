@@ -204,7 +204,7 @@ function RunnerItem(props) {
 		<li>
 			<${Dot} state=${() => dotOf(props.runner)} />
 			<div>
-				<b>${() => props.runner.name}</b>
+				<span>${() => props.runner.name}</span>
 				<small>${() => props.runner.dir ?? 'Never connected yet.'}</small>
 				<${Show} when=${() => props.runner.dir && summary()}>
 					<small class=${() => ({ doing: props.runner.online })}>${summary}</small>

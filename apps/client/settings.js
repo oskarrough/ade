@@ -177,13 +177,13 @@ export function Settings() {
 							<${Show}
 								when=${() => picking() === 'director'}
 								fallback=${html`<p>
-									<b>Memory’s model</b><br />
+									<span>Memory’s model</span><br />
 									Writes and merges memory’s lines. Choose a cheaper model here without changing the
 									thread’s agent.
 								</p>`}
 							>
 								<p>
-									<b>The director’s model</b><br />
+									<span>The director’s model</span><br />
 									Picks who answers a group message that names no one. A small, quick model does it
 									best.
 								</p>
@@ -234,7 +234,7 @@ export function Settings() {
 							}}
 						>
 							<div>
-								<b>Usage</b>
+								<span>Usage</span>
 								<small>Tokens and cost across the house.</small>
 							</div>
 							<${Icon} name="next" />
@@ -261,7 +261,7 @@ export function Settings() {
 										expand(module)
 									}}
 								>
-									<b>${() => module.name}</b>
+									<span>${() => module.name}</span>
 									${
 										// Its own template: the markdown it fills in would throw off the walk to what follows
 										html`<small

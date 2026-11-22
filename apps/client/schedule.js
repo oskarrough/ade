@@ -272,6 +272,76 @@ function Controls(props) {
 	`
 }
 
+/**
+ * A task as a row: where it runs if asked, when next, its last run, its instructions, and its controls on a line of
+ * their own. With `onGo` the row opens where it runs.
+ */
+function TaskRow(props) {
+	return html`
+		<li
+			role=${() => (props.onGo ? 'button' : undefined)}
+			tabindex=${() => (props.onGo ? '0' : undefined)}
+			class=${() => ({ paused: props.task.paused })}
+			title=${() => `${whenOf(props.task)}: ${props.task.instructions}`}
+			onClick=${(event) => props.onGo?.(event)}
+			onKeyDown=${(event) =>
+				event.key === 'Enter' && event.target === event.currentTarget && props.onGo?.(event)}
+		>
+			<${Show} when=${() => props.task.from ?? `none ${props.task.paused}`} keyed
+				>${() => html`<${Ring} task=${() => props.task} />`}<//
+			>
+			<div>
+				<${Show} when=${() => props.place}><span>${() => placeOf(props.task)}</span><//>
+				<small
+					>${() =>
+						props.task.paused
+							? `P${whenOf(props.task).slice(1)}`
+							: `Next ${whenOf(props.task)}`}</small
+				>
+				<${LastRun} task=${() => props.task} onOpen=${() => props.onOpen?.()} />
+				<${OfflineRunner} task=${() => props.task} />
+				<small class="said"
+					>${() => `${shortLabel(props.task.by)}: ${props.task.instructions}`}</small
+				>
+			</div>
+			<div class="controls">
+				<${Controls} task=${() => props.task} path=${() => props.path} />
+			</div>
+		</li>
+	`
+}
+
+/** A thread's tasks as rows in its details, then a + that opens the form for it */
+export function ThreadTasks(props) {
+	const tasks = feedView(() => (props.thread ? `schedule/${props.thread}` : null), {
+		sort: taskSort,
+	})
+	return html`
+		<ul class="rows tasks">
+			<${For} each=${tasks} keyed=${(task) => task.id}
+				>${(task) =>
+					html`<${TaskRow}
+						task=${() => task()}
+						path=${() => `/api/threads/${props.thread}/schedule`}
+					/>`}<//
+			>
+		</ul>
+		<ul class="thread-family">
+			<li class="new">
+				<button
+					type="button"
+					class="row"
+					title="Instructions that arrive here later, once or on a schedule"
+					onClick=${(_event) => openTaskForm(props.thread)}
+				>
+					<span class="plus" aria-hidden="true"><${Icon} name="plus" /></span>
+					<span>New task</span>
+				</button>
+			</li>
+		</ul>
+	`
+}
+
 /** Asked to open the form from somewhere else, as `{thread}`: the list opens on it */
 const [asked, setAsked] = createSignal(null)
 /** Opens the New task form, for `thread` if given, else for the bot last used */
@@ -353,38 +423,14 @@ export function ScheduledTaskList() {
 				<${Show} when=${open}>
 					<ul class="rows">
 						<${For} each=${tasks} keyed=${(task) => task.id}
-							>${(task) => html`
-								<li
-									role="button"
-									tabindex="0"
-									class=${() => ({ paused: task().paused })}
-									title=${() => `${whenOf(task())}: ${task().instructions}`}
-									onClick=${(_e) => go(task())}
-									onKeyDown=${(event) =>
-										event.key === 'Enter' && event.target === event.currentTarget && go(task())}
-								>
-									<${Show} when=${() => task().from ?? `none ${task().paused}`} keyed
-										>${() => html`<${Ring} task=${() => task()} />`}<//
-									>
-									<div>
-										<b>${() => placeOf(task())}</b>
-										<small
-											>${() =>
-												task().paused
-													? `P${whenOf(task()).slice(1)}`
-													: `Next ${whenOf(task())}`}</small
-										>
-										<${LastRun} task=${() => task()} onOpen=${() => panel.hidePopover()} />
-										<${OfflineRunner} task=${() => task()} />
-										<small class="said"
-											>${() => `${shortLabel(task().by)}: ${task().instructions}`}</small
-										>
-									</div>
-									<div class="controls">
-										<${Controls} task=${() => task()} path="/api/schedule" />
-									</div>
-								</li>
-							`}<//
+							>${(task) =>
+								html`<${TaskRow}
+									task=${() => task()}
+									path="/api/schedule"
+									place
+									onGo=${(_e) => go(task())}
+									onOpen=${(_e) => panel.hidePopover()}
+								/>`}<//
 						>
 					</ul>
 					<${Show} when=${() => tasks().length === 0}><p class="mute">Nothing scheduled.</p><//>

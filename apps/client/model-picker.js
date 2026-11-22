@@ -183,7 +183,7 @@ function PickerRunner(runner, props, search) {
 				<div class="who">
 					<${Dot}
 						state=${() => (!runner.online ? '' : runner.status === 'idle' ? 'on' : runner.status)}
-					/><b>${() => runner.name}</b>
+					/><span>${() => runner.name}</span>
 					<${Show} when=${() => !runner.online}><small>offline</small><//>
 				</div>
 				<div class="models">

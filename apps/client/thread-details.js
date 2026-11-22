@@ -6,6 +6,7 @@ import { Panes } from './panes.js'
 import { openSide, PageTabs } from './side.js'
 import {
 	api,
+	archiveThread,
 	colorOf,
 	family,
 	familyOf,
@@ -19,23 +20,34 @@ import {
 	threadOf,
 	titleOf,
 } from './server.js'
-import { shortLabel } from './agent.js'
-import { BotSettings, botThreads } from './bot.js'
+import { formatAgent, shortLabel } from './agent.js'
+import { BotSettings, botThreads, ForgetBot } from './bot.js'
 import { ThreadItem } from './thread-list.js'
 import { Dot, Switch } from './dot.js'
 import { PiSource } from './pi-sessions.js'
 import { ThreadUsage } from './usage.js'
-import { openTaskForm } from './schedule.js'
+import { ThreadTasks } from './schedule.js'
+import { agent, folderOf, openPicker } from './composer.js'
+import { report } from './notice.js'
+import { Sure } from './sure.js'
 
-/** A thread's details as a page of the side column: its title, who's in it, its bot, its family and tools; a bot's threads open over them */
+/** Thread states that come first in a bot's threads: running, waiting, failed, or answered and unread */
+const LIVE = ['working', 'blocked', 'error', 'done']
+
+/**
+ * A thread's details as a page of the side column, the same four parts for a thread and a bot's home: its threads,
+ * its scheduled tasks, then its settings and usage folded away. A bot's settings add the bot's own; its threads open
+ * over the page.
+ */
 export function DetailsPage(props) {
 	const id = () => props.id
 	const here = () => threadOf(id())
+	const bot = () => homeBot(id())
 	// A bot's home is named for it already, so only who else is there; each once, as an ask's line names them
 	const members = () => [
 		...new Map(
 			[...(people[id()] ?? []), ...(here()?.agents ?? []).map((agent) => agent.name)]
-				.filter((name) => name !== homeBot(id())?.name)
+				.filter((name) => name !== bot()?.name)
 				.map((name) => [shortLabel(name), name]),
 		).values(),
 	]
@@ -70,15 +82,12 @@ export function DetailsPage(props) {
 			(member) => member === id() || ancestors.has(member) || descendants.has(member),
 		)
 	}
-	// A bot's threads are a page of their own: a bot with hundreds of them must not push its own settings off the page
+	// A bot's threads are a page of their own: a bot with hundreds of them must not push the rest off the page
 	const [page, setPage] = createSignal(false)
-	const botFamily = () => {
-		const bot = homeBot(id())
-		return bot ? botThreads(bot) : { own: [], elsewhere: [] }
-	}
-	const tools = () =>
-		html`<h2>Tools</h2>
-			<${Tools} thread=${id()} />`
+	const botFamily = createMemo(() => (bot() ? botThreads(bot()) : { own: [], elsewhere: [] }))
+	const botAll = createMemo(() => [...botFamily().own, ...botFamily().elsewhere])
+	const live = createMemo(() => botAll().filter((thread) => LIVE.includes(thread.status)))
+	const scheduling = () => server().modules.includes('schedule')
 	return html`
 		<aside class="side thread-details" aria-label="Thread details">
 			<${Panes}
@@ -106,63 +115,102 @@ export function DetailsPage(props) {
 						</ul>
 					<//>`}
 			>
-				<${Show} when=${id} fallback=${html`<h2>New thread</h2>`}>
-					<${Show}
-						when=${() => !homeBot(id())}
-						fallback=${html`<h2 class="thread-title">${() => titleOf(id())}</h2>`}
-					>
-						<${Title} thread=${id()} />
-					<//>
-				<//>
-				<${Show} when=${() => members().length > 1}>
-					<h2>In this thread</h2>
-					<p id="members">
-						<${For} each=${() => members()}>
-							${(name, index) => [
-								() => (index() ? ', ' : ''),
-								html`<span title=${() => name} style=${() => colorOf(name)}
-									>${() => shortLabel(name)}</span
-								>`,
-							]}
-						<//>
-					</p>
-				<//>
-				<${Show} when=${() => server().modules.includes('pi-sessions') && id()}>
-					<${PiSource} thread=${id()} />
-				<//>
-				<${Show} when=${() => homeBot(id())} keyed
-					>${(bot) =>
-						html`<${BotSettings}
-							bot=${() => bot}
-							onThreads=${(_event) => setPage(true)}
-							tools=${tools()}
-						/>`}<//
+				<${Show}
+					when=${id}
+					fallback=${html`<h2>New thread</h2>
+						<${Tools} />`}
 				>
-				<${Show} when=${() => !homeBot(id())}>
-					<${Show} when=${() => lineage().length > 1}>
-						<ul class="thread-family">
-							<${For} each=${() => lineage().map(threadOf).filter(Boolean)}>
-								${(thread) =>
-									html`<${ThreadItem} thread=${() => thread} depth=${() => depth(thread.id)} />`}
-							<//>
-						</ul>
+					<${Show} when=${() => server().modules.includes('pi-sessions')}>
+						<${PiSource} thread=${id()} />
 					<//>
-					${tools()}
-				<//>
-				<${Show} when=${() => server().modules.includes('usage') && id()}>
-					<${ThreadUsage} thread=${id()} />
-				<//>
-				<${Show} when=${() => server().modules.includes('schedule') && id()}>
-					<div class="hands">
-						<button
-							type="button"
-							class="ghost small"
-							title="Instructions that arrive here later, once or on a schedule"
-							onClick=${(_event) => openTaskForm(id())}
+					<${Show}
+						when=${bot}
+						fallback=${html`<${Show} when=${() => lineage().length > 1}>
+							<h2>Threads</h2>
+							<ul class="thread-family">
+								<${For} each=${() => lineage().map(threadOf).filter(Boolean)}>
+									${(thread) =>
+										html`<${ThreadItem} thread=${() => thread} depth=${() => depth(thread.id)} />`}
+								<//>
+							</ul>
+						<//>`}
+					>
+						<${Show} when=${() => botAll().length}>
+							<h2>Threads</h2>
+							<ul class="thread-family">
+								<${For} each=${live}
+									>${(thread) => html`<${ThreadItem} thread=${() => thread} />`}<//
+								>
+								<li class="new">
+									<button
+										type="button"
+										class="row"
+										aria-label=${() =>
+											`All ${botAll().length} ${botAll().length === 1 ? 'thread' : 'threads'}`}
+										onClick=${(_event) => setPage(true)}
+									>
+										<span class="plus" aria-hidden="true"></span>
+										All threads
+										<small aria-hidden="true">${() => botAll().length}</small>
+									</button>
+								</li>
+							</ul>
+						<//>
+					<//>
+					<${Show} when=${scheduling}>
+						<h2>Scheduled</h2>
+						<${ThreadTasks} thread=${id()} />
+					<//>
+					<details class="fold">
+						<summary><h2>Settings</h2></summary>
+						<${Show} when=${() => !bot()}><${Title} thread=${id()} /><//>
+						<${Show} when=${() => members().length > 1}>
+							<h3>In this thread</h3>
+							<p id="members">
+								<${For} each=${() => members()}>
+									${(name, index) => [
+										() => (index() ? ', ' : ''),
+										html`<span title=${() => name} style=${() => colorOf(name)}
+											>${() => shortLabel(name)}</span
+										>`,
+									]}
+								<//>
+							</p>
+						<//>
+						<${Show}
+							when=${bot}
+							keyed
+							fallback=${html`<h3>Model</h3>
+								<button
+									type="button"
+									class="thread-model"
+									title="Who the next message asks, and how hard it thinks"
+									onClick=${(event) => openPicker(event.currentTarget)}
+								>
+									${() => (agent(id()) ? formatAgent(agent(id())) : 'Pick a model')}
+								</button>`}
+							>${(found) => html`<${BotSettings} bot=${() => found} />`}<//
 						>
-							Schedule a task
-						</button>
-					</div>
+						<h3>Folder</h3>
+						<p class="folder" title="Where its agent works; the model picker moves it">
+							${() => folderOf(id()) ?? 'Its runner’s own'}
+						</p>
+						<h3>Tools</h3>
+						<${Tools} thread=${id()} />
+						<${Show} when=${() => !bot()}>
+							<${Sure}
+								class="archive"
+								title=${() =>
+									here()?.archived ? 'Bring this thread back' : 'Move it out of the list'}
+								onConfirm=${(_event) => archiveThread(id(), !here()?.archived).catch(report)}
+								>${() => (here()?.archived ? 'Unarchive this thread' : 'Archive this thread')}<//
+							>
+						<//>
+						<${Show} when=${bot} keyed>${(found) => html`<${ForgetBot} bot=${() => found} />`}<//>
+					</details>
+					<${Show} when=${() => server().modules.includes('usage')}>
+						<${ThreadUsage} thread=${id()} />
+					<//>
 				<//>
 			<//>
 		</aside>

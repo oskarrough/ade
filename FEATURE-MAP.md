@@ -116,15 +116,15 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   agent.js               agent labels and live work: doing, agentTo, formatAgent, lastToolCall, modelsOf
   model-picker.js        model search, thinking and folder: ModelPicker, matches, fromRunner, metered, Metered
   runner.js              runner list, ConnectRunner; Stranded, runnersWith
-  bot.js                 BotSettings, new bot, botThreads, botMenu
+  bot.js                 BotSettings, ForgetBot, new bot, botThreads, botMenu
   thread-list.js         ThreadList, family rows, Inbox toggle, creatingBot, threadMenu
-  schedule.js            ScheduledTaskList, OfflineRunner, TaskForm, openTaskForm, ScheduledTasks,
-                         Ring, LastRun, Controls, ScheduledTaskSet, ScheduledRun
+  schedule.js            ScheduledTaskList, TaskRow, ThreadTasks, OfflineRunner, TaskForm, openTaskForm,
+                         ScheduledTasks, Ring, LastRun, Controls, ScheduledTaskSet, ScheduledRun
   search.js              SearchField, Search, Result, marked, showMessage
   jump.js                Jump (Cmd-K), openJump, go
   usage.js               Usage, Mix, Days, ThreadUsage
   inbox.js               Inbox, Question, RecapLine, Unread, Dismiss
-  thread-details.js      DetailsPage
+  thread-details.js      DetailsPage: threads, scheduled, then Settings and Usage folded, for a thread and a bot's home
   pi-sessions.js         PiSessionList, PiSource
   canvas.js              Canvas: load, board, fitLabels, reportSeen; CanvasRow, showOnCanvas
   canvas/agent/          canvas_act's action schema from tldraw's agent starter kit

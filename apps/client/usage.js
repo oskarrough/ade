@@ -152,12 +152,10 @@ const ModelRows = (props) => html`
 		>${(row) => html`
 			<li title=${() => `${row.provider}/${row.model}`}>
 				<div>
-					<b>${() => row.model}</b>
-					<small
-						>${() =>
-							[props.agents ? byName(row.agent) : row.provider, calls(row)].join(', ')}</small
+					<span
+						>${() => [row.model, props.agents ? byName(row.agent) : row.provider].join(', ')}</span
 					>
-					<small>${() => `${tokens(row)}, ${cost(row)}`}</small>
+					<small>${() => `${calls(row)}, ${tokens(row)}, ${cost(row)}`}</small>
 				</div>
 			</li>
 		`}<//
@@ -197,7 +195,7 @@ export function Usage() {
 							fallback=${html`<li class="mute">No model calls in this time.</li>`}
 						>
 							<li class="usage-total" title=${LIST_PRICE}>
-								<b>${() => `${cost(found().total)} at list price`}</b>
+								<span>${() => `${cost(found().total)} at list price`}</span>
 								<small
 									>${() =>
 										`${number.format(tokensOf(found().total))} tokens, ${calls(found().total)}, ${found().threadCount} ${found().threadCount === 1 ? 'thread' : 'threads'}`}</small
@@ -235,12 +233,13 @@ export function Usage() {
 													openThread(row.thread)}
 											>
 												<div>
-													<b>${() => (threadOf(row.thread) ? titleOf(row.thread) : row.title)}</b>
+													<span
+														>${() => (threadOf(row.thread) ? titleOf(row.thread) : row.title)}</span
+													>
 													<small
 														>${() =>
-															`${percent(row.cost, found().total.cost)}, ${cost(row)}, ${calls(row)}${row.archived ? ', archived' : ''}`}</small
+															`${percent(row.cost, found().total.cost)}, ${cost(row)}, ${calls(row)}, ${tokens(row)}${row.archived ? ', archived' : ''}`}</small
 													>
-													<small>${() => tokens(row)}</small>
 												</div>
 											</li>
 										`}<//
@@ -254,12 +253,11 @@ export function Usage() {
 										>${(row) => html`
 											<li>
 												<div>
-													<b>${() => byName(row.by)}</b>
+													<span>${() => byName(row.by)}</span>
 													<small
 														>${() =>
-															`${percent(row.cost, found().total.cost)}, ${cost(row)}, ${calls(row)}`}</small
+															`${percent(row.cost, found().total.cost)}, ${cost(row)}, ${calls(row)}, ${tokens(row)}`}</small
 													>
-													<small>${() => tokens(row)}</small>
 												</div>
 											</li>
 										`}<//
@@ -286,35 +284,43 @@ export function ThreadUsage(props) {
 	const usage = feedItem(() =>
 		props.thread ? `usage/${props.thread}?since=${sinceOf(range())}` : null,
 	)
+	const over = () => RANGES.find((one) => one.key === range())?.label.toLowerCase()
 	return html`
-		<h2>Usage</h2>
-		<${Range} range=${range} onPick=${setRange} />
-		<${Show} when=${usage} fallback=${html`<p class="mute">Counting…</p>`}
-			>${(found) => html`
-				<${Show}
-					when=${() => found().total.calls}
-					fallback=${html`<p class="mute">No model calls in this time.</p>`}
-				>
-					<div class="thread-usage" title=${LIST_PRICE}>
-						<p>${() => `${cost(found().total)} at list price`}</p>
-						<small
-							>${() =>
-								found().models.length === 1
-									? `${calls(found().total)}, ${found().models[0].model}`
-									: calls(found().total)}</small
-						>
-						<${Mix} count=${() => found().total} />
-					</div>
-					<ul class="rows usage thread-usage">
-						<${Show} when=${() => found().models.length > 1}>
-							<${ModelRows}
-								models=${() => found().models}
-								agents=${() => new Set(found().models.map((row) => row.agent)).size > 1}
-							/>
-						<//>
-					</ul>
+		<details class="fold">
+			<summary>
+				<h2>Usage</h2>
+				<${Show} when=${() => usage()?.total.calls}>
+					<small>${() => `${dollars(usage().total.cost)} ${over()}`}</small>
 				<//>
-			`}<//
-		>
+			</summary>
+			<${Range} range=${range} onPick=${setRange} />
+			<${Show} when=${usage} fallback=${html`<p class="mute">Counting…</p>`}
+				>${(found) => html`
+					<${Show}
+						when=${() => found().total.calls}
+						fallback=${html`<p class="mute">No model calls in this time.</p>`}
+					>
+						<div class="thread-usage" title=${LIST_PRICE}>
+							<p>${() => `${cost(found().total)} at list price`}</p>
+							<small
+								>${() =>
+									found().models.length === 1
+										? `${calls(found().total)}, ${found().models[0].model}`
+										: calls(found().total)}</small
+							>
+							<${Mix} count=${() => found().total} />
+						</div>
+						<ul class="rows usage thread-usage">
+							<${Show} when=${() => found().models.length > 1}>
+								<${ModelRows}
+									models=${() => found().models}
+									agents=${() => new Set(found().models.map((row) => row.agent)).size > 1}
+								/>
+							<//>
+						</ul>
+					<//>
+				`}<//
+			>
+		</details>
 	`
 }

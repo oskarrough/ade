@@ -629,7 +629,7 @@ export function Composer(props) {
 									onKeyDown=${(event) => event.key === 'Enter' && setLines(true)}
 								>
 									<div>
-										<b>Inspect memory</b>
+										<span>Inspect memory</span>
 										<small>The lines the agent reads instead of its old messages.</small>
 									</div>
 									<${Icon} name="next" />
@@ -991,7 +991,7 @@ const recipientWords = (to, thread) => {
 	return [model, thinkingLevel]
 }
 /** The folder the next message's agent works in: as picked, else where it runs now, else its runner's own */
-const folderOf = (thread) => {
+export const folderOf = (thread) => {
 	// In a group whose last message asked no agent, the thread's own agent still works where it did
 	const to = agent(thread) ?? here(thread).find((agent) => agent.to && !agent.to.name)?.to
 	const runner = to && runners.find((runner) => runner.name === to.runner)

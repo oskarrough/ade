@@ -1,6 +1,6 @@
 /** A bot's name, home, the agent it joins as, and instructions. */
 import html from '@solidjs/html'
-import { createEffect, createMemo, createSignal, For, onSettled, Show, snapshot } from 'solid-js'
+import { createEffect, createSignal, For, onSettled, Show, snapshot } from 'solid-js'
 import {
 	bots,
 	colorOf,
@@ -27,7 +27,7 @@ import { report } from './notice.js'
 import { openTaskForm } from './schedule.js'
 import { openSide } from './side.js'
 import { Sure } from './sure.js'
-import { rename, ThreadItem } from './thread-list.js'
+import { rename } from './thread-list.js'
 
 const botFamily = (bot) => new Set(familyOf(bot.home).map((member) => member.id))
 
@@ -93,11 +93,6 @@ export function BotSettings(props) {
 			if (document.activeElement !== instructionsField) setInstructions(instructions)
 		},
 	)
-	const own = createMemo(() => {
-		const { own, elsewhere } = botThreads(props.bot)
-		return [...own, ...elsewhere]
-	})
-	const count = createMemo(() => own().length)
 	/** A new name keeps everything else; the old one stays in messages already written */
 	const rename = async (field) => {
 		const next = field.value.trim()
@@ -113,10 +108,6 @@ export function BotSettings(props) {
 	const holder = (hue) =>
 		bots.find((bot) => bot.name !== props.bot.name && hueOf(bot.name) === hue)?.name
 	const setColor = (color) => saveBot(props.bot.name, { color }).catch(report)
-	// Of its hundreds, the ones happening now or needing a hand, which its row's dot counts; an unread answer elsewhere doesn't
-	const active = createMemo(() =>
-		own().filter((thread) => ['working', 'blocked', 'error'].includes(thread.status)),
-	)
 	return html`
 		<div class="bot">
 			<h3>Name</h3>
@@ -193,42 +184,27 @@ export function BotSettings(props) {
 						</button>`}<//
 				>
 			</div>
-			${() => props.tools}
-			<${Show} when=${() => count() > 0}>
-				<h3>Threads</h3>
-				<ul class="thread-family">
-					<${For} each=${active}>${(thread) => html`<${ThreadItem} thread=${() => thread} />`}<//>
-					<li class="new">
-						<button
-							type="button"
-							class="row"
-							aria-label=${() => `All ${count()} ${count() === 1 ? 'thread' : 'threads'}`}
-							onClick=${(event) => props.onThreads(event)}
-						>
-							<span class="plus" aria-hidden="true"></span>
-							<span>All threads</span>
-							<small aria-hidden="true">${() => count()}</small>
-						</button>
-					</li>
-				</ul>
-			<//>
-			<${Sure}
-				class="forget"
-				title="Every thread stays; agents of its name stop reading its instructions"
-				ask=${() => `Forget ${props.bot.name}?`}
-				why="Its instructions go; every thread stays."
-				onConfirm=${async (_e) => {
-					try {
-						await forgetBot(props.bot.name)
-					} catch (failure) {
-						report(failure)
-					}
-				}}
-				>Forget this bot<//
-			>
 		</div>
 	`
 }
+
+/** Forget: the bot's instructions go, every thread it was in stays */
+export const ForgetBot = (props) => html`
+	<${Sure}
+		class="forget"
+		title="Every thread stays; agents of its name stop reading its instructions"
+		ask=${() => `Forget ${props.bot.name}?`}
+		why="Its instructions go; every thread stays."
+		onConfirm=${async (_e) => {
+			try {
+				await forgetBot(props.bot.name)
+			} catch (failure) {
+				report(failure)
+			}
+		}}
+		>Forget this bot<//
+	>
+`
 
 export function NewBot(props) {
 	let input

@@ -550,6 +550,7 @@ button[data-danger]:focus-visible:not(:disabled) {
 .popover .rows,
 .recap .rows,
 .director .rows,
+.thread-details .rows,
 .rows.usage {
 	list-style: none;
 	margin: 0;
@@ -564,6 +565,7 @@ button[data-danger]:focus-visible:not(:disabled) {
 	.popover .rows > li,
 	.recap .rows > li,
 	.director .rows > li,
+	.thread-details .rows > li,
 	.rows.usage > li
 ) {
 	display: flex;
@@ -601,7 +603,7 @@ button[data-danger]:focus-visible:not(:disabled) {
 	}
 }
 
-:where(.popover .rows > li, .rows.usage > li) small {
+:where(.popover .rows > li, .thread-details .rows > li, .rows.usage > li) small {
 	display: block;
 	overflow-wrap: anywhere;
 }
