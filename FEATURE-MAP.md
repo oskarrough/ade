@@ -16,7 +16,9 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
                                     `fresh`: a message that takes over its author's pending pick
   Draft, saveDraft, draftIn, tellDraft   what a person is writing in a thread (`{thread}/{person}`), saved as they type under
                                     the key its message posts with; postEntry empties it in the send's commit; a save under a sent
-                                    key does nothing; their pages watching the thread hear it (socket.person, socket.thread); forkThread copies the pick
+                                    key does nothing; their pages watching the thread hear it (socket.person, socket.thread); forkThread copies the pick;
+                                    NEW, the draft for a thread not started yet (/api/draft, every page of theirs hears it), which
+                                    createThread under its key moves into the thread (spentUnder: a create's key, not a post's)
   withdraw, WITHDRAWAL              a message taken back by its author before any agent read it: out of `unseen` and the
                                     agents' inboxes in one commit, a withdrawal entry routed reads as `withdrawn`;
                                     modules' `withdrawn(tx, thread, message)` hook (memory rewrites its line)

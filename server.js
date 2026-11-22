@@ -1785,7 +1785,7 @@ async function postEntry(id, author, input) {
 					{ steer: input.steer === true, direct, unlessPaused: solo },
 				)
 		if (draft && draft.key === input.key) {
-			Object.assign(draft, { text: '', images: [], pick: null })
+			Object.assign(draft, { key: '', text: '', images: [], pick: null })
 			afterCommit(tx, () => tellDraft(id, author, { sent: input.key }))
 		}
 		return result
@@ -1793,14 +1793,18 @@ async function postEntry(id, author, input) {
 	return withPick(id, result)
 }
 
+/** A person's draft in a thread, or `new`, the one for a thread they haven't started yet */
 const draftOf = (id, person) => `${id}/${person}`
+const NEW = 'new'
+/** Where a draft's key is spent: posting its message, or for the new-thread draft, creating the thread */
+const spentUnder = (id, key) => scopedKey(id === NEW ? 'create thread' : `post ${id}`, key)
 /** A draft as its pages take it: null once it holds nothing */
 const shownDraft = ({ key, text, images, pick }) =>
 	text || images.length || pick ? JSON.parse(JSON.stringify({ key, text, images, pick })) : null
 
-/** The asker's draft in a thread */
+/** The asker's draft in a thread, or with `new` the one for their next thread */
 async function draftIn(id, person) {
-	await conversation(id)
+	if (id !== NEW) await conversation(id)
 	const draft = await harness.snapshot(Draft, draftOf(id, person), context)
 	return { draft: draft ? shownDraft(draft) : null }
 }
@@ -1811,10 +1815,10 @@ async function draftIn(id, person) {
  * Their other pages on the thread hear it; `page` names the one that saved, which ignores its own.
  */
 async function saveDraft(id, person, input) {
-	await conversation(id)
+	if (id !== NEW) await conversation(id)
 	if (input.key === undefined)
 		throw new Error('key is required: the key its message will be posted with')
-	const sentKey = scopedKey(`post ${id}`, input.key)
+	const sentKey = spentUnder(id, input.key)
 	if ('text' in input && (typeof input.text !== 'string' || input.text.length > 100000))
 		throw new Error('text is a string of at most 100,000 characters')
 	const changes = {
@@ -1839,11 +1843,11 @@ function pickOf(pick) {
 		throw new Error('pick is an object of at most 10 kB, or null')
 	return pick
 }
-/** Each of the person's pages watching the thread hears their draft change */
+/** Each of the person's pages watching the thread hears their draft change; every page of theirs, their new-thread draft */
 function tellDraft(id, person, message) {
 	const sent = JSON.stringify({ thread: id, ...message })
 	for (const socket of clients)
-		if (socket.person === person && socket.thread === id) socket.send(sent)
+		if (socket.person === person && (id === NEW || socket.thread === id)) socket.send(sent)
 }
 
 /**
@@ -1956,13 +1960,26 @@ async function startThread(tx, title, parent, tools = null) {
 	return id
 }
 
-async function createThread({ title, parent = null, tools = null, key }) {
+/**
+ * A thread created under the key of its creator's new-thread draft takes that draft with it, still under that key, so
+ * posting its message empties it there; the new-thread draft keeps only its pick, for the next one.
+ */
+async function createThread({ title, parent = null, tools = null, key }, person = undefined) {
 	if (parent !== null) await conversation((parent = Number(parent)))
 	title = field(title, 'title')
 	tools = toolList(tools)
-	return once(scopedKey('create thread', key), 'create thread', async (tx) => ({
-		id: await startThread(tx, title, parent, tools),
-	}))
+	return once(scopedKey('create thread', key), 'create thread', async (tx) => {
+		const fresh = key !== undefined && person && (await tx.doc(Draft, draftOf(NEW, person), null))
+		const id = await startThread(tx, title, parent, tools)
+		if (fresh && fresh.key === key) {
+			const { text, images, pick } = JSON.parse(JSON.stringify(fresh))
+			Object.assign(await tx.doc(Draft, draftOf(id, person), null), { key, text, images, pick })
+			// What's left is the pick, under no key yet: the next thread gets its own
+			Object.assign(fresh, { key: '', text: '', images: [] })
+			afterCommit(tx, () => tellDraft(NEW, person, { sent: key }))
+		}
+		return { id }
+	})
 }
 
 /** The walkthrough's example thread, written by its three people as the server names them, since no page can */
@@ -2403,7 +2420,9 @@ const routes = /** @type {[string, Function][]} */ ([
 		'GET /runner/bundle': () => bundle,
 		'GET /api/threads': (req) => threadList(user(req)),
 		'GET /api/threads/archived': (req) => threadList(user(req), true),
-		'POST /api/threads': async (req) => createThread(await input(req)),
+		'POST /api/threads': async (req) => createThread(await input(req), user(req)),
+		'GET /api/draft': (req) => draftIn(NEW, user(req)),
+		'POST /api/draft': async (req) => saveDraft(NEW, user(req), await input(req)),
 		'POST /api/threads/shed': async (req) => exampleShed(await input(req)),
 		'GET /api/threads/:id': (req, id, url) => {
 			const number = (name) =>

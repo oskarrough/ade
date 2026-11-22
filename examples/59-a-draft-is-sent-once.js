@@ -1,5 +1,6 @@
 /** What you're writing lives on the server, per thread and person: it follows you to another device, Send turns it into
- * the message once, and nothing brings it back after: not a reload, a late save or a resend. A fork keeps your pick. */
+ * the message once, and nothing brings it back after: not a reload, a late save or a resend. A fork keeps your pick.
+ * A thread you haven't started has one too, which creating the thread takes along. */
 import WebSocket from 'ws'
 import {
 	answered,
@@ -107,6 +108,45 @@ check(
 	JSON.stringify((await draftOf(fork))?.pick) === JSON.stringify({ agent: other, bots: [] }),
 	'a fork copies your pick',
 	JSON.stringify(await draftOf(fork)),
+)
+
+// A thread not started yet has a draft too, one per person, which every page of theirs hears
+const next = await api('POST', '/api/draft', {
+	key: 'new-1',
+	text: 'start something',
+	pick,
+	page: 'laptop',
+})
+await until(async () =>
+	heard.some((message) => message.thread === 'new' && message.draft?.text === 'start something'),
+)
+check(
+	next.status === 201 && (await api('GET', '/api/draft')).json.draft.text === 'start something',
+	'the draft for a new thread saves and reads back, and your other pages hear it',
+	JSON.stringify(next),
+)
+// Creating the thread under its key takes the draft along, so a reload before the message goes finds it there
+const made = (await api('POST', '/api/threads', { title: 'started', key: 'new-1' })).json.id
+check(
+	(await draftOf(made))?.text === 'start something' &&
+		JSON.stringify((await api('GET', '/api/draft')).json.draft) ===
+			JSON.stringify({ key: '', text: '', images: [], pick }),
+	'creating the thread under its key moves the draft into it; the new-thread draft keeps only its pick',
+	JSON.stringify([await draftOf(made), (await api('GET', '/api/draft')).json]),
+)
+await until(async () =>
+	heard.some((message) => message.thread === 'new' && message.sent === 'new-1'),
+)
+const stale = await api('POST', '/api/draft', { key: 'new-1', text: 'start something' })
+check(
+	stale.json.sent === true && (await api('GET', '/api/draft')).json.draft.text === '',
+	'a late save under that key brings nothing back to the new-thread box',
+	JSON.stringify(stale.json),
+)
+await api('POST', `/api/threads/${made}/entries`, { body: 'start something', to, key: 'new-1' })
+check(
+	(await draftOf(made)) === null,
+	'and its message, sent under the same key, empties it in the thread',
 )
 
 socket.close()

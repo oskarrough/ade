@@ -21,6 +21,8 @@ A message's `key`, 1 to 100 characters, dedupes it within its thread: a repeat w
 
 What you're writing in a thread is a draft on the server, yours alone: `{key, text, images, pick}`, where `pick` is whatever the page chose to ask next (an object, or `null`) and `key` is the key its message will be posted with. `POST /api/threads/:id/draft {key, text?, images?, pick?, page?}` saves it as you type: the fields you send replace the ones kept, so a page sends its text half a second after the typing pauses and its images only when they change. Posting the message with the draft's `key` empties the draft in the same commit, so a reload right after Send, or another device, never finds it again. A save under a key that was already sent changes nothing and answers `{draft: null, sent: true}`, so a save that was on its way when Send went can't bring it back, and posting again under that key returns the first message. Your pages watching the thread hear `{thread, draft, page}` on the socket when you save, with the `page` you sent so the one that saved can skip its own, and `{thread, sent: key}` when a message went under that key. A fork starts you with the pick you had in the thread you forked. `GET /api/threads/:id/draft` answers `{draft}`, `null` once it holds nothing.
 
+A thread you haven't started has a draft too, one per person, at `GET` and `POST /api/draft`, the same way; every page of yours hears it change as `{thread: "new", draft, page}`. Creating a thread with `POST /api/threads {title, key}` under that draft's key takes it along: the new thread holds the draft under the same key, so posting its first message with that key empties it there, and a reload in between finds it waiting in that thread. The new-thread draft keeps only its pick, under no key, and its pages hear `{thread: "new", sent: key}`. A save under a key a thread was already created with does nothing and answers `sent`.
+
 A bot that posts with its `post` tool into a thread it's in, or one it opens for other bots, speaks there as itself: its message carries `posted: true`, which marks it as an agent's, as `answer` does, so it never counts as a person's. Messages from before this have no mark.
 
 A message its author takes back leaves a withdrawal entry (`ade.withdrawal`, `{message}`). Reads leave the message out; the socket sends it again as `{author, createdAt, body: '', withdrawn: true}`, so a page drops it, and an agent's memory keeps its place as "(took back a message)".
@@ -41,7 +43,9 @@ POST   /api/runners {name}             a key, and the commands that connect it: 
 DELETE /api/runners/:name
 GET    /api/runners/:name/available    every model pi is logged in for there; `offers` are its scoped ones
 GET    /api/threads                    each thread's row; its `parent`, or `conversation.parent` for a fork, places it in a family
-POST   /api/threads {title, parent?, tools?, key?}
+POST   /api/threads {title, parent?, tools?, key?}  under your new-thread draft's key, it takes that draft along
+GET    /api/draft                      {draft}: yours for a thread not started yet, or null
+POST   /api/draft {key, text?, images?, pick?, page?}  saves it, as a thread's draft saves
 GET    /api/threads/:id                its row, people and messages; `?last=n` only the newest n, `?after=id` only those after one
 GET    /api/threads/archived
 POST   /api/threads/:id/archive {archived}
