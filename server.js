@@ -809,6 +809,11 @@ const origin = (req) =>
 const sha256 = (text) => createHash('sha256').update(text).digest('hex')
 const say = (label, text) => console.log(`  ${label.padEnd(8)} ${text}`)
 const tilde = (dir) => (dir?.startsWith(os.homedir()) ? `~${dir.slice(os.homedir().length)}` : dir)
+/** A folder as its runner's owner writes it, `~` for their home there */
+const onRunner = (runner, dir) =>
+	runner.home && (dir === runner.home || dir.startsWith(`${runner.home}/`))
+		? `~${dir.slice(runner.home.length)}`
+		: dir
 const loopback = (address) =>
 	/^(127\.|::ffff:127\.)/.test(address) || ['::1', '[::1]', 'localhost'].includes(address)
 
@@ -846,7 +851,10 @@ async function address(to, command = false, signal, useDefaultThinking = true) {
 			...context,
 			abortSignal: signal,
 		})
-		if (found.ok && !found.value) throw new Error(`${clean.dir} doesn't exist on ${name}`)
+		if (found.ok && !found.value)
+			throw new Error(
+				`${clean.name ? `${clean.name}'s folder` : 'The folder'} ${onRunner(runner, cwd)} doesn't exist on ${name}`,
+			)
 	}
 	return clean
 }
@@ -2023,6 +2031,7 @@ const core = {
 	models,
 	runners,
 	known,
+	folder,
 	reach,
 	address,
 	whom,

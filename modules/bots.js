@@ -65,6 +65,8 @@ export function server(core) {
 			throw new Error('color is a hue from 0 to 360, or null for the one it would have')
 		if (to !== undefined) {
 			const { name: _, ...agent } = await core.address(typeof to === 'string' ? agentTo(to) : to)
+			// Kept whole, so it stays the same folder when its runner starts in another
+			if (agent.dir) agent.dir = core.folder((await core.known())[agent.runner], agent)
 			to = agent
 		}
 		return { name, rename, to, instructions, append: append?.trim(), color, projectContext }
