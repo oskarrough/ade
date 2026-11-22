@@ -924,7 +924,12 @@ function describe(row, forks) {
 			threadOf(thread)?.agents?.[0]?.name ??
 			row.ask.args.to ??
 			''
-		return { voice: 'sent', ...farSide(author, thread) }
+		// A post reads as its thread's title, "new thread" first when the post started it
+		return {
+			voice: 'sent',
+			...farSide(author, thread, titleOf(thread)),
+			fresh: row.ask.args.thread === undefined,
+		}
 	}
 	if (row.asked) {
 		const author = row.question.data.author
@@ -1106,6 +1111,8 @@ export function Clamp(props) {
 export function Cross(props) {
 	const sent = () => props.sent ?? props.row.voice === 'sent'
 	const label = () => props.row.otherLabel
+	/** A post's own line: its title in grey, then a turning ring while that thread works on it, a ✓ once it's answered or idle */
+	const post = () => Boolean(props.row.ask)
 	return html`
 		<li class=${() => ['call', sent() ? 'sent' : 'received']}>
 			<details>
@@ -1114,9 +1121,24 @@ export function Cross(props) {
 						props.title ??
 						`${sent() ? 'to' : 'from'} ${props.row.otherAuthor || label()} in thread ${props.row.otherThread}`}
 				>
-					<span class="tool" title=${label} style=${() => colorOf(props.row.otherAuthor)}
-						>${label}</span
+					<${Show}
+						when=${post}
+						fallback=${html`<span
+							class="tool"
+							title=${label}
+							style=${() => colorOf(props.row.otherAuthor)}
+							>${label}</span
+						>`}
 					>
+						<span class="tool post" title=${label}
+							>${() => (props.row.fresh && sent() ? 'new thread ' : '')}${label}<${Show}
+								when=${() => sent()}
+								><${Show}
+									when=${() => !props.row.answer && threadOf(props.row.otherThread)?.status === 'working'}
+									fallback=${html`<span class="mark" aria-label="done">✓</span>`}
+									><span class="mark ring" aria-label="working"></span><//><//
+						></span>
+					<//>
 					<span class="in">${() => (props.data.body ?? '').replace(/\s+/g, ' ')}</span>
 				</summary>
 				<div class="whole">

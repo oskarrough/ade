@@ -691,6 +691,27 @@ agent-memory {
 					}
 				}
 
+				/* A post's line is quiet: its thread's title in grey, then a small grey ring turning while that thread works,
+				   or a ✓ once it's done. */
+				> li:is(.sent, .received) .tool.post {
+					color: var(--mute);
+					font-weight: normal;
+
+					.mark {
+						display: inline-block;
+						margin-left: 0.5ch;
+					}
+
+					.ring {
+						width: 0.6em;
+						height: 0.6em;
+						border: 1.5px solid currentColor;
+						border-right-color: transparent;
+						border-radius: 50%;
+						animation: turn 1.6s linear infinite;
+					}
+				}
+
 				> li.sent > details > summary::before {
 					content: '→';
 				}
@@ -778,11 +799,6 @@ agent-memory {
 			/* A quick snapshot shows nothing; a slow one says so. */
 			&.asking {
 				animation: appear 0s 0.4s both;
-			}
-
-			&.exchange.live > .steps {
-				--blink-low: 0.55;
-				animation: blink 2.4s ease-in-out infinite;
 			}
 
 			summary {
@@ -2286,5 +2302,11 @@ body.resizing {
 		color: inherit;
 		background: color-mix(in srgb, var(--pick) 20%, Canvas);
 		border-radius: 2px;
+	}
+}
+
+@keyframes turn {
+	to {
+		transform: rotate(1turn);
 	}
 }

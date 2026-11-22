@@ -154,7 +154,10 @@ export const tryEcho = (request) => {
 		})
 	if (n === 4 && asked.includes('post') && !/<message from="[^"]*" agent thread=/.test(asked))
 		return call('post', {
-			title: 'side question',
+			// "post to 12" follows up in thread 12 instead of starting one
+			...(asked.match(/post to (\d+)/)
+				? { thread: Number(asked.match(/post to (\d+)/)[1]) }
+				: { title: 'side question' }),
 			body: `${asked.includes('slow') ? 'slow: ' : ''}what did you find?`,
 			// "post ada" asks the bot ada instead
 			to: Object.keys(personas).find((name) => asked.includes(name)) ?? 'echo/try@bot',

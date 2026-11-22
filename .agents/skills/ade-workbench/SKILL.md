@@ -19,7 +19,7 @@ Before backgrounding a server, `cd` into your workspace first; start it and capt
 
 What a message to `echo/try@bot` makes it do:
 
-- `slow` runs a 5-second tool. `post` makes it ask another thread, and `slow` carries over to the thread it asks, so `slow post` gives a live exchange to watch.
+- `slow` runs a 5-second tool. `post` makes it ask another thread, and `slow` carries over to the thread it asks, so `slow post` gives a live exchange to watch. `post to 12` follows up in thread 12 instead of starting a new one.
 - A message of just `fail` makes its run fail, as a model error would.
 - With `MODULES=+inbox`, a message starting `ask <question>` makes it call `ask_person`, but only in a thread with one person in it, since with several people messages arrive wrapped with the sender's name.
 - With `MODULES=+search`, a message starting `search <words>` makes it call `search` and answer with what it found.

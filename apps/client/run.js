@@ -10,7 +10,7 @@ import {
 	onSettled,
 	Show,
 } from 'solid-js'
-import { entries, threadOf, titleOf } from './server.js'
+import { entries, titleOf } from './server.js'
 import { Cross, MessageMarkdown, Name } from './thread.js'
 import { doing, messageText, touched } from './agent.js'
 
@@ -100,12 +100,8 @@ export function Exchange(props) {
 		const end = row().back
 		return start && end && end - start >= 1000 ? seconds(end - start) : ''
 	}
-	const working = () => !row().answer && threadOf(row().otherThread)?.status === 'working'
-
 	return html`
-		<li
-			class=${() => ({ exchange: true, live: working(), handed: litIn(props.thread, row().answer?.id) })}
-		>
+		<li class=${() => ({ exchange: true, handed: litIn(props.thread, row().answer?.id) })}>
 			<ol class="steps">
 				<${Cross} row=${row} data=${() => ({ ...row().ask.args, author: row().agent?.name })} />
 				<${Show} when=${() => row().answer}>
