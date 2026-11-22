@@ -2506,7 +2506,7 @@ body.resizing {
 			min-height: 1px;
 			max-height: calc(100% - var(--text-small-line));
 			border-radius: 2px 2px 0 0;
-			background: var(--pick);
+			background: var(--edge);
 		}
 
 		> small {
