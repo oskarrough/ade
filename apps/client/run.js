@@ -1,9 +1,18 @@
 /** An agent's turns, read from its own conversation: each one line in the thread, opened into every step it took */
 import html from '@solidjs/html'
-import { createEffect, createMemo, createSignal, createStore, For, onSettled, Show } from 'solid-js'
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	createStore,
+	For,
+	onSettled,
+	reconcile,
+	Show,
+} from 'solid-js'
 import { entries, titleOf } from './server.js'
 import { Cross, MessageMarkdown, Name } from './thread.js'
-import { doing, messageText, touched } from './agent.js'
+import { doing, messageText, setDoing, touched } from './agent.js'
 import { Icon } from './icons.js'
 
 /**
@@ -257,18 +266,29 @@ export { conversations }
 const [compactions, setCompactions] = createStore({}, { shallow: true })
 
 /**
- * Takes an agent's entries off the socket: as far back as the thread's messages on each new watch, then each one once,
- * as it's written; `older` ones, for an earlier page of messages, go before
+ * Takes an `agents/<thread>` frame apart: each agent's live work and cut as they come, and its conversation again only
+ * when its entries changed, so a turn streaming its words doesn't rebuild the turns
  */
-export function heard(conversation, entries, { whole, older, cut } = {}) {
-	if (cut !== undefined)
-		setCompactions((all) => {
-			all[conversation] = cut
-		})
-	const shown = entries.filter((entry) => entry.kind !== 'pi.system')
+export function heardAgents(rows, frame, reset) {
+	const thread = Number(/^agents\/(\d+)/.exec(frame.view)?.[1])
+	const touched = new Set((frame.del ?? []).map((key) => Number(key.split('/')[0])))
+	for (const { row } of frame.put ?? []) {
+		if ('live' in row)
+			setDoing((work) => {
+				work[thread] ??= {}
+				work[thread][row.agent] ??= {}
+				reconcile(row.live, 'callId')(work[thread][row.agent])
+			})
+		else if ('cut' in row)
+			setCompactions((all) => {
+				all[row.agent] = row.cut
+			})
+		if (reset || 'id' in row) touched.add(row.agent)
+	}
+	const lists = new Map([...touched].map((agent) => [agent, []]))
+	for (const row of rows.values()) if ('id' in row) lists.get(row.agent)?.push(row)
 	setConversations((all) => {
-		const had = all[conversation]
-		all[conversation] = whole || !had ? shown : older ? [...shown, ...had] : [...had, ...shown]
+		for (const [agent, list] of lists) all[agent] = list.sort((left, right) => left.id - right.id)
 	})
 }
 

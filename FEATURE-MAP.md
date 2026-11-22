@@ -40,7 +40,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   whoSent, answersTo, owner         who sent a request: owner key, Tailscale login, listeners (SERVE_PORT, HOOK_PORT)
   exampleShed                       the walkthrough's example thread (POST /api/threads/shed)
   routes                            every HTTP route
-  watch, rewatch, told, doing, cutOf, earlier, covers   /ws: a browser watching one thread and its agents' work
+  agents/, agentRows, agentRow, liveOf, followLive, cutOf, covers   `agents/<id>` feed view: a thread's agents' turns, cuts and live work
+  activity/, activities             `activity/<id>` feed view: what modules did in a thread lately (core.activity)
   mintKey, revoke, upgrade          runner keys and sockets; a module's `connect` socket
   saveSettings, restartSoon, restart, connectSelf   settings, restart (POST /api/restart), the server's own machine as a runner
   stale                             whether the server's code changed since it started
@@ -86,17 +87,17 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   type declarations for CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
   client.js              root: the chat, or the live system around it
-  server.js              the server as the client sees it: api, write, watch, restart and restarting (reload once it's back), in-memory feed store (`subscribeView` with its `heard`, `feedView`, `feedItem`, `openThreadFeed`, `caughtUp`),
+  server.js              the server as the client sees it: api, write, the one socket, restart and restarting (reload once it's back), in-memory feed store (`subscribeView` with its `heard`, `feedView`, `feedItem`, `caughtUp`),
                          actions (`archiveThread`, `renameThread`, `dismiss`, `forgetBot`, `revokeRunner`), threadOf, familyOf, current, page, openThread, fork, earlier, loadEarlier, sending, me
   thread.js              one thread on screen
-    Thread               `thread/<id>` feed (shaped messages, people, earlier) + `/ws` (`watch`) for turns/live; follow, onScreen, shownFrom, nearTop, hold
+    Thread               `thread/<id>` (shaped messages, people, earlier) and `agents/<id>` (turns, cuts, live work, `?from=` for earlier pages) feeds; follow, onScreen, shownFrom, nearTop, hold
     rows                 server-shaped messages laid out with agent turns, lasting calls, cuts and memory lines
     Asked                in a bot's home, a question another thread asked it (askedHere)
     Message              one message: author, pick, fork link, waiting, Body, Images; `Cross` for one that crossed threads
     Body, threadLink     a message's markdown; thread titles as links
     Images               a message's images and the lightbox
   run.js                 an agent's turns
-    heard, conversations the conversation entries from the socket
+    heardAgents, conversations   each agent's entries, cut and live work from `agents/<id>`
     turnsOf, cutOf       turns, and the newest compaction cut
     timesOf              when deliveries went out and entries were written
     summary              a closed turn's one line
@@ -173,7 +174,7 @@ Where a feature lives:
 
 - Talk between threads: modules/talk.js, server.js append/whom, thread.js `Cross`, run.js `Exchange`.
 - Models: composer.js pick/choose, model-picker.js, server.js whom/reconfigure.
-- Live work: server.js work/doing/watch, agent.js doing, run.js Turn.
+- Live work: server.js work/liveOf/`agents/`, agent.js doing, run.js heardAgents and Turn.
 - Recaps: modules/recap.js, client recap.js, side.js.
 - Canvas: modules/canvas.js, client canvas.js, server.js upgrade, side.js.
 - Memory and compaction: modules/memory.js, server.js compact, agent-memory.js, thread.js rows, run.js cutOf.

@@ -18,7 +18,6 @@ import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
 import {
 	AgentDoc,
-	ConversationTranscript,
 	configure,
 	createRegistry,
 	defineDoc,
@@ -28,6 +27,7 @@ import {
 	defineTool,
 	Harness,
 	InboxDoc,
+	LiveDoc,
 	ProviderDoc,
 } from '@earendil-works/pi-durable'
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
@@ -532,7 +532,6 @@ function printed(
 
 // ── State, Pi harness and snapshots ───────────────────────────────────────
 
-const clients = new Set()
 /** A runner's calls show in no list; one ending may let an outdated runner update */
 const runners = createRunners({ onChange: () => nudge() })
 /** Waits woken by every change; set before Pi resumes tasks that wait */
@@ -1094,23 +1093,6 @@ async function agentsIn(row, busy, all) {
 			}
 		}),
 	)
-}
-
-function doing({ entries, docs }) {
-	const { run, generation, tools = [] } = docs['pi.live'] ?? {}
-	const calls = entries
-		.flatMap((entry) => (entry.model?.[0]?.role === 'assistant' ? entry.model[0].content : []))
-		.filter((block) => block.type === 'toolCall')
-	return {
-		run: Boolean(run),
-		message: generation?.message ?? null,
-		tools: tools.map(({ callId, name, status }) => ({
-			callId,
-			name,
-			status,
-			args: calls.find((call) => call.id === callId)?.arguments,
-		})),
-	}
 }
 
 // ── Thread writes: entries, delivery, outcomes ────────────────────────────
@@ -2535,19 +2517,23 @@ function createFeed() {
 		return state.flushing
 	}
 
+	const evict = (state) => {
+		states.delete(state.cacheKey)
+		state.spec.drop?.(state)
+	}
 	const armEviction = (state) => {
 		clearTimeout(state.evict)
 		state.evict = setTimeout(() => {
-			if (!state.subs.size) states.delete(state.cacheKey)
+			if (!state.subs.size) evict(state)
 		}, IDLE_MS)
 		state.evict.unref()
 		let idle = 0
 		for (const each of states.values()) if (!each.subs.size) idle++
-		for (const [key, each] of states) {
+		for (const each of states.values()) {
 			if (idle <= MAX_IDLE) break
 			if (!each.subs.size && each !== state) {
 				clearTimeout(each.evict)
-				states.delete(key)
+				evict(each)
 				idle--
 			}
 		}
@@ -2629,6 +2615,11 @@ function createFeed() {
 						scheduled: false,
 						flushing: null,
 						evict: null,
+						/** For a spec that hears more than commits: these rows changed */
+						touch: (keys) => {
+							seq++
+							markDirty(state, keys)
+						},
 					}
 					states.set(cacheKey, state)
 				}
@@ -3342,7 +3333,7 @@ printf '\\n'
 exec "$run" "$data/runner-updater.js" "${server}" "$@"
 `
 
-// ── Feed views, and a page watching its thread's agents ───────────────────
+// ── Feed views ────────────────────────────────────────────────────────────
 
 async function runnerList() {
 	const [all, last] = [await work(), await known()]
@@ -3548,15 +3539,6 @@ harness.observeCommits({
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
 const FIRST = 15
 
-/** A browser watches one thread's agents (turns, live work, cuts, drafts), or asks for earlier agent turns */
-const queued = (socket, run) =>
-	(socket.watches = (socket.watches ?? Promise.resolve()).then(run).catch(() => {}))
-const watch = (socket, id) => {
-	socket.thread = id
-	return queued(socket, () => rewatch(socket, id))
-}
-const earlier = (socket, id, all, before) =>
-	queued(socket, () => socket.pages?.id === id && socket.pages.back(all, before))
 /** Where an agent's conversation reaches far enough back for the messages from `from` on: a turn before them */
 const covers = (from) => (entries) =>
 	entries.some(
@@ -3580,103 +3562,152 @@ async function cutOf(handle, agent) {
 		? { id: marker.id, model: marker.model?.map(visible), first: Math.min(...held) }
 		: null
 }
-async function rewatch(socket, id) {
-	const old = socket.watching
-	socket.watching = socket.pages = undefined
-	for (const watch of old ?? []) await watch.stop()
-	const row =
-		typeof id === 'number' &&
-		(await harness.watchDoc(
-			Thread,
-			/** @type {import("@earendil-works/pi-durable").ConversationId} */ (id),
-			context,
-		))
-	if (!row) return
-	const watches = (socket.watching = [row])
-	/** A watch that comes back after the socket moved on is stopped instead */
-	const keep = (watch) =>
-		socket.watching === watches ? (watches.push(watch), true) : (watch.stop(), false)
-	const send = (message) => socket.send(JSON.stringify({ thread: id, ...message }))
-	const handle = await harness.conversation(
-		/** @type {import("@earendil-works/pi-durable").ConversationId} */ (id),
-		context,
-	)
-	/** Each followed agent's way back through its conversation */
-	const pagers = new Map()
-	const initial = await windowOf(handle, { last: FIRST })
-	const oldest = initial.earlier ? (initial.entries[0]?.id ?? 0) : 0
-	socket.pages = {
-		id,
-		/** Loads earlier agent turns up to `before` (or all of them), then signals `done` */
-		back: async (all, before) => {
-			for (const [agent, back] of pagers) {
-				const entries = await back(all ? () => false : covers(before ?? 0))
-				if (entries.length) send({ agent, older: true, entries })
-			}
-			send({ older: true, done: true })
-		},
+/**
+ * What an agent does now, from its `pi.live`: whether it runs, the message it's writing, its tools with their
+ * arguments, and the delivery it answers, its run's newest, a steer's once it steered
+ */
+async function liveOf(handle, { run, generation, tools = [] } = {}) {
+	const recent =
+		run || tools.length
+			? (await handle.entries({ order: 'descending' }, 20, undefined, context)).items
+			: []
+	const calls = recent
+		.flatMap((entry) => (entry.model?.[0]?.role === 'assistant' ? entry.model[0].content : []))
+		.filter((block) => block.type === 'toolCall')
+	const first = run?.first ?? 0
+	const delivery =
+		run &&
+		(recent.find((entry) => entry.kind === DELIVERY && entry.id >= first) ??
+			(await firstIn(
+				(cursor) =>
+					handle.entries({ minEntryId: first, order: 'descending' }, 100, cursor, context),
+				(entry) => entry.kind === DELIVERY,
+			)))
+	return {
+		run: Boolean(run),
+		message: generation?.message ?? null,
+		tools: tools.map(({ callId, name, status }) => ({
+			callId,
+			name,
+			status,
+			args: calls.find((call) => call.id === callId)?.arguments,
+		})),
+		...(delivery && { delivery: { id: delivery.id, held: delivery.data.held } }),
 	}
-	/** By conversation, which stays as an agent switches model or runner */
-	const follow = async (agents) => {
-		for (const { conversation: agent } of Object.values(agents)) {
-			if (followed.has(agent)) continue
-			followed.add(agent)
-			const handle = await harness.conversation(agent, context)
-			const watch = await handle.watch(context, { min: 20 })
-			if (!keep(watch)) return
-			let delivery
-			/** The delivery the agent answers now: its run's newest, a steer's once it steered */
-			const live = async (value) => {
-				const { run } = value.docs['pi.live'] ?? {}
-				const newest = value.entries.findLast((entry) => entry.kind === DELIVERY)
-				if (!run) delivery = undefined
-				else if (newest && newest.id >= (run.first ?? 0)) delivery = newest
-				else if (!delivery || delivery.id < (run.first ?? 0))
-					delivery = await lastDelivery(handle, run.first)
-				const named = delivery ? { delivery: { id: delivery.id, held: delivery.data.held } } : {}
-				return { ...doing(value), ...named }
-			}
-			send({ agent, live: await live(watch.value) })
-			// Its conversation as far back as the messages sent, then each entry as it's written, beside its live work
-			const shown = ({ id, kind, model, data, head }) => ({
-				id,
-				kind,
-				model: model?.map(visible),
-				data,
-				head,
-			})
-			const transcript = await told(
-				handle,
-				watch,
-				async (entries, said) =>
-					send({
-						agent,
-						entries: entries.filter((entry) => entry.kind !== 'pi.system').map(shown),
-						// The cut comes with the first batch and again after each compaction
-						...('earlier' in said || entries.some((entry) => entry.kind === 'pi.compaction')
-							? { cut: await cutOf(handle, agent) }
-							: {}),
-					}),
-				{
-					then: async (value) => send({ agent, live: await live(value) }),
-					enough: covers(oldest),
-					pageSize: 50,
-				},
-			)
-			pagers.set(agent, async (enough) =>
-				(await transcript.back(enough)).entries
-					.filter((entry) => entry.kind !== 'pi.system')
-					.map(shown),
-			)
-		}
+}
+/** An agent's entry as a page shows it, keyed by its agent */
+const agentEntry = (
+	agent,
+	/** @type {import("@earendil-works/pi-durable").EntryRecord} */ { id, kind, model, data, head },
+) => ({
+	key: `${agent}/${id}`,
+	agent,
+	id,
+	kind,
+	model: model?.map(visible),
+	data,
+	head,
+})
+/** One of an agent's rows, by key: `<agent>/live`, `<agent>/cut`, or `<agent>/<entry>`, null if it shows none */
+async function agentRow(key, lives) {
+	const [agent, what] = key.split('/').map(Number)
+	const handle = await harness.conversation(agent, context)
+	if (!handle) return null
+	if (key.endsWith('/live')) return { key, agent, live: await liveOf(handle, lives.get(agent)) }
+	if (key.endsWith('/cut')) return { key, agent, cut: await cutOf(handle, agent) }
+	const [entry] = (
+		await handle.entries({ minEntryId: what, order: 'ascending' }, 1, undefined, context)
+	).items
+	return entry?.id === what && entry.kind !== 'pi.system' ? agentEntry(agent, entry) : null
+}
+/** An agent's live work, its cut, and its conversation newest first, back as far as `enough` says, then oldest first */
+async function agentRows(agent, enough, live) {
+	const handle = await harness.conversation(agent, context)
+	if (!handle) return []
+	const entries = []
+	for (let cursor; ;) {
+		const page = await handle.entries({ order: 'descending' }, 50, cursor, context)
+		entries.push(...page.items)
+		if (enough(entries) || !(cursor = page.next)) break
 	}
-	const followed = new Set()
-	await follow(row.value.agents)
-	row.start(async (call) => {
-		if (call.kind === 'failed') throw call.error
-		await follow(call.value.agents)
+	return [
+		{ key: `${agent}/live`, agent, live: await liveOf(handle, live) },
+		{ key: `${agent}/cut`, agent, cut: await cutOf(handle, agent) },
+		...entries
+			.reverse()
+			.filter((entry) => entry.kind !== 'pi.system')
+			.map((entry) => agentEntry(agent, entry)),
+	]
+}
+/**
+ * An agent's `pi.live` for a view to read, as Pi adopts each change: its streamed progress is stored, and so reaches
+ * commit publications, only about a second later, too late for words coming in
+ */
+async function followLive(state, agent) {
+	if (state.lives.has(agent)) return
+	state.lives.set(agent, {})
+	const watch = await harness.watchDoc(LiveDoc, agent, context)
+	if (!watch) return
+	if (state.dropped) return void watch.stop()
+	state.watches.push(watch)
+	state.lives.set(agent, watch.value)
+	watch.start(async (call) => {
+		if (call.kind !== 'value') return
+		state.lives.set(agent, call.value)
+		state.touch([`${agent}/live`])
 	})
 }
+/**
+ * A thread's agents, by conversation, which stays as an agent switches model or runner: each one's turns as far back
+ * as the thread's newest page, or as message `?from=`, its newest compaction's cut, and what it does now
+ */
+feed.define('agents/', {
+	keyOf: (row) => row.key,
+	all: async (_viewer, param, query, state) => {
+		const id = Number(param)
+		const agents = placed.has(id)
+			? Object.values((await thread(id))?.agents ?? {}).map((agent) => agent.conversation)
+			: []
+		state.agents = new Set(agents)
+		state.lives ??= new Map()
+		state.watches ??= []
+		let from = Number(query.get('from'))
+		if (!query.has('from')) {
+			const { entries, earlier } = await windowOf(await conversation(id), { last: FIRST })
+			from = earlier ? (entries[0]?.id ?? 0) : 0
+		}
+		return (
+			await Promise.all(
+				agents.map(async (agent) => {
+					await followLive(state, agent)
+					return agentRows(agent, covers(from), state.lives.get(agent))
+				}),
+			)
+		).flat()
+	},
+	rows: (keys, _viewer, _param, _query, state) =>
+		Promise.all(keys.map(async (key) => [key, await agentRow(key, state.lives)])),
+	match: (change, param, state) => {
+		if (change.type === 'document' && change.record.kind === 'ade.thread')
+			return (
+				change.conversationId === Number(param) &&
+				Object.values(change.value?.agents ?? {}).some(
+					(agent) => !state.agents.has(agent.conversation),
+				)
+			)
+		if (change.type !== 'entry' || !state.agents.has(change.value.conversationId)) return false
+		const { conversationId: agent, id, kind } = change.value
+		return [
+			`${agent}/${id}`,
+			`${agent}/live`,
+			...(kind === 'pi.compaction' ? [`${agent}/cut`] : []),
+		]
+	},
+	drop: (state) => {
+		state.dropped = true
+		for (const watch of state.watches ?? []) void watch.stop()
+	},
+})
 /**
  * A model message as a page shows it: without the provider's diagnostics and the signatures that let it check its own
  * thinking, which are most of an answer's bytes and nothing a person reads
@@ -3689,62 +3720,6 @@ const visible = (message) => {
 		content: shown.content.map(({ thinkingSignature: _, textSignature: __, ...block }) => block),
 	}
 }
-/**
- * A conversation's entries through Pi's transcript, which keeps them whole: the newest first, back as far as `enough`
- * says, then each new batch once; the first batch says whether more lie `earlier`. `then` hears every update after
- * its batch. `back(enough)` loads further back and answers the entries it added, oldest first.
- */
-async function told(
-	handle,
-	watch,
-	send,
-	{ then, enough = (_) => /** @type {boolean} */ (true), pageSize = 200 } = {},
-) {
-	const transcript = new ConversationTranscript(
-		(query, limit, ctx) => handle.entries(query, limit, undefined, ctx),
-		{ pageSize },
-	)
-	let view,
-		newest = 0,
-		oldest = Infinity,
-		first = true
-	const entries = () => view.items.flatMap((item) => (item.kind === 'entry' ? [item.entry] : []))
-	const more = () => view.items[0]?.kind === 'earlier'
-	const load = async (enough) => {
-		while (more() && !enough(entries())) view = await transcript.loadEarlier(context)
-	}
-	const tell = async (value) => {
-		view = transcript.merge(value)
-		for (let gap; (gap = view.items.find((item) => item.kind === 'gap'));)
-			view = await transcript.fillGap(gap, context)
-		if (first) await load(enough)
-		const fresh = entries().filter((entry) => entry.id > newest)
-		if (!fresh.length && !first) return
-		if (first) oldest = entries()[0]?.id ?? Infinity
-		const said = first ? { earlier: more() } : {}
-		first = false
-		newest = fresh.at(-1)?.id ?? newest
-		await send(fresh, said)
-	}
-	await tell(watch.value)
-	watch.start(async ({ value }) => (await tell(value), await then?.(value)))
-	return {
-		entries,
-		earlier: more,
-		back: async (enough) => {
-			await load(enough)
-			const added = entries().filter((entry) => entry.id < oldest)
-			oldest = entries()[0]?.id ?? oldest
-			return { entries: added, earlier: more() }
-		},
-	}
-}
-/** An agent's newest delivery entry from `first` on, for a run longer than its watch's window */
-const lastDelivery = (handle, first) =>
-	firstIn(
-		(cursor) => handle.entries({ minEntryId: first, order: 'descending' }, 100, cursor, context),
-		(entry) => entry.kind === DELIVERY,
-	)
 
 // ── Runner keys ───────────────────────────────────────────────────────────
 
@@ -3820,9 +3795,7 @@ async function upgrade(req, raw, head, serve = false) {
 			code ? socket.close(code, reason) : socket.terminate(),
 		)
 	const close = () => {
-		clients.delete(socket)
 		feed.disconnect(socket)
-		watch(socket, null)
 		if (connection && runners.disconnect(connection)) {
 			say('runner', `${name} offline`)
 			feed.touch(['runners', 'bots', 'threads', 'archived', 'thread'])
@@ -3848,10 +3821,8 @@ async function upgrade(req, raw, head, serve = false) {
 			if ('sub' in message) feed.subscribe(socket, message.sub, message.after, message.boot)
 			else if ('unsub' in message) feed.unsubscribe(socket, message.unsub)
 			else if ('sync' in message) feed.sync(socket, message.sync, message.seq)
-			else if ('earlier' in message) earlier(socket, message.earlier, message.all, message.before)
-			else if ('watch' in message) watch(socket, message.watch)
 		})
-		return clients.add(socket)
+		return
 	}
 	/** A runner shows its key before it counts, so nobody can take its name */
 	const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]

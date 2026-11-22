@@ -22,16 +22,16 @@ import {
 	until,
 } from './lib.js'
 
-/** What a page watching `thread` hears with `agent`'s first batch: its newest compaction's cut */
+/** What a page with `thread` open first hears of `agent` on `agents/<thread>`: its newest compaction's cut */
 const firstCut = (thread, agent) =>
 	new Promise((resolve) => {
 		const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
-		socket.onopen = () => socket.send(JSON.stringify({ watch: thread }))
+		socket.onopen = () => socket.send(JSON.stringify({ sub: `agents/${thread}` }))
 		socket.onmessage = ({ data }) => {
-			const message = JSON.parse(String(data))
-			if (message.thread !== thread || message.agent !== agent || !message.entries) return
+			const row = JSON.parse(String(data)).put?.find((item) => item.key === `${agent}/cut`)?.row
+			if (!row) return
 			socket.close()
-			resolve(message.cut)
+			resolve(row.cut)
 		}
 	})
 
@@ -128,7 +128,7 @@ async function compaction(
 		cut?.id === compaction.id &&
 			cut.first === Math.min(...kept.data.held) &&
 			text(cut.model[0]).includes('<chat>'),
-		`${runner}: a watching page gets the newest compaction's cut, and where it falls, with the agent's first batch`,
+		`${runner}: a page with the thread open gets the newest compaction's cut, and where it falls`,
 		JSON.stringify(cut && { id: cut.id, first: cut.first }),
 	)
 	const chat = summary.slice(summary.indexOf('<chat>\n') + 7, summary.indexOf('\n</chat>'))

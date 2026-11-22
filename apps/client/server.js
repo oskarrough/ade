@@ -53,23 +53,14 @@ export const api = (path, body, method = body === undefined ? 'GET' : 'POST') =>
 			return json
 		})
 
-/** A socket belongs to its caller; disposing it also cancels a pending reconnect. */
-export function watch(receive, opened = (_socket) => {}, closed = () => {}) {
-	let socket, timer
-	const connect = () => {
-		socket = new WebSocket(`${url.replace(/^http/, 'ws')}/ws`)
-		socket.onopen = () => opened(socket)
-		socket.onmessage = (event) => receive(JSON.parse(event.data))
-		socket.onclose = () => {
-			closed()
-			timer = setTimeout(connect, 1000)
-		}
-	}
-	connect()
-	return () => {
-		clearTimeout(timer)
-		socket.onclose = socket.onmessage = socket.onopen = null
-		socket.close()
+/** The page's one socket, open again a second after it closes */
+function connect(receive, opened, closed) {
+	const socket = new WebSocket(`${url.replace(/^http/, 'ws')}/ws`)
+	socket.onopen = () => opened(socket)
+	socket.onmessage = (event) => receive(JSON.parse(event.data))
+	socket.onclose = () => {
+		closed()
+		setTimeout(() => connect(receive, opened, closed), 1000)
 	}
 }
 
@@ -507,7 +498,7 @@ export const {
 		yield caughtUp('runners', seq, boot)
 	})
 	onSettled(() => {
-		watch(
+		connect(
 			applyFrame,
 			(ws) => {
 				socket = ws
@@ -636,11 +627,6 @@ export function feedView(nameOf, options) {
 		return () => sub.release()
 	})
 	return createMemo(() => active()?.rows() ?? [])
-}
-/** Subscribe to a thread's `thread/<id>` feed (shaped messages, people and earlier flag) */
-export function openThreadFeed(id) {
-	const sub = subscribeView(`thread/${id}`)
-	return () => sub.release()
 }
 /** Subscribe to a single-row dynamic view (`recap/<id>`, `memory/<id>`, `usage/<id>`, `usage`) */
 export function feedItem(nameOf) {

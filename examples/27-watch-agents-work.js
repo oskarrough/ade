@@ -1,4 +1,4 @@
-/** A browser watching a thread hears its messages, its newest page first, earlier pages when it asks, then each as it lands, and what each agent is doing as it changes */
+/** A browser with a thread open hears its messages, its newest page first, earlier pages when it asks, then each as it lands, and what each agent is doing as it changes, all on the one feed */
 import {
 	fauxAssistantMessage,
 	fauxThinking,
@@ -40,7 +40,7 @@ const bot = await scriptedRunner(
 )
 const id = await createThread('live')
 
-/** Every message the socket hears for the thread: `thread/<id>` feed frames for messages, plus `{agent, live}` and `{agent, entries}` from `watch` */
+/** Every frame the socket hears for the thread: `thread/<id>` for messages, `agents/<id>` for its agents' rows, in order */
 function watch(thread) {
 	const heard = []
 	const frames = []
@@ -48,21 +48,24 @@ function watch(thread) {
 	socket.onmessage = ({ data }) => {
 		const m = JSON.parse(data)
 		if (m.view === `thread/${thread}`) frames.push(m)
-		else if (m.thread === thread) heard.push(m)
+		else if (m.view?.startsWith(`agents/${thread}`))
+			heard.push(...(m.put ?? []).map((item) => ({ view: m.view, ...item.row })))
 	}
 	socket.onopen = () => {
 		socket.send(JSON.stringify({ sub: `thread/${thread}` }))
-		socket.send(JSON.stringify({ watch: thread }))
+		socket.send(JSON.stringify({ sub: `agents/${thread}` }))
 	}
 	return {
 		heard,
 		frames,
-		earlier: (all, before) => socket.send(JSON.stringify({ earlier: thread, all, before })),
+		/** Agents' turns as far back as message `from`, all of them from 0 */
+		earlier: (from) => socket.send(JSON.stringify({ sub: `agents/${thread}?from=${from}` })),
 		close: () => socket.close(),
 	}
 }
 // Live work is keyed by the agent's conversation, which stays as it switches model or runner
-const lives = (heard) => heard.filter((m) => m.live).map((m) => m.live)
+const lives = (heard) => heard.filter((row) => row.live).map((row) => row.live)
+const entriesIn = (heard) => heard.filter((row) => 'id' in row)
 const feedEntries = (frames) =>
 	frames.flatMap((frame) =>
 		(frame.put ?? []).filter((item) => typeof item.key === 'number').map((item) => item.row),
@@ -130,10 +133,9 @@ check(
 // Conversation entries arrive once, with thinking and tool output before the run ends.
 const streamed = []
 let working = false
-for (const message of first.heard) {
-	if (message.live) working = message.live.run
-	if (message.agent && message.entries)
-		streamed.push(...message.entries.map((entry) => ({ entry, working })))
+for (const row of first.heard) {
+	if (row.live) working = row.live.run
+	if ('id' in row) streamed.push({ entry: row, working })
 }
 check(
 	streamed.some(
@@ -219,9 +221,9 @@ const pages = [openedEntries]
 for (let more = true; more;) {
 	const oldest = pages[0][0].id
 	const page = (await api('GET', `/api/threads/${id}?before=${oldest}&last=50`)).json
-	const from = restarted.heard.length
-	restarted.earlier(false, page.entries[0]?.id ?? 0)
-	await until(async () => restarted.heard.slice(from).some((m) => m.older && m.done))
+	const from = page.entries[0]?.id ?? 0
+	restarted.earlier(from)
+	await until(async () => restarted.heard.some((row) => row.view === `agents/${id}?from=${from}`))
 	pages.unshift(page.entries)
 	more = Boolean(page.earlier)
 }
@@ -233,10 +235,10 @@ check(
 	'asked for earlier pages, it brings the rest, each message once, until none is left',
 	`${pages.length} pages, ${paged.length} messages`,
 )
-const turns = restarted.heard.filter((m) => m.agent && m.entries).flatMap((m) => m.entries)
+const turns = new Map(entriesIn(restarted.heard).map((entry) => [entry.key, entry]))
 check(
-	turns.filter((entry) => entry.kind === 'ade.delivery').length === 2,
-	"the agent's turns for the earlier messages arrive on earlier requests",
+	[...turns.values()].filter((entry) => entry.kind === 'ade.delivery').length === 2,
+	"the agent's turns for the earlier messages arrive as the view reaches back to them",
 )
 const allBefore = (await api('GET', `/api/threads/${id}?before=${openedEntries[0].id}`)).json
 check(
@@ -247,7 +249,7 @@ check(
 )
 check(
 	now && !now.run && !now.tools.length,
-	'after a restart, watching again says the agent is idle',
+	'after a restart, subscribing again says the agent is idle',
 )
 restarted.close()
 bot.close()

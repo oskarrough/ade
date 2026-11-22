@@ -11,7 +11,6 @@ import {
 	For,
 	getOwner,
 	onSettled,
-	reconcile,
 	runWithOwner,
 	Show,
 	Switch,
@@ -29,7 +28,6 @@ import {
 	entries,
 	familyOf,
 	loadEarlier,
-	openThreadFeed,
 	pagers,
 	prependOlder,
 	fork,
@@ -42,7 +40,8 @@ import {
 	server,
 	threadRows,
 	titleOf,
-	watch,
+	caughtUp,
+	subscribeView,
 	threadOf,
 } from './server.js'
 import { authorLabel, doing, setDoing, shortLabel } from './agent.js'
@@ -53,7 +52,7 @@ import {
 	conversations,
 	cutOf,
 	Exchange,
-	heard,
+	heardAgents,
 	lastingOf,
 	litIn,
 	newestCut,
@@ -482,15 +481,16 @@ export function Thread(props) {
 		() => props.id,
 		(id) => {
 			if (!id) return
-			let socket,
-				asking = null,
-				turnsDone = () => {}
-			/** Agents whose conversation came on this watch; the next batch from each is appended */
-			const heardFrom = new Set()
-			const releaseFeed = openThreadFeed(id)
-			const finishTurns = () => {
-				turnsDone()
-				turnsDone = () => {}
+			let asking = null
+			const messages = subscribeView(`thread/${id}`)
+			let agents = subscribeView(`agents/${id}`, { heard: heardAgents })
+			/** Agents' turns as far back as message `from`: the wider view comes in before the narrower one goes */
+			const reachBack = async (from) => {
+				const name = `agents/${id}?from=${from}`
+				const wider = subscribeView(name, { heard: heardAgents })
+				await caughtUp(name, 0)
+				agents.release()
+				agents = wider
 			}
 			pagers.set(id, (all) => {
 				// Asked for all of it, every row shows, even those already here
@@ -501,12 +501,7 @@ export function Thread(props) {
 				if (oldest === undefined) return Promise.resolve()
 				asking = (async () => {
 					const found = await api(`/api/threads/${id}?before=${oldest}${all ? '' : '&last=50'}`)
-					const nextOldest = all ? 0 : (found.entries[0]?.id ?? 0)
-					if (socket?.readyState === socket.OPEN) {
-						const waitTurns = new Promise((resolve) => (turnsDone = () => resolve(undefined)))
-						socket.send(JSON.stringify({ earlier: id, before: nextOldest, all }))
-						await waitTurns
-					}
+					await reachBack(all ? 0 : (found.entries[0]?.id ?? 0))
 					hold()
 					prependOlder(id, found.entries, all ? false : Boolean(found.earlier))
 				})()
@@ -524,37 +519,10 @@ export function Thread(props) {
 			markRead(id)
 			const onVisible = () => markRead(id)
 			document.addEventListener('visibilitychange', onVisible)
-			const close = watch(
-				(message) => {
-					if (message.thread !== id) return
-					if (message.older && message.done) finishTurns()
-					if (message.agent && message.entries) {
-						heard(message.agent, message.entries, {
-							whole: !message.older && !heardFrom.has(message.agent),
-							older: message.older,
-							cut: message.cut,
-						})
-						if (!message.older) heardFrom.add(message.agent)
-					}
-					if (message.live)
-						setDoing((work) => {
-							work[id] ??= {}
-							work[id][message.agent] ??= {}
-							reconcile(message.live, 'callId')(work[id][message.agent])
-						})
-				},
-				(opened) => {
-					socket = opened
-					heardFrom.clear()
-					finishTurns()
-					socket.send(JSON.stringify({ watch: id }))
-				},
-			)
 			// Its messages stay, so coming back shows them at once while the feed catches up.
 			return () => {
-				releaseFeed()
-				close()
-				finishTurns()
+				messages.release()
+				agents.release()
 				pagers.delete(id)
 				document.removeEventListener('visibilitychange', onVisible)
 				setDoing((work) => {
