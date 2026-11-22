@@ -1784,7 +1784,16 @@ async function windowOf(handle, { after = undefined, before = undefined, last = 
 	}
 }
 
-/** A thread's row and people, with its shaped messages: all of them, those after `after`, before `before`, or the newest `last` */
+/** A thread's row and people, with `raw` messages shaped for `reader`; `seed` is the message before them */
+async function threadPage(id, reader, raw, seed) {
+	const [row, who, entries] = await Promise.all([
+		threadRow(id, reader, await work()),
+		people(id),
+		shapeMessages(id, raw, reader, { seed }),
+	])
+	return { ...row, people: who, entries }
+}
+/** A thread's page with all its messages, those after `after`, before `before`, or the newest `last` */
 async function threadView(id, reader, { after, before, last } = {}) {
 	const handle = await conversation(id)
 	const {
@@ -1794,12 +1803,7 @@ async function threadView(id, reader, { after, before, last } = {}) {
 	} = after === undefined && before === undefined && last === undefined
 		? { entries: (await messages(id)).filter((entry) => !entry.data.withdrawn) }
 		: await windowOf(handle, { after, before, last })
-	return {
-		...(await threadRow(id, reader, await work())),
-		people: await people(id),
-		...(earlier !== undefined && { earlier }),
-		entries: await shapeMessages(id, raw, reader, { seed }),
-	}
+	return { ...(await threadPage(id, reader, raw, seed)), ...(earlier !== undefined && { earlier }) }
 }
 /** A thread's newest messages, read back from its end: those after `after`, before `before`, or the newest `last`, with their picks */
 async function newest(handle, { after = -1, before = undefined, last = Infinity }) {
@@ -2044,7 +2048,7 @@ function pickOf(pick) {
 function tellDraft(id, person, message) {
 	const sent = JSON.stringify({ thread: id, ...message })
 	for (const socket of clients)
-		if (socket.person === person && (id === NEW || socket.thread === id)) socket.send(sent)
+		if (socket.viewer === person && (id === NEW || socket.thread === id)) socket.send(sent)
 }
 
 /**
@@ -2860,7 +2864,7 @@ const core = {
 	 */
 	activity: (threadId, event) => {
 		const sent = JSON.stringify({ thread: threadId, activity: { at: Date.now(), ...event } })
-		for (const socket of clients) if (socket.pages?.id === threadId) socket.send(sent)
+		for (const socket of clients) if (socket.thread === threadId) socket.send(sent)
 	},
 	seenBy,
 	commit,
@@ -3310,7 +3314,7 @@ printf '\\n'
 exec "$run" "$data/runner-updater.js" "${server}" "$@"
 `
 
-// ── WebSocket: notify, watch ──────────────────────────────────────────────
+// ── Feed views, and a page watching its thread's agents ───────────────────
 
 async function runnerList() {
 	const [all, last] = [await work(), await known()]
@@ -3426,14 +3430,10 @@ feed.define('thread/', {
 		} else {
 			shown = (await windowOf(handle, { after: state.minId - 1 })).entries
 		}
-		const [meta, who, shaped] = await Promise.all([
-			threadRow(id, viewer, await work()),
-			people(id),
-			shapeMessages(id, shown, viewer, { seed: state.seed }),
-		])
+		const { entries, ...meta } = await threadPage(id, viewer, shown, state.seed)
 		return [
-			{ key: 'thread', ...meta, people: who, earlier: state.earlier },
-			...shaped.map((entry) => ({ key: entry.id, ...entry })),
+			{ key: 'thread', ...meta, earlier: state.earlier },
+			...entries.map((entry) => ({ key: entry.id, ...entry })),
 		]
 	},
 	match: (change, param) => {
@@ -3799,7 +3799,6 @@ async function upgrade(req, raw, head, serve = false) {
 			else if ('earlier' in message) earlier(socket, message.earlier, message.all, message.before)
 			else if ('watch' in message) watch(socket, message.watch)
 		})
-		socket.person = sender
 		return clients.add(socket)
 	}
 	/** A runner shows its key before it counts, so nobody can take its name */

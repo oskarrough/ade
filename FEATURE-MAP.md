@@ -28,7 +28,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   finishShell                       a shell's output and outcome, committed together
   gone                              an agent whose folder no longer exists
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
-  threadList, threadRow, threadView, people, newest   GET /api/threads and a thread's view
+  threadList, threadRow, threadPage, threadView, people, newest   GET /api/threads and a thread's view, which `thread/<id>` shares
   loadEntries                       the shared entry cache
   recent, older, back, conversationRecord   each thread's newest entries, older ones on demand
   anyRunner, mayRun                 `bash` with a `runner`, and the `runners` tool
