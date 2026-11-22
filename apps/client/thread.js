@@ -765,7 +765,7 @@ export function Thread(props) {
 			}
 			column.style.setProperty(
 				'--thread-top',
-				`${height(column.querySelector(':scope > header')) + height(column.querySelector(':scope > p.from'))}px`,
+				`${height(column.querySelector(':scope > header'))}px`,
 			)
 			column.style.setProperty(
 				'--compose-height',
@@ -817,13 +817,6 @@ export function Thread(props) {
 					</button>
 				<//>
 			</header>
-			<p class="from">
-				<${Show} when=${() => forkedFrom(thread())}
-					>${(id) => html`
-						<${ThreadLink} id=${() => id()}>${() => `← forked from ${titleOf(id())}`}<//>
-					`}<//
-				>
-			</p>
 			<${Show} when=${() => props.id}>
 				<ul
 					ref=${(el) => {

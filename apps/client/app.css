@@ -482,17 +482,6 @@ agent-memory {
 		}
 	}
 
-	> p.from {
-		position: absolute;
-		inset: calc(var(--control) + 2 * var(--space-2)) 0 auto;
-		z-index: 2;
-		background: Canvas;
-
-		&:empty {
-			display: none;
-		}
-	}
-
 	/* The chat: agents write on the page, you write in a soft bubble on the right; who's talking is said once, small. */
 	> ul {
 		flex: 1;
@@ -922,7 +911,6 @@ agent-memory {
 			}
 		}
 	}
-
 
 	.links {
 		font-size: var(--text-small);
@@ -2236,10 +2224,6 @@ body.resizing {
 
 		&::before {
 			display: none;
-		}
-
-		> p.from {
-			top: calc(var(--bar-height) + var(--space-2));
 		}
 
 		/* A phone's narrower gutter, the composer keeping pace. */
