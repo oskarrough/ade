@@ -2424,10 +2424,10 @@ body.resizing {
 
 /* What the tokens were: one bar in four parts, named under it in the same colours. */
 .usage-mix {
-	--cacheRead: var(--pick);
+	--cacheRead: color-mix(in srgb, var(--ok) 45%, Canvas);
 	--cacheWrite: var(--wait);
 	--input: var(--edge);
-	--output: var(--ok);
+	--output: var(--pick);
 
 	> .bar {
 		display: flex;
@@ -2445,9 +2445,14 @@ body.resizing {
 		color: var(--mute);
 		font-size: var(--text-small);
 
+		> span {
+			display: inline-flex;
+			align-items: center;
+		}
+
 		> span::before {
 			content: '';
-			display: inline-block;
+			flex: none;
 			width: 0.5em;
 			height: 0.5em;
 			margin-right: var(--space-1);

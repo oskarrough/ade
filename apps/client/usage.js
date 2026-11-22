@@ -134,7 +134,7 @@ const Days = (props) => {
 				>${(bar) => html`
 					<div
 						title=${() =>
-							`${label(bar.day)}: ${bar.count ? `${cost(bar.count)} · ${tokens(bar.count)} · ${calls(bar.count)}` : 'no calls'}`}
+							`${label(bar.day)}: ${bar.count ? `${cost(bar.count)}, ${tokens(bar.count)}, ${calls(bar.count)}` : 'no calls'}`}
 					>
 						<span style=${() => ({ height: `${(valueOf(bar.count) / top()) * 100}%` })}></span>
 						<small>${new Date(bar.day).getDate()}</small>
@@ -154,9 +154,9 @@ const ModelRows = (props) => html`
 					<b>${() => row.model}</b>
 					<small
 						>${() =>
-							[props.agents ? shortLabel(row.agent) : row.provider, calls(row)].join(' · ')}</small
+							[props.agents ? shortLabel(row.agent) : row.provider, calls(row)].join(', ')}</small
 					>
-					<small>${() => `${tokens(row)} · ${cost(row)}`}</small>
+					<small>${() => `${tokens(row)}, ${cost(row)}`}</small>
 				</div>
 			</li>
 		`}<//
@@ -210,7 +210,7 @@ export function Usage() {
 										<b>${() => `${cost(found.total)} at list price`}</b>
 										<small
 											>${() =>
-												`${number.format(tokensOf(found.total))} tokens · ${calls(found.total)} · ${found.threadCount} ${found.threadCount === 1 ? 'thread' : 'threads'}`}</small
+												`${number.format(tokensOf(found.total))} tokens, ${calls(found.total)}, ${found.threadCount} ${found.threadCount === 1 ? 'thread' : 'threads'}`}</small
 										>
 									</li>
 									<li><${Mix} count=${found.total} /></li>
@@ -250,7 +250,7 @@ export function Usage() {
 															>
 															<small
 																>${() =>
-																	`${percent(row.cost, found.total.cost)} · ${cost(row)} · ${calls(row)}${row.archived ? ' · archived' : ''}`}</small
+																	`${percent(row.cost, found.total.cost)}, ${cost(row)}, ${calls(row)}${row.archived ? ', archived' : ''}`}</small
 															>
 															<small>${() => tokens(row)}</small>
 														</div>
@@ -271,7 +271,7 @@ export function Usage() {
 															>
 															<small
 																>${() =>
-																	`${percent(row.cost, found.total.cost)} · ${cost(row)} · ${calls(row)}`}</small
+																	`${percent(row.cost, found.total.cost)}, ${cost(row)}, ${calls(row)}`}</small
 															>
 															<small>${() => tokens(row)}</small>
 														</div>
@@ -325,11 +325,11 @@ export function ThreadUsage(props) {
 							<ul class="rows usage">
 								<li title=${LIST_PRICE}>
 									<div>
-										<b>${() => `${cost(found.total)} at list price`}</b>
+										<span>${() => `${cost(found.total)} at list price`}</span>
 										<small
 											>${() =>
 												found.models.length === 1
-													? `${calls(found.total)} · ${found.models[0].model}`
+													? `${calls(found.total)}, ${found.models[0].model}`
 													: calls(found.total)}</small
 										>
 										<${Mix} count=${found.total} />
