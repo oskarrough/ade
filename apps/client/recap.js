@@ -13,7 +13,7 @@ import { Dot } from './dot.js'
 import { api, followThread, loadEarlier, threadOf } from './server.js'
 import { inline } from './markdown.js'
 import { busy, Busy } from './busy.js'
-import { links } from './thread.js'
+import { links, reveal } from './thread.js'
 
 /** The last page fetched for each thread, kept outside the component: switching tabs away and back remounts it, and
  * this is what lets it show that page at once instead of a flash of "Reading…". */
@@ -116,9 +116,7 @@ const Page = (props) => html`
 						`.thread[data-thread="${props.thread}"] li[data-message]`,
 					)
 					const row = [...rows].find((row) => row.getAttribute('data-message') === at)
-					row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-					row?.classList.add('handed')
-					setTimeout(() => row?.classList.remove('handed'), 1500)
+					if (row) reveal(row)
 				}),
 			)
 		}}

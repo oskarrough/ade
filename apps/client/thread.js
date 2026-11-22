@@ -605,6 +605,7 @@ export function Thread(props) {
 	)
 	/** Following the bottom watches the list's real size: a row added or growing, an image loading, the list itself resized */
 	const follow = (list) => {
+		unfollow.set(list, () => (stuck = false))
 		const fill = () => {
 			if (sent === null) return
 			// Your message comes back from the server as a new row
@@ -917,6 +918,7 @@ function Message(props) {
 	return html`
 		<li
 			data-message=${() => props.at}
+			data-entry=${() => props.entry.id}
 			class=${() => ({
 				handed: litIn(props.thread, props.entry.id),
 				elsewhere: crossed(),
@@ -1102,6 +1104,17 @@ const botColor = (name) => {
 
 /** What message markdown links: threads by title, bots by name */
 export const links = { threadLink, botColor }
+
+/** Each thread's list → what stops it following its bottom */
+const unfollow = new WeakMap()
+/** Scrolls a message's row into the middle of its thread and lights it a moment, as a recap link or search result does;
+ * the thread stops following its bottom, so rows still landing don't take it away */
+export function reveal(row, behavior = /** @type {ScrollBehavior} */ ('smooth')) {
+	unfollow.get(row.parentElement)?.()
+	row.scrollIntoView({ block: 'center', behavior })
+	row.classList.add('handed')
+	setTimeout(() => row.classList.remove('handed'), 1500)
+}
 
 /** What a message says: markdown, except a `$ cmd` and an error, which stay as written. A thread it mentions opens here. */
 export const Body = (props) => html`

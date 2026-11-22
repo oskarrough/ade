@@ -67,6 +67,10 @@ export const tryEcho = (request) => {
 		return call('ask_person', { body: text(latest).slice(4) })
 	if (latest.role === 'toolResult' && latest.toolName === 'ask_person')
 		return say('Asked; waiting for your answer.')
+	// "search <words>" searches every thread, with search on, and answers what it found
+	if (latest.role === 'user' && text(latest).startsWith('search '))
+		return call('search', { query: text(latest).slice(7) })
+	if (latest.role === 'toolResult' && latest.toolName === 'search') return say(text(latest))
 	// "wake 5m <note>" or "wake every 1m <note>" sets a wake, with wake on
 	const waking =
 		latest.role === 'user' &&

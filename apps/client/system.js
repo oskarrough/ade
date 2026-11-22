@@ -1,8 +1,19 @@
 /** The client, server, threads and runners, with the routes between them. */
 import html from '@solidjs/html'
 import { createMemo, For, onSettled, Show } from 'solid-js'
-import { columns, connected, current, inboxOpen, runners, server, threadOf, url } from './server.js'
+import {
+	columns,
+	connected,
+	current,
+	inboxOpen,
+	runners,
+	searchFor,
+	server,
+	threadOf,
+	url,
+} from './server.js'
 import { Inbox } from './inbox.js'
+import { Search } from './search.js'
 import { rowOf } from './agent.js'
 import { recipients } from './composer.js'
 import { Dot } from './dot.js'
@@ -20,6 +31,7 @@ import { QuoteButton } from './quote.js'
 const SIDE_PAGES = { canvas: Canvas, director: Director, recap: Recap }
 
 export function System() {
+	const searching = () => searchFor() !== null && server().modules.includes('search')
 	const shown = createMemo(() => columns().map(threadOf).filter(Boolean))
 	const agents = createMemo(() =>
 		shown().flatMap((thread) => thread.agents.map((agent) => ({ ...agent, thread: thread.id }))),
@@ -94,8 +106,12 @@ export function System() {
 						<${Show} when=${() => inboxOpen() && server().modules.includes('inbox')}>
 							<${Inbox} />
 						<//>
+						<${Show} when=${searching}>
+							<${Search} />
+						<//>
 						<${For}
-							each=${() => (inboxOpen() && server().modules.includes('inbox') ? [] : columns())}
+							each=${() =>
+								(inboxOpen() && server().modules.includes('inbox')) || searching() ? [] : columns()}
 							>${(id) => html`
 								<${Thread} id=${() => id} />
 								<${Show} when=${() => sideOf(id)}>

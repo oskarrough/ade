@@ -142,14 +142,29 @@ const [inboxOpen, setInboxOpen] = createSignal(params.has('inbox'))
 export { inboxOpen }
 export function openInbox() {
 	setInboxOpen(true)
+	setSearchFor(null)
 	drawer(null)
 	const next = new URL(location.href)
+	next.searchParams.delete('search')
 	next.searchParams.set('inbox', '')
+	history.replaceState(null, '', next)
+}
+
+/** What search results in the threads' place are for, or null while they're closed; opening a thread or the inbox closes them */
+const [searchFor, setSearchFor] = createSignal(params.get('search') || null)
+export { searchFor }
+export function openSearch(text) {
+	setInboxOpen(false)
+	setSearchFor(text)
+	const next = new URL(location.href)
+	next.searchParams.delete('inbox')
+	next.searchParams.set('search', text)
 	history.replaceState(null, '', next)
 }
 
 export function openThread(id) {
 	setInboxOpen(false)
+	setSearchFor(null)
 	setCurrent(id)
 	drawer(null)
 	history.replaceState(null, '', hrefOf(id))
@@ -166,6 +181,7 @@ export function followThread(event, id) {
 export function hrefOf(id) {
 	const next = new URL(location.href)
 	next.searchParams.delete('inbox')
+	next.searchParams.delete('search')
 	if (id) next.searchParams.set('thread', id)
 	else next.searchParams.delete('thread')
 	return next.pathname + next.search

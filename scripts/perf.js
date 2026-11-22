@@ -1,6 +1,6 @@
 /** `pnpm perf`: how fast ade reads Oskar's real store, numbers only, to run before and after a change.
  * It copies ~/.local/share/ade/ade.sqlite (or DB_PATH) into .work/perf/, never touching the live one, starts a scratch
- * server on the copy with --no-runner and its own config (the live ade.json's modules plus inbox), and prints three tables:
+ * server on the copy with --no-runner and its own config (the live ade.json's modules plus inbox and search), and prints three tables:
  *   server  each read the client makes, timed cold and warm, with the SQLite rows and statements it took and its size; a post to the
  *           biggest thread while scripted runs and list reads go on
  *   socket  what one page open on the biggest thread hears per minute while three scripted runs happen: socket
@@ -121,7 +121,7 @@ async function measure() {
 		XDG_CONFIG_HOME: config,
 		PORT: '0',
 		HOST: '127.0.0.1',
-		MODULES: '+inbox,+bots,-web-search',
+		MODULES: '+inbox,+bots,+search,-web-search',
 	}
 	const started = performance.now()
 	const server = fork(path.join(repo, 'server.js'), ['--no-runner'], {
@@ -181,6 +181,8 @@ async function measure() {
 		[`thread ${big} ?last=50`, `/api/threads/${big}?last=50`],
 		[`memory ${big}`, `/api/threads/${big}/memory?room=50`],
 		[`recap ${big}`, `/api/threads/${big}/recap`],
+		['search "the"', '/api/search?q=the'],
+		['search "decide"', '/api/search?q=decide'],
 	]
 	const serverRows = []
 	await take()

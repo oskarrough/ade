@@ -2178,3 +2178,35 @@ body.resizing {
 		}
 	}
 }
+
+/* The search field sits in a row like the new bot's name, its magnifier where a row's dot is. */
+.thread-list > ul.search-row {
+	flex: none;
+	overflow: visible;
+
+	> li > form.row > input {
+		margin-left: 0;
+	}
+
+	input::-webkit-search-cancel-button {
+		display: none;
+	}
+}
+
+/* Search results: the inbox's rows, each the words around a match with the match tinted as a lit message is. */
+.thread.search > ul > li.result {
+	padding-bottom: var(--space-3);
+
+	> a.snippet {
+		display: block;
+		color: inherit;
+		text-decoration: none;
+		overflow-wrap: anywhere;
+	}
+
+	mark {
+		color: inherit;
+		background: color-mix(in srgb, var(--pick) 20%, Canvas);
+		border-radius: 2px;
+	}
+}

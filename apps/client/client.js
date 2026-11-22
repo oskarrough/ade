@@ -12,6 +12,7 @@ import {
 	inboxOpen,
 	inbox,
 	params,
+	searchFor,
 	setChat,
 	titleOf,
 	threadOf,
@@ -99,16 +100,21 @@ function Client() {
 						type="button"
 						aria-pressed=${() => String(sideOf(current())?.key === 'details')}
 						style=${() => colorOf(homeBot(current())?.name ?? '')}
-						onClick=${() => inboxOpen() || toggleSide(current(), 'details')}
+						onClick=${() => inboxOpen() || searchFor() !== null || toggleSide(current(), 'details')}
 					>
-						<${Dot} state=${() => (inboxOpen() ? '' : threadOf(current())?.status)} />
+						<${Dot}
+							state=${() =>
+								inboxOpen() || searchFor() !== null ? '' : threadOf(current())?.status}
+						/>
 						<span
 							>${() =>
 								inboxOpen()
 									? `Inbox${inbox.length ? ` · ${inbox.length}` : ''}`
-									: current()
-										? titleOf(current())
-										: 'New thread'}</span
+									: searchFor() !== null
+										? `Search · ${searchFor()}`
+										: current()
+											? titleOf(current())
+											: 'New thread'}</span
 						>
 					</button>
 				</header>

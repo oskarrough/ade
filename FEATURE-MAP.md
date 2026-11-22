@@ -21,7 +21,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   afterCommit                       best-effort work once a server commit is stored
   isWork, busy, workIn              what counts as a thread working (Deliver, Shell, modules' `work` kinds); whether a thread has
                                     work (a view's `busy`, CLI waits, wake); listsOf hears its last one end, which calls
-                                    modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`
+                                    modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`; every stored entry,
+                                    modules' `entryStored(entry)`
   core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
   core.signal                       a signal to a sleeping task (wake's Ended)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
@@ -51,7 +52,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   earlier, covers                   an earlier page on request, after the agent turns that reach back to it
   mintKey, revoke, upgrade          runner keys and the runner's socket; a module's own thread socket (its `connect`)
   saveSettings, restart, connectSelf   settings, restart, the server lending its own machine, under the name it first got
-echo.js                  echo/try scripted model responses: file tools, slow commands, posts, `ask` questions, `wake` calls, bots, director and recap
+echo.js                  echo/try scripted model responses: file tools, slow commands, posts, `ask` questions, `wake` calls, `search`, bots, director and recap
 runner.js                a runner: offers its models and folder shortcuts, connects, runs agents in any folder on its machine
 runner-updater.js        what `curl <server>/connect-runner | sh` starts (it saves the key in ~/.config/ade/key.<name>); keeps the runner up to date
 remote.js                the runner protocol, both ends: createRunners (server), serveRunner (runner),
@@ -107,6 +108,10 @@ modules/
                          server (fileName, util's byAgent, toMarkdown, foldShell folding a
                          `$ cmd`'s output to one line); off by default; cli.js's `export <dir>` fetches it and
                          writes the files
+  search.js              every thread's messages in an in-memory FTS5 index: build on start (oldest thread first), entryStored (server.js's
+                         `entryStored` hook, each entry once Pi stores it: a message once, out again when withdrawn), search
+                         (matchOf: words quoted, the last a prefix; best first, snippets), serve (GET /api/search?q=), the `search` tool;
+                         off by default
   pi-sessions.js         conversations as pi session files: server follows each agent's conversation (push, sync, changed) and sends
                          new entries; writePiSession, the runner's `pi-session` op (remote.js serveRunner), maps them to pi's entries.
                          The other way: bring (what pi hands its model from a session, into a new thread: newAgent, setUp, post), serve
@@ -167,6 +172,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   wake.js                Wakes, the thread's pending wakes above the composer as one-line `.notice` lines (`.line`, open on click) with × (refetched on connect and on
                          each `wake` activity its socket hears, heardWake);
                          WakeSet, a wake call's row in the chat (run.js LASTING); WokeLine under a message a wake posted
+  search.js              SearchField, the sidebar's field (results as you type, Escape closes); Search, its results in the threads' place
+                         (server.js searchFor/openSearch; system.js), inbox rows with the match in <mark>; showMessage opens a thread
+                         on an entry id (`data-entry`), loading earlier pages if needed, and thread.js `reveal` lights it, as recap links do
   inbox.js               Inbox, in the threads' place while open (server.js inboxOpen/openInbox; system.js): a `.thread.inbox` column whose
                          rows (Question) hold the thread link, who asked and when, the recap's newest open line (RecapLine, recap.js topicsOf),
                          the question (thread.js Body) and composer.js `Composer` with `inbox`, which sends without opening the thread; Dismiss

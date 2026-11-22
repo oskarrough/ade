@@ -8,6 +8,7 @@ const paths = {
 	close: 'M6 6l12 12M18 6L6 18',
 	next: 'M9 6l6 6-6 6',
 	check: 'M5 12l5 5 9-10',
+	search: 'M20 20l-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 1 1 13 0',
 	again: 'M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5',
 	// Lucide's gear, its hub drawn as two arcs so it stays one path
 	settings:

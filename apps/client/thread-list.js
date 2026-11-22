@@ -1,4 +1,4 @@
-/** The same thread row in the list, its family, and a bot's other threads; its foot opens the inbox, and offers a reload once ade has changed since the page loaded. */
+/** The same thread row in the list, its family, and a bot's other threads; with search on, its field above them; its foot opens the inbox, and offers a reload once ade has changed since the page loaded. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
 import { createSignal, For, Show } from 'solid-js'
@@ -16,6 +16,7 @@ import {
 	inboxOpen,
 	openInbox,
 	openThread,
+	searchFor,
 	server,
 	threadOf,
 	threadRows,
@@ -25,6 +26,7 @@ import { report } from './notice.js'
 import { RunnerList } from './runner.js'
 import { Settings } from './settings.js'
 import { BotItem, NewBot } from './bot.js'
+import { SearchField } from './search.js'
 
 export function ThreadList() {
 	const [creating, setCreating] = createSignal(false)
@@ -52,13 +54,16 @@ export function ThreadList() {
 					<${NewRow}
 						label="Thread"
 						title="New thread"
-						current=${() => !current() && !inboxOpen()}
+						current=${() => !current() && !inboxOpen() && searchFor() === null}
 						onPick=${(_e) => openThread(null)}
 					/>
 					<${Show} when=${() => server().modules.includes('bots')}>
 						<${NewRow} label="Bot" title="New bot" onPick=${(_e) => setCreating(true)} />
 					<//>
 				</ul>
+				<${Show} when=${() => server().modules.includes('search')}>
+					<${SearchField} />
+				<//>
 				<${Show} when=${() => server().modules.includes('inbox')}>
 					<ul>
 						<li class=${() => ({ current: inboxOpen() })}>

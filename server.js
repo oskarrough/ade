@@ -2693,6 +2693,7 @@ function notify(lists) {
 	}, 100)
 }
 const taskChanged = modules.flatMap((module) => module.taskChanged ?? [])
+const entryStored = modules.flatMap((module) => module.entryStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
 harness.observeCommits({
 	advance: (publication) => {
@@ -2700,6 +2701,7 @@ harness.observeCommits({
 		notify(listsOf(publication, ended))
 		for (const change of publication.changes)
 			if (change.type === 'task') for (const hook of taskChanged) hook(change.value)
+			else if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
 		for (const threadId of ended)
 			busy(threadId)
 				.then(async (working) => {
