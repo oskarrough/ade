@@ -35,6 +35,8 @@
 
 /* Light or dark is the browser's: every grey is ink mixed into the page. */
 :root {
+	/* How wide a thread's messages and composer run; Jump takes it too */
+	--chat-width: 50rem;
 	color-scheme: light dark;
 	--font-text: 'iA Writer Quattro S', system-ui, sans-serif;
 	--font-ui: 'iA Writer Quattro S', system-ui, sans-serif;

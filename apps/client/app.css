@@ -361,7 +361,6 @@ agent-memory {
 
 /* A thread: a column with its name on top and the composer at the foot, the messages scrolling between them, fading out under both. */
 .thread {
-	--chat-width: 50rem;
 	--fade-bottom: calc(3 * var(--baseline));
 	position: relative;
 	z-index: 1;
@@ -1755,6 +1754,13 @@ button.foot-toggle {
 
 	100% {
 		background-position: -150% 0;
+	}
+}
+
+/* Jump, on a big screen: as wide as the composer, centred on the window, over the list's edge too. */
+@media (min-width: 701px) {
+	.model-picker.jump {
+		width: min(var(--chat-width), calc(100vw - 1rem));
 	}
 }
 
