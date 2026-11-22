@@ -80,8 +80,11 @@ export function server(core) {
 			(await core.threadList(reader)).map(async (row) => {
 				if (!['done', 'error'].includes(row.status)) return undefined
 				if (!(await core.authors(row.id)).includes(reader)) return undefined
-				const message = await core.latestMessage(row.id, ({ data }) =>
-					Boolean(data.answer || data.error || data.shell),
+				// As the status reads it: a `$ cmd` someone stopped is neither an answer nor a failure
+				const message = await core.latestMessage(
+					row.id,
+					({ data }) =>
+						Boolean(data.answer || data.error || data.shell) && data.shell?.error !== 'stopped',
 				)
 				if (!message) return undefined
 				const failed = Boolean(message.data.error || message.data.shell?.error)

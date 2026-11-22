@@ -197,4 +197,40 @@ check(
 	JSON.stringify([kinds(await everything(), ids), heardRead]),
 )
 readSocket.close()
+
+// A `$ cmd` you stopped is no failure: the answer under it still waits, as the sidebar's dot says
+const stopped = await createThread('stopped')
+await post(stopped, 'hello')
+await answered(stopped)
+await post(stopped, '$ sleep 20')
+await until(async () => (await view(stopped)).busy)
+await api('POST', `/api/threads/${stopped}/stop`, {})
+await until(async () => !(await view(stopped)).busy)
+const stoppedRow = (await everything()).find((item) => item.thread === stopped)
+check(
+	stoppedRow?.kind === 'answered' && (await view(stopped)).status === 'done',
+	'a stopped command leaves the unread answer in the inbox, not a failure',
+	JSON.stringify([stoppedRow, (await view(stopped)).status]),
+)
+
+// Work starting on a failed thread takes it out at once, and the socket names the inbox as it starts
+const retried = await createThread('retried')
+await post(retried, 'fail please')
+await until(async () => (await everything()).some((item) => item.thread === retried))
+const heardStart = []
+const startSocket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
+startSocket.onmessage = ({ data }) => heardStart.push(JSON.parse(String(data)))
+await new Promise((resolve) => (startSocket.onopen = resolve))
+await api('POST', `/api/threads/${retried}/entries`, { body: '$ sleep 3', to: 'echo/echo@laptop' })
+await until(async () => (await view(retried)).busy)
+const toldStart = await until(async () =>
+	heardStart.some((message) => message.changed?.includes('inbox')),
+)
+const stillBusy = (await view(retried)).busy
+check(
+	Boolean(toldStart) && stillBusy && !(await everything()).some((item) => item.thread === retried),
+	'a failed thread that starts work again leaves the inbox, and the socket says so while it runs',
+	JSON.stringify([heardStart, stillBusy]),
+)
+startSocket.close()
 done()

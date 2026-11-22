@@ -2578,15 +2578,23 @@ function listsOf({ changes }, ended) {
 			const { id, kind, conversationId, state } = change.value
 			if (!isWork(kind)) return []
 			const tasks = workIn.get(conversationId) ?? new Set()
+			/** A thread starting or ending work: with the inbox on, what it lists as failed or unread changes */
+			let turned = false
 			if (state.status !== 'terminal') {
 				if (tasks.has(id)) return []
+				turned = !tasks.size
 				workIn.set(conversationId, tasks.add(id))
 			} else if ((tasks.delete(id), !tasks.size)) {
 				// One live since before start ends here too; `busy` makes sure
 				workIn.delete(conversationId)
 				ended.add(conversationId)
+				turned = true
 			}
-			return [...listOf(conversationId), ...(runsOnRunner(kind) ? ['runners'] : [])]
+			return [
+				...listOf(conversationId),
+				...(runsOnRunner(kind) ? ['runners'] : []),
+				...(turned && openQuestion ? ['inbox'] : []),
+			]
 		}
 		if (change.type === 'submission') return []
 		const { kind } = change.record
@@ -2640,8 +2648,6 @@ harness.observeCommits({
 	advance: (publication) => {
 		const ended = new Set()
 		notify(listsOf(publication, ended))
-		// Work that ended may have left an answer or a failure to read, which the inbox lists
-		if (ended.size && openQuestion) notify(['inbox'])
 		for (const change of publication.changes)
 			if (change.type === 'task') for (const hook of taskChanged) hook(change.value)
 			else if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
