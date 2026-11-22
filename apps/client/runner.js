@@ -134,8 +134,6 @@ export function RunnerList() {
 					.filter((agent) => agent.status !== 'idle')
 					.map((agent) => ({
 						thread: thread.id,
-						title: thread.title,
-						conversation: agent.conversation,
 						runner: agent.to?.runner,
 						status: agent.status,
 					})),
@@ -173,12 +171,19 @@ export function RunnerList() {
 }
 
 function RunnerItem(props) {
-	const asking = (status) =>
-		props.active.filter((agent) => agent.runner === props.runner.name && agent.status === status)
-	const work = createMemo(() => asking('working'))
-	/** Threads asking it while it's away */
-	const waiting = createMemo(() => [...new Set(asking('blocked').map((work) => work.title))])
-	const call = () => lastToolCall(work())
+	const countThreads = (status) =>
+		new Set(
+			props.active
+				.filter((agent) => agent.runner === props.runner.name && agent.status === status)
+				.map((agent) => agent.thread),
+		).size
+	const summary = createMemo(() => {
+		const online = props.runner.online
+		const count = countThreads(online ? 'working' : 'blocked')
+		const threads = count === 1 ? 'thread' : 'threads'
+		if (online) return count ? `${count} active ${threads}` : ''
+		return count ? `Offline, ${count} ${threads} waiting` : 'Offline'
+	})
 	const revoke = busy(async () => {
 		const { name } = props.runner
 		await revokeRunner(name)
@@ -189,17 +194,9 @@ function RunnerItem(props) {
 			<${Dot} state=${() => dotOf(props.runner)} />
 			<div>
 				<b>${() => props.runner.name}</b>
-				<small>${() => props.runner.dir ?? 'waiting for it to dial in'}</small>
-				<${Show} when=${() => props.runner.dir && (!props.runner.online || work().length)}>
-					<small class=${() => ({ doing: props.runner.online })}
-						>${() =>
-							!props.runner.online
-								? `offline${waiting().length ? `, ${waiting().join(', ')} waiting for it` : ''}`
-								: call() ||
-									`working in ${work()
-										.map((work) => work.title)
-										.join(', ')}`}</small
-					>
+				<small>${() => props.runner.dir ?? 'Never connected yet.'}</small>
+				<${Show} when=${() => props.runner.dir && summary()}>
+					<small class=${() => ({ doing: props.runner.online })}>${summary}</small>
 				<//>
 			</div>
 			<${Sure}
