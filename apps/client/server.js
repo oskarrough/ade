@@ -153,8 +153,8 @@ export function sending(thread, data) {
 		else pendingSent.delete(thread)
 		recomputeEntries(thread)
 	}
-	const settle = (seq) => {
-		if (typeof seq === 'number') void caughtUp(`thread/${thread}`, seq).then(drop)
+	const settle = (seq, boot) => {
+		if (typeof seq === 'number') void caughtUp(`thread/${thread}`, seq, boot).then(drop)
 		else drop()
 	}
 	return { drop, settle }
@@ -288,7 +288,12 @@ export const {
 	const wakeWaiters = (view, force = false) => {
 		if (!view.waiters.length) return
 		view.waiters = view.waiters.filter((waiter) => {
-			if (!force && (!view.synced || (view.seq ?? -1) < waiter.seq)) return true
+			if (
+				!force &&
+				!(waiter.boot && view.boot && waiter.boot !== view.boot) &&
+				(!view.synced || (view.seq ?? -1) < waiter.seq)
+			)
+				return true
 			waiter.resolve()
 			return false
 		})
@@ -296,13 +301,16 @@ export const {
 	const applyFrame = (frame) => {
 		const view = views.get(frame.view)
 		if (!view) return
+		const reset = Boolean(frame.reset || (view.boot && frame.boot && frame.boot !== view.boot))
 		let changed = false
-		if (frame.reset) {
+		if (reset) {
 			view.map = new Map((frame.put ?? []).map((item) => [item.key, item.row]))
+			view.boot = frame.boot ?? null
 			view.seq = frame.seq
 			view.synced = true
 			changed = true
 		} else {
+			if (frame.boot) view.boot = frame.boot
 			if (view.seq !== null && frame.seq < view.seq) return
 			if (view.seq === null || frame.seq > view.seq) {
 				for (const item of frame.put ?? []) {
@@ -320,13 +328,15 @@ export const {
 			view.setRows(orderOf(view))
 			if (frame.view.startsWith('thread/')) {
 				const threadId = Number(frame.view.slice('thread/'.length))
+				// A reset starts a fresh server window (restart or idle eviction): drop older pages so the middle isn't missing
+				if (reset) olderPages.delete(threadId)
 				const meta = view.map.get('thread')
 				if (meta) {
 					if (meta.people)
 						setPeople((all) => {
 							all[threadId] = meta.people
 						})
-					if ('earlier' in meta && !olderPages.has(threadId))
+					if ('earlier' in meta && (reset || !olderPages.has(threadId)))
 						setEarlier((all) => {
 							all[threadId] = meta.earlier
 						})
@@ -339,7 +349,7 @@ export const {
 				recomputeEntries(threadId)
 			}
 		}
-		wakeWaiters(view, Boolean(frame.reset))
+		wakeWaiters(view, reset)
 	}
 	const subscribeView = (name, { sort } = {}) => {
 		let view = views.get(name)
@@ -347,6 +357,7 @@ export const {
 			const [rows, setRows] = createSignal(/** @type {any[]} */ ([]))
 			view = {
 				name,
+				boot: null,
 				seq: null,
 				synced: false,
 				map: new Map(),
@@ -375,12 +386,13 @@ export const {
 		const { rows } = subscribeView(name, options)
 		return createOptimisticStore(() => rows(), /** @type {any[]} */ ([]), { key })
 	}
-	const caughtUp = (name, seq) => {
+	const caughtUp = (name, seq, boot = undefined) => {
 		const view = views.get(name)
 		if (!view) return Promise.resolve()
+		if (boot && view.boot && view.boot !== boot) return Promise.resolve()
 		if (view.synced && (view.seq ?? -1) >= seq) return Promise.resolve()
 		sendSocket({ sync: name, seq })
-		return new Promise((resolve) => view.waiters.push({ seq, resolve }))
+		return new Promise((resolve) => view.waiters.push({ seq, boot, resolve }))
 	}
 	/** Writes that failed to reach the server, resent on socket reconnect with the same `key` */
 	const inflight = new Map()
@@ -467,10 +479,10 @@ export const {
 	const dismiss = action(function* (item) {
 		const key = inboxKey(item)
 		setOptimisticInbox((rows) => rows.filter((row) => inboxKey(row) !== key))
-		const { seq } = yield item.question
+		const { seq, boot } = yield item.question
 			? write(`/api/threads/${item.thread}/inbox`, { dismiss: item.question.id })
 			: write(`/api/threads/${item.thread}/read`, {})
-		yield caughtUp('inbox', seq)
+		yield caughtUp('inbox', seq, boot)
 	})
 	/** The row moves the moment you ask; if the server refuses, it moves back and this throws why */
 	const archiveThread = action(function* (id, archived) {
@@ -484,25 +496,29 @@ export const {
 			setOptimisticArchived((rows) => rows.filter((row) => row.id !== id))
 			if (moved) setOptimisticThreads((rows) => [moved, ...rows].sort(byNewest))
 		}
-		const { seq } = yield write(`/api/threads/${id}/archive`, { archived })
-		yield Promise.all([caughtUp('threads', seq), caughtUp('archived', seq)])
+		const { seq, boot } = yield write(`/api/threads/${id}/archive`, { archived })
+		yield Promise.all([caughtUp('threads', seq, boot), caughtUp('archived', seq, boot)])
 	})
 	const renameThread = action(function* (id, title) {
 		const patch = (rows) => rows.map((row) => (row.id === id ? { ...row, title } : row))
 		setOptimisticThreads(patch)
 		setOptimisticArchived(patch)
-		const { seq } = yield write(`/api/threads/${id}/title`, { title })
-		yield Promise.all([caughtUp('threads', seq), caughtUp('archived', seq)])
+		const { seq, boot } = yield write(`/api/threads/${id}/title`, { title })
+		yield Promise.all([caughtUp('threads', seq, boot), caughtUp('archived', seq, boot)])
 	})
 	const forgetBot = action(function* (name) {
 		setOptimisticBots((rows) => rows.filter((row) => row.name !== name))
-		const { seq } = yield write(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE')
-		yield caughtUp('bots', seq)
+		const { seq, boot } = yield write(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE')
+		yield caughtUp('bots', seq, boot)
 	})
 	const revokeRunner = action(function* (name) {
 		setOptimisticRunners((rows) => rows.filter((row) => row.name !== name))
-		const { seq } = yield write(`/api/runners/${encodeURIComponent(name)}`, undefined, 'DELETE')
-		yield caughtUp('runners', seq)
+		const { seq, boot } = yield write(
+			`/api/runners/${encodeURIComponent(name)}`,
+			undefined,
+			'DELETE',
+		)
+		yield caughtUp('runners', seq, boot)
 	})
 	/** Your new-thread draft comes too, as another page of yours changes it, which the composer takes */
 	const receive = (message) => {
@@ -517,7 +533,10 @@ export const {
 				setConnected(true)
 				for (const [name, view] of views) {
 					view.synced = false
-					sendSocket({ sub: name, ...(view.seq !== null ? { after: view.seq } : {}) })
+					sendSocket({
+						sub: name,
+						...(view.seq !== null && view.boot ? { after: view.seq, boot: view.boot } : {}),
+					})
 				}
 				for (const resend of inflight.values()) resend()
 			},

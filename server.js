@@ -2402,6 +2402,7 @@ async function compact(id) {
  * envelopes; reconnecting with `after` gets a delta while the view stays cached, else `reset: true`.
  */
 function createFeed() {
+	const boot = randomBytes(8).toString('hex')
 	let seq = 0
 	/** @type {Map<string, any>} */
 	const specs = new Map()
@@ -2428,6 +2429,15 @@ function createFeed() {
 		socket.sentSeq.set(view, at)
 	}
 
+	const scheduleFlush = (state) => {
+		if (!state.subs.size || !state.dirty || state.scheduled || state.flushing) return
+		state.scheduled = true
+		queueMicrotask(() => {
+			state.scheduled = false
+			if (state.subs.size && state.dirty) void flushState(state)
+		})
+	}
+
 	const markDirty = (state, keys) => {
 		if (keys === true || !state.spec.rows) state.dirty = true
 		else if (state.dirty !== true) {
@@ -2435,13 +2445,7 @@ function createFeed() {
 			for (const key of keys) state.dirty.add(key)
 		}
 		state.dirtySeq = seq
-		if (state.subs.size && !state.scheduled && !state.flushing) {
-			state.scheduled = true
-			queueMicrotask(() => {
-				state.scheduled = false
-				if (state.subs.size && state.dirty) void flushState(state)
-			})
-		}
+		scheduleFlush(state)
 	}
 
 	const applyDiff = (state, nextRows, partial, targetSeq) => {
@@ -2498,7 +2502,7 @@ function createFeed() {
 					: await state.spec.all(state.viewer, state.param, state.query, state)
 				const diff = applyDiff(state, next, partial, targetSeq)
 				if ((diff.put.length || diff.del.length) && state.subs.size) {
-					const payload = JSON.stringify({ view: state.view, seq: state.seq, ...diff })
+					const payload = JSON.stringify({ view: state.view, boot, seq: state.seq, ...diff })
 					for (const socket of state.subs) sendFrame(socket, state.view, payload, state.seq)
 				}
 			}
@@ -2506,6 +2510,7 @@ function createFeed() {
 			.catch((error) => console.error(`feed ${state.view}: ${error.message}`))
 			.finally(() => {
 				state.flushing = null
+				scheduleFlush(state)
 			})
 		return state.flushing
 	}
@@ -2532,6 +2537,7 @@ function createFeed() {
 		(socket.feedQueue = (socket.feedQueue ?? Promise.resolve()).then(run).catch(() => {}))
 
 	return {
+		boot: () => boot,
 		seq: () => seq,
 		define: (name, spec) => specs.set(name, spec),
 		hasSubscribers: (view) =>
@@ -2551,7 +2557,7 @@ function createFeed() {
 				if (!state.ready) continue
 				let dirty = /** @type {false | true | Set<any>} */ (false)
 				for (const change of publication.changes) {
-					const hit = state.spec.match?.(change, state.param)
+					const hit = state.spec.match?.(change, state.param, state)
 					if (!hit) continue
 					if (hit === true) {
 						dirty = true
@@ -2575,7 +2581,7 @@ function createFeed() {
 					markDirty(state, key === undefined ? true : [key])
 			}
 		},
-		subscribe: (socket, view, after) =>
+		subscribe: (socket, view, after, afterBoot) =>
 			onSocket(socket, async () => {
 				if (typeof view !== 'string' || socket.readyState !== 1) return
 				const parsed = parse(view)
@@ -2616,6 +2622,7 @@ function createFeed() {
 						state.ready = true
 					})().finally(() => {
 						state.flushing = null
+						scheduleFlush(state)
 					})
 					await state.flushing
 				}
@@ -2624,9 +2631,14 @@ function createFeed() {
 					if (!state.subs.size) armEviction(state)
 					return
 				}
-				const delta = typeof after === 'number' && after >= state.sinceSeq && after <= state.seq
+				const delta =
+					afterBoot === boot &&
+					typeof after === 'number' &&
+					after >= state.sinceSeq &&
+					after <= state.seq
 				const frame = {
 					view,
+					boot,
 					seq: state.seq,
 					...(!delta && { reset: true }),
 					put: [...state.rows.entries()]
@@ -2656,7 +2668,7 @@ function createFeed() {
 				if (state.dirty || state.flushing) await flushState(state)
 				if (socket.readyState !== 1 || (socket.sentSeq.get(view) ?? -1) >= targetSeq) return
 				const at = Math.max(state.seq, seq)
-				sendFrame(socket, view, JSON.stringify({ view, seq: at, put: [], del: [] }), at)
+				sendFrame(socket, view, JSON.stringify({ view, boot, seq: at, put: [], del: [] }), at)
 			}),
 		disconnect: (socket) => {
 			for (const state of socket.subs?.values() ?? []) {
@@ -3235,7 +3247,7 @@ async function handleRequest(req, res, serve = false) {
 				res,
 				req.method === 'POST' ? 201 : 200,
 				req.method !== 'GET' && result && typeof result === 'object' && !Array.isArray(result)
-					? { ...result, seq: feed.seq() }
+					? { ...result, seq: feed.seq(), boot: feed.boot() }
 					: result,
 			)
 		} catch (error) {
@@ -3760,7 +3772,7 @@ async function upgrade(req, raw, head, serve = false) {
 		socket.sentSeq = new Map()
 		listen((text) => {
 			const message = JSON.parse(text)
-			if ('sub' in message) feed.subscribe(socket, message.sub, message.after)
+			if ('sub' in message) feed.subscribe(socket, message.sub, message.after, message.boot)
 			else if ('unsub' in message) feed.unsubscribe(socket, message.unsub)
 			else if ('sync' in message) feed.sync(socket, message.sync, message.seq)
 			else if ('earlier' in message) earlier(socket, message.earlier, message.all, message.before)

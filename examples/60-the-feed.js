@@ -18,10 +18,12 @@ socket.send(JSON.stringify({ sub: 'runners' }))
 const boot = await until(async () => frames.find((frame) => frame.view === 'runners'))
 check(
 	Boolean(boot?.reset) &&
+		typeof boot.boot === 'string' &&
+		boot.boot.length > 0 &&
 		typeof boot.seq === 'number' &&
 		Array.isArray(boot.put) &&
 		Array.isArray(boot.del),
-	'subscribing to runners bootstraps with reset, seq, put and del',
+	'subscribing to runners bootstraps with reset, boot, seq, put and del',
 	JSON.stringify(boot),
 )
 
@@ -72,17 +74,30 @@ socket.close()
 await kill(laptop)
 await api('POST', '/api/runners', { name: 'desktop', key: 'mint-desktop' })
 const again = await open()
-again.socket.send(JSON.stringify({ sub: 'runners', after: lastSeq }))
+again.socket.send(JSON.stringify({ sub: 'runners', after: lastSeq, boot: boot.boot }))
 const delta = await until(async () => again.frames.find((frame) => frame.view === 'runners'))
 check(
 	Boolean(delta) &&
 		!delta.reset &&
+		delta.boot === boot.boot &&
 		delta.seq > lastSeq &&
 		delta.put?.some((item) => item.key === 'desktop') &&
 		delta.put?.some((item) => item.key === 'laptop' && item.row.online === false),
-	'reconnecting with after receives a delta of only what changed since then',
+	'reconnecting with after and matching boot receives a delta of only what changed since then',
 	JSON.stringify(delta),
 )
+// A mismatched boot id (e.g. after a server restart) forces a full reset even when `after` is in range
+const staleBoot = await open()
+staleBoot.socket.send(JSON.stringify({ sub: 'runners', after: delta.seq, boot: 'old-boot' }))
+const resetFrame = await until(async () =>
+	staleBoot.frames.find((frame) => frame.view === 'runners'),
+)
+check(
+	Boolean(resetFrame?.reset) && resetFrame.boot === boot.boot,
+	'resubscribing with an old boot id forces a full reset',
+	JSON.stringify(resetFrame),
+)
+staleBoot.socket.close()
 
 // Revoking a runner lands once per key, returns seq, and deletes the row from the feed
 const revoked = await api('DELETE', '/api/runners/desktop?key=revoke-desktop')

@@ -38,15 +38,16 @@ Every message returned by `GET /api/threads/:id`, `GET /api/export` or the `/ws`
 - `otherAuthor`, `otherThread`, `otherLabel`: for `sent` and `received` rows, the far side's author, thread id and display label
 - `clamp`: true when written by a person or by the viewer; `failed`: true on an error; `picked` and `pickedNobody`: the director's pick summary when present
 
-Write routes (`POST` and `DELETE`) include `seq` in their JSON response: the feed's version once that write's commit was published. Passing `key` (or `?key=` on `DELETE`) on runners, bots, archive, title and inbox dismiss makes those writes idempotent, the same way posting and thread creation are.
+Write routes (`POST` and `DELETE`) include `seq` and `boot` in their JSON response: the feed's version and boot id once that write's commit was published. Passing `key` (or `?key=` on `DELETE`) on runners, bots, archive, title and inbox dismiss makes those writes idempotent, the same way posting and thread creation are.
 
 With the `inbox` module on, the agent's `ask_person({body})` tool posts a message with `waitingOnPerson: true`. Thread views and lists return `status: "blocked"` until a person's next message, even if agents keep writing. This takes precedence over live work and unread-answer status. It is derived from messages, not stored separately. The tool returns at once, so the agent may carry on or end its turn; the CLI's `post` and `wait` stop waiting once only the question is left. A thread's `busy` says whether it has work whatever its status shows: an agent answering or waiting for its runner, a `$` command, a director pick. With a question open and a command running, it's `blocked` and `busy`, and `wait` waits for the command.
 
-Every list and open thread syncs over one versioned feed on `/ws`. Subscribe with `{"sub": "<view>", "after": <seq?>}`, unsubscribe with `{"unsub": "<view>"}`, or ask to catch up to a write's version with `{"sync": "<view>", "seq": <seq>}`. Views are `server`, `runners`, `bots`, `inbox`, `threads`, `archived`, `schedule`, `schedule/<id>`, `recap/<id>`, `memory/<id>?room=<n>`, `usage?since=<ms>&zone=<ms>`, `usage/<id>?since=<ms>`, and `thread/<id>`. The server sends ordered envelopes:
+Every list and open thread syncs over one versioned feed on `/ws`. Subscribe with `{"sub": "<view>", "after": <seq?>, "boot": "<boot?>"}`, unsubscribe with `{"unsub": "<view>"}`, or ask to catch up to a write's version with `{"sync": "<view>", "seq": <seq>}`. Views are `server`, `runners`, `bots`, `inbox`, `threads`, `archived`, `schedule`, `schedule/<id>`, `recap/<id>`, `memory/<id>?room=<n>`, `usage?since=<ms>&zone=<ms>`, `usage/<id>?since=<ms>`, and `thread/<id>`. The server sends ordered envelopes:
 
 ```json
 {
 	"view": "threads",
+	"boot": "9f2a...",
 	"seq": 48211,
 	"reset": true,
 	"put": [
@@ -60,7 +61,7 @@ Every list and open thread syncs over one versioned feed on `/ws`. Subscribe wit
 }
 ```
 
-`reset: true` is the full bootstrap (and what a reconnect gets after a restart or eviction); later updates send only changed rows in `put` and removed keys in `del`, and a reconnect with `after` gets only what changed since that `seq`. In `threads`, each family's root row carries `family: [{id, depth}, ...]` and descendants carry `root`. In `bots`, each row carries its server-computed `color`, `defaultColor`, `customColor`, `working` and `status`. In `thread/<id>`, key `"thread"` holds the thread's row, `people` and `earlier`, and integer entry ids hold the shaped messages (the newest 15 on bootstrap, then every new message as `put`, a later director pick as a `put` of the same key, and a withdrawal as a `del`).
+`reset: true` is the full bootstrap (and what a reconnect gets after a restart, mismatched `boot`, or eviction); later updates send only changed rows in `put` and removed keys in `del`, and a reconnect with `after` and the current `boot` gets only what changed since that `seq`. In `threads`, each family's root row carries `family: [{id, depth}, ...]` and descendants carry `root`. In `bots`, each row carries its server-computed `color`, `defaultColor`, `customColor`, `working` and `status`. In `thread/<id>`, key `"thread"` holds the thread's row, `people` and `earlier`, and integer entry ids hold the shaped messages (the newest 15 on bootstrap, then every new message as `put`, a later director pick as a `put` of the same key, and a withdrawal as a `del`).
 
 To stream an agent's live turns, compaction cuts, drafts and module activity for a thread, send `{"watch": 3}` on `/ws`. Each agent's turns reach back only as far as the thread's newest page; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction. Modules send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `hold` (with the `names` typing), `dropped` and `picked` (with its `confidence`), the last once the pick is saved. Fetch earlier messages with `GET /api/threads/3?before=<id>&last=50`, and ask for their agent turns with `{"earlier": 3, "before": <id>}` (or `"all": true`).
 

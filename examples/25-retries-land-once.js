@@ -28,7 +28,7 @@ check(
 )
 const id = made.json.id
 
-const withoutSeq = ({ seq: _, ...rest }) => rest
+const withoutSeq = ({ seq: _, boot: __, ...rest }) => rest
 
 const said = await api('POST', `/api/threads/${id}/entries`, {
 	body: 'hello',

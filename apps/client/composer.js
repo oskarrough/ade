@@ -281,7 +281,7 @@ export function Composer(props) {
 					...(images.length && { images }),
 					key: sent,
 				})
-				sentRow?.settle(posted.seq)
+				sentRow?.settle(posted.seq, posted.boot)
 			} else
 				// A new thread and its first message are made in one step, under the draft's key
 				id = going.thread = await createThread(defaultTitle(body), {
