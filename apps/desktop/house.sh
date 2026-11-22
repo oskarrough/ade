@@ -1,6 +1,7 @@
-# arbe desktop's house: starts, stops or tells the state of the ade server and runner it started, in a login shell on
+# arbe desktop's house: starts or tells the state of the ade server and runner it started, in a login shell on
 # the machine (inside WSL on Windows). main.go puts HOUSE_DIR and HOUSE_COMMAND above this. The first line it prints
 # is "<WSL distro>:<log file>", the last the state: running, stopped or started.
+# It keeps the process group and a token in the pid file; stop it with kill -TERM -- -<pid>, the pid file's first word.
 set -u
 state="${XDG_STATE_HOME:-$HOME/.local/state}/arbe-desktop"
 mkdir -p "$state"
@@ -30,7 +31,7 @@ start)
 	cd "$HOUSE_DIR" || { echo "No folder $HOUSE_DIR" >&2; exit 1; }
 	[ -f "$log" ] && [ "$(wc -c < "$log")" -gt 5000000 ] && mv "$log" "$log.1"
 	printf '\n── %s: %s in %s\n' "$(date '+%F %T')" "$HOUSE_COMMAND" "$PWD" >> "$log"
-	# Its own session and process group, so it outlives the window and stop reaches all of it
+	# Its own session and process group, so it outlives the window and one kill reaches all of it
 	token="$(date +%s)$$"
 	# macOS has no setsid; perl's does the same
 	if command -v setsid > /dev/null; then detach=setsid; else detach="perl -MPOSIX=setsid -e setsid;exec(@ARGV) --"; fi
@@ -46,18 +47,6 @@ start)
 		tail -n 15 "$log" >&2
 		exit 1
 	fi
-	;;
-stop)
-	if ours; then
-		kill -TERM -- "-$pid" 2> /dev/null || kill -TERM "$pid"
-		for _ in 1 2 3 4 5 6 7 8 9 10; do
-			kill -0 "$pid" 2> /dev/null || break
-			sleep 0.5
-		done
-		rm -f "$pidfile"
-		printf '── %s: stopped from arbe desktop\n' "$(date '+%F %T')" >> "$log"
-	fi
-	echo stopped
 	;;
 *)
 	if ours; then echo running; else echo stopped; fi

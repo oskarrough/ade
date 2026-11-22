@@ -2985,6 +2985,8 @@ async function serverInfo(viewer) {
 		file,
 		/** What a reload of the page would get; a page loaded with another is behind */
 		client,
+		/** The server's code changed since it started: a restart takes it up */
+		stale,
 		/** The commit the server's checkout is on, when it runs from one; null for an install */
 		commit: (await git('rev-parse', 'HEAD')) || null,
 		/** Who the server takes the asker to be, for showing; it proves nothing */
@@ -3021,6 +3023,11 @@ const routes = /** @type {[string, Function][]} */ ([
 			if (user(req) !== owner)
 				throw Object.assign(new Error('Only the owner changes settings'), { status: 403 })
 			return saveSettings(await input(req))
+		},
+		'POST /api/restart': (req) => {
+			if (user(req) !== owner)
+				throw Object.assign(new Error('Only the owner restarts the server'), { status: 403 })
+			return restartSoon('updating')
 		},
 		'GET /api/runners': runnerList,
 		'POST /api/runners': async (req) => {
@@ -3132,10 +3139,29 @@ const hashOf = async (dir, recursive, pattern = /\.\w+$/) => {
 	return hash.digest('hex')
 }
 const clientDir = path.join(import.meta.dirname, 'apps/client')
-const serverCode = createHash('sha256')
-	.update(await hashOf(import.meta.dirname, false, /\.js$/))
-	.update(await hashOf(path.join(import.meta.dirname, 'modules'), true, /\.js$/))
-	.digest('hex')
+const modulesDir = path.join(import.meta.dirname, 'modules')
+/** The server's, runner's and CLI's code: the top folder's .js files and modules/ */
+const serverCodeNow = async () =>
+	createHash('sha256')
+		.update(await hashOf(import.meta.dirname, false, /\.js$/))
+		.update(await hashOf(modulesDir, true, /\.js$/))
+		.digest('hex')
+const serverCode = await serverCodeNow()
+/** Whether the server's code changed since it started, so only a restart takes it up */
+let stale = false
+let rehashingServer
+const serverChanged = (_event, name) => {
+	if (!String(name).endsWith('.js')) return
+	clearTimeout(rehashingServer)
+	rehashingServer = setTimeout(async () => {
+		const now = (await serverCodeNow()) !== serverCode
+		if (now === stale) return
+		stale = now
+		feed.touch('server')
+	}, 150)
+}
+watchFiles(import.meta.dirname, serverChanged).unref()
+watchFiles(modulesDir, { recursive: true }, serverChanged).unref()
 const clientVersion = async () =>
 	createHash('sha256')
 		.update(serverCode)
@@ -3948,15 +3974,30 @@ async function saveSettings({
 		put('bots', 'voice', bots.voice, bots.voice === DEFAULT_VOICE)
 	}
 	writeFileSync(settings.file, `${JSON.stringify(next, null, '\t')}\n`)
-	const restarts = typeof process.execve === 'function'
-	setTimeout(() => restart(restarts).catch((error) => (console.error(error), process.exit(1))), 100)
-	return { saved: settings.file, restarts }
+	return { saved: settings.file, ...restartSoon('settings saved') }
 }
-/** Closes the store, so nothing in flight is lost, then starts again with the same port and environment, or stops */
-async function restart(again) {
-	say('settings', again ? 'saved; restarting' : 'saved; stopped, start it again to take them up')
+/** Restarts once this request is answered; where the runtime can't restart in place, it stops */
+function restartSoon(why) {
+	const restarts = typeof process.execve === 'function'
+	setTimeout(
+		() => restart(why, restarts).catch((error) => (console.error(error), process.exit(1))),
+		100,
+	)
+	return { restarts }
+}
+/**
+ * Closes the store, so nothing in flight is lost, then starts again with the same port and environment, or stops.
+ * In place: the same process, so its terminal, its process group and arbe desktop's house token stay.
+ */
+async function restart(why, again) {
+	say('restart', again ? `${why}; restarting` : `${why}; stopped, start it again to take it up`)
+	// Waits for its runner, so the process after the restart isn't left a zombie it can't reap
+	const runnerExit =
+		lent?.kill && lent.exitCode === null && lent.signalCode === null
+			? new Promise((resolve) => lent.once('exit', resolve))
+			: undefined
 	if (lent?.kill) lent.kill()
-	await (stopping ??= harness.close(context))
+	await Promise.all([(stopping ??= harness.close(context)), runnerExit])
 	if (!again) process.exit(0)
 	process.execve(process.execPath, process.argv, {
 		...process.env,

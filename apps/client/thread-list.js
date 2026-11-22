@@ -1,13 +1,14 @@
 /** The same thread row in the list, its family, and a bot's other threads; with search on, its field above them; its foot opens the inbox, and offers a reload once ade has changed since the page loaded. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
-import { createSignal, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, Show } from 'solid-js'
 import {
 	archivedThreads,
 	archiveThread,
 	behind,
 	bots,
 	changes,
+	connected,
 	current,
 	followThread,
 	fork,
@@ -15,6 +16,7 @@ import {
 	hrefOf,
 	inbox,
 	api,
+	me,
 	openInbox,
 	openThread,
 	page,
@@ -24,6 +26,7 @@ import {
 } from './server.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
+import { busy } from './busy.js'
 import { copyText, nativeMenu } from './desktop.js'
 import { openSide } from './side.js'
 import { RunnerList } from './runner.js'
@@ -133,26 +136,50 @@ export function ThreadList() {
 				<${Settings} />
 				<${RunnerList} />
 				<${Show} when=${() => server().modules.includes('schedule')}><${ScheduledTaskList} /><//>
-				<${Show} when=${behind}>
-					<button
-						type="button"
-						class="ghost small foot-toggle update-toggle"
-						aria-label=${() =>
-							changes().length ? `Update, ${changes().length} commits` : 'Update'}
-						title=${() =>
-							changes().join('\n') ||
-							'ade changed since this page loaded; reloading keeps your thread and draft'}
-						onClick=${(_e) => location.reload()}
-					>
-						<span>Update</span>
-						<${Show} when=${() => changes().length}
-							><small class="count" aria-hidden="true">${() => changes().length}</small><//
-						>
-					</button>
-				<//>
+				<${Update} />
 			</footer>
 		</nav>
 	`
+}
+
+/**
+ * Reloads once ade changed since the page loaded. When the server's own code changed since it started, the owner's
+ * restarts it first, as Save and restart does, and reloads once it's back.
+ */
+function Update() {
+	const restarts = () =>
+		server().stale && server().settings?.restarts && me() === server().settings.owner
+	/** '' until pressed; then 'asked', 'down' once the socket drops, and the page reloads when it's back */
+	const [restarting, setRestarting] = createSignal('')
+	createEffect(connected, (up) => {
+		if (!up && restarting() === 'asked') setRestarting('down')
+		if (up && restarting() === 'down') location.reload()
+	})
+	const update = busy(async () => {
+		if (!restarts()) return location.reload()
+		await api('/api/restart', {})
+		setRestarting('asked')
+	})
+	const label = () => (restarting() ? 'Restarting…' : restarts() ? 'Update and restart' : 'Update')
+	return html`<${Show} when=${() => behind() || restarts()}>
+		<button
+			type="button"
+			class="ghost small foot-toggle update-toggle"
+			disabled=${() => Boolean(restarting())}
+			aria-label=${() => (changes().length ? `${label()}, ${changes().length} commits` : label())}
+			title=${() =>
+				changes().join('\n') ||
+				(restarts()
+					? 'The server changed since it started: it restarts, as Save and restart does, and the page reloads once it’s back'
+					: 'ade changed since this page loaded; reloading keeps your thread and draft')}
+			onClick=${(_e) => update()}
+		>
+			<span>${label}</span>
+			<${Show} when=${() => changes().length}
+				><small class="count" aria-hidden="true">${() => changes().length}</small><//
+			>
+		</button>
+	<//>`
 }
 
 function ArchivedPage(props) {

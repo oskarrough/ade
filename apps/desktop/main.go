@@ -240,7 +240,7 @@ func main() {
 		}
 		// Alt, or F10, opens it in the window's corner
 		mygo.App.SetMenu(houseMenu())
-		updateHouseMenu()
+		findLog()
 		start := startURL(*flagURL)
 		found, ok := originOf(start)
 		if !ok {

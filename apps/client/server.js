@@ -403,7 +403,8 @@ export const {
 		loadedAt ??= data.commit
 		return data
 	})
-	/** Whether a reload would bring newer client files or a server that changed since this page loaded */
+	/** Whether a reload would bring newer client files or a server that changed since this page loaded; `stale`
+	 * on the server says its own code changed since it started, which takes a restart */
 	const behind = createMemo(() => {
 		const now = server().client
 		return Boolean(loadedWith && now && now !== loadedWith)
@@ -411,7 +412,7 @@ export const {
 	/** The subjects of the commits since the one this page loaded on, newest first; none when the server isn't a checkout */
 	const [changes, setChanges] = createSignal([])
 	createEffect(
-		() => behind() && server().commit,
+		() => (behind() || server().stale) && server().commit,
 		(commit) => {
 			if (!commit || !loadedAt || commit === loadedAt) {
 				setChanges([])

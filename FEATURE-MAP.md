@@ -42,7 +42,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   routes                            every HTTP route
   watch, rewatch, told, doing, cutOf, earlier, covers   /ws: a browser watching one thread and its agents' work
   mintKey, revoke, upgrade          runner keys and sockets; a module's `connect` socket
-  saveSettings, restart, connectSelf   settings, restart, the server's own machine as a runner
+  saveSettings, restartSoon, restart, connectSelf   settings, restart (POST /api/restart), the server's own machine as a runner
+  stale                             whether the server's code changed since it started
 echo.js                  echo/try scripted model responses
 runner.js                a runner: offers models and folders, runs agents on its machine
 runner-updater.js        what `curl <server>/connect-runner | sh` starts; keeps the runner up to date
@@ -119,7 +120,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   model-picker.js        model search, thinking and folder: ModelPicker, matches, fromRunner, metered, Metered
   runner.js              runner list, ConnectRunner; Stranded, runnersWith
   bot.js                 BotSettings, ForgetBot, new bot, botThreads, botMenu
-  thread-list.js         ThreadList, family rows, Inbox toggle, creatingBot, threadMenu
+  thread-list.js         ThreadList, family rows, Inbox toggle, Update (reload, or restart and reload), creatingBot, threadMenu
   schedule.js            ScheduledTaskList, TaskRow, ThreadTasks, OfflineRunner, TaskForm, openTaskForm,
                          ScheduledTasks, Ring, LastRun, Controls, ScheduledTaskSet, ScheduledRun
   search.js              SearchField, Search, Result, marked, showMessage

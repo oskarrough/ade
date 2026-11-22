@@ -21,9 +21,9 @@ import (
 // The house is the ade server and its runner on this machine. When the
 // window's server doesn't answer and it lives here (localhost), the app can
 // start it: inside WSL on Windows, directly on Linux and macOS. It starts
-// detached, so it outlives the window and agents finish their work; "Stop
-// house" stops only the one this app started, which house.sh remembers by
-// its process group.
+// detached, so it outlives the window and agents finish their work. The page
+// restarts it in place to update, so it keeps its process and house.sh's
+// token.
 
 //go:embed house.sh
 var houseScript string
@@ -91,7 +91,7 @@ func local(origin string) bool {
 // shellQuote quotes s for sh.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// runHouse runs house.sh with an action: start, stop or status. It answers
+// runHouse runs house.sh with an action: start or status. It answers
 // the script's output: the log's path, then the house's state.
 func runHouse(ctx context.Context, action string, h house) (string, error) {
 	dir := h.dir()
@@ -162,7 +162,6 @@ func startHouse() bool {
 		return false
 	}
 	houseNote = "Starting the house in " + h.dir() + "…"
-	updateHouseMenu()
 	return true
 }
 
@@ -187,79 +186,42 @@ func askToStart() bool {
 // houseNote is what the offline page says about the house.
 var houseNote string
 
-func stopHouse() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := runHouse(ctx, "stop", loadHouse())
-	noteLog(out)
-	if err != nil {
-		mygo.RunOnMain(func() {
-			_, _ = mygo.Dialog.Message(mygo.MessageOptions{Parent: win, Title: "arbe desktop", Message: "Couldn't stop the house", Detail: err.Error()})
-		})
-	}
-	updateHouseMenu()
-}
-
-// houseItems are the House menu's items that change.
-var houseItems struct{ stop, start, auto *mygo.MenuItem }
-
-// updateHouseMenu enables Stop only while a house this app started runs.
-func updateHouseMenu() {
+// findLog learns where the log is before anything starts, for Open house log.
+func findLog() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		out, _ := runHouse(ctx, "status", loadHouse())
 		noteLog(out)
-		ours := strings.HasSuffix(out, "running")
-		mygo.RunOnMain(func() {
-			if houseItems.stop != nil {
-				houseItems.stop.SetEnabled(ours)
-				houseItems.start.SetEnabled(!ours)
-			}
-		})
 	}()
 }
 
+// houseMenu is the switch and the log. Ticking the switch while nothing
+// answers starts the house at once; to update, the page restarts it.
 func houseMenu() *mygo.Menu {
 	h := loadHouse()
-	houseItems.stop = &mygo.MenuItem{Label: "Stop house", Disabled: true, Click: func(*mygo.MenuItem, *mygo.Window) { go stopHouse() }}
-	houseItems.start = &mygo.MenuItem{Label: "Start house", Click: func(*mygo.MenuItem, *mygo.Window) {
-		go func() {
-			if !reachable() {
-				on := true
-				h := loadHouse()
-				if h.Start == nil {
-					h.Start = &on
-					saveHouse(h)
-				}
-				startHouse()
-			}
-		}()
-	}}
-	houseItems.auto = &mygo.MenuItem{
-		Label:   "Start house when it's down",
-		Type:    mygo.MenuItemCheckbox,
-		Checked: h.Start != nil && *h.Start,
-		Click: func(item *mygo.MenuItem, _ *mygo.Window) {
-			h := loadHouse()
-			on := item.IsChecked()
-			h.Start = &on
-			saveHouse(h)
-		},
-	}
 	return mygo.NewMenu([]*mygo.MenuItem{{Label: "House", Submenu: []*mygo.MenuItem{
-		houseItems.start,
-		houseItems.stop,
-		mygo.Separator(),
-		houseItems.auto,
+		{
+			Label:   "Start house when it's down",
+			Type:    mygo.MenuItemCheckbox,
+			Checked: h.Start != nil && *h.Start,
+			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
+				h := loadHouse()
+				on := item.IsChecked()
+				h.Start = &on
+				saveHouse(h)
+				if on && local(origin) {
+					go func() {
+						if !reachable() {
+							startHouse()
+						}
+					}()
+				}
+			},
+		},
 		{Label: "Open house log", Click: func(*mygo.MenuItem, *mygo.Window) {
 			if houseLog != "" {
 				go mygo.Shell.OpenPath(houseLog)
-			}
-		}},
-		{Label: "Show house folder", Click: func(*mygo.MenuItem, *mygo.Window) {
-			if houseLog != "" {
-				go mygo.Shell.ShowItemInFolder(houseLog)
 			}
 		}},
 	}}})
