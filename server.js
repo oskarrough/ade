@@ -868,10 +868,11 @@ async function whom(threadId, to, command = false, signal) {
 	if (at && Number(at) !== threadId) throw new Error(`${to} is in thread ${at}, not ${threadId}`)
 	const text = at ? (rest ?? AGENT) : to
 	const agents = threadId !== undefined ? (await thread(threadId))?.agents : undefined
-	if (typeof text === 'string' && agents?.[text]) return agentOf(agents[text].conversation, text)
-	if (text === AGENT) throw new Error(`Thread ${threadId} has no agent yet`)
+	// A bot asked by name runs as the bot is now, so changing its runner or model reaches the threads it's already in
 	const bot = typeof text === 'string' && !/[@=]/.test(text) && (await botAgent?.(text))
 	if (bot) return address(bot, command, signal)
+	if (typeof text === 'string' && agents?.[text]) return agentOf(agents[text].conversation, text)
+	if (text === AGENT) throw new Error(`Thread ${threadId} has no agent yet`)
 	const asked = typeof text === 'string' ? agentTo(text) : text
 	const key = !command && (asked?.name ?? AGENT)
 	const agent = key && agents?.[key] ? await agentOf(agents[key].conversation, key) : null
@@ -948,11 +949,16 @@ async function agentOf(id, key, tx, all) {
 	}
 }
 
+/** Whom asking an agent asks: a bot as it is now, which may be another runner or model than its agent here; else the agent */
+const askable = async (key, conversation) =>
+	(key !== AGENT && (await botAgent?.(key))) || agentOf(conversation, key)
+
+/** The agents in a thread as asking them asks them: bots as they are now */
 const agentsHere = async (threadId) =>
 	(
 		await Promise.all(
 			Object.entries((await thread(threadId)).agents).map(([key, agent]) =>
-				agentOf(agent.conversation, key),
+				askable(key, agent.conversation),
 			),
 		)
 	).filter(Boolean)
@@ -1153,7 +1159,7 @@ async function lastAsked(id) {
 	const { agents } = await thread(id)
 	return Promise.all(
 		names.map((name) =>
-			agents[keyOf(name)] ? agentOf(agents[keyOf(name)].conversation, keyOf(name)) : whom(id, name),
+			agents[keyOf(name)] ? askable(keyOf(name), agents[keyOf(name)].conversation) : whom(id, name),
 		),
 	)
 }

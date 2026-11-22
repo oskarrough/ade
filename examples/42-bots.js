@@ -131,18 +131,26 @@ check(
 const desk = await createThread('desk work')
 await postEntry(desk, 'and here?', 'bot1=echo/echo@desk')
 v = await answered(desk)
+const porch = await createThread('porch')
+await postEntry(porch, 'hi', 'bot1')
+await answered(porch)
 await api('POST', '/api/bots', { name: 'bot1', to: 'echo/echo@desk' })
 const yard = await createThread('yard')
 await postEntry(yard, 'hi', 'bot1')
 const y = await answered(yard)
+await postEntry(porch, 'still here?', 'bot1')
+const p = await answered(porch, 2)
 check(
 	v.agents.find((a) => a.name === 'bot1')?.to.runner === 'desk' &&
 		y.agents.find((a) => a.name === 'bot1')?.to.runner === 'desk' &&
+		p.agents.find((a) => a.name === 'bot1')?.to.runner === 'desk' &&
+		answers(p).at(-1)?.data.author === 'bot1' &&
 		(await api('GET', `/api/threads/${shed}`)).json.agents.find((a) => a.name === 'bot1')?.to
 			.runner === 'laptop',
-	'bot1=model@runner gives one thread another model; a new model counts in the threads she joins next',
-	JSON.stringify([v.agents, y.agents]),
+	'bot1=model@runner gives one thread another model; a new model counts wherever she is asked by name next, in threads she was already in too',
+	JSON.stringify([v.agents, y.agents, p.agents]),
 )
+await api('POST', '/api/bots', { name: 'bot1', to: 'echo/echo@laptop' })
 
 await postEntry(home, 'make wren', 'bot1')
 await answered(home, 3)
