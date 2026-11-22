@@ -111,9 +111,9 @@ function Client() {
 						<span
 							>${() =>
 								inboxOpen()
-									? `Inbox${inbox.length ? ` · ${inbox.length}` : ''}`
+									? `Inbox${inbox.length ? ` ${inbox.length}` : ''}`
 									: searchFor() !== null
-										? `Search · ${searchFor()}`
+										? `Search: ${searchFor()}`
 										: current()
 											? titleOf(current())
 											: 'New thread'}</span

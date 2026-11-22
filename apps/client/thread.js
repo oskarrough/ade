@@ -416,16 +416,22 @@ export function Thread(props) {
 			// A message or run line names its author only when it isn't the last one's that wasn't yours, or one before a break: your own are marked by where they sit.
 			// A run's name goes above its line, so the answer under it, being the same agent's, goes unnamed. Only rows that name
 			// their speaker carry it: an ask or a memory line leaves the last one as it was
-			let last
+			// Alone with an agent, outside a bot's home, its name shows only when it changes from the last answer's, so a model
+			// switch still says so; your own messages between don't count
+			const alone =
+				!homeBot(props.id) && !all.some((entry) => byPerson(entry) && entry.data.author !== me())
+			let last, answering
 			for (const row of rows) {
-				if (row.break) last = undefined
-				row.above = last
+				if (row.break) last = answering = undefined
+				const agentRow = row.turn || row.live || (row.entry && !byPerson(row.entry))
+				row.above = alone && agentRow ? answering : last
 				const author = row.entry
 					? !row.entry.data.from && row.entry.data.author
 					: row.turn || row.live
 						? row.agent?.name
 						: null
 				if (author !== null && author !== me()) last = author
+				if (author && agentRow) answering = author
 			}
 			// A row that didn't change is handed back as the same object, so the diff skips it and an update costs the rows it touched
 			const next = new Map()

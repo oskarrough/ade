@@ -55,7 +55,7 @@ function CompactionOf(props) {
 						? 'Not compacted yet'
 						: `Older ${plural(older(), 'message')} → ${
 								cut().memory ? plural(cut().lines.length, 'memory line') : "Pi's summary"
-							} · last ${newer()} word for word`}</small
+							}, last ${newer()} word for word`}</small
 			>
 		</div>
 	`

@@ -60,7 +60,7 @@ export function Wakes(props) {
 					setOpen(opening)
 					if (opening && wake().on !== undefined && !hook())
 						api(`/api/threads/${props.thread}/hooks?wake=${wake().id}`).then(
-							(found) => setHook(` · ${found.path}, secret ${found.secret}`),
+							(found) => setHook(`, ${found.path}, secret ${found.secret}`),
 							() => {},
 						)
 				}

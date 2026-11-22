@@ -54,7 +54,7 @@ export function Turn(props) {
 			start && clock() - start >= 1000 && seconds(clock() - start),
 		]
 			.filter(Boolean)
-			.join(' · ')
+			.join(', ')
 	}
 	const said = () => messageText(live()?.message)
 	/** Its agent's name above it, as a message has, unless the row above is already theirs */
@@ -239,7 +239,7 @@ function summary(turn) {
 		turn.end - turn.start >= 1000 && seconds(turn.end - turn.start),
 	]
 	// A turn with no call only thought, before its answer or instead of one
-	return parts.filter(Boolean).join(' · ') || 'thought'
+	return parts.filter(Boolean).join(', ') || 'thought'
 }
 
 /** A post's ask: the thread it went to, or for an answer, the thread it answered */

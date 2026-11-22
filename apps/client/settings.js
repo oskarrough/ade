@@ -162,7 +162,7 @@ export function Settings() {
 							<${Busy} state=${save.state}
 								>${() =>
 									changes()
-										? `${changes()} ${changes() === 1 ? 'change' : 'changes'} · Save and restart`
+										? `${changes()} ${changes() === 1 ? 'change' : 'changes'}, save and restart`
 										: 'Save and restart'}<//
 							>
 						</button>

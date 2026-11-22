@@ -112,7 +112,7 @@ export function PiSessionList(props) {
 									>${() =>
 										starting() === session.path
 											? 'Starting a thread…'
-											: `${session.messageCount} messages · ${new Date(session.modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}</small
+											: `${session.messageCount} messages, ${new Date(session.modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}</small
 								>
 							</div>
 						</li>

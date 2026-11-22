@@ -33,7 +33,7 @@ export function Inbox() {
 			<header>
 				<h2 class="title">
 					<button type="button" class="ghost thread-name" title="Open questions agents asked">
-						<span>${() => (inbox.length ? `Inbox · ${inbox.length}` : 'Inbox')}</span>
+						<span>${() => (inbox.length ? `Inbox ${inbox.length}` : 'Inbox')}</span>
 					</button>
 				</h2>
 				<button
@@ -75,10 +75,10 @@ function Question(props) {
 					onClick=${(event) => followThread(event, thread)}
 					>${() => titleOf(thread)}</a
 				>
-				${' · '}<span title=${() => data().author} style=${() => colorOf(data().author)}
+				${', '}<span title=${() => data().author} style=${() => colorOf(data().author)}
 					>${() => authorLabel(data().author)}</span
 				>
-				${' · '}<${Stamp} time=${() => data().createdAt && Date.parse(data().createdAt)} />
+				${', '}<${Stamp} time=${() => data().createdAt && Date.parse(data().createdAt)} />
 			</small>
 			<${Show} when=${() => server().modules.includes('recap')}>
 				<${Loading}><${RecapLine} thread=${thread} /><//>
@@ -87,7 +87,7 @@ function Question(props) {
 			<${Composer} thread=${() => thread} inbox asks=${asks} />
 			<div class="links">
 				<a href=${hrefOf(thread)} onClick=${(event) => followThread(event, thread)}>Open thread</a>
-				${' · '}
+				${', '}
 				<button
 					type="button"
 					class="ghost small"

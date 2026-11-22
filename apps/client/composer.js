@@ -469,7 +469,7 @@ export function Composer(props) {
 							recall.togglePopover()
 						}}
 					>
-						<span>${() => `${filled().share}% · ${Math.round(filled().used / 1000)}k`}</span>
+						<span>${() => `${filled().share}%, ${Math.round(filled().used / 1000)}k`}</span>
 					</button>
 				<//>
 				<button
