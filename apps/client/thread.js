@@ -64,7 +64,7 @@ import {
 	turnsOf,
 } from './run.js'
 import { Break, breakOf, Stamp } from './time.js'
-import { appendQuote, Composer } from './composer.js'
+import { appendQuote, Composer, heardDraft } from './composer.js'
 import { copyText, nativeMenu, selectedIn } from './desktop.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
@@ -576,6 +576,7 @@ export function Thread(props) {
 						})
 						if (!snapshot) markRead(id)
 					}
+					if ('draft' in message || message.sent) heardDraft(id, message)
 					if (message.activity) {
 						heardActivity(id, message.activity)
 						heardSchedule(id, message.activity)

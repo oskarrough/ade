@@ -1,6 +1,7 @@
 /**
- * Each thread keeps its draft, images and pick when you move away; a new thread keeps its own.
- * The draft's text, not its images, also lives in localStorage by thread id, so it survives a reload or closing the tab.
+ * Each thread keeps its draft, images and pick when you move away; a new thread keeps its own, on this page only.
+ * A thread's draft is saved on the server as you type, yours alone, so it survives a reload and follows you to another
+ * device; Send posts it under the draft's key, which empties it there in the same step.
  * Asking a thread's agent as another model switches it. A pick is one model plus any bots; in a bot's home, it is the bot's model.
  * In a group thread, a message whose sender chose no one goes without `to`, and a choice holds for one message.
  * The inbox mounts the same composer under each question (`inbox`): it sends as the thread's own would, without opening it.
@@ -38,6 +39,7 @@ import {
 	server,
 	threadRows,
 	threadOf,
+	url,
 } from './server.js'
 import { agentTo, formatAgent, shortLabel } from './agent.js'
 import { placePopover } from './popover.js'
@@ -95,7 +97,7 @@ export function Composer(props) {
 		const text = `${input.value.slice(0, start)}${option.written} `
 		const value = text + input.value.slice(input.selectionStart).replace(/^\s/, '')
 		changeDraft((draft) => {
-			draft.draft = value
+			draft.text = value
 		})
 		input.value = value
 		input.setSelectionRange(text.length, text.length)
@@ -167,22 +169,8 @@ export function Composer(props) {
 		}
 	}
 	const draft = () => compose.drafts[props.thread ?? 'new'] ?? emptyDraft
-	const changeDraft = (change, key = props.thread ?? 'new') => changeDraftFor(key, change)
-	// A thread not yet touched this session picks up its saved text; typed-but-unsaved text stays as is
-	createEffect(
-		() => props.thread ?? 'new',
-		(key) => {
-			if (untrack(() => compose.drafts[key])) return
-			let saved = null
-			try {
-				saved = localStorage.getItem(draftKey(key))
-			} catch {}
-			if (saved)
-				setCompose(
-					(store) => void (store.drafts[key] = { draft: saved, images: [], sending: false }),
-				)
-		},
-	)
+	const changeDraft = (change, key = props.thread ?? 'new', fields = ['text']) =>
+		changeDraftFor(key, change, fields)
 	const touch = () => matchMedia('(pointer: coarse)').matches
 	/** The open thread's composer; one in the inbox is live too, but answering there never opens the thread */
 	const open = () => !props.inbox && current() === props.thread
@@ -191,8 +179,15 @@ export function Composer(props) {
 	/** Whom it asks: in the inbox, the agent that asked, and no one until the thread's list knows it; never a guess from history */
 	const whom = () => (props.inbox ? [props.asks].filter(Boolean) : recipients(props.thread))
 	const free = () => !props.inbox && directing(props.thread) && !pick(props.thread)
+	// Coming to a thread takes up its draft as saved, which another device may have changed meanwhile
 	createEffect(
-		() => [draft().draft, active()],
+		() => active() && props.thread,
+		(thread) => {
+			if (thread) loadDraft(thread)
+		},
+	)
+	createEffect(
+		() => [draft().text, active()],
 		() => {
 			if (CSS.supports('field-sizing', 'content')) return
 			onSettled(() => {
@@ -215,9 +210,13 @@ export function Composer(props) {
 		for (const file of files)
 			try {
 				const image = await imageContent(file)
-				changeDraft((draft) => {
-					draft.images.push(image)
-				}, key)
+				changeDraft(
+					(draft) => {
+						draft.images.push(image)
+					},
+					key,
+					['images'],
+				)
 			} catch (error) {
 				report(error)
 			}
@@ -241,19 +240,27 @@ export function Composer(props) {
 				here(props.thread).length,
 			)
 		if (draft().sending || (!toDirector && !whom().length)) return
-		if (!draft().draft.trim() && !draft().images.length) return
-		const body = draft().draft,
+		if (!draft().text.trim() && !draft().images.length) return
+		const body = draft().text,
 			images = snapshot(draft().images),
-			to = snapshot(whom())
+			to = snapshot(whom()),
+			// It posts under its draft's key, so it lands once and empties that draft wherever it's open
+			sent = draft().key || crypto.randomUUID()
 		// A choice holds for one message, including the invitation that turns a solo thread into a group
 		if (props.thread && !props.inbox) setCompose((store) => void delete store.picks[props.thread])
 		let id = props.thread
 		const key = id ?? 'new'
-		changeDraft((draft) => {
-			draft.sending = true
-			draft.draft = ''
-			draft.images = []
-		}, key)
+		cancelSave(key)
+		changeDraft(
+			(draft) => {
+				draft.sending = true
+				draft.text = ''
+				draft.images = []
+				draft.key = crypto.randomUUID()
+			},
+			key,
+			[],
+		)
 		// Sending ends your typing: the server ends it with the message too, and this stop outranks any beat still on its way
 		if (beat.thread) typed(beat.thread, '')
 		let drop
@@ -265,19 +272,28 @@ export function Composer(props) {
 				...(toDirector ? {} : { to }),
 				steer: true,
 				...(images.length && { images }),
+				key: sent,
 			})
 		} catch (error) {
 			drop?.()
-			changeDraft((draft) => {
-				if (draft.draft || draft.images.length) return
-				draft.draft = body
-				draft.images = images
-			}, id ?? key)
+			// Back in the box under its own key: if it landed after all, saving it says so and it goes again
+			changeDraft(
+				(draft) => {
+					if (draft.text || draft.images.length) return
+					Object.assign(draft, { text: body, images, key: sent, restored: body })
+				},
+				id ?? key,
+				['text', 'images'],
+			)
 			report(error)
 		} finally {
-			changeDraft((draft) => {
-				draft.sending = false
-			}, key)
+			changeDraft(
+				(draft) => {
+					draft.sending = false
+				},
+				key,
+				[],
+			)
 		}
 	}
 	/** The bots the search matches, under the models */
@@ -349,9 +365,13 @@ export function Composer(props) {
 									class="small"
 									aria-label="Take this image off"
 									onClick=${(_e) =>
-										changeDraft((draft) => {
-											draft.images.splice(index(), 1)
-										})}
+										changeDraft(
+											(draft) => {
+												draft.images.splice(index(), 1)
+											},
+											undefined,
+											['images'],
+										)}
 								>
 									<${Icon} name="close" />
 								</button>
@@ -405,7 +425,7 @@ export function Composer(props) {
 							: members().names.length
 								? `Write to ${listed(members().names)}`
 								: 'Pick a model below, then write'}
-					value=${() => draft().draft}
+					value=${() => draft().text}
 					onFocus=${() => {
 						if (!active()) enter()
 					}}
@@ -425,7 +445,7 @@ export function Composer(props) {
 								true,
 							)
 						changeDraft((draft) => {
-							draft.draft = event.currentTarget.value
+							draft.text = event.currentTarget.value
 						})
 						typed(props.thread, event.currentTarget.value)
 						findMention()
@@ -701,7 +721,8 @@ function MentionRow(option, mention) {
 }
 
 const [compose, setCompose] = createStore({ drafts: {}, picks: {}, settings: {} })
-const emptyDraft = { draft: '', images: [], sending: false }
+/** A draft as this page holds it: `key` is what its message posts under; `restored`, a failed send's text put back */
+const emptyDraft = { text: '', images: [], key: '', sending: false }
 /**
  * Tells the thread you're typing, so the director's picks wait for you: a beat every 2 s while there's text, one
  * that you stopped once it's empty. Sending ends it on the server.
@@ -720,18 +741,104 @@ function typed(thread, text) {
 
 /** Each mounted composer's textarea, by thread id ('new' for one with none yet), so a quote from its message list can reach it */
 const textareas = new Map()
-const changeDraftFor = (key, change) =>
+/** A change to a thread's draft, saved with the `fields` it touched; a new thread's stays on this page */
+const changeDraftFor = (key, change, fields = ['text']) => {
 	setCompose((store) => {
 		store.drafts[key] ??= { ...emptyDraft, images: [] }
 		change(store.drafts[key])
-		const text = store.drafts[key].draft
-		try {
-			if (text.trim()) localStorage.setItem(draftKey(key), text)
-			else localStorage.removeItem(draftKey(key))
-		} catch {}
+		store.drafts[key].key ||= crypto.randomUUID()
 	})
-/** Unsent text, kept in localStorage by thread id so it survives a reload; a new thread shares one key until it gets an id */
-const draftKey = (key) => `composer-draft:${key}`
+	if (key !== 'new' && fields.length) saveLater(key, fields)
+}
+/** This page, so it tells its own saves from another device's */
+const page = crypto.randomUUID()
+/** Each thread's save waiting out the typing: the fields it carries and its timer; what's waiting here wins over the server's */
+const saving = new Map()
+/** Text goes half a second after the typing pauses; images and a pick at once, being a deliberate act */
+function saveLater(thread, fields) {
+	const waiting = saving.get(thread) ?? { fields: new Set(), timer: 0 }
+	for (const name of fields) waiting.fields.add(name)
+	clearTimeout(waiting.timer)
+	waiting.timer = setTimeout(() => save(thread), fields.includes('text') ? 500 : 0)
+	saving.set(thread, waiting)
+}
+/** `keepalive` lets a closing page's save go out; it takes small bodies only, so images, saved at once anyway, stay behind */
+function save(thread, keepalive = false) {
+	const waiting = saving.get(thread)
+	const draft = untrack(() => compose.drafts[thread])
+	if (!waiting || !draft) return
+	cancelSave(thread)
+	const chosen = untrack(() => pick(thread))
+	const body = {
+		key: draft.key,
+		page,
+		...(waiting.fields.has('text') && { text: draft.text }),
+		...(waiting.fields.has('images') && !keepalive && { images: snapshot(draft.images) }),
+		...(waiting.fields.has('pick') && { pick: chosen && !chosen.held ? snapshot(chosen) : null }),
+	}
+	if (keepalive)
+		return void fetch(`${url}/api/threads/${thread}/draft`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+			keepalive: true,
+		}).catch(() => {})
+	api(`/api/threads/${thread}/draft`, body)
+		.then((answer) => answer.sent && wasSent(thread, body.key, true))
+		.catch(() => {})
+}
+function cancelSave(thread) {
+	clearTimeout(saving.get(thread)?.timer)
+	saving.delete(thread)
+}
+addEventListener('pagehide', () => {
+	for (const thread of saving.keys()) save(thread, true)
+})
+/**
+ * A message went under this draft's key, from here or another device: what was sent leaves the box. Text typed here
+ * since, which a save found already sent, stays under a new key and saves again; a failed-looking send put back never does.
+ */
+function wasSent(thread, key, typedHere = false) {
+	let kept = false
+	setCompose((store) => {
+		const draft = store.drafts[thread]
+		if (!draft || draft.key !== key) return
+		kept =
+			(typedHere || saving.has(thread)) &&
+			draft.text !== draft.restored &&
+			Boolean(draft.text.trim() || draft.images.length)
+		if (!kept) Object.assign(draft, { text: '', images: [] })
+		draft.key = crypto.randomUUID()
+		delete draft.restored
+		if (!kept && store.picks[thread] && !store.picks[thread].held) delete store.picks[thread]
+	})
+	if (kept) saveLater(thread, ['text', 'images'])
+}
+/** The draft as the server has it, unless this page has a save waiting, which wins */
+function tookDraft(thread, saved) {
+	if (saving.has(thread)) return
+	setCompose((store) => {
+		const draft = (store.drafts[thread] ??= { ...emptyDraft, images: [] })
+		if (draft.sending) return
+		Object.assign(draft, {
+			text: saved?.text ?? '',
+			images: saved?.images ?? [],
+			key: saved?.key || draft.key || crypto.randomUUID(),
+		})
+		delete draft.restored
+		if (saved?.pick) store.picks[thread] = saved.pick
+		else if (store.picks[thread] && !store.picks[thread].held) delete store.picks[thread]
+	})
+}
+const loadDraft = (thread) =>
+	api(`/api/threads/${thread}/draft`)
+		.then(({ draft }) => tookDraft(thread, draft))
+		.catch(() => {})
+/** The thread's socket tells this person's pages when their draft there changed, or was sent */
+export function heardDraft(thread, message) {
+	if (message.sent) wasSent(thread, message.sent)
+	else if (message.page !== page) tookDraft(thread, message.draft)
+}
 /** Each thread's pick, `{agent, bots}`, kept by thread id; a new thread's under `new` */
 const pick = (thread = current()) => compose.picks[thread ?? 'new'] ?? null
 const here = (thread = current()) => threadOf(thread)?.agents ?? []
@@ -874,11 +981,14 @@ const where = (thread) => {
 export const toFor = (runner, thread = current()) =>
 	agent(thread)?.runner === runner.name ? agent(thread) : fallback(runner)
 /** `held` marks a pick made only to keep the label still while you type, not one you chose */
-const setPick = (to, bots, thread = current(), held = false) =>
+const setPick = (to, bots, thread = current(), held = false) => {
 	setCompose((store) => {
 		store.picks[thread ?? 'new'] = { agent: to, bots, ...(held && { held }) }
 		if (to && !to.name) store.settings[to.runner] = to
 	})
+	// A pick you chose is part of the draft; one held while typing isn't
+	if (thread && !held) changeDraftFor(thread, () => {}, ['pick'])
+}
 /** Choosing a model replaces the agent's pick and keeps the bots; in a bot's home, it is the bot's own model */
 export function choose(to, always = true, thread = current()) {
 	const bot = homeBot(thread)
@@ -910,9 +1020,9 @@ export const appendQuote = (thread, text) => {
 	if (!block) return
 	let full
 	changeDraftFor(key, (draft) => {
-		const before = draft.draft.replace(/\s+$/, '')
+		const before = draft.text.replace(/\s+$/, '')
 		full = `${before ? `${before}\n\n` : ''}${block}\n\n`
-		draft.draft = full
+		draft.text = full
 	})
 	const input = textareas.get(key)
 	if (!input) return

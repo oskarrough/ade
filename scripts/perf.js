@@ -2,7 +2,8 @@
  * It copies ~/.local/share/ade/ade.sqlite (or DB_PATH) into .work/perf/, never touching the live one, starts a scratch
  * server on the copy with --no-runner and its own config (the live ade.json's modules plus inbox and search), and prints three tables:
  *   server  each read the client makes, timed cold and warm, with the SQLite rows and statements it took and its size; a post to the
- *           biggest thread while scripted runs and list reads go on
+ *           biggest thread while scripted runs, list reads and typing there go on: its draft saved ten times a second, as a
+ *           page saves it after each pause, which the line under it times
  *   socket  what one page open on the biggest thread hears per minute while three scripted runs happen: socket
  *           messages, and the list fetches they set off
  *   client  that page in agent-browser: time to a usable sidebar and to the open thread, Solid's [CODE] warnings
@@ -312,13 +313,28 @@ async function measure() {
 	const load = (async () => {
 		while (reading) await api('GET', '/api/threads')
 	})()
+	/** Someone typing in the big thread: a page saves the draft after each pause, so ten a second is a fast typist's worst */
+	const saves = []
+	const typing = (async () => {
+		let text = ''
+		while (reading) {
+			text += 'word '
+			const begun = performance.now()
+			await api('POST', `/api/threads/${big}/draft`, { key: 'perf-typing', text })
+			saves.push(performance.now() - begun)
+			await sleep(100)
+		}
+		await api('POST', `/api/threads/${big}/draft`, { key: 'perf-typing', text: '' })
+	})()
 	for (let index = 0; index < 5; index++) {
 		const begun = performance.now()
 		await api('POST', `/api/threads/${big}/entries`, { body: `perf ${index}`, to: null })
 		posts.push(performance.now() - begun)
 	}
+	// The typing goes on a while after them, so its own times have more than the posts' moment to go by
+	while (saves.length < 30) await sleep(100)
 	reading = false
-	await load
+	await Promise.all([load, typing])
 	const settled = async () =>
 		(await Promise.all(threads.map((id) => api('GET', `/api/threads/${id}`)))).every(
 			(thread) => thread.status !== 'working',
@@ -377,6 +393,7 @@ async function measure() {
 			]),
 		),
 		`post to ${big} under load: median ${ms(median(posts))} ms, worst ${ms(Math.max(...posts))} ms`,
+		`typing in ${big} meanwhile: ${saves.length} draft saves, median ${ms(median(saves))} ms, worst ${ms(Math.max(...saves))} ms`,
 	]
 	if (why)
 		for (const row of serverRows) {

@@ -206,6 +206,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     appendQuote, textareas   a message's quote button sends its selection here: `> ` on every line, a block
                          below anything already there, a blank line and the cursor after it
     choose, configure, toFor             model picker and runner controls changing that pick
+    changeDraftFor, saveLater, save, wasSent, tookDraft, loadDraft, heardDraft   a thread's draft on the server: saved half a
+                         second after typing (images and a pick at once, a closing page's with keepalive), taken up on opening
+                         and from the socket unless a save waits here; a new thread's stays on the page
     Composer: submit, add, pickRecipients, filled, compactNow   send, images, typed recipients, context meter;
     folderOf, where                                          the folder the next message's agent works in, said on its button
     PickerBot            bots in the picker
