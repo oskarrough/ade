@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+
+- The House menu holds just "Start house when it's down" and "Open house log": ticking the switch starts a house that's down.
+- The first release built on GitHub, with download links that always point at the newest version.
+
 ## 0.1.5
 
 - Starts your house: when nothing answers at a localhost address, arbe desktop starts the ade server and its runner (inside WSL on Windows) and leaves them running when you close the window. It asks once; the House menu (Alt) turns it off, starts or stops the house it started, and opens its log.
