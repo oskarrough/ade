@@ -65,6 +65,21 @@ const cut = (text) => {
 	const boundary = head.search(/\s+\S*$/)
 	return boundary > 0 ? head.slice(0, boundary) : head
 }
+/**
+ * Whether a written line stands for its source rather than answering the writer's request: most of its words come from
+ * the source, and it doesn't speak to the requester ("I can't…", "paste the messages") unless the source does too
+ */
+const words = (text) => new Set(text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu))
+const ASIDE =
+	/\b(?:I can['’]t|I cannot|I'm not (?:able|sure)|I don't have|What would you like|could you (?:tell|send|paste)|please (?:re)?send|paste (?:the|them))\b/i
+const plain = (text) => text.replace(/’/g, "'").toLowerCase()
+function faithful(line, source) {
+	const own = [...words(line)],
+		from = words(source)
+	if (own.length && own.filter((word) => from.has(word)).length < 0.35 * own.length) return false
+	const aside = line.match(ASIDE)?.[0]
+	return !aside || plain(source).includes(plain(aside))
+}
 const NOT_YET = '(not summarized yet: zoom it)'
 const unwritten = (l, i) => ({ l, i, text: NOT_YET })
 const span = (line) => ({
@@ -134,7 +149,10 @@ export function server(core) {
 		return to && core.address(smallModel(to, await core.known(), 'low'), false, signal)
 	}
 
-	/** Short sources need no model. Trim oversized replies; only missing items get one more attempt. */
+	/**
+	 * Short sources need no model. Trim oversized replies; missing items and replies that aren't a line of their source
+	 * get one more attempt, then the source cut to size.
+	 */
 	async function writeLines(items, chat, threadId, signal) {
 		const result = items.map(({ source }) => (bytes(source) <= LINE ? source : undefined))
 		let pending = items.map((_, index) => index).filter((index) => result[index] === undefined)
@@ -172,7 +190,8 @@ export function server(core) {
 					.get(index)
 					?.replace(/(^|\s)\d+\+\d+\|/g, '$1')
 					.trim()
-				if (!line || duplicates.has(index)) again.push(index)
+				if (!line || duplicates.has(index) || !faithful(line, items[index].source))
+					again.push(index)
 				else result[index] = bytes(line) <= LINE ? line : cut(line)
 			}
 			pending = again
@@ -474,9 +493,11 @@ export function server(core) {
 				)
 					throw new Error(`No line ${id}+${n} in this thread`)
 			const have = new Set((await indexOf(core, thread)).have.keys())
+			// Halves first, so a merge is checked against them
 			const fresh = body.lines
 				.map(({ id, n, text }) => ({ l: Math.log2(n), i: id / n, text, size: bytes(text) }))
 				.filter(({ l, i }) => !have.has(key(l, i)) && have.add(key(l, i)))
+				.sort((a, b) => a.l - b.l)
 			return core.commit(async (tx) => {
 				const row = await core.threadIn(tx, thread)
 				for (const line of fresh) await tx.appendEntry(thread, { kind: KIND, data: line })
@@ -601,6 +622,8 @@ export async function indexOf(core, threadId) {
 			have: new Map(),
 			long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
 			withdrawn: new Set(inherited?.withdrawn),
+			/** Merges that didn't stand for their halves, by `l:i`, until a line written again replaces them */
+			rejected: new Set(),
 			newest: 0,
 			revision: 0,
 			/** A fork's parent, and the parent's revision its lines were last copied at */
@@ -643,13 +666,15 @@ export async function indexOf(core, threadId) {
 				index.ids.push(entry.id)
 			}
 			if (entry.kind === 'ade.withdrawal') index.withdrawn.add(entry.data.message)
-			// A message line written again, for a withdrawn message, replaces the one before
-			if (
-				entry.kind === KIND &&
-				(entry.data.l === 0 || !index.have.has(key(entry.data.l, entry.data.i)))
-			) {
-				index.have.set(key(entry.data.l, entry.data.i), entry.data)
-				index.revision++
+			// A line written again replaces the one before. A merge that doesn't stand for its halves, or stands on one that
+			// didn't, counts as unwritten, so it is written again when next needed.
+			if (entry.kind === KIND) {
+				const at = key(entry.data.l, entry.data.i)
+				if (!entry.data.l || merged(index, entry.data)) {
+					index.have.set(at, entry.data)
+					index.rejected.delete(at)
+					index.revision++
+				} else index.rejected.add(at)
 			}
 		}
 		cursor = page.next
@@ -730,6 +755,14 @@ export function memory(lines, T, budget, from = 0) {
 		offer(l + 1, i >> 1)
 	}
 	return [...here.values()].sort((a, b) => a.i * 2 ** a.l - b.i * 2 ** b.l)
+}
+
+/** A recorded merge may come without its halves; a written one is checked against them */
+function merged({ have, rejected }, { l, i, text }) {
+	const at = [key(l - 1, 2 * i), key(l - 1, 2 * i + 1)]
+	if (at.some((half) => rejected.has(half))) return false
+	const halves = at.map((half) => have.get(half))
+	return !halves.every(Boolean) || faithful(text, halves.map((half) => half.text).join(' '))
 }
 
 function page(text, id, at, n = 1) {

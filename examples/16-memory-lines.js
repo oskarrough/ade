@@ -20,9 +20,13 @@ import {
 const env = { MODULES: '+memory', MEMORY_MODEL: 'echo/echo@bot' }
 const requests = []
 let n = 0
-const line = (size) => {
+/** A line of `size` bytes in its source's words, as a real writer's would be: its first real word, repeated */
+const line = (size, source) => {
 	const head = `L${++n} `
-	return head + 'word '.repeat(size).slice(0, size - head.length)
+	return (
+		head +
+		`${source.match(/[\p{L}\p{N}]{4,}/u)?.[0] ?? 'line'} `.repeat(size).slice(0, size - head.length)
+	)
 }
 const route = (request) => {
 	const first = text(request.messages.find((m) => m.role === 'user'))
@@ -36,12 +40,14 @@ const route = (request) => {
 			? 700
 			: 300
 	if (first.includes('without numbering'))
-		return say(source.includes('MISSING') && !first.includes('Redo only') ? '' : line(size(source)))
+		return say(
+			source.includes('MISSING') && !first.includes('Redo only') ? '' : line(size(source), source),
+		)
 	return say(
 		'Here are the lines:\n' +
 			[...source.matchAll(/^(\d+)\| (.*)$/gm)]
 				.filter((item) => !item[2].includes('MISSING') || first.includes('Redo only'))
-				.map((item) => `${item[1]}| ${line(size(item[2]))}`)
+				.map((item) => `${item[1]}| ${line(size(item[2]), item[2])}`)
 				.join('\n') +
 			'\nThat is all.',
 	)
@@ -142,7 +148,7 @@ check(
 )
 const trimmed = bl.find((x) => x.l === 0 && x.i === 2)
 check(
-	trimmed?.size <= 512 && trimmed?.text.endsWith('word'),
+	trimmed?.size <= 512 && trimmed?.text.endsWith('TOOLONG'),
 	'an oversized line is trimmed at a word boundary, without another call',
 )
 

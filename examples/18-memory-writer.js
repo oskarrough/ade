@@ -1,4 +1,5 @@
-/** A runner without Haiku or Luna writes memory with the thread's own model and thinking. */
+/** A runner without Haiku or Luna writes memory with the thread's own model and thinking, and a writer that answers
+ * instead of writing the line is asked again rather than remembered. */
 import { createModels } from '@earendil-works/pi-ai/models'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import {
@@ -27,7 +28,11 @@ script.setResponses(
 		const input = text(context.messages.findLast((message) => message.role === 'user'))
 		if (!input.includes('<input>')) return say('ok')
 		requests.push({ thinking: options?.reasoning })
-		return say('oskar: Keep the orchard gate locked.')
+		return say(
+			requests.length === 1
+				? "I can't write that line: no messages reached me. Paste them and I'll compress them."
+				: 'oskar: Keep the orchard gate locked.',
+		)
 	}),
 )
 const models = createModels()
@@ -58,7 +63,11 @@ const written = await until(async () =>
 )
 check(Boolean(written), "a runner without Haiku or Luna writes memory on the thread's model")
 check(
-	requests.length === 1 && requests[0].thinking === 'high',
+	requests.length === 2 && requests.every((request) => request.thinking === 'high'),
 	'memory keeps the thread’s thinking level',
+)
+check(
+	!(await linesOf(id)).some((line) => line.text.includes('Paste them')),
+	'a writer’s answer to the request never becomes a line',
 )
 done()

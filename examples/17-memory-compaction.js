@@ -57,9 +57,18 @@ async function compaction(
 				first.lastIndexOf('<input>') + '<input>\n'.length,
 				first.lastIndexOf('\n</input>'),
 			)
-			const line = `L ${'x'.repeat(lineSize - 2)}`
-			if (first.includes('without numbering')) return say(line)
-			return say([...input.matchAll(/^(\d+)\| /gm)].map((item) => `${item[1]}| ${line}`).join('\n'))
+			// A line in its source's words, as a real writer's would be: its first real word, repeated
+			const line = (source) =>
+				`L ${`${source.match(/[\p{L}\p{N}]{4,}/u)?.[0] ?? 'line'} `.repeat(lineSize)}`.slice(
+					0,
+					lineSize,
+				)
+			if (first.includes('without numbering')) return say(line(input))
+			return say(
+				[...input.matchAll(/^(\d+)\| (.*)$/gm)]
+					.map((item) => `${item[1]}| ${line(item[2])}`)
+					.join('\n'),
+			)
 		},
 		{ model: { contextWindow } },
 	)
