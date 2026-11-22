@@ -1004,8 +1004,12 @@ function Message(props) {
 	/** Its right-click menu in arbe desktop: the selection, else the whole message, quoted or copied, and its fork */
 	const messageMenu = (element) => {
 		const text = selectedIn(element) || data().body || ''
+		// Into the composer on screen, the column's, as the Quote button does: a bot's home shows its side questions' answers too
+		const column = Number(
+			element.closest('article.thread[data-thread]')?.dataset.thread ?? props.thread,
+		)
 		return [
-			text.trim() ? { label: 'Quote', run: () => appendQuote(props.thread, text) } : null,
+			text.trim() ? { label: 'Quote', run: () => appendQuote(column, text) } : null,
 			text.trim() ? { label: 'Copy', run: () => copyText(text) } : null,
 			null,
 			props.entry.sending || props.waiting
