@@ -454,6 +454,8 @@ export function Thread(props) {
 	}
 	const atBottom = () =>
 		Boolean(list && list.scrollTop + list.clientHeight >= list.scrollHeight - 4)
+	/** Back from a glide, hold or anchor: following if the view ends at the bottom, else left where the reader is */
+	const settle = () => setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
 	onSettled(() => () => {
 		setScrollMode({ kind: 'detached' })
 		sizes?.disconnect()
@@ -485,7 +487,7 @@ export function Thread(props) {
 				asking = null,
 				turnsDone = () => {}
 			/** Agents whose conversation came on this watch; the next batch from each is appended */
-			const followed = new Set()
+			const heardFrom = new Set()
 			const releaseFeed = openThreadFeed(id)
 			const finishTurns = () => {
 				turnsDone()
@@ -531,11 +533,11 @@ export function Thread(props) {
 					if (message.activity) heardActivity(id, message.activity)
 					if (message.agent && message.entries) {
 						heard(message.agent, message.entries, {
-							whole: !message.older && !followed.has(message.agent),
+							whole: !message.older && !heardFrom.has(message.agent),
 							older: message.older,
 							cut: message.cut,
 						})
-						if (!message.older) followed.add(message.agent)
+						if (!message.older) heardFrom.add(message.agent)
 					}
 					if (message.live)
 						setDoing((work) => {
@@ -546,7 +548,7 @@ export function Thread(props) {
 				},
 				(opened) => {
 					socket = opened
-					followed.clear()
+					heardFrom.clear()
 					finishTurns()
 					socket.send(JSON.stringify({ watch: id }))
 				},
@@ -632,8 +634,7 @@ export function Thread(props) {
 				const release = () =>
 					requestAnimationFrame(() =>
 						requestAnimationFrame(() => {
-							if (scrollMode === next)
-								setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+							if (scrollMode === next) settle()
 						}),
 					)
 				// A line fills in once it hears its own toggle, so the hold lasts until that has been laid out
@@ -649,8 +650,7 @@ export function Thread(props) {
 			true,
 		)
 		const keep = () => {
-			if (!scrollMode.summary.isConnected)
-				return setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+			if (!scrollMode.summary.isConnected) return settle()
 			const shift = scrollMode.summary.getBoundingClientRect().top - scrollMode.top
 			const short = list.scrollTop + shift + list.clientHeight - list.scrollHeight
 			if (short > 0) {
@@ -672,7 +672,7 @@ export function Thread(props) {
 			setScrollMode(next)
 			requestAnimationFrame(() =>
 				requestAnimationFrame(() => {
-					if (scrollMode === next) setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+					if (scrollMode === next) settle()
 				}),
 			)
 		}
@@ -691,7 +691,7 @@ export function Thread(props) {
 					const landedNearTarget = list.scrollTop + list.clientHeight >= target - 4
 					const grown = list.scrollHeight > target
 					if (landedNearTarget && grown) list.scrollTop = list.scrollHeight
-					setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+					settle()
 					followed = list.scrollHeight
 				}
 				const timer = setTimeout(done, 1000)
@@ -713,7 +713,7 @@ export function Thread(props) {
 		bottom = () => {
 			if (scrollMode.kind === 'anchoring') {
 				if (!scrollMode.row.isConnected) {
-					setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+					settle()
 				} else {
 					list.scrollTop += scrollMode.row.getBoundingClientRect().bottom - scrollMode.bottom
 					followed = list.scrollHeight
@@ -813,7 +813,7 @@ export function Thread(props) {
 							list.scrollHeight === followed &&
 							(scrollMode.kind === 'following' || scrollMode.kind === 'detached')
 						)
-							setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+							settle()
 						nearTop()
 					}}
 					aria-label="Messages"
