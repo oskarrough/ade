@@ -17,6 +17,3 @@ bun.lock
 
 .firecrawl/
 server.pid
-
-# bombadil's output in the repo root
-/my-test
