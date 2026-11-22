@@ -2705,7 +2705,8 @@ body.resizing {
 
 /* A thread's usage in its details reads at the pane's own size: the total a plain line, nothing larger below it. */
 .thread-details .thread-usage {
-	font: var(--text-ui) / var(--text-ui-line) var(--font-ui);
+	font-size: var(--text-ui);
+	line-height: var(--text-ui-line);
 
 	&:is(div) {
 		margin: var(--space-2) var(--space-2) 0;

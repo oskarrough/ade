@@ -58,6 +58,8 @@
 	--font-text: 'Inter Variable', system-ui, sans-serif;
 	--font-ui: 'Inter Variable', system-ui, sans-serif;
 	--font-mono: 'iA Writer Quattro S', ui-monospace, monospace;
+	/* Inter's single-storey a and round quotes and commas; Quattro has neither and ignores them. A font shorthand resets them, so each one sets them again. */
+	--font-features: 'cv11', 'ss03';
 	--ink: CanvasText;
 	--mute: color-mix(in srgb, CanvasText 58%, Canvas);
 	--line: color-mix(in srgb, CanvasText 14%, Canvas);
@@ -142,6 +144,7 @@ a[href] {
 body {
 	padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
 	font: var(--text) / var(--text-line) var(--font-text);
+	font-feature-settings: var(--font-features);
 	margin: 0;
 	color: var(--ink);
 	background: Canvas;
