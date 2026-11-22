@@ -71,7 +71,7 @@ So, what's different about this one? Not much, but it adds patterns I've found u
 - bots remember long threads as short summary lines they can zoom back into, so they can stick around for good (`memory`)
 - agents get their folder's AGENTS.md and skills, like in pi (`context`)
 - see what agents are doing on a runner's terminal (`status`)
-- threads get a short title once their first message is answered (`auto-title`)
+- threads get a short title once their first message is answered (`auto-title`). Titles prefer Sonnet 5.5 at low thinking, then Luna low, then the thread’s model. A bot’s home keeps its name.
 - agents can search the web (`web-search`, off by default)
 - Matrix rooms become threads (`matrix`, off by default)
 - a short recap per thread says where it stands (`recap`, off by default)

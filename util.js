@@ -68,7 +68,13 @@ export const agentTo = (name) => {
  * runner offering a small model, Haiku or Luna, so side work never waits for one machine. `runners` is what each runner
  * lists: the models it offers and those it has run.
  */
-export function smallModel(to, runners, thinkingLevel, online = (_name) => true) {
+export function smallModel(
+	to,
+	runners,
+	thinkingLevel,
+	online = (_name) => true,
+	preferred = undefined,
+) {
 	const provider = to.model.split('/')[0]
 	const own =
 		provider === 'anthropic' || provider === 'claude-code'
@@ -76,17 +82,20 @@ export function smallModel(to, runners, thinkingLevel, online = (_name) => true)
 			: 'openai-codex/gpt-6-luna'
 	const offers = (name, model) =>
 		Boolean(runners[name]?.models?.[model] || runners[name]?.offers?.includes(model))
-	if (online(to.runner))
-		return offers(to.runner, own) ? { runner: to.runner, model: own, thinkingLevel } : to
-	const small = [
-		own,
-		'claude-code/claude-haiku-5-5',
-		'anthropic/claude-haiku-5-5',
-		'openai-codex/gpt-6-luna',
-	]
-	for (const model of small)
-		for (const name of Object.keys(runners))
-			if (online(name) && offers(name, model)) return { runner: name, model, thinkingLevel }
+	const local = online(to.runner)
+	const names = local ? [to.runner] : Object.keys(runners).filter(online)
+	const models =
+		preferred ??
+		(local
+			? [own]
+			: [
+					own,
+					'claude-code/claude-haiku-5-5',
+					'anthropic/claude-haiku-5-5',
+					'openai-codex/gpt-6-luna',
+				])
+	for (const model of models)
+		for (const name of names) if (offers(name, model)) return { runner: name, model, thinkingLevel }
 	return to
 }
 /** The director's numbers in ade.json, in seconds there, as whole milliseconds; out of range throws, so a typo never

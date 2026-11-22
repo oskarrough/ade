@@ -89,6 +89,8 @@ export function server(core) {
 				if (await rt.memo('attempted', ctx)) return rt.commit(() => finished(), ctx)
 				await rt.memo('attempted', true, ctx)
 				try {
+					const home = (await core.homes())[threadId]
+					if (home) return rt.commit(() => finished('completed', { title: home }), ctx)
 					const messages = await core.messages(threadId)
 					const opening = messages[0]?.data.body ?? ''
 					const row = await core.thread(threadId)
@@ -99,14 +101,11 @@ export function server(core) {
 					const own = await core.agentOf(row.agents[AGENT]?.conversation ?? input.conversation)
 					const choice = modelName
 						? agentTo(modelName.includes('@') ? modelName : `${modelName}@${own.runner}`)
-						: core.runners.isOnline(own.runner)
-							? { runner: own.runner, model: own.model, thinkingLevel: 'off' }
-							: smallModel(
-									{ runner: own.runner, model: own.model, thinkingLevel: 'off' },
-									await core.known(),
-									'off',
-									core.runners.isOnline,
-								)
+						: smallModel(own, await core.known(), 'low', core.runners.isOnline, [
+								'anthropic/claude-sonnet-5-5',
+								'claude-code/claude-sonnet-5-5',
+								'openai-codex/gpt-6-luna',
+							])
 					await core.runners.online(choice.runner, rt.signal)
 					const to = await core.address(choice, false, rt.signal)
 					const reply = await complete(
@@ -140,6 +139,7 @@ export function server(core) {
 		if (threadId === undefined || body === undefined)
 			throw new Error('POST /api/threads/:id/auto-title writes a new title')
 		await core.conversation(threadId)
+		if ((await core.homes())[threadId]) throw new Error('A bot’s home keeps its name')
 		const row = await core.thread(threadId)
 		const conversation =
 			row.agents[AGENT]?.conversation ?? Object.values(row.agents)[0]?.conversation

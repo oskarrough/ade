@@ -60,6 +60,9 @@ check(
 	JSON.stringify([made.json, homeRow, prompt.laptop]),
 )
 
+const regenerate = await api('POST', `/api/threads/${home}/auto-title`, {})
+check(regenerate.status >= 400, 'a bot home refuses a generated title', JSON.stringify(regenerate))
+
 // With instructions explicitly empty, a bot still starts with nothing, and asks the person who she is
 const blank = await api('POST', '/api/bots', {
 	name: 'blank',
