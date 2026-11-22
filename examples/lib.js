@@ -53,6 +53,8 @@ const ephemeral = (() => {
 let port = 0
 const firstPort = () => 10000 + Math.floor(Math.random() * Math.max(1000, ephemeral - 10002))
 export let servePort = 0
+/** The hooks listener's port, once a server with hooks on has printed it */
+export let hookPort = 0
 /** The owner, as the server names them: whoever asks from its own machine */
 export let owner
 /** A friend as the server names them, coming in through Tailscale Serve as `name@github` */
@@ -124,6 +126,7 @@ export async function server(env = {}, { cwd, args = ['--no-runner'] } = {}) {
 			printed += chunk
 			port ||= Number(/ade +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
 			servePort ||= Number(/serve +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
+			hookPort ||= Number(/hooks +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
 		})
 		await until(async () => port && servePort)
 		base = `http://127.0.0.1:${port}`

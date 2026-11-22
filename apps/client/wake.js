@@ -53,6 +53,17 @@ export function Wakes(props) {
 		<${For} each=${wakes} keyed=${(wake) => wake.id}
 			>${(wake) => {
 				const [open, setOpen] = createSignal(false)
+				/** Opened, a hook wake shows the owner where its hook is and its secret; anyone else, nothing */
+				const [hook, setHook] = createSignal('')
+				const toggle = () => {
+					const opening = !open()
+					setOpen(opening)
+					if (opening && wake().on !== undefined && !hook())
+						api(`/api/threads/${props.thread}/hooks?wake=${wake().id}`).then(
+							(found) => setHook(` · ${found.path}, secret ${found.secret}`),
+							() => {},
+						)
+				}
 				const when = () =>
 					wake().on !== undefined
 						? `on ${EVENTS[wake().on]}`
@@ -64,8 +75,8 @@ export function Wakes(props) {
 						<span
 							class="line"
 							title=${() => `${shortLabel(wake().agent)} wakes ${when()}: ${wake().note}`}
-							onClick=${() => setOpen((was) => !was)}
-							>${() => `⏰ ${when()}: ${wake().note}`}</span
+							onClick=${(_e) => toggle()}
+							>${() => `⏰ ${when()}: ${wake().note}${open() ? hook() : ''}`}</span
 						>
 						<button
 							type="button"
@@ -107,6 +118,12 @@ export function WakeSet(props) {
 /** Under a message a wake posted */
 export const WokeLine = (props) => html`
 	<${Show} when=${() => props.data.wake}>
-		<div class="links" title="An agent's own note, back at the time it set">⏰ its wake</div>
+		<div class="links" title="An agent's own note, back at the time it set">
+			⏰ its
+			wake${() => (props.data.event ? `, with what came from ${props.data.event.from}, outside ade:` : '')}
+		</div>
+		<${Show} when=${() => props.data.event}>
+			<div class="links outside">${() => props.data.event.said}</div>
+		<//>
 	<//>
 `
