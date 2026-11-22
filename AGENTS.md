@@ -43,3 +43,4 @@
 - A runner message's own fields never include `id` (the call's id is replaced and no reply matches), and an example needing two models uses a provider that isn't `echo`, whose models all answer as the first. An example that has its runner in its own process (`localRunner`) runs the CLI with async `execFile`, never `execFileSync`, which would stop that runner answering.
 - Resolve installed packages (`import.meta.resolve`), never assume `<app>/node_modules`.
 - Delete comments that only restate the code in the lines you touch.
+- `pnpm check`'s lint rejects `\n` inside a string literal; use `String.raw` instead.
