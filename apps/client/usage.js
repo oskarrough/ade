@@ -331,19 +331,17 @@ export function ThreadUsage(props) {
 							when=${() => found.total.calls}
 							fallback=${html`<p class="mute">No model calls in this time.</p>`}
 						>
-							<ul class="rows usage">
-								<li title=${LIST_PRICE}>
-									<div>
-										<span>${() => `${cost(found.total)} at list price`}</span>
-										<small
-											>${() =>
-												found.models.length === 1
-													? `${calls(found.total)}, ${found.models[0].model}`
-													: calls(found.total)}</small
-										>
-										<${Mix} count=${found.total} />
-									</div>
-								</li>
+							<div class="thread-usage" title=${LIST_PRICE}>
+								<p>${() => `${cost(found.total)} at list price`}</p>
+								<small
+									>${() =>
+										found.models.length === 1
+											? `${calls(found.total)}, ${found.models[0].model}`
+											: calls(found.total)}</small
+								>
+								<${Mix} count=${found.total} />
+							</div>
+							<ul class="rows usage thread-usage">
 								<${Show} when=${() => found.models.length > 1}>
 									<${ModelRows}
 										models=${found.models}

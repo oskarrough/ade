@@ -2297,7 +2297,6 @@ body.resizing {
 		visibility: hidden;
 	}
 
-
 	.list-foot {
 		box-sizing: content-box;
 		padding-top: var(--space-2);
@@ -2561,5 +2560,26 @@ body.resizing {
 			font-size: var(--text-small);
 			line-height: var(--text-small-line);
 		}
+	}
+}
+
+/* A thread's usage in its details reads at the pane's own size: the total a plain line, nothing larger below it. */
+.thread-details .thread-usage {
+	font: var(--text-ui) / var(--text-ui-line) var(--font-ui);
+
+	&:is(div) {
+		margin: var(--space-2) var(--space-2) 0;
+	}
+
+	> p {
+		margin: 0;
+		font-weight: normal;
+	}
+
+	> small {
+		display: block;
+		color: var(--mute);
+		font-size: var(--text-small);
+		line-height: var(--text-small-line);
 	}
 }
