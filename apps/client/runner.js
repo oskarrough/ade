@@ -143,11 +143,13 @@ export function RunnerList() {
 		<button
 			class="ghost small foot-toggle runner-toggle"
 			type="button"
+			aria-label=${() => `Runners, ${online()} online`}
 			title=${() => `${online()} runner${online() === 1 ? '' : 's'} online`}
 			ref=${(el) => (button = el)}
 			popovertarget=${id}
 		>
-			<span>${() => `${online()} runner${online() === 1 ? '' : 's'}`}</span>
+			<span>Runners</span>
+			<small class="count" aria-hidden="true">${() => online()}</small>
 		</button>
 		<div
 			class="popover runner-list"
