@@ -12,7 +12,8 @@
  * run, `{repeat, hour, minute, dayOfWeek?, timeZone}` by the wall clock (hourly at its minute, daily, weekdays or weekly
  * at its hour and minute, so a clock change keeps it at 7:30), `{after}` a thread, or `{on}` an event: Temporal's
  * names, none of its weight. One that came due while the server was down runs once on start; a repeating one skips the
- * runs it missed. A timed run due while the previous run's thread still works is skipped, and recorded as `last`.
+ * runs it missed. A timed run due while the previous run's thread still works is skipped, and recorded as `last` with
+ * why: the runners that run waits for, offline, or the run before still working.
  *
  * Pause (with an optional note), resume and run now are Control signals it sleeps on beside its time, one key each
  * (`control-N`): paused, it sleeps on the next key only; resumed, it sleeps until its next run from now; run now posts
@@ -258,7 +259,7 @@ export function server(core) {
 	 * The thread's scheduled tasks, or the whole house's, the soonest first, then the paused and those waiting on a thread
 	 * or an event: `{id, thread, schedule, at?, from?, paused?, note?, last?, instructions, by, agent?, bot?, to?}`. `at` is
 	 * its next run, `from` where the wait for it began: the run before, or when a one-off was set. `last` is its last run,
-	 * `{at, thread, entry}`, or `{at, skipped: true}`; `note` why it's paused.
+	 * `{at, thread, entry}`, or `{at, skipped}`, why it was skipped; `note` why it's paused.
 	 */
 	async function pending(threadId) {
 		return (await sleeping(threadId))
@@ -502,8 +503,13 @@ export function server(core) {
 						: asleep(schedule, { ...checkpoint, at, last })
 				// Its last run's thread still working, a timed run is skipped, as Temporal's default overlap does
 				if (checkpoint.at !== undefined && checkpoint.last?.thread !== undefined)
-					if (await core.busy(checkpoint.last.thread))
-						return rt.commit(() => then({ at: rt.now(), skipped: true }), ctx)
+					if (await core.busy(checkpoint.last.thread)) {
+						const offline = await core.waitingFor(checkpoint.last.thread)
+						const skipped = offline.length
+							? `${offline.join(' and ')} offline`
+							: 'the run before still working'
+						return rt.commit(() => then({ at: rt.now(), skipped }), ctx)
+					}
 				return post(undefined, then)
 			},
 		},

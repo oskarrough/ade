@@ -152,14 +152,14 @@ const whenWas = (at) => {
 		: `${date.toLocaleDateString('en-GB', { weekday: 'short' })} ${clock}`
 }
 
-/** Its last run: when, opening the message it posted; or that it was skipped, its last run's thread still working */
+/** Its last run: when, opening the message it posted; or that it was skipped, and why */
 function LastRun(props) {
 	return html`
 		<${Show} when=${() => props.task.last}>
 			<small>
 				<${Show}
 					when=${() => !props.task.last.skipped}
-					fallback=${html`${() => `Last run skipped at ${whenWas(props.task.last.at)}: the one before was still working`}`}
+					fallback=${html`${() => `Last run skipped at ${whenWas(props.task.last.at)}: ${props.task.last.skipped}`}`}
 				>
 					<a
 						class="thread-link"

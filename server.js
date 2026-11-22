@@ -2064,6 +2064,14 @@ const core = {
 	/** A thread's doc inside a commit, where a snapshot would wait for the commit itself */
 	threadIn: (tx, id) => tx.doc(Thread, id),
 	busy,
+	/** The offline runners a thread's work waits for */
+	waitingFor: async (threadId) => [
+		...new Set(
+			(await work())
+				.filter((job) => job.thread === threadId && job.status === 'blocked' && job.runner)
+				.map((job) => job.runner),
+		),
+	],
 	person,
 	models,
 	runners,
