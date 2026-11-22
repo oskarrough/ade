@@ -86,7 +86,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   type declarations for CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
   client.js              root: the chat, or the live system around it
-  server.js              the server as the client sees it: api, write, watch, in-memory feed store (`subscribeView`, `feedView`, `feedItem`, `openThreadFeed`, `caughtUp`),
+  server.js              the server as the client sees it: api, write, watch, restart and restarting (reload once it's back), in-memory feed store (`subscribeView`, `feedView`, `feedItem`, `openThreadFeed`, `caughtUp`),
                          actions (`archiveThread`, `renameThread`, `dismiss`, `forgetBot`, `revokeRunner`), threadOf, familyOf, current, page, openThread, fork, earlier, loadEarlier, sending, me
   thread.js              one thread on screen
     Thread               `thread/<id>` feed (shaped messages, people, earlier) + `/ws` (`watch`) for turns/live/drafts; follow, onScreen, shownFrom, nearTop, hold

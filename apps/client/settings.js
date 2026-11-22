@@ -1,15 +1,7 @@
 /** The server's settings: its modules, on or off, and memory's and the director's options. Saving restarts it. */
 import html from '@solidjs/html'
-import {
-	createEffect,
-	createSignal,
-	createStore,
-	createUniqueId,
-	For,
-	Show,
-	snapshot,
-} from 'solid-js'
-import { api, connected, openUsage, server, setChat } from './server.js'
+import { createSignal, createStore, createUniqueId, For, Show, snapshot } from 'solid-js'
+import { openUsage, restart, restarting, server, setChat } from './server.js'
 import { ModelPicker } from './model-picker.js'
 import { Panes } from './panes.js'
 import { agentTo, formatAgent, writtenTo } from './agent.js'
@@ -34,7 +26,7 @@ export function Settings() {
 		...(server().off ?? []).map((name) => ({ name, on: false })),
 	]
 	const overridden = (name) => server().settings?.overrides.includes(name)
-	const editable = () => draft.state === ''
+	const editable = () => !restarting() && save.state() !== 'busy'
 	const on = (module) => draft.modules[module.name] ?? module.on
 	const model = () => setting('memory', 'model')
 	const directs = (field) => setting('director', field)
@@ -68,34 +60,21 @@ export function Settings() {
 			store[picking() === 'director' ? 'director' : 'memory'].model = chosen
 		})
 	const chosen = () => agentTo(picking() === 'director' ? directs('model') : model())
-	const save = busy(async () => {
-		setDraft((store) => void (store.state = 'saving'))
-		try {
-			const { restarts } = await api('/api/settings', {
-				modules: snapshot(draft.modules),
-				...Object.fromEntries(
-					SECTIONS.map((section) => [section, changesIn(section)]).filter(
-						([, changed]) => Object.keys(changed).length,
-					),
-				),
-			})
-			setDraft((store) => {
-				store.modules = {}
-				for (const section of SECTIONS) store[section] = {}
-				store.state = restarts ? 'restarting' : 'stopped'
-			})
-		} catch (error) {
-			setDraft((store) => void (store.state = ''))
-			throw error
-		}
-	})
-	// The page reconnects on its own; once the server is back, the panel is ready for the next change
-	createEffect(connected, (up) => {
-		if (up)
-			setDraft((store) => {
-				if (store.state !== 'saving') store.state = ''
-			})
-	})
+	// With nothing changed it only restarts; either way the page reloads once the server is back
+	const save = busy(() =>
+		restart(
+			changes()
+				? {
+						modules: snapshot(draft.modules),
+						...Object.fromEntries(
+							SECTIONS.map((section) => [section, changesIn(section)]).filter(
+								([, changed]) => Object.keys(changed).length,
+							),
+						),
+					}
+				: undefined,
+		),
+	)
 	return html`
 		<button
 			class="ghost small foot-toggle settings-toggle"
@@ -145,26 +124,25 @@ export function Settings() {
 						</p>
 					<//>
 					<${Show}
-						when=${() => draft.state === '' || draft.state === 'saving'}
+						when=${() => restarting() !== 'stopped'}
 						fallback=${html`<p class="mute" role="status">
-							${() =>
-								draft.state === 'restarting'
-									? 'Saved. The server is restarting; this page reconnects on its own.'
-									: 'Saved, and the server stopped: it can’t restart itself here. Start it again with node server.js.'}
+							The server stopped: it can’t restart itself here. Start it again with node server.js.
 						</p>`}
 					>
 						<button
 							type="button"
 							class="save"
-							disabled=${() => !changes()}
-							aria-busy=${() => save.state() === 'busy'}
+							disabled=${() => Boolean(restarting())}
+							aria-busy=${() => save.state() === 'busy' || Boolean(restarting())}
 							onClick=${(_event) => save()}
 						>
-							<${Busy} state=${save.state}
+							<${Busy} state=${() => (restarting() ? 'busy' : save.state())}
 								>${() =>
-									changes()
-										? `${changes()} ${changes() === 1 ? 'change' : 'changes'}, save and restart`
-										: 'Save and restart'}<//
+									restarting()
+										? 'Restarting…'
+										: changes()
+											? `${changes()} ${changes() === 1 ? 'change' : 'changes'}, save and restart`
+											: 'Restart'}<//
 							>
 						</button>
 					<//>
@@ -395,7 +373,6 @@ const [draft, setDraft] = createStore({
 	memory: {},
 	director: {},
 	bots: {},
-	state: '',
 })
 const SECTIONS = ['memory', 'director', 'bots']
 /** What the server runs for a field it may leave unset */

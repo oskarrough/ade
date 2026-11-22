@@ -1,14 +1,13 @@
 /** The same thread row in the list, its family, and a bot's other threads; with search on, its field above them; its foot opens the inbox, and offers a reload once ade has changed since the page loaded. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createSignal, For, Show } from 'solid-js'
 import {
 	archivedThreads,
 	archiveThread,
 	behind,
 	bots,
 	changes,
-	connected,
 	current,
 	followThread,
 	fork,
@@ -20,6 +19,8 @@ import {
 	openInbox,
 	openThread,
 	page,
+	restart,
+	restarting,
 	server,
 	threadOf,
 	threadRows,
@@ -149,17 +150,7 @@ export function ThreadList() {
 function Update() {
 	const restarts = () =>
 		server().stale && server().settings?.restarts && me() === server().settings.owner
-	/** '' until pressed; then 'asked', 'down' once the socket drops, and the page reloads when it's back */
-	const [restarting, setRestarting] = createSignal('')
-	createEffect(connected, (up) => {
-		if (!up && restarting() === 'asked') setRestarting('down')
-		if (up && restarting() === 'down') location.reload()
-	})
-	const update = busy(async () => {
-		if (!restarts()) return location.reload()
-		await api('/api/restart', {})
-		setRestarting('asked')
-	})
+	const update = busy(async () => (restarts() ? restart() : location.reload()))
 	const label = () => (restarting() ? 'Restarting…' : restarts() ? 'Update and restart' : 'Update')
 	return html`<${Show} when=${() => behind() || restarts()}>
 		<button

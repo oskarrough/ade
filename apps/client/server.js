@@ -76,6 +76,15 @@ export function watch(receive, opened = (_socket) => {}, closed = () => {}) {
 /** Page lifetime; components own the messages of just the threads on screen. */
 const [connected, setConnected] = createSignal(false)
 export { connected }
+/** '' until this page asks the server to restart; 'asked', then 'down' once the socket drops, and the page reloads when
+ * it's back; 'stopped' where the server can't restart itself */
+const [restarting, setRestarting] = createSignal('')
+export { restarting }
+/** Restarts the server, saving Settings' changes first when there are any, and reloads the page once it's back */
+export const restart = async (settings) => {
+	const { restarts } = await api(settings ? '/api/settings' : '/api/restart', settings ?? {})
+	setRestarting(restarts ? 'asked' : 'stopped')
+}
 export const [newThreadTools, setNewThreadTools] = createSignal(null)
 /** The last key this page made, {name, connect}: the key is shown once, so it outlives the form that asked */
 export const [minted, setMinted] = createSignal(null)
@@ -507,6 +516,7 @@ export const {
 			receive,
 			(ws) => {
 				socket = ws
+				if (restarting() === 'down') location.reload()
 				setConnected(true)
 				for (const [name, view] of views) {
 					view.synced = false
@@ -519,6 +529,7 @@ export const {
 			},
 			() => {
 				socket = null
+				if (restarting() === 'asked') setRestarting('down')
 				setConnected(false)
 				for (const view of views.values()) view.synced = false
 			},
