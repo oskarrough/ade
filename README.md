@@ -78,6 +78,7 @@ So, what's different about this one? Not much, but it adds patterns I've found u
 - agents leave you questions only you can answer, and carry on meanwhile; the thread waits on you until you write, and one inbox lists what needs you: open questions, answered right there, then failed runs and unread answers (`inbox`, off by default)
 - agents come back to a thread later, once, every so often, or when another thread is done, and you see and cancel what's pending (`wake`, off by default), or on a GitHub push, a failed CI run or any service's webhook (`hooks`, off by default)
 - search every thread's messages, archived ones included, to find where something was said or decided, from the sidebar or an agent's `search` tool (`search`, off by default)
+- Cmd-K or Ctrl-K jumps to any thread, archived ones included, any bot, or an action like New thread or Settings, by typing a few letters; with `search` on, matching messages show under them (`jump`, off by default)
 - see the tokens each thread and the whole house spent, and what they'd cost at list price (`usage`, off by default)
 - every thread, archived ones included, exports as Markdown and JSON a person can read without ade installed (`export`, off by default)
 

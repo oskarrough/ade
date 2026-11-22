@@ -133,6 +133,7 @@ modules/
                          `entryStored` hook, each entry once Pi stores it: a message once, out again when withdrawn), search
                          (matchOf: words quoted, the last a prefix; best first, snippets), serve (GET /api/search?q=), the `search` tool;
                          off by default
+  jump.js                Cmd-K's switch alone: no server half beyond being listed, the client does the rest; off by default
   usage.js               tokens and list-price cost from each agent's stored turns (pi.assistant usage), in an in-memory SQLite table
                          read once on the first request (build, a fork's own entries only), then kept by entryStored; billed where a
                          runner meters the provider (core.known's metered/free) or the provider reported it; serve: house (total,
@@ -208,6 +209,11 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   search.js              SearchField, the sidebar's field (results as you type, Escape closes); Search, its results in the threads' place
                          (server.js searchFor/openSearch; system.js), inbox rows with the match in <mark>; showMessage opens a thread
                          on an entry id (`data-entry`), loading earlier pages if needed, and thread.js `reveal` lights it, as recap links do
+  jump.js                Jump, Cmd-K or Ctrl-K (and -O) anywhere, or the phone bar's search button (openJump): the model picker's frame
+                         (`.model-picker.jump`, centred by placePopover with no button) with one field over every thread, archived ones
+                         too, bots, actions (New thread, New bot through thread-list.js creatingBot, Inbox, the list foot's Settings,
+                         Runners and Wakes pressed, Usage) and with search on the first message hits (search.js marked, showMessage);
+                         empty, the threads this browser opened last (`ade.recent`); sections ordered by how well their best row fits
   usage.js               Usage, the house's usage in the threads' place (server.js usageOpen/openUsage; system.js), opened by
                          UsageToggle at the list's foot: the total, Mix (the token kinds as one bar), Days (a bar a day, cost or
                          tokens), threads with their share, bots, models; ThreadUsage, a thread's in its details (thread-details.js)

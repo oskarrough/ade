@@ -146,7 +146,7 @@ function Result(props) {
 }
 
 /** The server marks each matched word between \u0001 and \u0002 */
-const marked = (snippet) =>
+export const marked = (snippet) =>
 	snippet.split('\u0001').flatMap((piece, index) => {
 		if (!index) return [piece]
 		const [match, ...after] = piece.split('\u0002')

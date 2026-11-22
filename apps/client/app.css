@@ -1758,8 +1758,7 @@ button.foot-toggle {
 	}
 }
 
-/* The bots and threads an @ can mention: a small popover over the message box, on phones too, never a sheet, never wider than the box.
-   A row's name takes one line and ends in … when it's too long; what it is sits on the right edge. */
+/* The bots and threads an @ can mention: a small popover over the message box, on phones too, never a sheet, never wider than the box. */
 .model-picker.mentions {
 	inset: auto;
 	width: min(22.5rem, var(--composer-width, 100vw), calc(100vw - 1rem));
@@ -1767,24 +1766,25 @@ button.foot-toggle {
 	border: 1px solid var(--line);
 	border-radius: var(--radius-large);
 	padding: var(--space-2);
+}
 
-	.model {
-		align-items: baseline;
+/* Its rows, and Jump's: a name takes one line and ends in … when it's too long; what it is sits on the right edge. */
+:is(.model-picker.mentions, .model-picker.jump) .model {
+	align-items: baseline;
 
-		> span {
-			flex: 1 1 auto;
-			min-width: 0;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-		}
+	> span:not(.dot) {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 
-		> small {
-			flex: none;
-			max-width: 50%;
-			margin-left: auto;
-			color: var(--mute);
-		}
+	> small {
+		flex: none;
+		max-width: 50%;
+		margin-left: auto;
+		color: var(--mute);
 	}
 }
 
@@ -2125,9 +2125,13 @@ body.resizing {
 		background: Canvas;
 		font-size: var(--text-ui);
 
-		> button:first-child {
+		> button:not(.thread-name) {
 			width: var(--control);
 			height: var(--control);
+		}
+
+		> button:last-child:not(:first-child, .thread-name) {
+			justify-self: end;
 		}
 
 		.thread-name {

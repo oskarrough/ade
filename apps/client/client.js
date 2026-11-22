@@ -14,6 +14,7 @@ import {
 	inbox,
 	params,
 	searchFor,
+	server,
 	setChat,
 	titleOf,
 	threadOf,
@@ -23,6 +24,7 @@ import { Dot } from './dot.js'
 import { System } from './system.js'
 import { Tutorial } from './tutorial.js'
 import { storyDiagram } from './mermaid.js'
+import { Jump, openJump } from './jump.js'
 
 function Client() {
 	document.body.classList.toggle('grid', params.has('grid'))
@@ -128,8 +130,14 @@ function Client() {
 												: 'New thread'}</span
 						>
 					</button>
+					<${Show} when=${() => server().modules.includes('jump')}>
+						<button type="button" aria-label="Jump to…" onClick=${() => openJump()}>
+							<${Icon} name="search" />
+						</button>
+					<//>
 				</header>
 				<${System} />
+				<${Show} when=${() => server().modules.includes('jump')}><${Jump} /><//>
 				<${Tutorial} story=${() => !chat()} />
 			<//>
 		<//>

@@ -33,8 +33,10 @@ import { Settings } from './settings.js'
 import { BotItem, NewBot } from './bot.js'
 import { SearchField } from './search.js'
 
+/** Whether New bot's name field shows at the top of the bots; jump.js opens it too */
+export const [creatingBot, setCreatingBot] = createSignal(false)
+
 export function ThreadList() {
-	const [creating, setCreating] = createSignal(false)
 	const [archivedPage, setArchivedPage] = createSignal(false)
 	/** Most recently answered first, anywhere, not only at home; a bot that's never answered sits last, oldest-made first */
 	const sortedBots = () =>
@@ -66,7 +68,7 @@ export function ThreadList() {
 						onPick=${(_e) => openThread(null)}
 					/>
 					<${Show} when=${() => server().modules.includes('bots')}>
-						<${NewRow} label="Bot" title="New bot" onPick=${(_e) => setCreating(true)} />
+						<${NewRow} label="Bot" title="New bot" onPick=${(_e) => setCreatingBot(true)} />
 					<//>
 				</ul>
 				<${Show} when=${() => server().modules.includes('inbox')}>
@@ -95,7 +97,9 @@ export function ThreadList() {
 				<${Show} when=${() => server().modules.includes('bots')}>
 					<h2>Bots</h2>
 					<ul class="bots">
-						<${Show} when=${() => creating()}><${NewBot} onDone=${(_e) => setCreating(false)} /><//>
+						<${Show} when=${() => creatingBot()}
+							><${NewBot} onDone=${(_e) => setCreatingBot(false)}
+						/><//>
 						<${For} each=${sortedBots}>${(bot) => html`<${BotItem} bot=${() => bot} />`}<//>
 					</ul>
 					<h2>Threads</h2>
