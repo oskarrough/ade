@@ -85,7 +85,8 @@ export async function load(end, core, settings) {
 	])
 		if (list) on = pick(on, list, where)
 	const theirs = (name) => !name.includes('/') && !(name in defaults)
-	if (end === 'server' && on.some(theirs)) throw new Error(`no module named ${on.find(theirs)}`)
+	if (end === 'server')
+		for (const name of on.filter(theirs)) console.warn(`no module named ${name}; skipping it`)
 	on = on.filter((name) => !theirs(name))
 	core.modulesOn = on
 	const modules = []

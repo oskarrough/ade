@@ -52,7 +52,7 @@ Settings live in `~/.config/ade/ade.json` (or under `$XDG_CONFIG_HOME`), whereve
 }
 ```
 
-Use `+` and `-` to change the defaults; a list of bare names replaces them.
+Use `+` and `-` to change the defaults; a list of bare names replaces them. A name that matches no module in `modules/` gets a warning on start-up and is skipped, not a refusal to boot.
 
 Threads live in `${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite`, with its SQLite sidecars, lock and `ade.log` beside it. Settings stay in `${XDG_CONFIG_HOME:-~/.config}/ade/ade.json`. `DB_PATH` selects another store and puts its log beside it; it does not move settings.
 
