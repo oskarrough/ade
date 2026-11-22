@@ -100,9 +100,8 @@ export function DetailsPage(props) {
 		server().modules.includes('inbox')
 			? inbox.some((item) => item.kind !== 'question' && item.thread === thread.id)
 			: thread.status === 'done'
-	const latest = (thread) => thread.latest ?? thread.id
 	/** The newest first */
-	const byLatest = (a, b) => latest(b) - latest(a)
+	const byLatest = (a, b) => b.latest - a.latest
 	/** Only what's live: working on top, then the rest by latest activity; the others wait behind All threads */
 	const live = createMemo(() =>
 		others()

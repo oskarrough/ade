@@ -92,11 +92,13 @@ export const onNewDraft = (hear) => void (heardNewDraft = hear)
 export const pagers = new Map()
 export const loadEarlier = (thread, all = false) =>
 	earlier[thread] || all ? (pagers.get(thread)?.(all) ?? Promise.resolve()) : Promise.resolve()
-/** Earlier pages loaded by scrolling up, per thread, and optimistic sends keyed by request `key` */
+/** A thread's messages come from three places, per thread: the feed's window, pages before it loaded by scrolling up, and
+ * your sends still on their way, matched to the server's copy by their request `key` */
+const feedEntries = new Map()
 const olderPages = new Map()
 const pendingSent = new Map()
+/** When each of your sends left, by `key`, so its row keeps its identity once the server's copy replaces it */
 const sentAtByKey = new Map()
-const feedEntries = new Map()
 function recomputeEntries(thread) {
 	const live = feedEntries.get(thread)
 	const older = olderPages.get(thread) ?? []
@@ -106,8 +108,8 @@ function recomputeEntries(thread) {
 	const haveIds = new Set(serverList.map((entry) => entry.id))
 	const haveKeys = new Set(serverList.map((entry) => entry.data?.key).filter(Boolean))
 	const stamped = serverList.map((entry) => {
-		const at = entry.data?.key && sentAtByKey.get(entry.data.key)
-		return at !== undefined && entry.sentAt === undefined ? { ...entry, sentAt: at } : entry
+		const at = entry.data?.key ? sentAtByKey.get(entry.data.key) : undefined
+		return at === undefined ? entry : { ...entry, sentAt: at }
 	})
 	const waiting = pending.filter((entry) => !haveKeys.has(entry.data.key))
 	if (waiting.length !== pending.length) {
@@ -126,6 +128,28 @@ export function prependOlder(thread, more, hasEarlier) {
 	setEarlier((all) => {
 		all[thread] = hasEarlier
 	})
+	recomputeEntries(thread)
+}
+/** A `thread/<id>` frame landed: its people and `earlier` flag, and its messages under the older pages and your sends */
+function heardThread(thread, rows, reset) {
+	// A reset starts a fresh server window (restart or idle eviction): drop older pages so the middle isn't missing
+	if (reset) olderPages.delete(thread)
+	const meta = rows.get('thread')
+	if (meta?.people)
+		setPeople((all) => {
+			all[thread] = meta.people
+		})
+	if (meta && 'earlier' in meta && (reset || !olderPages.has(thread)))
+		setEarlier((all) => {
+			all[thread] = meta.earlier
+		})
+	feedEntries.set(
+		thread,
+		[...rows.entries()]
+			.filter(([key]) => typeof key === 'number')
+			.map(([, row]) => row)
+			.sort((left, right) => left.id - right.id),
+	)
 	recomputeEntries(thread)
 }
 /** Your message shows the moment you send it, marked `sending`, matched to the server's copy by its request `key` */
@@ -248,7 +272,6 @@ export const {
 	forgetBot,
 	revokeRunner,
 	subscribeView,
-	viewStore,
 	caughtUp,
 	write,
 } = createRoot(() => {
@@ -263,15 +286,12 @@ export const {
 		const list = [...view.map.values()]
 		return view.sort ? list.sort(view.sort) : list
 	}
+	/** Whether a view has what a write at `seq` made; a write from before a restart (another `boot`) never comes, so it has */
+	const reached = (view, seq, boot) =>
+		Boolean(boot && view.boot && boot !== view.boot) || (view.synced && (view.seq ?? -1) >= seq)
 	const wakeWaiters = (view, force = false) => {
-		if (!view.waiters.length) return
 		view.waiters = view.waiters.filter((waiter) => {
-			if (
-				!force &&
-				!(waiter.boot && view.boot && waiter.boot !== view.boot) &&
-				(!view.synced || (view.seq ?? -1) < waiter.seq)
-			)
-				return true
+			if (!force && !reached(view, waiter.seq, waiter.boot)) return true
 			waiter.resolve()
 			return false
 		})
@@ -304,28 +324,8 @@ export const {
 		}
 		if (changed) {
 			view.setRows(orderOf(view))
-			if (frame.view.startsWith('thread/')) {
-				const threadId = Number(frame.view.slice('thread/'.length))
-				// A reset starts a fresh server window (restart or idle eviction): drop older pages so the middle isn't missing
-				if (reset) olderPages.delete(threadId)
-				const meta = view.map.get('thread')
-				if (meta) {
-					if (meta.people)
-						setPeople((all) => {
-							all[threadId] = meta.people
-						})
-					if ('earlier' in meta && (reset || !olderPages.has(threadId)))
-						setEarlier((all) => {
-							all[threadId] = meta.earlier
-						})
-				}
-				const msgs = [...view.map.entries()]
-					.filter(([key]) => typeof key === 'number')
-					.map(([, row]) => row)
-					.sort((left, right) => left.id - right.id)
-				feedEntries.set(threadId, msgs)
-				recomputeEntries(threadId)
-			}
+			if (frame.view.startsWith('thread/'))
+				heardThread(Number(frame.view.slice('thread/'.length)), view.map, reset)
 		}
 		wakeWaiters(view, reset)
 	}
@@ -366,9 +366,7 @@ export const {
 	}
 	const caughtUp = (name, seq, boot = undefined) => {
 		const view = views.get(name)
-		if (!view) return Promise.resolve()
-		if (boot && view.boot && view.boot !== boot) return Promise.resolve()
-		if (view.synced && (view.seq ?? -1) >= seq) return Promise.resolve()
+		if (!view || reached(view, seq, boot)) return Promise.resolve()
 		sendSocket({ sync: name, seq })
 		return new Promise((resolve) => view.waiters.push({ seq, boot, resolve }))
 	}
@@ -462,6 +460,8 @@ export const {
 			: write(`/api/threads/${item.thread}/read`, {})
 		yield caughtUp('inbox', seq, boot)
 	})
+	const bothLists = ({ seq, boot }) =>
+		Promise.all([caughtUp('threads', seq, boot), caughtUp('archived', seq, boot)])
 	/** The row moves the moment you ask; if the server refuses, it moves back and this throws why */
 	const archiveThread = action(function* (id, archived) {
 		if (archived && id === current()) openThread(null)
@@ -474,15 +474,13 @@ export const {
 			setOptimisticArchived((rows) => rows.filter((row) => row.id !== id))
 			if (moved) setOptimisticThreads((rows) => [moved, ...rows].sort(byNewest))
 		}
-		const { seq, boot } = yield write(`/api/threads/${id}/archive`, { archived })
-		yield Promise.all([caughtUp('threads', seq, boot), caughtUp('archived', seq, boot)])
+		yield bothLists(yield write(`/api/threads/${id}/archive`, { archived }))
 	})
 	const renameThread = action(function* (id, title) {
 		const patch = (rows) => rows.map((row) => (row.id === id ? { ...row, title } : row))
 		setOptimisticThreads(patch)
 		setOptimisticArchived(patch)
-		const { seq, boot } = yield write(`/api/threads/${id}/title`, { title })
-		yield Promise.all([caughtUp('threads', seq, boot), caughtUp('archived', seq, boot)])
+		yield bothLists(yield write(`/api/threads/${id}/title`, { title }))
 	})
 	const forgetBot = action(function* (name) {
 		setOptimisticBots((rows) => rows.filter((row) => row.name !== name))
@@ -610,7 +608,6 @@ export const {
 		forgetBot,
 		revokeRunner,
 		subscribeView,
-		viewStore,
 		caughtUp,
 		write,
 	}
