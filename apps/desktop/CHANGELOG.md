@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Right-click a thread in the sidebar for Open, Rename, Fork, Copy link and Archive, as a real menu.
+- Right-click a message for Quote, Copy and Fork from here; with text selected, Quote and Copy take just that.
+
 ## 0.1.1
 
 - The page for a server that's down has a Try now button, which checks at once instead of at the next try.

@@ -10,10 +10,12 @@ import {
 	changes,
 	current,
 	followThread,
+	fork,
 	homeBot,
 	hrefOf,
 	inbox,
 	inboxOpen,
+	api,
 	openInbox,
 	openThread,
 	searchFor,
@@ -23,6 +25,8 @@ import {
 } from './server.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
+import { copyText, nativeMenu } from './desktop.js'
+import { openSide } from './side.js'
 import { RunnerList } from './runner.js'
 import { WakeList } from './wake.js'
 import { Settings } from './settings.js'
@@ -181,6 +185,38 @@ function NewRow(props) {
 	`
 }
 
+/** A thread row's right-click menu in arbe desktop: the row's and the details' own actions */
+const threadMenu = (id, archived) => [
+	{ label: 'Open', run: () => openThread(id) },
+	{ label: 'Rename…', run: () => rename(id) },
+	{
+		label: 'Fork',
+		run: async () => {
+			const { entries } = await api(`/api/threads/${id}?last=1`)
+			const last = entries.at(-1)
+			if (last) await fork(id, last.id)
+		},
+	},
+	{ label: 'Copy link', run: () => copyText(new URL(hrefOf(id), location.href).href) },
+	...(homeBot(id)
+		? []
+		: [
+				null,
+				{ label: archived ? 'Unarchive' : 'Archive', run: () => archiveThread(id, !archived) },
+			]),
+]
+/** Opens the thread with its details, its title field ready to type in */
+const rename = (id) => {
+	openThread(id)
+	openSide(id, 'details')
+	requestAnimationFrame(() => {
+		const field = document.querySelector('input[aria-label="Thread title"]')
+		if (!(field instanceof HTMLInputElement)) return
+		field.focus()
+		field.select()
+	})
+}
+
 export function ThreadItem(props) {
 	return html`
 		<li
@@ -192,6 +228,7 @@ export function ThreadItem(props) {
 				class="row"
 				href=${() => hrefOf(props.thread.id)}
 				onClick=${(event) => followThread(event, props.thread.id)}
+				onContextMenu=${(event) => nativeMenu(event, threadMenu(props.thread.id, props.archived))}
 			>
 				<${Dot} state=${() => props.thread.status} />
 				<span>${() => props.thread.title}</span>

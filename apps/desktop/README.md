@@ -6,6 +6,7 @@ ade in its own window: the page an ade server serves, in the system's webview (W
 - Links to other sites open in the browser.
 - When the server doesn't answer, it shows a page that checks again every two seconds and goes back to where you were once it does. That page also lets you switch to another server.
 - While the window is in the background, a thread that finishes or waits for you shows a notification; clicking it opens the thread. On Windows these are the notification area's toasts.
+- Right-click a thread in the sidebar, or a message, for a real menu: Rename, Fork, Archive; Quote, Copy. The menus are the client's (apps/client/desktop.js), so a browser keeps its own.
 - On plain http over Tailscale, where the page gets no clipboard, copying goes through the app.
 - It updates itself: 10 seconds after launch and every hour, it checks this repo's `desktop-v*` releases and shows the update window when there's a newer one.
 

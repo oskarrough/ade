@@ -9,6 +9,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"flag"
@@ -114,6 +115,28 @@ func (Desktop) Notify(thread int, title, body string) error {
 // Tailscale, where the page isn't a secure context and the browser hides it.
 func (Desktop) WriteText(text string) { mygo.Clipboard.WriteText(text) }
 func (Desktop) ReadText() string      { return mygo.Clipboard.ReadText() }
+
+// Menu shows labels as the system's context menu at the pointer, an empty one
+// as a separator, and answers the index of the item picked, or -1.
+func (Desktop) Menu(ctx context.Context, labels []string) int {
+	picked := make(chan int, 1)
+	items := make([]*mygo.MenuItem, len(labels))
+	for i, label := range labels {
+		if label == "" {
+			items[i] = mygo.Separator()
+			continue
+		}
+		items[i] = &mygo.MenuItem{Label: label, Click: func(*mygo.MenuItem, *mygo.Window) { picked <- i }}
+	}
+	mygo.NewMenu(items).Popup(mygo.CallerWindow(ctx))
+	// A click may be delivered just after the menu closes, as on Windows
+	select {
+	case i := <-picked:
+		return i
+	case <-time.After(300 * time.Millisecond):
+		return -1
+	}
+}
 
 // SetServer points the app at another ade server and starts it again there,
 // so the new server's page is the one trusted.

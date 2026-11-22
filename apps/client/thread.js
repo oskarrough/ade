@@ -65,7 +65,8 @@ import {
 	turnsOf,
 } from './run.js'
 import { Break, breakOf, Stamp } from './time.js'
-import { Composer } from './composer.js'
+import { appendQuote, Composer } from './composer.js'
+import { copyText, nativeMenu, selectedIn } from './desktop.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
 import { imageUrl } from './images.js'
@@ -1001,12 +1002,25 @@ export const Name = (props) => html`
 /** One message as the thread's projection describes it: its `row` says whose voice, which name to show and to whom */
 function Message(props) {
 	const data = () => props.entry.data
+	/** Its right-click menu in arbe desktop: the selection, else the whole message, quoted or copied, and its fork */
+	const messageMenu = (element) => {
+		const text = selectedIn(element) || data().body || ''
+		return [
+			text.trim() ? { label: 'Quote', run: () => appendQuote(props.thread, text) } : null,
+			text.trim() ? { label: 'Copy', run: () => copyText(text) } : null,
+			null,
+			props.entry.sending || props.waiting
+				? null
+				: { label: 'Fork from here', run: () => fork(props.thread, props.entry.id) },
+		]
+	}
 	const row = () => props.row
 	const crossed = () => ['sent', 'received'].includes(row().voice)
 	return html`
 		<li
 			data-message=${() => props.at}
 			data-entry=${() => props.entry.id}
+			onContextMenu=${(event) => nativeMenu(event, messageMenu(event.currentTarget))}
 			class=${() => ({
 				handed: litIn(props.thread, props.entry.id),
 				elsewhere: crossed(),
