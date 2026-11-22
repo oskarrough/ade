@@ -333,7 +333,7 @@ export function ThreadItem(props) {
 		<li
 			title=${() => (cards ? undefined : props.thread.title)}
 			style=${() => `--depth: ${props.depth ?? 0}`}
-			class=${() => ({ current: props.thread.id === current() })}
+			class=${() => ({ current: page().kind === 'threads' && props.thread.id === current() })}
 		>
 			<a
 				class="row"

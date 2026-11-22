@@ -2598,7 +2598,6 @@ body.resizing {
 
 	> ul > li.brief {
 		padding-bottom: var(--space-5);
-		font-weight: 600;
 	}
 
 	> ul > li.question {
