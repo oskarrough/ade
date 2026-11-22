@@ -10,7 +10,7 @@ AGENTS.md has the rules; this is the how.
 ## Workspace and landing
 
 - `jj workspace add .work/<name> -r main`, then `pnpm install --frozen-lockfile`. Workspaces have no `.git`: use `jj status`, `jj file list`, `jj log -r main@origin`. Scratch files and screenshots go in `~/sites/ade/.work/<your-name>/`, which outlives the workspace.
-- Run `pnpm check` and `pnpm examples` once, then commit only your paths: `jj commit -m … <paths>`, and keep the id it prints. Check `jj diff -r <id> --git` holds only your lines.
+- Run `set -o pipefail; pnpm check && pnpm examples` once, uncut (piping `check` through `tail` hides a failure and lets `examples` run on broken code), then commit only your paths: `jj commit -m … <paths>`, and keep the id it prints. Check `jj diff -r <id> --git` holds only your lines.
 - `jj git fetch`, `jj rebase -s <id> -o main@origin` (`-s`, not `-r`, or the commit stays behind), `jj bookmark set main -r <id>`, `jj git push`. If SSH is refused, push over HTTPS with the GitHub CLI login.
 - A refused push ("stale info", a conflicted bookmark) means main moved: fetch, rebase onto `main@origin`, set the bookmark, push again. Never `--allow-backwards`, `--ignore-immutable` or a forced push; that's how main has lost commits before. If it won't converge because of a real conflict, stop and report.
 - Then bring Oskar's checkout up: in `~/sites/ade`, `jj rebase -s default@ -o main`, and `jj workspace update-stale` if it says stale. Conflicts in files you didn't touch are his. Finally `jj workspace forget` yours and delete its folder.
@@ -47,6 +47,7 @@ A change to how transcript rows, sidebar dots or reply labels render gets checke
 - Give it absolute paths, and read a screenshot only after its command returned.
 - It has no mouse, so `@media (hover: hover)` rules never show; check those in the CSS and say so.
 - `--init-script <repo>/scripts/page-spy.js` records what a page fetches and hears (read `spy` with `eval`); `--init-script <repo>/scripts/solid-attribution.js` attributes Solid cost warnings.
+- To fake arbe desktop, set `window.mygo = {call: () => Promise.reject(new Error('fake')), on: () => () => {}}` and the CSS vars `desktop.js` reads, `--mygo-titlebar-height: 48px; --mygo-titlebar-inset-right: 138px` (Windows values), on `:root`; put both in an `--init-script` so they're there again after a reload.
 
 ## Real data, a real model, measuring
 
