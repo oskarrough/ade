@@ -23,9 +23,9 @@ const heard = []
 const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
 socket.onmessage = ({ data }) => {
 	const message = JSON.parse(data)
-	if (message.thread === id) heard.push(message)
+	if (message.view === `thread/${id}`) heard.push(message)
 }
-socket.onopen = () => socket.send(JSON.stringify({ watch: id }))
+socket.onopen = () => socket.send(JSON.stringify({ sub: `thread/${id}` }))
 await until(async () => heard.length)
 
 await api('POST', `/api/threads/${id}/entries`, {
@@ -41,12 +41,10 @@ check(
 check(
 	Boolean(
 		await until(async () =>
-			heard.some(
-				(message) => !message.agent && message.entries?.some((entry) => entry.data.answer),
-			),
+			heard.some((frame) => frame.put?.some((item) => item.row.data?.answer)),
 		),
 	),
-	'a watching socket hears the answer land',
+	'a subscribed feed hears the answer land',
 )
 
 const agent = first.agents[0].conversation

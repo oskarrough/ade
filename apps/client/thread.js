@@ -531,7 +531,7 @@ export function Thread(props) {
 					socket = opened
 					followed.clear()
 					finishTurns()
-					socket.send(JSON.stringify({ watch: id, turnsOnly: true }))
+					socket.send(JSON.stringify({ watch: id }))
 				},
 			)
 			// Its messages stay, so coming back shows them at once while the feed catches up.

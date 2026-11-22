@@ -5,6 +5,7 @@ import {
 	fauxToolCall,
 } from '@earendil-works/pi-ai/providers/faux'
 import {
+	api,
 	createThread,
 	postEntry,
 	answered,
@@ -39,33 +40,47 @@ const bot = await scriptedRunner(
 )
 const id = await createThread('live')
 
-/** Every message the socket hears for the thread, in order: `{entries}`, or an agent's `{agent, live}` and `{agent, entries}` */
+/** Every message the socket hears for the thread: `thread/<id>` feed frames for messages, plus `{agent, live}` and `{agent, entries}` from `watch` */
 function watch(thread) {
 	const heard = []
+	const frames = []
 	const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
 	socket.onmessage = ({ data }) => {
 		const m = JSON.parse(data)
-		if (m.thread === thread) heard.push(m)
+		if (m.view === `thread/${thread}`) frames.push(m)
+		else if (m.thread === thread) heard.push(m)
 	}
-	socket.onopen = () => socket.send(JSON.stringify({ watch: thread }))
+	socket.onopen = () => {
+		socket.send(JSON.stringify({ sub: `thread/${thread}` }))
+		socket.send(JSON.stringify({ watch: thread }))
+	}
 	return {
 		heard,
-		earlier: (all) => socket.send(JSON.stringify({ earlier: thread, all })),
+		frames,
+		earlier: (all, before) => socket.send(JSON.stringify({ earlier: thread, all, before })),
 		close: () => socket.close(),
 	}
 }
 // Live work is keyed by the agent's conversation, which stays as it switches model or runner
 const lives = (heard) => heard.filter((m) => m.live).map((m) => m.live)
-const said = (heard) =>
-	heard.flatMap((m) => (m.agent ? [] : (m.entries ?? []))).map((e) => e.data.body)
+const feedEntries = (frames) =>
+	frames.flatMap((frame) =>
+		(frame.put ?? []).filter((item) => typeof item.key === 'number').map((item) => item.row),
+	)
+const said = (frames) => feedEntries(frames).map((entry) => entry.data.body)
+const metaOf = (frame) => frame?.put?.find((item) => item.key === 'thread')?.row
 
 const first = watch(id)
-await until(async () => first.heard.length)
+await until(async () => first.frames.length)
+const initMeta = metaOf(first.frames[0])
 check(
-	JSON.stringify(first.heard) ===
-		JSON.stringify([{ thread: id, entries: [], earlier: false, people: [] }]),
+	Boolean(first.frames[0]?.reset) &&
+		feedEntries(first.frames).length === 0 &&
+		initMeta?.earlier === false &&
+		initMeta?.people?.length === 0 &&
+		initMeta?.agents?.length === 0,
 	'a new thread says first that it has no messages, none before them, no people and no agents',
-	JSON.stringify(first.heard),
+	JSON.stringify(first.frames[0]),
 )
 const {
 	json: { entry },
@@ -91,10 +106,10 @@ late.close()
 const v = await answered(id)
 check(v?.entries.at(-1)?.data.body === long, 'the answer lands in the thread')
 check(
-	JSON.stringify(await until(async () => said(first.heard).length === 2 && said(first.heard))) ===
+	JSON.stringify(await until(async () => said(first.frames).length === 2 && said(first.frames))) ===
 		JSON.stringify(['work', long]),
-	'and the socket sent each message once, as it landed',
-	JSON.stringify(said(first.heard).map((b) => b.slice(0, 20))),
+	'and the feed sent each message once, as it landed',
+	JSON.stringify(said(first.frames).map((b) => b.slice(0, 20))),
 )
 const heard = lives(first.heard)
 const lengths = [...new Set(heard.map((l) => text(l.message).length).filter(Boolean))]
@@ -175,18 +190,13 @@ check(
 const burst = Array.from({ length: 250 }, (_, i) => `note ${i}`)
 await Promise.all(burst.map((body) => postEntry(id, body, null)))
 const notes = await until(async () => {
-	const got = said(first.heard).filter((b) => b.startsWith('note '))
+	const got = said(first.frames).filter((b) => b.startsWith('note '))
 	return got.length >= burst.length && got
 })
 check(
 	notes?.length === burst.length && new Set(notes).size === burst.length,
 	'a burst of 250 messages arrives whole, each once',
-	`${notes?.length ?? said(first.heard).length}`,
-)
-check(
-	first.heard.filter((m) => m.people).length <= 3,
-	'who is in the thread comes again only when it changes, not with every message',
-	`${first.heard.filter((m) => m.people).length} of ${first.heard.length}`,
+	`${notes?.length ?? said(first.frames).length}`,
 )
 first.close()
 
@@ -194,24 +204,26 @@ await kill(srv, 'SIGKILL')
 srv = await server()
 const restarted = watch(id)
 const now = await until(async () => lives(restarted.heard)[0], 8000, 20)
-// A long thread opens on its newest page; each earlier one comes when asked, the agent's turns for it first
-const opened = restarted.heard[0]
+await until(async () => restarted.frames.length)
+// A long thread opens on its newest page; each earlier one comes via ?before= and earlier agent turns on demand
+const openedMeta = metaOf(restarted.frames[0])
+const openedEntries = feedEntries(restarted.frames)
 check(
-	opened.earlier === true &&
-		opened.entries.length >= 15 &&
-		opened.entries.length < burst.length &&
-		opened.entries.every((entry) => entry.data.body.startsWith('note ')),
-	'after a restart, watching again starts with the newest page and says there are messages before it',
-	`${opened.entries.length} ${opened.earlier}`,
+	openedMeta?.earlier === true &&
+		openedEntries.length === 15 &&
+		openedEntries.every((entry) => entry.data.body.startsWith('note ')),
+	'after a restart, subscribing again starts with the newest page and says there are messages before it',
+	`${openedEntries.length} ${openedMeta?.earlier}`,
 )
-const pages = [opened.entries]
+const pages = [openedEntries]
 for (let more = true; more;) {
+	const oldest = pages[0][0].id
+	const page = (await api('GET', `/api/threads/${id}?before=${oldest}&last=50`)).json
 	const from = restarted.heard.length
-	restarted.earlier()
-	const page = await until(async () => restarted.heard.slice(from).find((m) => m.older && !m.agent))
-	if (!page) break
+	restarted.earlier(false, page.entries[0]?.id ?? 0)
+	await until(async () => restarted.heard.slice(from).some((m) => m.older && m.done))
 	pages.unshift(page.entries)
-	more = page.earlier
+	more = Boolean(page.earlier)
 }
 const paged = pages.flat().map((entry) => entry.data.body)
 check(
@@ -223,22 +235,16 @@ check(
 )
 const turns = restarted.heard.filter((m) => m.agent && m.entries).flatMap((m) => m.entries)
 check(
-	turns.filter((entry) => entry.kind === 'ade.delivery').length === 2 &&
-		restarted.heard.findIndex((m) => m.agent && m.older) <
-			restarted.heard.findLastIndex((m) => m.older && !m.agent),
-	"the agent's turns for the earlier messages come before them",
+	turns.filter((entry) => entry.kind === 'ade.delivery').length === 2,
+	"the agent's turns for the earlier messages arrive on earlier requests",
 )
-const again = watch(id)
-await until(async () => again.heard.length)
-again.earlier(true)
-const rest = await until(async () => again.heard.find((m) => m.older && !m.agent))
+const allBefore = (await api('GET', `/api/threads/${id}?before=${openedEntries[0].id}`)).json
 check(
-	rest?.earlier === false &&
-		JSON.stringify([...rest.entries, ...again.heard[0].entries].map((entry) => entry.data.body)) ===
-			JSON.stringify(paged),
-	'asked for all of it, the rest comes at once',
+	JSON.stringify([...allBefore.entries, ...openedEntries].map((entry) => entry.data.body)) ===
+		JSON.stringify(paged),
+	'asked for all earlier messages, the rest comes at once',
+	`${allBefore.entries.length}`,
 )
-again.close()
 check(
 	now && !now.run && !now.tools.length,
 	'after a restart, watching again says the agent is idle',

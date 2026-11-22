@@ -80,9 +80,11 @@ export const [newThreadTools, setNewThreadTools] = createSignal(null)
 /** The last key this page made, {name, connect}: the key is shown once, so it outlives the form that asked */
 export const [minted, setMinted] = createSignal(null)
 /** Each thread's messages, written only by the `thread/<id>` feed, older pages and optimistic sends. */
-export const [entries, setEntries] = createStore({}, { shallow: true })
+const [entries, setEntries] = createStore({}, { shallow: true })
 /** Whether a thread has messages before the ones on screen, which come a page at a time as you scroll up */
-export const [earlier, setEarlier] = createStore({})
+const [earlier, setEarlier] = createStore({})
+const [people, setPeople] = createStore({})
+export { entries, earlier, people }
 let heardNewDraft = (_message) => {}
 /** The composer hears your new-thread draft change on another page of yours through this */
 export const onNewDraft = (hear) => void (heardNewDraft = hear)
@@ -90,7 +92,6 @@ export const onNewDraft = (hear) => void (heardNewDraft = hear)
 export const pagers = new Map()
 export const loadEarlier = (thread, all = false) =>
 	earlier[thread] || all ? (pagers.get(thread)?.(all) ?? Promise.resolve()) : Promise.resolve()
-export const [people, setPeople] = createStore({})
 /** Earlier pages loaded by scrolling up, per thread, and optimistic sends keyed by request `key` */
 const olderPages = new Map()
 const pendingSent = new Map()

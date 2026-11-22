@@ -1630,11 +1630,14 @@ const threadList = async (reader, archived = false) => {
 	)
 }
 /** Short display label for an author: a model's bare id, a tailnet login without `~` or `+provider`, or a name as is */
-function shortLabel(author) {
-	if (!author) return ''
-	if (author.includes('@')) return author.split('@')[0].split('/').pop().split(':')[0]
-	return author.startsWith('~') ? author.slice(1).replace(/\+.*$/, '') : author
-}
+const shortLabel = (author) =>
+	!author
+		? ''
+		: author.includes('@')
+			? author.split('@')[0].split('/').pop().split(':')[0]
+			: author.startsWith('~')
+				? author.slice(1).replace(/\+.*$/, '')
+				: author
 
 /**
  * Shapes a thread's messages for one viewer so any client draws them without deriving speaker changes, reply targets,
@@ -1647,59 +1650,43 @@ async function shapeMessages(threadId, list, viewer, { seed = undefined, row = u
 	const botSet = new Set((await botNames?.()) ?? [])
 	const homes = (await homesOf?.()) ?? {}
 	const isGroup = Object.keys(row.agents).length > 1 || (await authors(threadId)).length > 1
-	const solo = !isGroup
-	const byPerson = (entry) =>
-		!entry.data.from &&
-		!entry.data.answer &&
-		!entry.data.error &&
-		!entry.data.scheduledTask &&
-		!entry.data.stopped &&
-		!entry.data.author?.includes('@') &&
-		!botSet.has(entry.data.author)
+	const byPerson = ({ data }) =>
+		!byAgent(data) && !data.from && !data.scheduledTask && !data.stopped && !botSet.has(data.author)
 	const all = seed ? [seed, ...list] : list
 	const byId = new Map(all.map((entry) => [entry.id, entry]))
 	const firstAnswer = new Map()
-	for (const entry of all)
-		if (!entry.data.from)
-			for (const id of entry.data.re ?? []) if (!firstAnswer.has(id)) firstAnswer.set(id, entry.id)
-	const sentTo = (entry) =>
-		entry.data.from
-			? undefined
-			: (entry.data.re ?? [])
-					.map((id) => byId.get(id))
-					.find(
-						(question) =>
-							question?.data.from && !question.data.re && firstAnswer.get(question.id) === entry.id,
-					)
+	const sentMap = new Map()
 	const otherIds = new Set()
-	for (const entry of list) {
-		const from =
-			sentTo(entry) ?? (entry.data.from && entry.data.from !== threadId ? entry : undefined)
-		if (from?.data.from) otherIds.add(from.data.from)
-	}
-	const otherTitles = new Map()
-	await Promise.all(
-		[...otherIds].map(async (other) => {
-			const title = homes[other] ?? (await thread(other))?.title
-			if (title) otherTitles.set(other, title)
-		}),
-	)
-	const farSide = (author, otherThread) => {
-		const title = otherTitles.get(otherThread)
-		return {
-			otherAuthor: author,
-			otherThread,
-			otherLabel:
-				botSet.has(author) || !title ? shortLabel(author) || `thread ${otherThread}` : title,
+	for (const entry of all) {
+		const { from, re } = entry.data
+		if (!from) {
+			for (const id of re ?? []) if (!firstAnswer.has(id)) firstAnswer.set(id, entry.id)
+			const question = (re ?? [])
+				.map((id) => byId.get(id))
+				.find((item) => item?.data.from && !item.data.re && firstAnswer.get(item.id) === entry.id)
+			if (question) sentMap.set(entry.id, question)
 		}
+		const cross = sentMap.get(entry.id) ?? (from && from !== threadId ? entry : undefined)
+		if (cross?.data.from) otherIds.add(cross.data.from)
 	}
+	const otherTitles = new Map(
+		await Promise.all(
+			[...otherIds].map(
+				async (other) =>
+					/** @type {[number, string | undefined]} */ ([
+						other,
+						homes[other] ?? (await thread(other))?.title,
+					]),
+			),
+		),
+	)
 	let previous, written, last, answering, prevTime
 	const shaped = []
 	for (const entry of all) {
 		const data = entry.data
 		const curTime = data.createdAt ? Date.parse(data.createdAt) : undefined
 		if (prevTime && curTime && curTime - prevTime > 3_600_000)
-			last = solo ? undefined : (answering = undefined)
+			last = !isGroup ? undefined : (answering = undefined)
 		if (curTime) prevTime = curTime
 		const replied =
 			data.answer && !data.from && data.re?.length ? byId.get(Math.max(...data.re)) : undefined
@@ -1714,11 +1701,11 @@ async function shapeMessages(threadId, list, viewer, { seed = undefined, row = u
 			replied !== written
 				? replied.data.author
 				: undefined
-		const sent = sentTo(entry)
-		const from = sent ?? (data.from && data.from !== threadId ? entry : undefined)
+		const sent = sentMap.get(entry.id)
+		const cross = sent ?? (data.from && data.from !== threadId ? entry : undefined)
 		const voice = sent
 			? 'sent'
-			: from
+			: cross
 				? 'received'
 				: data.scheduledTask
 					? 'run'
@@ -1729,7 +1716,7 @@ async function shapeMessages(threadId, list, viewer, { seed = undefined, row = u
 							: 'said'
 		const speaker = data.author
 		const agentRow = !byPerson(entry)
-		const prior = solo && agentRow ? (answering ?? speaker) : last
+		const prior = !isGroup && agentRow ? (answering ?? speaker) : last
 		const showName = voice === 'said' && Boolean(speaker && (speaker !== prior || to))
 		if (['sent', 'received', 'run'].includes(voice)) last = undefined
 		else {
@@ -1739,40 +1726,54 @@ async function shapeMessages(threadId, list, viewer, { seed = undefined, row = u
 		previous = entry
 		if (!data.answer && !data.error) written = entry
 		if (entry === seed) continue
+		const far = cross && {
+			otherAuthor: cross.data.author,
+			otherThread: cross.data.from,
+			otherLabel:
+				botSet.has(cross.data.author) || !otherTitles.get(cross.data.from)
+					? shortLabel(cross.data.author) || `thread ${cross.data.from}`
+					: otherTitles.get(cross.data.from),
+		}
 		shaped.push({
 			...entry,
 			speaker,
 			showName,
 			voice,
-			...(to ? { to } : {}),
-			...(from ? farSide(from.data.author, from.data.from) : {}),
+			...(to && { to }),
+			...far,
 			clamp: byPerson(entry) || data.author === viewer,
 			failed: Boolean(data.error),
-			...(data.picked ? { picked: data.picked, pickedNobody: !data.to?.length } : {}),
+			...(data.picked && { picked: data.picked, pickedNobody: !data.to?.length }),
 		})
 	}
 	return shaped
 }
 
+/** A window of non-withdrawn messages from `handle`, plus `earlier` and the 1-entry `seed` before it when `last` is given */
+async function windowOf(handle, { after = undefined, before = undefined, last = undefined } = {}) {
+	const limit = last !== undefined ? last + 1 : Infinity
+	const found = (await newest(handle, { after, before, last: limit })).filter(
+		(entry) => !entry.data.withdrawn,
+	)
+	if (last === undefined) return { entries: found, earlier: undefined, seed: undefined }
+	const earlier = found.length > last
+	return {
+		entries: earlier ? found.slice(-last) : found,
+		earlier,
+		seed: earlier ? found[0] : undefined,
+	}
+}
+
 /** A thread's row and people, with its shaped messages: all of them, those after `after`, before `before`, or the newest `last` */
 async function threadView(id, reader, { after, before, last } = {}) {
 	const handle = await conversation(id)
-	let raw, earlier, seed
-	if (after === undefined && before === undefined && last === undefined) {
-		raw = (await messages(id)).filter((entry) => !entry.data.withdrawn)
-	} else {
-		const limit = last !== undefined ? last + 1 : Infinity
-		const found = (await newest(handle, { after, before, last: limit })).filter(
-			(entry) => !entry.data.withdrawn,
-		)
-		if (last !== undefined) {
-			earlier = found.length > last
-			raw = earlier ? found.slice(-last) : found
-			seed = earlier ? found[0] : undefined
-		} else {
-			raw = found
-		}
-	}
+	const {
+		entries: raw,
+		earlier,
+		seed,
+	} = after === undefined && before === undefined && last === undefined
+		? { entries: (await messages(id)).filter((entry) => !entry.data.withdrawn) }
+		: await windowOf(handle, { after, before, last })
 	return {
 		...(await threadRow(id, reader, await work())),
 		people: await people(id),
@@ -2417,9 +2418,7 @@ function createFeed() {
 		const query = new URLSearchParams(search ?? '')
 		if (specs.has(base)) return { spec: specs.get(base), param: undefined, query }
 		const slash = base.indexOf('/')
-		if (slash < 0) return null
-		const prefix = base.slice(0, slash + 1)
-		const spec = specs.get(prefix)
+		const spec = slash >= 0 && specs.get(base.slice(0, slash + 1))
 		return spec ? { spec, param: base.slice(slash + 1), query } : null
 	}
 
@@ -2430,9 +2429,9 @@ function createFeed() {
 	}
 
 	const markDirty = (state, keys) => {
-		if (keys === true || (!state.spec.row && !state.spec.rows)) state.dirty = true
+		if (keys === true || !state.spec.rows) state.dirty = true
 		else if (state.dirty !== true) {
-			if (!state.dirty) state.dirty = new Set()
+			state.dirty ||= new Set()
 			for (const key of keys) state.dirty.add(key)
 		}
 		state.dirtySeq = seq
@@ -2449,50 +2448,37 @@ function createFeed() {
 		const put = []
 		const del = []
 		const keyOf = state.spec.keyOf ?? ((row) => row.id)
+		const putRow = (key, row) => {
+			const json = JSON.stringify(row)
+			if (state.rows.get(key)?.json === json) return
+			state.rows.set(key, { seq: targetSeq, json, row })
+			state.deleted.delete(key)
+			put.push({ key, seq: targetSeq, row })
+		}
+		const delRow = (key) => {
+			if (!state.rows.delete(key)) return
+			state.deleted.set(key, targetSeq)
+			del.push(key)
+		}
 		if (partial) {
-			for (const [key, row] of nextRows) {
-				if (row === null || row === undefined) {
-					if (state.rows.delete(key)) {
-						state.deleted.set(key, targetSeq)
-						del.push(key)
-					}
-					continue
-				}
-				const json = JSON.stringify(row)
-				const prev = state.rows.get(key)
-				if (!prev || prev.json !== json) {
-					state.rows.set(key, { seq: targetSeq, json, row })
-					state.deleted.delete(key)
-					put.push({ key, seq: targetSeq, row })
-				}
-			}
+			for (const [key, row] of nextRows)
+				if (row == null) delRow(key)
+				else putRow(key, row)
 		} else {
 			const seen = new Set()
 			for (const row of nextRows) {
 				const key = keyOf(row)
 				seen.add(key)
-				const json = JSON.stringify(row)
-				const prev = state.rows.get(key)
-				if (!prev || prev.json !== json) {
-					state.rows.set(key, { seq: targetSeq, json, row })
-					state.deleted.delete(key)
-					put.push({ key, seq: targetSeq, row })
-				}
+				putRow(key, row)
 			}
-			for (const key of state.rows.keys())
-				if (!seen.has(key)) {
-					state.rows.delete(key)
-					state.deleted.set(key, targetSeq)
-					del.push(key)
-				}
+			for (const key of state.rows.keys()) if (!seen.has(key)) delRow(key)
 		}
 		if (state.deleted.size > MAX_DELETED) {
-			const drop = state.deleted.size - MAX_DELETED
-			let dropped = 0
+			let drop = state.deleted.size - MAX_DELETED
 			for (const [key, delSeq] of state.deleted) {
 				state.deleted.delete(key)
 				if (delSeq > state.sinceSeq) state.sinceSeq = delSeq
-				if (++dropped >= drop) break
+				if (--drop <= 0) break
 			}
 		}
 		if (targetSeq > state.seq) state.seq = targetSeq
@@ -2506,35 +2492,13 @@ function createFeed() {
 				const work = state.dirty
 				const targetSeq = Math.max(state.dirtySeq ?? seq, seq)
 				state.dirty = false
-				let diff
-				if (work === true || (!state.spec.row && !state.spec.rows)) {
-					const all = await state.spec.all(state.viewer, state.param, state.query, state)
-					diff = applyDiff(state, all, false, targetSeq)
-				} else if (state.spec.rows) {
-					const entries = await state.spec.rows(
-						[...work],
-						state.viewer,
-						state.param,
-						state.query,
-						state,
-					)
-					diff = applyDiff(state, entries, true, targetSeq)
-				} else {
-					const entries = await Promise.all(
-						[...work].map(async (key) => [
-							key,
-							await state.spec.row(key, state.viewer, state.param, state.query, state),
-						]),
-					)
-					diff = applyDiff(state, entries, true, targetSeq)
-				}
+				const partial = work !== true && Boolean(state.spec.rows)
+				const next = partial
+					? await state.spec.rows([...work], state.viewer, state.param, state.query, state)
+					: await state.spec.all(state.viewer, state.param, state.query, state)
+				const diff = applyDiff(state, next, partial, targetSeq)
 				if ((diff.put.length || diff.del.length) && state.subs.size) {
-					const payload = JSON.stringify({
-						view: state.view,
-						seq: state.seq,
-						put: diff.put,
-						del: diff.del,
-					})
+					const payload = JSON.stringify({ view: state.view, seq: state.seq, ...diff })
 					for (const socket of state.subs) sendFrame(socket, state.view, payload, state.seq)
 				}
 			}
@@ -2554,71 +2518,61 @@ function createFeed() {
 		state.evict.unref()
 		let idle = 0
 		for (const each of states.values()) if (!each.subs.size) idle++
-		if (idle > MAX_IDLE)
-			for (const [key, each] of states) {
-				if (!each.subs.size && each !== state) {
-					clearTimeout(each.evict)
-					states.delete(key)
-					if (--idle <= MAX_IDLE) break
-				}
+		for (const [key, each] of states) {
+			if (idle <= MAX_IDLE) break
+			if (!each.subs.size && each !== state) {
+				clearTimeout(each.evict)
+				states.delete(key)
+				idle--
 			}
+		}
 	}
 
 	const onSocket = (socket, run) =>
 		(socket.feedQueue = (socket.feedQueue ?? Promise.resolve()).then(run).catch(() => {}))
 
-	const fireListeners = (view) => {
-		const set = listeners.get(view)
-		if (set) for (const fn of set) fn()
-	}
-
 	return {
 		seq: () => seq,
 		define: (name, spec) => specs.set(name, spec),
-		hasSubscribers: (view) => {
-			for (const state of states.values())
-				if (state.subs.size && (state.view === view || state.view.startsWith(`${view}?`)))
-					return true
-			return false
-		},
+		hasSubscribers: (view) =>
+			[...states.values()].some(
+				(state) => state.subs.size && (state.view === view || state.view.startsWith(`${view}?`)),
+			),
 		onUpdate: (view, fn) => {
-			let set = listeners.get(view)
-			if (!set) listeners.set(view, (set = new Set()))
-			set.add(fn)
+			const set = listeners.get(view) ?? new Set()
+			listeners.set(view, set.add(fn))
 		},
 		onCommit: (publication) => {
 			seq = Math.max(seq + 1, publication.seq)
-			for (const [view, set] of listeners) {
-				const spec = specs.get(view)
-				if (spec && publication.changes.some((change) => Boolean(spec.match?.(change))))
+			for (const [view, set] of listeners)
+				if (publication.changes.some((change) => Boolean(specs.get(view)?.match?.(change))))
 					for (const fn of set) fn()
-			}
 			for (const state of states.values()) {
 				if (!state.ready) continue
-				let matched = false
-				/** @type {Set<any> | null} */
-				let keys = null
+				let dirty = /** @type {false | true | Set<any>} */ (false)
 				for (const change of publication.changes) {
 					const hit = state.spec.match?.(change, state.param)
 					if (!hit) continue
 					if (hit === true) {
-						matched = true
+						dirty = true
 						break
 					}
-					keys ??= new Set()
-					for (const key of hit) keys.add(key)
+					if (dirty !== true) {
+						dirty ||= new Set()
+						for (const key of hit) dirty.add(key)
+					}
 				}
-				if (matched) markDirty(state, true)
-				else if (keys?.size) markDirty(state, keys)
+				if (dirty) markDirty(state, dirty)
 			}
 		},
-		touch: (view, key) => {
+		touch: (views, key) => {
 			seq++
-			fireListeners(view)
+			const names = Array.isArray(views) ? views : [views]
+			for (const view of names) for (const fn of listeners.get(view) ?? []) fn()
 			for (const state of states.values()) {
 				if (!state.ready) continue
-				if (state.view !== view && !state.view.startsWith(`${view}/`)) continue
-				markDirty(state, key === undefined ? true : [key])
+				if (names.some((view) => state.view === view || state.view.startsWith(`${view}/`)))
+					markDirty(state, key === undefined ? true : [key])
 			}
 		},
 		subscribe: (socket, view, after) =>
@@ -2657,13 +2611,7 @@ function createFeed() {
 				if (!state.ready) {
 					state.flushing ??= (async () => {
 						const at = seq
-						const all = await spec.all(viewer, param, query, state)
-						const keyOf = spec.keyOf ?? ((row) => row.id)
-						for (const row of all) {
-							const key = keyOf(row)
-							state.rows.set(key, { seq: at, json: JSON.stringify(row), row })
-						}
-						state.seq = at
+						applyDiff(state, await spec.all(viewer, param, query, state), false, at)
 						state.sinceSeq = at
 						state.ready = true
 					})().finally(() => {
@@ -2677,28 +2625,17 @@ function createFeed() {
 					return
 				}
 				const delta = typeof after === 'number' && after >= state.sinceSeq && after <= state.seq
-				const frame = delta
-					? {
-							view,
-							seq: state.seq,
-							put: [...state.rows.entries()]
-								.filter(([, entry]) => entry.seq > after)
-								.map(([key, entry]) => ({ key, seq: entry.seq, row: entry.row })),
-							del: [...state.deleted.entries()]
-								.filter(([, delSeq]) => delSeq > after)
-								.map(([key]) => key),
-						}
-					: {
-							view,
-							seq: state.seq,
-							reset: true,
-							put: [...state.rows.entries()].map(([key, entry]) => ({
-								key,
-								seq: entry.seq,
-								row: entry.row,
-							})),
-							del: [],
-						}
+				const frame = {
+					view,
+					seq: state.seq,
+					...(!delta && { reset: true }),
+					put: [...state.rows.entries()]
+						.filter(([, entry]) => !delta || entry.seq > after)
+						.map(([key, entry]) => ({ key, seq: entry.seq, row: entry.row })),
+					del: delta
+						? [...state.deleted.entries()].filter(([, at]) => at > after).map(([key]) => key)
+						: [],
+				}
 				sendFrame(socket, view, JSON.stringify(frame), state.seq)
 				state.subs.add(socket)
 				socket.subs.set(view, state)
@@ -2717,19 +2654,16 @@ function createFeed() {
 				if (!state || socket.readyState !== 1) return
 				if ((socket.sentSeq.get(view) ?? -1) >= targetSeq) return
 				if (state.dirty || state.flushing) await flushState(state)
-				if (socket.readyState !== 1) return
-				if ((socket.sentSeq.get(view) ?? -1) < targetSeq) {
-					const at = Math.max(state.seq, seq)
-					sendFrame(socket, view, JSON.stringify({ view, seq: at, put: [], del: [] }), at)
-				}
+				if (socket.readyState !== 1 || (socket.sentSeq.get(view) ?? -1) >= targetSeq) return
+				const at = Math.max(state.seq, seq)
+				sendFrame(socket, view, JSON.stringify({ view, seq: at, put: [], del: [] }), at)
 			}),
 		disconnect: (socket) => {
-			if (!socket.subs) return
-			for (const state of socket.subs.values()) {
+			for (const state of socket.subs?.values() ?? []) {
 				state.subs.delete(socket)
 				if (!state.subs.size) armEviction(state)
 			}
-			socket.subs.clear()
+			socket.subs?.clear()
 		},
 	}
 }
@@ -2748,24 +2682,19 @@ let familiesCache = null
 let movedFamilies = null
 function families() {
 	if (familiesCache) return familiesCache
-	const open = new Map()
-	for (const [threadId, meta] of placed) if (!meta.hidden) open.set(threadId, meta)
+	const sorted = [...placed.keys()].filter((id) => !placed.get(id).hidden).sort((a, b) => b - a)
+	const open = new Set(sorted)
 	const children = new Map()
-	const sorted = [...open.keys()].sort((left, right) => right - left)
-	for (const threadId of sorted) {
-		const parent = open.get(threadId).parent
-		if (parent && open.has(parent)) {
-			let list = children.get(parent)
-			if (!list) children.set(parent, (list = []))
-			list.push(threadId)
-		}
+	for (const id of sorted) {
+		const parent = placed.get(id).parent
+		if (parent && open.has(parent)) children.set(parent, [...(children.get(parent) ?? []), id])
 	}
 	const built = new Map()
 	const byRoot = new Map()
-	for (const threadId of sorted) {
-		let root = threadId
-		for (let hops = 0; open.has(open.get(root)?.parent) && hops < 20; hops++)
-			root = open.get(root).parent
+	for (const id of sorted) {
+		let root = id
+		for (let hops = 0; open.has(placed.get(root)?.parent) && hops < 20; hops++)
+			root = placed.get(root).parent
 		if (!byRoot.has(root)) {
 			const family = [{ id: root, depth: 0 }]
 			const seen = new Set([root])
@@ -2777,7 +2706,7 @@ function families() {
 					}
 			byRoot.set(root, family)
 		}
-		built.set(threadId, byRoot.get(root))
+		built.set(id, byRoot.get(root))
 	}
 	return (familiesCache = built)
 }
@@ -2791,27 +2720,15 @@ const familyField = (id) => {
 const place = (id, value, record = records.get(id)) => {
 	const before = placed.get(id)
 	const parent = value.parent ?? record?.parent?.conversationId ?? before?.parent ?? null
-	const now = {
-		hidden: Boolean(value.hidden),
-		parent,
-	}
-	const topologyChanged = !before || before.hidden !== now.hidden || before.parent !== now.parent
-	const oldRoot = topologyChanged ? familyOf(id)[0]?.id : undefined
-	const oldParentRoot = topologyChanged && parent ? familyOf(parent)[0]?.id : undefined
+	const now = { hidden: Boolean(value.hidden), parent }
+	const moved = !before || before.hidden !== now.hidden || before.parent !== now.parent
+	const roots = () => [familyOf(id)[0]?.id, parent && familyOf(parent)[0]?.id].filter(Boolean)
+	const prevRoots = moved && movedFamilies ? roots() : []
 	placed.set(id, now)
-	if (topologyChanged) {
+	if (moved) {
 		familiesCache = null
 		if (movedFamilies) {
-			movedFamilies.add(id)
-			if (oldRoot) movedFamilies.add(oldRoot)
-			if (oldParentRoot) movedFamilies.add(oldParentRoot)
-			const newRoot = familyOf(id)[0]?.id
-			if (newRoot) movedFamilies.add(newRoot)
-			if (parent) {
-				const newParentRoot = familyOf(parent)[0]?.id
-				if (newParentRoot) movedFamilies.add(newParentRoot)
-			}
-			// If `id` was itself a root whose children now become roots (e.g. archived/unarchived), update direct children's roots too
+			for (const tid of [id, ...prevRoots, ...roots()]) movedFamilies.add(tid)
 			if (before?.hidden !== now.hidden)
 				for (const [tid, meta] of placed) if (meta.parent === id) movedFamilies.add(tid)
 		}
@@ -2822,8 +2739,11 @@ const place = (id, value, record = records.get(id)) => {
 }
 const touchThread = (threadId) => {
 	const meta = placed.get(threadId)
-	if (!meta || !meta.hidden) feed.touch('threads', threadId)
-	if (!meta || meta.hidden) feed.touch('archived', threadId)
+	const views = [
+		...(!meta || !meta.hidden ? ['threads'] : []),
+		...(!meta || meta.hidden ? ['archived'] : []),
+	]
+	if (views.length) feed.touch(views, threadId)
 	feed.touch(`thread/${threadId}`)
 }
 
@@ -3409,6 +3329,34 @@ function nudge() {
 	}
 }
 
+/** Which threads a commit change touches: `true` for all, a list of thread ids, or `false` */
+const threadMatch = (change) => {
+	if (change.type === 'conversation')
+		return !change.value.owner
+			? movedFamilies?.size
+				? [...movedFamilies]
+				: [change.value.id]
+			: agentThreads.has(change.value.id)
+				? [agentThreads.get(change.value.id)]
+				: false
+	if (change.type === 'entry')
+		return change.value.kind.startsWith('ade.') ? [change.value.conversationId] : false
+	if (change.type === 'task')
+		return isWork(change.value.kind) ? [change.value.conversationId] : false
+	if (change.type === 'document') {
+		const { kind } = change.record
+		if (kind === 'ade.thread')
+			return movedFamilies?.size
+				? [...new Set([change.conversationId, ...movedFamilies])]
+				: [change.conversationId]
+		if (kind === AgentDoc.definition.kind) {
+			const tid = change.conversationId && agentThreads.get(change.conversationId)
+			return tid ? [tid] : true
+		}
+		if (kind === 'ade.bots' || kind === 'ade.runners') return true
+	}
+	return false
+}
 const defineThreadView = (name, archived) =>
 	feed.define(name, {
 		perViewer: true,
@@ -3424,34 +3372,7 @@ const defineThreadView = (name, archived) =>
 				}),
 			)
 		},
-		match: (change) => {
-			if (change.type === 'conversation') {
-				if (!change.value.owner) return movedFamilies?.size ? [...movedFamilies] : [change.value.id]
-				const tid = agentThreads.get(change.value.id)
-				return tid ? [tid] : false
-			}
-			if (change.type === 'entry') {
-				const { kind, conversationId } = /** @type {any} */ (change.value)
-				return kind.startsWith('ade.') ? [conversationId] : false
-			}
-			if (change.type === 'task') {
-				const { kind, conversationId } = change.value
-				return isWork(kind) ? [conversationId] : false
-			}
-			if (change.type === 'document') {
-				const { kind } = change.record
-				if (kind === 'ade.thread')
-					return movedFamilies?.size
-						? [...new Set([change.conversationId, ...movedFamilies])]
-						: [change.conversationId]
-				if (kind === AgentDoc.definition.kind) {
-					const tid = change.conversationId && agentThreads.get(change.conversationId)
-					return tid ? [tid] : true
-				}
-				if (kind === 'ade.bots' || kind === 'ade.runners') return true
-			}
-			return false
-		},
+		match: threadMatch,
 	})
 defineThreadView('threads', false)
 defineThreadView('archived', true)
@@ -3464,17 +3385,13 @@ feed.define('thread/', {
 		const handle = await conversation(id)
 		let shown
 		if (state.minId === undefined) {
-			const raw = (await newest(handle, { last: FIRST + 1 })).filter(
-				(entry) => !entry.data.withdrawn,
-			)
-			state.earlier = raw.length > FIRST
-			shown = state.earlier ? raw.slice(-FIRST) : raw
-			state.seed = state.earlier ? raw[0] : undefined
+			const page = await windowOf(handle, { last: FIRST })
+			shown = page.entries
+			state.earlier = page.earlier
+			state.seed = page.seed
 			state.minId = shown[0]?.id ?? 0
 		} else {
-			shown = (await newest(handle, { after: state.minId - 1 })).filter(
-				(entry) => !entry.data.withdrawn,
-			)
+			shown = (await windowOf(handle, { after: state.minId - 1 })).entries
 		}
 		const [meta, who, shaped] = await Promise.all([
 			threadRow(id, viewer, await work()),
@@ -3487,20 +3404,8 @@ feed.define('thread/', {
 		]
 	},
 	match: (change, param) => {
-		const id = Number(param)
-		if (change.type === 'conversation')
-			return change.value.id === id || agentThreads.get(change.value.id) === id
-		if (change.type === 'entry')
-			return change.value.conversationId === id && change.value.kind.startsWith('ade.')
-		if (change.type === 'task')
-			return change.value.conversationId === id && isWork(change.value.kind)
-		if (change.type === 'document') {
-			const { kind } = change.record
-			if (kind === 'ade.thread') return change.conversationId === id
-			if (kind === AgentDoc.definition.kind) return agentThreads.get(change.conversationId) === id
-			if (kind === 'ade.bots' || kind === 'ade.runners') return true
-		}
-		return false
+		const hit = threadMatch(change)
+		return hit === true || (Array.isArray(hit) && hit.includes(Number(param)))
 	},
 })
 
@@ -3557,15 +3462,13 @@ harness.observeCommits({
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
 const FIRST = 15
-/** Messages each earlier page brings as a browser scrolls up */
-const PAGE = 50
 
-/** A browser watches one thread, or asks for its page before the ones it has, one request after another */
+/** A browser watches one thread's agents (turns, live work, cuts, drafts), or asks for earlier agent turns */
 const queued = (socket, run) =>
 	(socket.watches = (socket.watches ?? Promise.resolve()).then(run).catch(() => {}))
-const watch = (socket, id, turnsOnly = false) => {
+const watch = (socket, id) => {
 	socket.thread = id
-	return queued(socket, () => rewatch(socket, id, turnsOnly))
+	return queued(socket, () => rewatch(socket, id))
 }
 const earlier = (socket, id, all, before) =>
 	queued(socket, () => socket.pages?.id === id && socket.pages.back(all, before))
@@ -3592,7 +3495,7 @@ async function cutOf(handle, agent) {
 		? { id: marker.id, model: marker.model?.map(visible), first: Math.min(...held) }
 		: null
 }
-async function rewatch(socket, id, turnsOnly = false) {
+async function rewatch(socket, id) {
 	const old = socket.watching
 	socket.watching = socket.pages = undefined
 	for (const watch of old ?? []) await watch.stop()
@@ -3615,93 +3518,18 @@ async function rewatch(socket, id, turnsOnly = false) {
 	)
 	/** Each followed agent's way back through its conversation */
 	const pagers = new Map()
-	let from = () => 0
-	let present = async () => ({})
-	if (turnsOnly) {
-		const initial = (await newest(handle, { last: FIRST + 1 })).filter(
-			(entry) => !entry.data.withdrawn,
-		)
-		const hasEarlier = initial.length > FIRST
-		const oldest = hasEarlier ? (initial.slice(-FIRST)[0]?.id ?? 0) : 0
-		from = () => oldest
-		socket.pages = {
-			id,
-			/** Loads earlier agent turns up to `before` (or all of them), then signals `done` */
-			back: async (all, before) => {
-				for (const [agent, back] of pagers) {
-					const entries = await back(all ? () => false : covers(before ?? 0))
-					if (entries.length) send({ agent, older: true, entries })
-				}
-				send({ older: true, done: true })
-			},
-		}
-	} else {
-		const messages = await handle.watch(context)
-		if (!keep(messages)) return
-		/** Who's there changes with a message, or a read: said first, then only when it changed */
-		let toldPeople
-		present = async () => {
-			const now = await people(id)
-			const said = JSON.stringify(now)
-			if (said === toldPeople) return {}
-			toldPeople = said
-			return { people: now }
-		}
-		const only = (entries) => entries.filter((entry) => entry.kind === KIND)
-		/** Messages with the director's picks, and a message sent before whose pick just came, again */
-		const routes = new Map()
-		const sentMessages = new Map()
-		const withPicks = (entries) => {
-			const fresh = routed(entries, routes)
-			for (const entry of fresh) sentMessages.set(entry.id, entry)
-			const again = entries
-				.filter(
-					(entry) =>
-						(entry.kind === ROUTE || entry.kind === WITHDRAWAL) &&
-						!fresh.some((one) => one.id === entry.data.message),
-				)
-				.flatMap((entry) => {
-					const before = sentMessages.get(entry.data.message)
-					return before ? [withRoute(before, routes)] : []
-				})
-			return [...fresh, ...again]
-		}
-		/** Its newest page of messages, at least `size` of them, or all there are */
-		const page =
-			(after, size = PAGE) =>
-			(entries) =>
-				only(entries).filter((entry) => entry.id < after).length >= size
-		const thread = await told(
-			handle,
-			messages,
-			async (entries, more) => {
-				const shown = await shapeMessages(id, withPicks(entries), socket.viewer)
-				const changed = await present()
-				// After the first, a batch with no message in it, like a memory line, says nothing a page shows
-				if (shown.length || 'earlier' in more || changed.people)
-					send({ entries: shown, ...more, ...changed })
-			},
-			{ enough: page(Infinity, FIRST) },
-		)
-		/** The oldest message the browser has, or 0 once it has them all, which its agents' turns reach back to */
-		from = () => (thread.earlier() ? (only(thread.entries())[0]?.id ?? 0) : 0)
-		socket.pages = {
-			id,
-			/** The page before the oldest message sent, or all of them: each agent's turns for it first, then the messages */
-			back: async (all) => {
-				const oldest = only(thread.entries())[0]?.id ?? Infinity
-				const older = await thread.back(all ? () => false : page(oldest))
-				for (const [agent, back] of pagers) {
-					const entries = await back(covers(from()))
-					if (entries.length) send({ agent, older: true, entries })
-				}
-				send({
-					older: true,
-					earlier: older.earlier,
-					entries: await shapeMessages(id, withPicks(older.entries), socket.viewer),
-				})
-			},
-		}
+	const initial = await windowOf(handle, { last: FIRST })
+	const oldest = initial.earlier ? (initial.entries[0]?.id ?? 0) : 0
+	socket.pages = {
+		id,
+		/** Loads earlier agent turns up to `before` (or all of them), then signals `done` */
+		back: async (all, before) => {
+			for (const [agent, back] of pagers) {
+				const entries = await back(all ? () => false : covers(before ?? 0))
+				if (entries.length) send({ agent, older: true, entries })
+			}
+			send({ older: true, done: true })
+		},
 	}
 	/** By conversation, which stays as an agent switches model or runner */
 	const follow = async (agents) => {
@@ -3746,7 +3574,7 @@ async function rewatch(socket, id, turnsOnly = false) {
 					}),
 				{
 					then: async (value) => send({ agent, live: await live(value) }),
-					enough: covers(from()),
+					enough: covers(oldest),
 					pageSize: 50,
 				},
 			)
@@ -3762,8 +3590,6 @@ async function rewatch(socket, id, turnsOnly = false) {
 	row.start(async (call) => {
 		if (call.kind === 'failed') throw call.error
 		await follow(call.value.agents)
-		const changed = await present()
-		if (changed.people) send(changed)
 	})
 }
 /**
@@ -3914,11 +3740,7 @@ async function upgrade(req, raw, head, serve = false) {
 		watch(socket, null)
 		if (connection && runners.disconnect(connection)) {
 			say('runner', `${name} offline`)
-			feed.touch('runners')
-			feed.touch('bots')
-			feed.touch('threads')
-			feed.touch('archived')
-			feed.touch('thread')
+			feed.touch(['runners', 'bots', 'threads', 'archived', 'thread'])
 		}
 	}
 	socket.on('close', close)
@@ -3942,7 +3764,7 @@ async function upgrade(req, raw, head, serve = false) {
 			else if ('unsub' in message) feed.unsubscribe(socket, message.unsub)
 			else if ('sync' in message) feed.sync(socket, message.sync, message.seq)
 			else if ('earlier' in message) earlier(socket, message.earlier, message.all, message.before)
-			else if ('watch' in message) watch(socket, message.watch, message.turnsOnly === true)
+			else if ('watch' in message) watch(socket, message.watch)
 		})
 		socket.person = sender
 		return clients.add(socket)
@@ -3994,11 +3816,7 @@ async function upgrade(req, raw, head, serve = false) {
 	if (!models.getProvider(`runner:${name}`)) provide(name, resolved)
 	listen(runners.receive)
 	runners.connect(connection, (text) => socket.send(text))
-	feed.touch('runners')
-	feed.touch('bots')
-	feed.touch('threads')
-	feed.touch('archived')
-	feed.touch('thread')
+	feed.touch(['runners', 'bots', 'threads', 'archived', 'thread'])
 	socket.send(JSON.stringify({ op: 'ready' }))
 	if (runner.version && runner.version !== bundle.version) {
 		outdated.add(connection)

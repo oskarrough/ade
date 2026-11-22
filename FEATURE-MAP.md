@@ -88,7 +88,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   server.js              the server as the client sees it: api, write, watch, in-memory feed store (`subscribeView`, `viewStore`, `feedView`, `feedItem`, `openThreadFeed`, `caughtUp`),
                          actions (`archiveThread`, `renameThread`, `dismiss`, `forgetBot`, `revokeRunner`), threadOf, familyOf, current, openThread, fork, earlier, loadEarlier, sending, me
   thread.js              one thread on screen
-    Thread               `thread/<id>` feed (shaped messages, people, earlier) + `/ws` (`turnsOnly`) for turns/live/drafts; follow, onScreen, shownFrom, nearTop, hold
+    Thread               `thread/<id>` feed (shaped messages, people, earlier) + `/ws` (`watch`) for turns/live/drafts; follow, onScreen, shownFrom, nearTop, hold
     rows                 server-shaped messages laid out with agent turns, lasting calls, cuts and memory lines
     Asked                in a bot's home, a question another thread asked it (askedHere)
     Message              one message: author, pick, fork link, waiting, Body, Images; `Cross` for one that crossed threads
