@@ -1325,6 +1325,68 @@ agent-memory {
 		}
 	}
 
+	> .when + .when {
+		margin-top: var(--space-2);
+	}
+
+	> select + .when {
+		margin-top: var(--space-2);
+	}
+
+	.count {
+		width: 4rem;
+	}
+
+	/* Its days, a row of small toggles, the ones it runs on filled; its times, each with its ×, then + another. */
+	.days {
+		gap: var(--space-1);
+
+		> [aria-pressed='true'] {
+			background: color-mix(in srgb, CanvasText 10%, Canvas);
+			color: var(--ink);
+		}
+	}
+
+	.times {
+		flex-wrap: wrap;
+
+		> .time {
+			display: inline-flex;
+			align-items: center;
+		}
+	}
+
+	/* The schedule itself: its last runs, each opening what it posted, then its next five, redrawn as you type. */
+	> .timeline {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0 var(--space-2);
+		margin: var(--space-2) var(--space-2) 0;
+		font-size: var(--text-small);
+		line-height: var(--text-small-line);
+		color: var(--mute);
+
+		> .now {
+			opacity: 0.4;
+		}
+
+		> .next {
+			color: var(--ink);
+		}
+
+		/* A run in the small hours is likelier a slip than a wish. */
+		> .night {
+			color: var(--mute);
+			font-style: italic;
+		}
+	}
+
+	> .runs-in {
+		margin: var(--space-1) var(--space-2) 0;
+		font-size: var(--text-small);
+		line-height: var(--text-small-line);
+	}
+
 	> .actions {
 		display: flex;
 		justify-content: end;

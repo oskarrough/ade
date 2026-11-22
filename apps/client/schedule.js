@@ -27,6 +27,7 @@ import { ahead } from './time.js'
 import { report } from './notice.js'
 import { showMessage } from './search.js'
 import { runnersWith } from './runner.js'
+import { DAYS as DAY_KEYS, runsAfter, span } from './clock.js'
 
 /** What a task can run `on`, as the server's hooks.js says it */
 const EVENTS = {
@@ -36,20 +37,6 @@ const EVENTS = {
 }
 const DAYS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
 const HERE = Intl.DateTimeFormat().resolvedOptions().timeZone
-
-/** `5m`, `1h30m` from milliseconds, as the agent wrote it */
-const UNITS = /** @type {[number, string][]} */ ([
-	[86_400_000, 'd'],
-	[3_600_000, 'h'],
-	[60_000, 'm'],
-	[1000, 's'],
-])
-const span = (ms) => {
-	let text = ''
-	for (const [size, unit] of UNITS)
-		if (ms >= size) [text, ms] = [`${text}${Math.floor(ms / size)}${unit}`, ms % size]
-	return text
-}
 
 /** A clock for the countdowns and rings, a second at a time */
 const [now, setNow] = createSignal(Date.now())
@@ -65,18 +52,37 @@ const countdown = (at) => {
 	return ahead(at)
 }
 
+/** 09:00, 12:00 and 17:30 */
+const listed = (words) =>
+	words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : (words[0] ?? '')
+
+/** Which days a clock schedule runs on: daily, weekdays, weekends, Mondays, or Mon, Wed and Fri */
+const daysOf = (days) => {
+	if (!days || days.length === 7) return 'daily'
+	const key = days.join('')
+	if (key === '12345') return 'weekdays'
+	if (key === '06') return 'weekends'
+	if (days.length === 1) return DAYS[days[0]]
+	return listed(days.map((day) => DAYS[day].slice(0, 3)))
+}
+
 /** How a schedule repeats, or what it waits for */
 const repeatOf = (schedule) => {
 	if (schedule.on !== undefined) return `on ${EVENTS[schedule.on]}`
 	if (schedule.after !== undefined) return `once ${titleOf(schedule.after)} is done`
 	if (schedule.every) return `every ${span(schedule.every)}`
-	if (!schedule.repeat) return 'once'
+	if (!schedule.times) return 'once'
 	const zone = schedule.timeZone === HERE ? '' : ` ${schedule.timeZone}`
-	const two = (number) => String(number).padStart(2, '0')
-	if (schedule.repeat === 'hourly') return `hourly at :${two(schedule.minute)}${zone}`
-	const days = schedule.repeat === 'weekly' ? DAYS[schedule.dayOfWeek] : schedule.repeat
-	return `${days} at ${two(schedule.hour)}:${two(schedule.minute)}${zone}`
+	return `${daysOf(schedule.days)} at ${listed(schedule.times)}${zone}`
 }
+
+/** How it reads in a line: a one-off by when it comes, anything else by how it repeats */
+const shortWhen = (task) =>
+	task.paused
+		? `paused, ${repeatOf(task.schedule)}`
+		: task.schedule.times || task.schedule.every || task.at === undefined
+			? repeatOf(task.schedule)
+			: countdown(task.at)
 
 /** When it runs next and how it repeats: in 8m, daily at 09:00; paused, why, then how it repeats */
 const whenOf = (task) =>
@@ -170,23 +176,24 @@ function OfflineRunner(props) {
 
 /** Its last run: when, opening the message it posted; or that it was skipped, and why */
 function LastRun(props) {
+	const last = () => props.task.runs?.at(-1)
 	return html`
-		<${Show} when=${() => props.task.last}>
+		<${Show} when=${last}>
 			<small>
 				<${Show}
-					when=${() => !props.task.last.skipped}
-					fallback=${html`${() => `Last run skipped at ${whenWas(props.task.last.at)}: ${props.task.last.skipped}`}`}
+					when=${() => !last().skipped}
+					fallback=${html`${() => `Last run skipped at ${whenWas(last().at)}: ${last().skipped}`}`}
 				>
 					<a
 						class="thread-link"
-						href=${() => hrefOf(props.task.last.thread)}
+						href=${() => hrefOf(last().thread)}
 						onClick=${(event) => {
 							event.preventDefault()
 							event.stopPropagation()
 							props.onOpen?.()
-							showMessage(props.task.last.thread, props.task.last.entry)
+							showMessage(last().thread, last().entry)
 						}}
-						>${() => `Last run ${whenWas(props.task.last.at)}`}</a
+						>${() => `Last run ${whenWas(last().at)}`}</a
 					>
 				<//>
 			</small>
@@ -274,7 +281,7 @@ function Controls(props) {
 
 /**
  * A task as a row: where it runs if asked, when next, its last run, its instructions, and its controls on a line of
- * their own. With `onGo` the row opens where it runs.
+ * their own. With `onGo` the row opens its form.
  */
 function TaskRow(props) {
 	return html`
@@ -282,7 +289,6 @@ function TaskRow(props) {
 			role=${() => (props.onGo ? 'button' : undefined)}
 			tabindex=${() => (props.onGo ? '0' : undefined)}
 			class=${() => ({ paused: props.task.paused })}
-			title=${() => `${whenOf(props.task)}: ${props.task.instructions}`}
 			onClick=${(event) => props.onGo?.(event)}
 			onKeyDown=${(event) =>
 				event.key === 'Enter' && event.target === event.currentTarget && props.onGo?.(event)}
@@ -323,6 +329,7 @@ export function ThreadTasks(props) {
 					html`<${TaskRow}
 						task=${() => task()}
 						path=${() => `/api/threads/${props.thread}/schedule`}
+						onGo=${(_e) => openTaskForm(props.thread, task())}
 					/>`}<//
 			>
 		</ul>
@@ -344,8 +351,8 @@ export function ThreadTasks(props) {
 
 /** Asked to open the form from somewhere else, as `{thread}`: the list opens on it */
 const [asked, setAsked] = createSignal(null)
-/** Opens the New task form, for `thread` if given, else for the bot last used */
-export const openTaskForm = (thread) => setAsked({ thread })
+/** Opens the New task form, for `thread` if given, else for the bot last used; given a task, its own form to edit */
+export const openTaskForm = (thread, task = undefined) => setAsked({ thread, task })
 
 /**
  * Every task in the house, in a popover from the list's foot: where it runs, when, its instructions, pause and ×; New
@@ -357,13 +364,8 @@ export function ScheduledTaskList() {
 	const [open, setOpen] = createSignal(false)
 	const [form, setForm] = createSignal(null)
 	const tasks = feedView(() => (open() ? 'schedule' : null), { sort: taskSort })
-	/** A row opens its thread */
-	const go = (task) => {
-		panel.hidePopover()
-		openThread(task.thread)
-	}
-	const openForm = (thread) => {
-		setForm({ thread })
+	const openForm = (thread, task) => {
+		setForm({ thread, task })
 		if (!panel.matches(':popover-open')) panel.showPopover()
 	}
 	// The form is taller than the list it covers: place the popover again once either shows
@@ -377,7 +379,7 @@ export function ScheduledTaskList() {
 	createEffect(asked, (wish) => {
 		if (!wish) return
 		setAsked(null)
-		openForm(wish.thread)
+		openForm(wish.thread, wish.task)
 	})
 	return html`
 		<button
@@ -412,10 +414,15 @@ export function ScheduledTaskList() {
 					New task
 				</button>`}
 				open=${() => Boolean(form())}
-				detailTitle="New task"
+				detailTitle=${() => (form()?.task ? 'Edit task' : 'New task')}
 				detail=${html`<${Show} when=${form} keyed
 					>${(asked) =>
-						html`<${TaskForm} thread=${asked.thread} onDone=${(_event) => setForm(null)} />`}<//
+						html`<${TaskForm}
+							thread=${asked.thread}
+							task=${asked.task}
+							onDone=${(_event) => setForm(null)}
+							onOpen=${(_event) => panel.hidePopover()}
+						/>`}<//
 				>`}
 				onBack=${(_event) => setForm(null)}
 				onClose=${(_event) => panel.hidePopover()}
@@ -428,7 +435,7 @@ export function ScheduledTaskList() {
 									task=${() => task()}
 									path="/api/schedule"
 									place
-									onGo=${(_e) => go(task())}
+									onGo=${(_e) => setForm({ thread: task().thread, task: task() })}
 									onOpen=${(_e) => panel.hidePopover()}
 								/>`}<//
 						>
@@ -444,54 +451,173 @@ export function ScheduledTaskList() {
 const lastBot = () =>
 	[...bots].sort((a, b) => String(b.answeredAt ?? '').localeCompare(String(a.answeredAt ?? '')))[0]
 
+/** A datetime-local field's value for `ms`, on this device's clock */
+const localField = (ms) => {
+	const date = new Date(ms - new Date(ms).getTimezoneOffset() * 60_000)
+	return date.toISOString().slice(0, 16)
+}
+
+/** Tomorrow at 09:00 here */
+const tomorrowAtNine = () => {
+	const date = new Date()
+	date.setDate(date.getDate() + 1)
+	date.setHours(9, 0, 0, 0)
+	return date.getTime()
+}
+
+/** Every so often, in the form's units */
+const UNIT_SIZES = { m: 60_000, h: 3_600_000, d: 86_400_000 }
+const everyIn = (ms) => {
+	for (const unit of ['d', 'h', 'm'])
+		if (ms % UNIT_SIZES[unit] === 0) return { count: ms / UNIT_SIZES[unit], unit }
+	return { count: Math.round(ms / 60_000), unit: 'm' }
+}
+
+/** A run on the timeline: Tue 09:00, the weekday dropped for today */
+const runLabel = (ms, timeZone = HERE) => {
+	const clock = new Date(ms).toLocaleTimeString([], {
+		hour: '2-digit',
+		minute: '2-digit',
+		hourCycle: 'h23',
+		timeZone,
+	})
+	const day = (at) =>
+		new Date(at).toLocaleDateString('en-GB', {
+			weekday: 'short',
+			day: 'numeric',
+			month: 'numeric',
+			timeZone,
+		})
+	return day(ms) === day(Date.now()) ? clock : `${day(ms).split(' ')[0]} ${clock}`
+}
+
+/** Night, when a run is more likely a slip than a wish */
+const atNight = (ms, timeZone = HERE) => {
+	const hour = Number(
+		new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone }),
+	)
+	return hour < 6 || hour >= 23
+}
+
 /**
- * A new task: its instructions, where it runs (a bot's home, a thread, or a new thread each run with the model you
- * pick), how it repeats and at what time of day here. From a thread, it runs there; from the list, with the bot used last.
+ * A task's form, new or to edit: its instructions, where it runs (a bot's home, a thread, or a new thread each run with
+ * the model you pick), and when, in plain fields: once at a date and time, every so often from an optional start, or at
+ * clock times on chosen weekdays. Under them its schedule itself: the last runs, each opening what it posted, and the
+ * next five as they'd come, redrawn as you type, then the thread it runs in. From a thread, it runs there; from the
+ * list, with the bot used last.
  */
 function TaskForm(props) {
 	let pickButton, pickPanel
+	const task = props.task
 	const hooks = () => server().modules.includes('hooks')
+	const agentTask = task?.agent !== undefined
 	const [place, setPlace] = createSignal(
-		props.thread !== undefined
-			? homeBot(props.thread)
-				? `bot ${homeBot(props.thread).name}`
-				: `thread ${props.thread}`
-			: lastBot()
-				? `bot ${lastBot().name}`
-				: 'new',
+		task
+			? task.bot !== undefined
+				? `bot ${task.bot}`
+				: task.to
+					? 'new'
+					: `thread ${task.thread}`
+			: props.thread !== undefined
+				? homeBot(props.thread)
+					? `bot ${homeBot(props.thread).name}`
+					: `thread ${props.thread}`
+				: lastBot()
+					? `bot ${lastBot().name}`
+					: 'new',
 	)
-	const [repeat, setRepeat] = createSignal('daily')
-	const [to, setTo] = createSignal(null)
+	const schedule = task?.schedule ?? {}
+	const zone = schedule.timeZone ?? HERE
+	const [kind, setKind] = createSignal(
+		schedule.on !== undefined
+			? 'on'
+			: schedule.after !== undefined
+				? 'after'
+				: schedule.every
+					? 'every'
+					: schedule.times || !task
+						? 'days'
+						: 'once',
+	)
+	const [once, setOnce] = createSignal(
+		localField(schedule.at !== undefined && !schedule.every ? schedule.at : tomorrowAtNine()),
+	)
+	const every = everyIn(schedule.every ?? 3_600_000)
+	const [count, setCount] = createSignal(String(every.count))
+	const [unit, setUnit] = createSignal(every.unit)
+	const [start, setStart] = createSignal(schedule.every ? localField(schedule.at) : '')
+	const [days, setDays] = createSignal(schedule.days ?? [0, 1, 2, 3, 4, 5, 6])
+	const [times, setTimes] = createSignal(schedule.times ?? ['09:00'])
+	const [to, setTo] = createSignal(task?.to ?? null)
 	const [saving, setSaving] = createSignal(false)
 	const online = () => runners.filter((runner) => runner.online)
 	const chosen = () => to() ?? { runner: online()[0]?.name, model: online()[0]?.model }
 	/** A few threads to pick from: this one, then the open ones most recently active */
 	const threads = () => {
 		const rows = threadRows().open.filter((row) => !homeBot(row.id))
-		const here = rows.find((row) => row.id === props.thread)
+		const mine = task && !task.bot && !task.to ? task.thread : props.thread
+		const here = rows.find((row) => row.id === mine)
 		return [...(here ? [here] : []), ...rows.filter((row) => row !== here).slice(0, 30)]
+	}
+	/** When, as the server takes it: exactly what the fields say */
+	const when = () => {
+		if (kind() === 'on') return { on: schedule.on ?? 'hook' }
+		if (kind() === 'after') return { after: schedule.after }
+		if (kind() === 'once') return { at: new Date(once()).getTime() }
+		if (kind() === 'every')
+			return {
+				every: `${Number(count())}${unit()}`,
+				...(start() ? { at: new Date(start()).getTime() } : {}),
+			}
+		return {
+			times: times().filter(Boolean),
+			days: days(),
+			timeZone: zone,
+		}
+	}
+	/** The same as a schedule, to draw its next runs */
+	const planned = () => {
+		const asked = /** @type {any} */ (when())
+		if (asked.times) return { ...asked, days: asked.days.length === 7 ? undefined : asked.days }
+		if (asked.every) {
+			const gap = Number(count()) * UNIT_SIZES[unit()]
+			if (!(gap >= 60_000)) return null
+			return { at: asked.at ?? now() + gap, every: gap }
+		}
+		return asked.at === undefined || Number.isNaN(asked.at) ? null : asked
+	}
+	const next = () => {
+		const schedule = planned()
+		if (!schedule) return []
+		if (schedule.times && (!schedule.times.length || schedule.days?.length === 0)) return []
+		return runsAfter(schedule, now(), 5)
+	}
+	const placeLink = () => {
+		const [where, value] = place().split(/ (.*)/)
+		if (where === 'bot') {
+			const bot = bots.find((one) => one.name === value)
+			return bot && { thread: bot.home, label: `${value}'s home` }
+		}
+		if (where === 'thread') return null
+		return task?.to
+			? { thread: task.thread, label: `a new thread each run, under ${titleOf(task.thread)}` }
+			: { label: 'a new thread each run' }
 	}
 	const submit = async (event) => {
 		event.preventDefault()
 		const fields = new FormData(event.currentTarget)
-		const [kind, value] = place().split(/ (.*)/)
+		const [where, value] = place().split(/ (.*)/)
 		const body = {
+			...(task ? { edit: task.id } : { key: crypto.randomUUID() }),
 			instructions: String(fields.get('instructions') ?? ''),
-			...(kind === 'bot'
-				? { bot: value }
-				: kind === 'thread'
-					? { thread: Number(value) }
-					: { to: chosen() }),
-			repeat: repeat(),
-			...(repeat() === 'webhook'
+			...(agentTask
 				? {}
-				: {
-						hour: Number(String(fields.get('time')).split(':')[0]),
-						minute: Number(String(fields.get('time')).split(':')[1]),
-					}),
-			...(repeat() === 'weekly' ? { dayOfWeek: Number(fields.get('day')) } : {}),
-			timeZone: HERE,
-			key: crypto.randomUUID(),
+				: where === 'bot'
+					? { bot: value }
+					: where === 'thread'
+						? { thread: Number(value) }
+						: { to: chosen() }),
+			...when(),
 		}
 		setSaving(true)
 		try {
@@ -503,6 +629,10 @@ function TaskForm(props) {
 			setSaving(false)
 		}
 	}
+	const toggleDay = (day) =>
+		setDays((list) =>
+			list.includes(day) ? list.filter((one) => one !== day) : [...list, day].sort(),
+		)
 	return html`
 		<form class="bot task-form" onSubmit=${submit}>
 			<h3>Instructions</h3>
@@ -513,36 +643,204 @@ function TaskForm(props) {
 				required
 				aria-label="Instructions"
 				placeholder="What to do each time it runs"
+				value=${task?.instructions ?? ''}
 			></textarea>
+			<h3>When</h3>
+			<select aria-label="When" onChange=${(event) => setKind(event.currentTarget.value)}>
+				<option value="once" selected=${() => kind() === 'once'}>Once</option>
+				<option value="every" selected=${() => kind() === 'every'}>Every so often</option>
+				<option value="days" selected=${() => kind() === 'days'}>At times of day</option>
+				<${Show} when=${() => schedule.after !== undefined}>
+					<option value="after" selected=${() => kind() === 'after'}>
+						${() => `Once ${titleOf(schedule.after)} is done`}
+					</option>
+				<//>
+				<${Show} when=${() => hooks() || schedule.on !== undefined}>
+					<option value="on" selected=${() => kind() === 'on'}>
+						${`On ${EVENTS[schedule.on ?? 'hook']}`}
+					</option>
+				<//>
+			</select>
+			<${Show} when=${() => kind() === 'once'}>
+				<div class="when">
+					<input
+						type="datetime-local"
+						aria-label="Date and time"
+						required
+						value=${once()}
+						onInput=${(event) => setOnce(event.currentTarget.value)}
+					/>
+				</div>
+			<//>
+			<${Show} when=${() => kind() === 'every'}>
+				<div class="when">
+					<span>every</span>
+					<input
+						type="number"
+						class="count"
+						min="1"
+						required
+						aria-label="How many"
+						value=${count()}
+						onInput=${(event) => setCount(event.currentTarget.value)}
+					/>
+					<select aria-label="Unit" onChange=${(event) => setUnit(event.currentTarget.value)}>
+						<option value="m" selected=${unit() === 'm'}>minutes</option>
+						<option value="h" selected=${unit() === 'h'}>hours</option>
+						<option value="d" selected=${unit() === 'd'}>days</option>
+					</select>
+				</div>
+				<div class="when">
+					<span>from</span>
+					<input
+						type="datetime-local"
+						aria-label="Starting"
+						value=${start()}
+						onInput=${(event) => setStart(event.currentTarget.value)}
+					/>
+					<${Show} when=${() => !start()}><small>now</small><//>
+				</div>
+			<//>
+			<${Show} when=${() => kind() === 'days'}>
+				<div class="when days" role="group" aria-label="Days">
+					<${For} each=${[1, 2, 3, 4, 5, 6, 0]}
+						>${(day) =>
+							html`<button
+								type="button"
+								class="ghost small"
+								aria-pressed=${() => String(days().includes(day))}
+								aria-label=${DAYS[day].slice(0, -1)}
+								onClick=${(_event) => toggleDay(day)}
+							>
+								${DAY_KEYS[day].slice(0, 2).replace(/^./, (first) => first.toUpperCase())}
+							</button>`}<//
+					>
+				</div>
+				<div class="when times">
+					<${For} each=${() => times().map((_, index) => index)}
+						>${(index) =>
+							html`<span class="time"
+								><input
+									type="time"
+									required
+									aria-label="Time"
+									value=${times()[index]}
+									onInput=${(event) =>
+										setTimes((list) =>
+											list.map((one, at) => (at === index ? event.currentTarget.value : one)),
+										)} /><${Show} when=${() => times().length > 1}
+									><button
+										type="button"
+										class="ghost small"
+										aria-label="Remove this time"
+										onClick=${(_event) => setTimes((list) => list.filter((_, at) => at !== index))}
+									>
+										<${Icon} name="close" /></button><//
+							></span>`}<//
+					>
+					<button
+						type="button"
+						class="ghost small"
+						aria-label="Add a time"
+						onClick=${(_event) => setTimes((list) => [...list, '17:00'])}
+					>
+						<${Icon} name="plus" />
+					</button>
+					<${Show} when=${() => zone !== HERE}><small>${zone}</small><//>
+				</div>
+			<//>
+			<${Show} when=${() => task?.runs?.length || next().length}>
+				<p class="timeline" aria-label="Runs">
+					<${For} each=${() => task?.runs ?? []}
+						>${(run) =>
+							run.skipped
+								? html`<s class="ran">${`${runLabel(run.at, zone)} skipped: ${run.skipped}`}</s>`
+								: html`<a
+										class="ran"
+										href=${hrefOf(run.thread)}
+										onClick=${(event) => {
+											event.preventDefault()
+											props.onOpen?.()
+											showMessage(run.thread, run.entry)
+										}}
+										>${runLabel(run.at, zone)}</a
+									>`}<//
+					>
+					<${Show} when=${() => task?.runs?.length && next().length}
+						><span class="now" aria-label="now">|</span><//
+					>
+					<${For} each=${next}
+						>${(at) =>
+							html`<span class=${() => ({ next: true, night: atNight(at, zone) })}
+								>${() => runLabel(at, zone)}</span
+							>`}<//
+					>
+				</p>
+			<//>
 			<h3>Runs in</h3>
-			<select aria-label="Runs in" onChange=${(event) => setPlace(event.currentTarget.value)}>
-				<${Show} when=${() => bots.length}>
-					<optgroup label="A bot, in her home">
-						<${For} each=${() => bots}
-							>${(bot) =>
+			<${Show}
+				when=${() => !agentTask}
+				fallback=${html`<p class="mute runs-in">
+					${`As ${shortLabel(task?.agent ?? '')}'s own message, in `}<a
+						class="thread-link"
+						href=${hrefOf(task?.thread)}
+						onClick=${(event) => {
+							event.preventDefault()
+							props.onOpen?.()
+							openThread(task.thread)
+						}}
+						>${() => titleOf(task?.thread)}</a
+					>
+				</p>`}
+			>
+				<select aria-label="Runs in" onChange=${(event) => setPlace(event.currentTarget.value)}>
+					<${Show} when=${() => bots.length}>
+						<optgroup label="A bot, in her home">
+							<${For} each=${() => bots}
+								>${(bot) =>
+									html`<option
+										value=${() => `bot ${bot.name}`}
+										selected=${() => place() === `bot ${bot.name}`}
+									>
+										${() => bot.name}
+									</option>`}<//
+							>
+						</optgroup>
+					<//>
+					<optgroup label="A thread">
+						<${For} each=${threads}
+							>${(row) =>
 								html`<option
-									value=${() => `bot ${bot.name}`}
-									selected=${() => place() === `bot ${bot.name}`}
+									value=${() => `thread ${row.id}`}
+									selected=${() => place() === `thread ${row.id}`}
 								>
-									${() => bot.name}
+									${() => titleOf(row.id)}
 								</option>`}<//
 						>
 					</optgroup>
-				<//>
-				<optgroup label="A thread">
-					<${For} each=${threads}
-						>${(row) =>
-							html`<option
-								value=${() => `thread ${row.id}`}
-								selected=${() => place() === `thread ${row.id}`}
+					<option value="new" selected=${() => place() === 'new'}>A new thread each run</option>
+				</select>
+				<${Show} when=${placeLink}
+					><p class="mute runs-in">
+						<${Show}
+							when=${() => placeLink()?.thread !== undefined}
+							fallback=${() => placeLink()?.label}
+						>
+							<a
+								class="thread-link"
+								href=${() => hrefOf(placeLink().thread)}
+								onClick=${(event) => {
+									event.preventDefault()
+									props.onOpen?.()
+									openThread(placeLink().thread)
+								}}
+								>${() => placeLink().label}</a
 							>
-								${() => titleOf(row.id)}
-							</option>`}<//
-					>
-				</optgroup>
-				<option value="new" selected=${() => place() === 'new'}>A new thread each run</option>
-			</select>
-			<${Show} when=${() => place() === 'new'}>
+						<//>
+					</p><//
+				>
+			<//>
+			<${Show} when=${() => place() === 'new' && !agentTask}>
 				<h3>Model</h3>
 				<button
 					type="button"
@@ -579,40 +877,17 @@ function TaskForm(props) {
 					/>
 				</div>
 			<//>
-			<h3>Repeat</h3>
-			<select aria-label="Repeat" onChange=${(event) => setRepeat(event.currentTarget.value)}>
-				<option value="once">Once</option>
-				<option value="hourly">Hourly</option>
-				<option value="daily" selected>Daily</option>
-				<option value="weekdays">Weekdays</option>
-				<option value="weekly">Weekly</option>
-				<${Show} when=${hooks}><option value="webhook">On a webhook</option><//>
-			</select>
-			<${Show} when=${() => repeat() !== 'webhook'}>
-				<h3>${() => (repeat() === 'hourly' ? 'Minutes past the hour' : 'Time')}</h3>
-				<div class="when">
-					<${Show} when=${() => repeat() === 'weekly'}>
-						<select name="day" aria-label="Day">
-							<${For} each=${DAYS.map((_, index) => index)}
-								>${(index) =>
-									html`<option value=${String(index)} selected=${index === new Date().getDay()}>
-										${DAYS[index].slice(0, -1)}
-									</option>`}<//
-							>
-						</select>
-					<//>
-					<input type="time" name="time" required aria-label="Time" value="09:00" />
-					<small>${HERE}</small>
-				</div>
-			<//>
 			<div class="actions">
-				<button type="submit" disabled=${saving}>Schedule</button>
+				<button type="submit" disabled=${saving}>${task ? 'Save' : 'Schedule'}</button>
 			</div>
 		</form>
 	`
 }
 
-/** The thread's scheduled tasks above its composer, streamed over the schedule/<id> feed */
+/**
+ * The thread's scheduled tasks above its composer, streamed over the schedule/<id> feed: one quiet line each, its ring,
+ * how it repeats and the start of its instructions; opened, the whole of them, its next run and its buttons
+ */
 export function ScheduledTasks(props) {
 	const tasks = feedView(() => (props.thread ? `schedule/${props.thread}` : null), {
 		sort: taskSort,
@@ -637,17 +912,25 @@ export function ScheduledTasks(props) {
 						<${Show} when=${() => task().from ?? `none ${task().paused}`} keyed
 							>${() => html`<${Ring} task=${() => task()} />`}<//
 						>
-						<span
-							class="line"
-							title=${() => `${shortLabel(task().by)}, ${whenOf(task())}: ${task().instructions}`}
-							onClick=${(_e) => toggle()}
+						<span class="line" onClick=${(_e) => toggle()}
 							>${() =>
-								`Scheduled${task().paused ? ',' : ''} ${whenOf(task())}: ${task().instructions}${open() ? hook() : ''}`}</span
+								open()
+									? `${whenOf(task())}: ${task().instructions}${hook()}`
+									: `${shortWhen(task())}: ${task().instructions}`}</span
 						>
-						<${Controls}
-							task=${() => task()}
-							path=${() => `/api/threads/${props.thread}/schedule`}
-						/>
+						<${Show} when=${open}>
+							<button
+								type="button"
+								class="ghost small"
+								onClick=${(_e) => openTaskForm(props.thread, task())}
+							>
+								edit
+							</button>
+							<${Controls}
+								task=${() => task()}
+								path=${() => `/api/threads/${props.thread}/schedule`}
+							/>
+						<//>
 					</p>
 				`
 			}}<//
@@ -662,11 +945,11 @@ export function ScheduledTaskSet(props) {
 		if (args.cancel !== undefined) return 'cancelled a scheduled task'
 		if (args.on !== undefined) return `scheduled a task on ${EVENTS[args.on] ?? args.on}`
 		if (args.after !== undefined) return `scheduled a task for once ${titleOf(args.after)} is done`
-		const clock = `${String(args.hour ?? '').padStart(2, '0')}:${String(args.minute ?? 0).padStart(2, '0')}`
-		if (args.repeat)
-			return `scheduled a task ${args.repeat} at ${args.repeat === 'hourly' ? `:${clock.slice(3)}` : clock}`
-		if (args.hour !== undefined) return `scheduled a task at ${clock}`
-		return `scheduled a task in ${args.in ?? args.every}${args.every ? `, then every ${args.every}` : ''}`
+		if (args.times)
+			return `scheduled a task ${args.days ? listed([args.days].flat()) : 'daily'} at ${listed([args.times].flat())}`
+		if (args.every)
+			return `scheduled a task every ${args.every}${args.at ? ` from ${args.at}` : args.in ? ` in ${args.in}` : ''}`
+		return `scheduled a task ${args.at ? `at ${args.at}` : `in ${args.in}`}`
 	}
 	const instructions = () => props.step.args.instructions
 	return html`

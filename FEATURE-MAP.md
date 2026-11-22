@@ -68,8 +68,8 @@ modules/
   canvas.js              a tldraw canvas per thread: Canvas doc, rooms, `canvas_look` (look, seen, report, present),
                          `canvas_act` (apply, created, updated), meta.by (authorizeRecord, onCommittedChanges, grew); serve, connect
   inbox.js               `ask_person`, openQuestion, questions, unread; serve (GET /api/inbox, dismissals)
-  schedule.js            scheduled tasks: `schedule` tool, create, ScheduledTask (asleep, Control, Hooked, Ended), run,
-                         scheduleOf, nextRun, lastRun, wall, instant, settle, pending, cancel, control; serve
+  schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, current, ScheduledTask (asleep, Control, Hooked,
+                         Ended), run, scheduleOf, firstRun, settle, pending, cancel, control; serve
   hooks.js               outside events for scheduled tasks: Hook doc, issue, webhook, admit, PROBES, RATE, github,
                          fact, SHAPES, LIFETIME, GENERATION, stale; serve
   web-search.js          `web_search`
@@ -123,8 +123,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   thread-list.js         ThreadList, family rows, Inbox toggle, Update (reload, or restart and reload), creatingBot, threadMenu,
                          ThreadCard (a row's hover card), GetApp (the desktop download)
   hover-card.js          HoverCard, cards: the card beside a row on hover, anchored, fine pointers only
-  schedule.js            ScheduledTaskList, TaskRow, ThreadTasks, OfflineRunner, TaskForm, openTaskForm,
+  schedule.js            ScheduledTaskList, TaskRow, ThreadTasks, OfflineRunner, TaskForm (its timeline), openTaskForm,
                          ScheduledTasks, Ring, LastRun, Controls, ScheduledTaskSet, ScheduledRun
+  clock.js               when a scheduled task runs, shared with the server: nextRun, runsAfter, lastRun, wall, instant
   search.js              SearchField, Search, Result, marked, showMessage
   jump.js                Jump (Cmd-K), openJump, go
   usage.js               Usage, Mix, Days, ThreadUsage
@@ -182,7 +183,7 @@ Where a feature lives:
 - Status dots and questions: server.js status/busiest/concerns (a failure is red only to who wrote in the thread, as the inbox lists it), dot.js, modules/inbox.js openQuestion.
 - Inbox: modules/inbox.js, client inbox.js, server.js inbox/dismiss/page, thread-list.js.
 - Pi session files: modules/pi-sessions.js, remote.js serveRunner and RUNNER_FILES, cli.js `import`.
-- Scheduled tasks: modules/schedule.js, modules/hooks.js, util.js said, client schedule.js, time.js `ahead`.
+- Scheduled tasks: modules/schedule.js, modules/hooks.js, util.js said, client schedule.js and clock.js, time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, settings.js.
 - Threads side by side: client server.js followThread/besideKey/openBeside, `columns`.
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
