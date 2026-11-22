@@ -39,7 +39,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   anyRunner, mayRun                 `bash` with an optional `runner`, and the `runners` tool listing whom an agent may run commands on
   harnessSettings, provide          Pi's settings, worked out once per change of models (provide, a runner's models as Pi's provider)
   listsOf, placed, listOf, recheck  which lists a commit moves: a thread's own list; the inbox when a thread's open question
-                                    comes or goes (recheck, over openQuestion) or is dismissed, someone reads a thread, or work ends
+                                    comes or goes (recheck, over openQuestion) or is dismissed, someone reads a thread, or work starts or ends
   forkThread, seenBy                forks
   compact, compactingAt             compaction now, or early
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
