@@ -1199,7 +1199,7 @@ export function Cross(props) {
 						><${Show} when=${() => props.row.ask && sent()}
 							><${Show}
 								when=${working}
-								fallback=${html`<span class="mark mute" aria-label="done">✓</span>`}
+								fallback=${html`<span class="mark mute" aria-label="done"><${Icon} name="check" /></span>`}
 								><span class="mark mute ring" aria-label="working"></span><//><//
 					></span>
 					<span class="in">${() => (props.data.body ?? '').replace(/\s+/g, ' ')}</span>

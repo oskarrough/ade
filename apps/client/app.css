@@ -287,8 +287,17 @@ agent-memory {
 		flex: 1;
 	}
 
+	/* + and its word sit close, the + no wider than itself so it never runs into the word; the magnifier is as quiet as the field's placeholder. */
 	> li.new:not(.search) > .row {
-		gap: 0;
+		gap: var(--space-1);
+
+		> .plus {
+			width: auto;
+		}
+	}
+
+	> li.search .plus {
+		color: var(--mute);
 	}
 }
 
@@ -780,6 +789,13 @@ agent-memory {
 					.mark {
 						display: inline-block;
 						margin-left: 0.5ch;
+
+						/* On the baseline, a box sits high; down a little, the check centres on the name's capitals. */
+						> svg.icon {
+							width: var(--icon-small);
+							height: var(--icon-small);
+							translate: 0 0.15em;
+						}
 					}
 
 					.ring {
@@ -1317,11 +1333,8 @@ agent-memory {
 	}
 }
 
-/* How far along a scheduled task's wait is: a ring in the text's quiet ink, filling as its run nears. */
+/* How far along a scheduled task's wait is: a ring in the text's quiet ink, filling as its run nears; an icon's size and stroke. */
 svg.ring {
-	flex: none;
-	width: 1em;
-	height: 1em;
 	transform: rotate(-90deg);
 	color: var(--mute);
 
@@ -2492,7 +2505,7 @@ body.resizing {
 
 /* A done topic's check sits where an open one's dot does. */
 .recap .rows > li > svg.icon {
-	margin-inline: calc((var(--dot) - 14px) / 2);
+	margin-inline: calc((var(--dot) - var(--icon)) / 2);
 }
 
 /* The inbox: a column in the threads' place, a question per row, each with the thread's own composer under it. */

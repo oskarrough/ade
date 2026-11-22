@@ -109,7 +109,7 @@ const placeOf = (task) =>
  * a new wait starts it over. A task with no time to wait for shows it empty.
  */
 function Ring(props) {
-	const R = 6
+	const R = 8
 	const LENGTH = 2 * Math.PI * R
 	const part = () => {
 		const { at, from } = props.task
@@ -117,11 +117,11 @@ function Ring(props) {
 		return Math.min(1, Math.max(0, (now() - from) / (at - from)))
 	}
 	return html`
-		<svg class="ring" viewBox="0 0 16 16" aria-hidden="true">
-			<circle cx="8" cy="8" r=${R} class="track" />
+		<svg class="icon ring" viewBox="0 0 24 24" aria-hidden="true">
+			<circle cx="12" cy="12" r=${R} class="track" />
 			<circle
-				cx="8"
-				cy="8"
+				cx="12"
+				cy="12"
 				r=${R}
 				class="done"
 				stroke-dasharray=${LENGTH}

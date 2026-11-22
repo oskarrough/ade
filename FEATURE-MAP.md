@@ -256,7 +256,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          (sideOf, openSide, toggleSide), its tabs (PageTabs); system.js puts the page beside the thread
   director.js            the side column's Director tab: the director's activity events as rows (heardActivity, said), kept on this page only
   agent-memory.js        memory popover and compaction view for the visible thread
-  icons.js               Icon: the client's stroke icons (up, back, plus, close, next, check, again, settings), one viewBox and weight
+  icons.js               Icon: the client's stroke icons (up, back, plus, close, next, check, search, again, settings), one viewBox and weight, 16px or 12px by base.css's `svg.icon`
   title.js               defaultTitle shared by new-thread client paths, CLI, post and auto-title
   settings.js            server settings: a one-line row per module that opens to its description and options (memory's model,
                          compact-at, pi-sessions' import page), a pinned foot counting changes for Save and restart, Story back to the walkthrough

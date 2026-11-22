@@ -101,6 +101,9 @@
 	--small-button: 1.5rem;
 	/* A status dot, and the column a row's dot or + sits in. */
 	--dot: 0.55rem;
+	/* Two icon sizes on the 4px grid, each a step under the line it sits on: 16px on a ui line, and in an icon-only button; 12px beside small text. */
+	--icon: 16px;
+	--icon-small: 12px;
 }
 
 * {
@@ -279,12 +282,18 @@ button.primary {
 	white-space: nowrap;
 }
 
-/* An icon: icons.js's strokes in the button's own colour, one size and weight everywhere; a button holding only one centres it. */
+/* An icon: icons.js's strokes in the button's own colour, 16px, or 12px beside a small control's words; a button holding only one centres it. */
 svg.icon {
 	display: block;
 	flex: none;
-	width: 14px;
-	height: 14px;
+	width: var(--icon);
+	height: var(--icon);
+}
+
+.small > svg.icon:not(:only-child),
+.small .busy:not(:has(> span > svg.icon)) > svg.icon {
+	width: var(--icon-small);
+	height: var(--icon-small);
 }
 
 button:has(> svg.icon:only-child) {
@@ -554,8 +563,13 @@ button[data-danger]:focus-visible:not(:disabled) {
 	padding: var(--space-2) var(--space-2);
 	border-radius: var(--radius-small);
 
-	> :is(.dot, svg.icon) {
+	> .dot {
 		margin-top: var(--space-2);
+	}
+
+	/* An icon centred on the first line, so a two-line row's chevron or check stays beside its title. */
+	> svg.icon {
+		margin-top: calc((var(--text-ui-line) - var(--icon)) / 2);
 	}
 
 	> div {

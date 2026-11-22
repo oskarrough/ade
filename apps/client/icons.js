@@ -1,4 +1,4 @@
-/** The client's icons: one set of strokes on a 24-unit grid, drawn in the button's own colour and sized by base.css's `svg.icon`, so they weigh the same wherever they sit */
+/** The client's icons: one set of strokes on a 24-unit grid at a stroke of 2, drawn in the button's own colour and sized by base.css's `svg.icon` to 16px or, beside small text, 12px, so the stroke is 1.33px or 1px wherever they sit */
 import html from '@solidjs/html'
 
 const paths = {
