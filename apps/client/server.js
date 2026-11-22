@@ -508,7 +508,7 @@ export const botAgent = (bot) => ({ ...bot.to, name: bot.name })
  */
 const madeHue = (index) => Math.round(50 + index * 137.508) % 360
 export const defaultHueOf = (name) => {
-	const index = [...bots].sort((a, b) => a.home - b.home).findIndex((bot) => bot.name === name)
+	const index = bots.toSorted((a, b) => a.home - b.home).findIndex((bot) => bot.name === name)
 	return index < 0 ? undefined : madeHue(index)
 }
 export const hues = Array.from({ length: 8 }, (_, index) => madeHue(index)).sort((a, b) => a - b)

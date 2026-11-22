@@ -42,7 +42,7 @@ export const [archivedPage, setArchivedPage] = createSignal(false)
 export function ThreadList() {
 	/** Most recently answered first, anywhere, not only at home; a bot that's never answered sits last, oldest-made first */
 	const sortedBots = () =>
-		[...bots].sort((a, b) =>
+		bots.toSorted((a, b) =>
 			a.answeredAt && b.answeredAt
 				? a.answeredAt < b.answeredAt
 					? 1

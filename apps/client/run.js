@@ -424,7 +424,7 @@ function wordDiff(diffWords, before, after) {
 		const last = index === parts.length - 1
 		if (first && last) return [{ kind: 'same', text: part.value }]
 		const head = first ? 0 : contextOf(lines)
-		const tail = last ? 0 : contextOf([...lines].reverse())
+		const tail = last ? 0 : contextOf(lines.toReversed())
 		if (lines.length - head - tail < 2) return [{ kind: 'same', text: part.value }]
 		return [
 			head && { kind: 'same', text: `${lines.slice(0, head).join('\n')}\n` },
