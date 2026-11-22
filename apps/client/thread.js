@@ -439,7 +439,12 @@ export function Thread(props) {
 				const agentRow = Boolean(run || (row.entry && !byPerson(row.entry)))
 				const prior = solo && agentRow ? answering : last
 				if (speaker && (speaker !== prior || row.to)) row.name = speaker
-				const author = data ? !data.from && data.author : run ? row.agent?.name : null
+				// A crossed row shows the other thread, so nobody here spoke last; whoever speaks next is named
+				if (row.voice === 'sent' || row.voice === 'received') {
+					last = answering = undefined
+					continue
+				}
+				const author = data ? data.author : run ? row.agent?.name : null
 				if (author !== null && author !== me()) last = author
 				if (author && agentRow) answering = author
 			}
