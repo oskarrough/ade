@@ -279,6 +279,18 @@ const Receipts = defineDocFamily({
 	checkpointWhen: base,
 	initial: () => ({ receipt: null }),
 })
+/**
+ * What one person is writing in one thread, keyed `{thread}/{person}`: its text, images and pick, under the `key` its
+ * message will be posted with. Saved as they type, so a change stores only what changed and a checkpoint now and then.
+ */
+const Draft = defineDocFamily({
+	kind: 'ade.draft',
+	version: 1,
+	scope: 'session',
+	family: true,
+	checkpointWhen: (value, ops, info) => info.deltasSinceBase >= 50,
+	initial: () => ({ key: '', text: '', images: [], pick: null }),
+})
 const now = () => new Date().toISOString()
 const ownerless = { ownership: { kind: /** @type {const} */ ('ownerless') } }
 const own = { ownership: { kind: /** @type {const} */ ('conversation') } }
@@ -1754,11 +1766,13 @@ async function postEntry(id, author, input) {
 	if (command) await reach(to, author, await known())
 	if (!command && to.filter((to) => !to.name).length > 1)
 		throw new Error('A thread has one agent: ask one model here, plus any bots')
-	const result = await once(requestId, `post ${id}`, async (tx) =>
-		command
+	const result = await once(requestId, `post ${id}`, async (tx) => {
+		// The draft this message was written in goes with its send, so a reload or another device never brings it back
+		const draft = requestId && (await tx.doc(Draft, draftOf(id, author), null))
+		const result = command
 			? (await tx.createTask(Shell, { author, command, to: to[0] }, { ...own, conversationId: id }),
 				{ command, to: to[0] })
-			: post(
+			: await post(
 					tx,
 					id,
 					{
@@ -1769,9 +1783,67 @@ async function postEntry(id, author, input) {
 						...(picked ? { picked } : {}),
 					},
 					{ steer: input.steer === true, direct, unlessPaused: solo },
-				),
-	)
+				)
+		if (draft && draft.key === input.key) {
+			Object.assign(draft, { text: '', images: [], pick: null })
+			afterCommit(tx, () => tellDraft(id, author, { sent: input.key }))
+		}
+		return result
+	})
 	return withPick(id, result)
+}
+
+const draftOf = (id, person) => `${id}/${person}`
+/** A draft as its pages take it: null once it holds nothing */
+const shownDraft = ({ key, text, images, pick }) =>
+	text || images.length || pick ? JSON.parse(JSON.stringify({ key, text, images, pick })) : null
+
+/** The asker's draft in a thread */
+async function draftIn(id, person) {
+	await conversation(id)
+	const draft = await harness.snapshot(Draft, draftOf(id, person), context)
+	return { draft: draft ? shownDraft(draft) : null }
+}
+
+/**
+ * Saves what a person is writing as they type: the fields given replace those kept, under the draft's `key`. A save
+ * under a key whose message was already sent changes nothing and says `sent`, so a late save never brings it back.
+ * Their other pages on the thread hear it; `page` names the one that saved, which ignores its own.
+ */
+async function saveDraft(id, person, input) {
+	await conversation(id)
+	if (input.key === undefined)
+		throw new Error('key is required: the key its message will be posted with')
+	const sentKey = scopedKey(`post ${id}`, input.key)
+	if ('text' in input && (typeof input.text !== 'string' || input.text.length > 100000))
+		throw new Error('text is a string of at most 100,000 characters')
+	const changes = {
+		...('text' in input && { text: input.text }),
+		...('images' in input && { images: imageList(input.images) ?? [] }),
+		...('pick' in input && { pick: pickOf(input.pick) }),
+	}
+	const page = typeof input.page === 'string' ? input.page.slice(0, 100) : undefined
+	return commit(async (tx) => {
+		if ((await tx.doc(Receipts, sentKey, null)).receipt) return { draft: null, sent: true }
+		const draft = await tx.doc(Draft, draftOf(id, person), null)
+		Object.assign(draft, changes, { key: input.key })
+		const shown = shownDraft(draft)
+		afterCommit(tx, () => tellDraft(id, person, { draft: shown, page }))
+		return { draft: shown }
+	})
+}
+/** A pick as the composer keeps it, `{agent, bots}`: any small object, or null */
+function pickOf(pick) {
+	if (pick === null) return null
+	if (typeof pick !== 'object' || Array.isArray(pick) || JSON.stringify(pick).length > 10000)
+		throw new Error('pick is an object of at most 10 kB, or null')
+	return pick
+}
+/** Each of the person's pages watching the thread hears their draft change */
+function tellDraft(id, person, message) {
+	const sent = JSON.stringify({ thread: id, ...message })
+	for (const socket of clients)
+		if (socket.person === person && socket.thread === id) socket.send(sent)
 }
 
 /**
@@ -1981,8 +2053,9 @@ async function setPaused(id, { paused }) {
 }
 
 /** Forks history, the agent and bots at `at`, but keeps the source's current thread-wide tools */
-async function forkThread(id, { at, title }) {
+async function forkThread(id, { at, title }, person) {
 	await conversation(id)
+	const pick = (await harness.snapshot(Draft, draftOf(id, person), context))?.pick
 	// Picks made after the fork point stay behind with it
 	const shown = routed((await entries(id)).filter((entry) => entry.id <= Number(at)))
 	const answers = {}
@@ -2043,6 +2116,11 @@ async function forkThread(id, { at, title }) {
 					createdAt: now(),
 					agents: row,
 				})
+				// What the forker had picked to ask next, they still have
+				if (pick)
+					(await tx.doc(Draft, draftOf(forkId, person), null)).pick = JSON.parse(
+						JSON.stringify(pick),
+					)
 			},
 		},
 		context,
@@ -2357,7 +2435,9 @@ const routes = /** @type {[string, Function][]} */ ([
 		'POST /api/threads/:id/entries': async (req, id) => postEntry(id, user(req), await input(req)),
 		'POST /api/threads/:id/withdraw': async (req, id) =>
 			withdraw(id, user(req), (await input(req)).entry),
-		'POST /api/threads/:id/fork': async (req, id) => forkThread(id, await input(req)),
+		'POST /api/threads/:id/fork': async (req, id) => forkThread(id, await input(req), user(req)),
+		'GET /api/threads/:id/draft': (req, id) => draftIn(id, user(req)),
+		'POST /api/threads/:id/draft': async (req, id) => saveDraft(id, user(req), await input(req)),
 		'POST /api/threads/:id/title': async (req, id) => setTitle(id, await input(req)),
 		'POST /api/threads/:id/tools': async (req, id) => setTools(id, await input(req)),
 		'POST /api/threads/:id/pause': async (req, id) => setPaused(id, await input(req)),
@@ -2781,7 +2861,10 @@ const PAGE = 50
 /** A browser watches one thread, or asks for its page before the ones it has, one request after another */
 const queued = (socket, run) =>
 	(socket.watches = (socket.watches ?? Promise.resolve()).then(run).catch(() => {}))
-const watch = (socket, id) => queued(socket, () => rewatch(socket, id))
+const watch = (socket, id) => {
+	socket.thread = id
+	return queued(socket, () => rewatch(socket, id))
+}
 const earlier = (socket, id, all) =>
 	queued(socket, () => socket.pages?.id === id && socket.pages.back(all))
 /** Where an agent's conversation reaches far enough back for the messages from `from` on: a turn before them */
@@ -3116,6 +3199,7 @@ async function upgrade(req, raw, head, serve = false) {
 			if ('earlier' in message) earlier(socket, message.earlier, message.all)
 			else watch(socket, message.watch)
 		})
+		socket.person = sender
 		return clients.add(socket)
 	}
 	/** A runner shows its key before it counts, so nobody can take its name */

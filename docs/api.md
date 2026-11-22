@@ -19,6 +19,8 @@ Stop ends every agent's and command's work in the thread. If anything was workin
 
 A message's `key`, 1 to 100 characters, dedupes it within its thread: a repeat with the same key returns the first message instead of posting again, even after a restart. It's scoped to the thread, so the same key in another thread is a different message; reused for a different body or `to` in the same thread, it still returns the first. Creating a thread takes the same `key`, scoped instead to thread creation, so the same text can't collide between the two. The CLI sends a fresh one with every post, so a retried request can't double it; a future webhook can use its own. The `matrix` module dedupes a different way, by the Matrix event id, inside the server, not through this field.
 
+What you're writing in a thread is a draft on the server, yours alone: `{key, text, images, pick}`, where `pick` is whatever the page chose to ask next (an object, or `null`) and `key` is the key its message will be posted with. `POST /api/threads/:id/draft {key, text?, images?, pick?, page?}` saves it as you type: the fields you send replace the ones kept, so a page sends its text half a second after the typing pauses and its images only when they change. Posting the message with the draft's `key` empties the draft in the same commit, so a reload right after Send, or another device, never finds it again. A save under a key that was already sent changes nothing and answers `{draft: null, sent: true}`, so a save that was on its way when Send went can't bring it back, and posting again under that key returns the first message. Your pages watching the thread hear `{thread, draft, page}` on the socket when you save, with the `page` you sent so the one that saved can skip its own, and `{thread, sent: key}` when a message went under that key. A fork starts you with the pick you had in the thread you forked. `GET /api/threads/:id/draft` answers `{draft}`, `null` once it holds nothing.
+
 A bot that posts with its `post` tool into a thread it's in, or one it opens for other bots, speaks there as itself: its message carries `posted: true`, which marks it as an agent's, as `answer` does, so it never counts as a person's. Messages from before this have no mark.
 
 A message its author takes back leaves a withdrawal entry (`ade.withdrawal`, `{message}`). Reads leave the message out; the socket sends it again as `{author, createdAt, body: '', withdrawn: true}`, so a page drops it, and an agent's memory keeps its place as "(took back a message)".
@@ -45,7 +47,9 @@ GET    /api/threads/archived
 POST   /api/threads/:id/archive {archived}
 POST   /api/threads/:id/entries {body, to?, images?, steer?, key?}
 POST   /api/threads/:id/withdraw {entry}  takes back your message (its id) while no agent has read it: {withdrawn}, or an error once one has
-POST   /api/threads/:id/fork {at, title?}
+POST   /api/threads/:id/fork {at, title?}  your pick from this thread comes with you
+GET    /api/threads/:id/draft          {draft}: yours, or null
+POST   /api/threads/:id/draft {key, text?, images?, pick?, page?}  saves what you're writing; {draft}, or {draft: null, sent: true} once its key was sent
 POST   /api/threads/:id/title {title}
 POST   /api/threads/:id/tools {tools}  as pi --tools takes them
 POST   /api/threads/:id/pause {paused}  only @mentions and named recipients get an answer while paused

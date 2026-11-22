@@ -10,6 +10,7 @@ The basics:
 - one command to let agents work on another machine
 - threads survive crashes, restarts and reloads
 - a repeated send with the same key lands once, so a retry or a webhook never posts twice
+- what you're writing in a thread is saved as you type and follows you to your other devices; Send turns it into the message once
 - works with any model provider, via pi
 
 I run it on my office computer, which is always on, at localhost:3000. That's all I need for daily work, and my laptop and home PC can join as runners when I want agents working there.
