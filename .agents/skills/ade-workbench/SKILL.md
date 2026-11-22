@@ -32,6 +32,8 @@ try.js's `bot` runner loads skills, AGENTS.md and runner modules normally; only 
 
 To test anything that needs an agent mid-run, like taking back a waiting message, send `slow` to a thread on the scripted `echo/try@bot`, not to a named bot, whose reply comes back before the tool runs; wait until the tool shows as running, then send and act within the same check, since the window closes when the tool ends.
 
+A change touching how transcript rows, sidebar dots or reply labels render has slipped past checks that only looked at one plain thread before, so open a solo worker thread, a bot home with an unread child thread, a group of two people and two bots, a thread with cross-thread asks and an incoming worker report, and a thread with a wake notice, before landing. Build them with the scripted bot's own commands: `wake 5m <note>` for the wake notice, `post` (and `post --to` a second bot) for the group and cross-thread asks, and `ask <question>` for the worker report.
+
 ### The CLI
 
 Each step is one command: `node cli.js post --to ada --to bram "hi"` starts a thread and prints the answers; `post --thread N "@cleo …"` writes and waits; `post --thread N --no-wait …` then `wait N` waits for the answers; `read N --after id` shows what's new; `threads` lists them. Sending to a bot by name invites it.
