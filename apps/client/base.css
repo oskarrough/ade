@@ -50,7 +50,7 @@
 	font-display: swap;
 }
 
-/* Light or dark is the browser's: every grey is ink mixed into the page. */
+/* Light or dark is the browser's: every grey is ink mixed into the page. Choose theme in Cmd-K can pin it either way. */
 :root {
 	/* How wide a thread's messages and composer run; Jump takes it too */
 	--chat-width: 50rem;
@@ -106,6 +106,15 @@
 	/* Two icon sizes on the 4px grid, each a step under the line it sits on: 16px on a ui line, and in an icon-only button; 12px beside small text. */
 	--icon: 16px;
 	--icon-small: 12px;
+}
+
+/* A device's own pick, not the system's: Choose theme in Cmd-K sets this, overriding every light-dark() and system colour above. */
+:root[data-theme='light'] {
+	color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
 }
 
 * {

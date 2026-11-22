@@ -30,6 +30,7 @@ import { placePopover } from './popover.js'
 import { marked, showMessage } from './search.js'
 import { setArchivedPage, setCreatingBot } from './thread-list.js'
 import { openTaskForm } from './schedule.js'
+import { openThemeMenu, theme, ThemeMenu } from './theme.js'
 
 const RECENT = 'ade.recent'
 const readRecent = () => {
@@ -134,6 +135,11 @@ export function Jump() {
 			on('schedule') && {
 				label: 'Schedule a task',
 				run: () => openTaskForm(current() ?? undefined),
+			},
+			{
+				label: 'Choose theme',
+				note: { auto: 'Auto', light: 'Light', dark: 'Dark' }[theme()],
+				run: openThemeMenu,
 			},
 			on('usage') && { label: 'Usage', run: openUsage },
 		]
@@ -347,6 +353,7 @@ export function Jump() {
 				</ul>
 			</div>
 		</div>
+		<${ThemeMenu} />
 	`
 }
 

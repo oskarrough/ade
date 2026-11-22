@@ -128,6 +128,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   clock.js               when a scheduled task runs, shared with the server: nextRun, runsAfter, lastRun, wall, instant
   search.js              SearchField, Search, Result, marked, showMessage
   jump.js                Jump (Cmd-K), openJump, go
+  theme.js               Auto/Light/Dark, chosen from Cmd-K's Choose theme: theme, chooseTheme, openThemeMenu, ThemeMenu
   usage.js               Usage, Mix, Days, ThreadUsage
   inbox.js               Inbox, brief, Question, Failed, Finished, Meta, RecapLine
   thread-details.js      DetailsPage: threads, scheduled, then Settings and Usage folded, for a thread and a bot's home
