@@ -1,7 +1,7 @@
 /** Starts a thread from a pi session in one of a runner's folders (settings' pi-sessions row opens it); and, in a thread's details, says which one it came from. */
 import html from '@solidjs/html'
 import { createSignal, createUniqueId, For, Show } from 'solid-js'
-import { api, openThread, reloadThreads, runners } from './server.js'
+import { api, openThread, runners } from './server.js'
 import { report } from './notice.js'
 
 /** A folder and its pi sessions; picking one starts a thread from it and calls `onStarted`. `onLoaded` hears the list change height. */
@@ -55,7 +55,6 @@ export function PiSessionList(props) {
 				...place(),
 				session: session.path,
 			})
-			reloadThreads()
 			openThread(thread)
 			props.onStarted?.()
 		} catch (failure) {

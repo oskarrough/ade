@@ -27,6 +27,7 @@ import {
 	current,
 	earlier,
 	entries,
+	familyOf,
 	loadEarlier,
 	merged,
 	pagers,
@@ -105,7 +106,7 @@ export function Thread(props) {
 	/** The forks made from any message shown here, by `thread entry`; a fork is in its source's family, so only the family is read */
 	const forks = createMemo(() => {
 		const at = new Map()
-		for (const member of thread()?.family ?? []) {
+		for (const member of familyOf(props.thread)) {
 			const fork = threadOf(member.id)
 			const from = forkedFrom(fork)
 			if (!from || fork.archived) continue
@@ -135,7 +136,7 @@ export function Thread(props) {
 	const askedHere = createMemo(() => {
 		const bot = homeBot(props.id)
 		if (!bot) return []
-		const family = new Set((thread()?.family ?? []).map((member) => member.id))
+		const family = new Set(familyOf(props.thread).map((member) => member.id))
 		return threadRows().open.filter(
 			(other) =>
 				other.parent !== null &&

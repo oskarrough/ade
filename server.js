@@ -472,7 +472,8 @@ const Shell = defineTask({
 				stderr: '',
 			}
 			shells.set(id, run)
-			notify(listOf(threadId))
+			touchThread(threadId)
+			let lastShellTouch = 0
 			const env = remoteEnv(
 				runners,
 				input.to.runner,
@@ -483,7 +484,11 @@ const Shell = defineTask({
 				{
 					onOutput: (text, _context, info) => {
 						run[info.stream] = (run[info.stream] + text).slice(-TAIL)
-						notify(listOf(threadId))
+						const now = Date.now()
+						if (now - lastShellTouch >= 100) {
+							lastShellTouch = now
+							touchThread(threadId)
+						}
 					},
 				},
 				ctx,
@@ -1587,6 +1592,7 @@ async function threadRow(id, reader, all, homes, doc, runnersKnown) {
 	const { reads, hidden, dismissed: _, picks: __, ...row } = doc ?? (await thread(id))
 	const busy = all.filter((job) => job.thread === id)
 	const agents = await agentsIn(row, busy, runnersKnown)
+	const rowStatus = await status(id, { ...row, reads }, busy, reader)
 	return {
 		id,
 		...row,
@@ -1601,7 +1607,9 @@ async function threadRow(id, reader, all, homes, doc, runnersKnown) {
 		shells: [...shells.values()].filter((run) => run.threadId === id),
 		/** Whether it has work, whatever its status shows: an open question doesn't hide a running command */
 		busy: busy.length > 0,
-		status: await status(id, { ...row, reads }, busy, reader),
+		status: rowStatus,
+		unread: ['done', 'error'].includes(rowStatus),
+		...(!hidden && familyField(id)),
 		conversation: await conversationRecord(id),
 	}
 }
@@ -1876,7 +1884,7 @@ async function moveAgent(threadId, input) {
 		await address({ ...was, runner }, false, undefined, !was.thinkingLevel)
 	)
 	await commit(async (tx) => reconfigure(tx, (await tx.doc(Thread, threadId)).agents[key], to))
-	notify(listOf(threadId))
+	touchThread(threadId)
 	return { conversation: input.conversation, to }
 }
 
@@ -2078,12 +2086,12 @@ async function seenBy(id, cut) {
 	return entries.filter((entry) => entry.kind === DELIVERY).flatMap((entry) => entry.data.held)
 }
 
-async function setTitle(id, { title }) {
+async function setTitle(id, { title, key }) {
 	await conversation(id)
 	title = field(title, 'title')
 	const bot = ((await homesOf?.()) ?? {})[id]
 	if (bot) throw new Error(`Thread ${id} is ${bot}'s home; it shows ${bot}'s name`)
-	return commit((tx) => setTitleIn(tx, id, title))
+	return once(scopedKey(`title ${id}`, key), `title ${id}`, (tx) => setTitleIn(tx, id, title))
 }
 
 /** The title's one write path; an automatic title must still match its default. */
@@ -2233,6 +2241,8 @@ function createFeed() {
 	const specs = new Map()
 	/** @type {Map<string, any>} */
 	const states = new Map()
+	/** @type {Map<string, Set<Function>>} */
+	const listeners = new Map()
 	const IDLE_MS = 60_000
 	const MAX_DELETED = 500
 	const MAX_IDLE = 64
@@ -2253,7 +2263,7 @@ function createFeed() {
 	}
 
 	const markDirty = (state, keys) => {
-		if (keys === true || !state.spec.row) state.dirty = true
+		if (keys === true || (!state.spec.row && !state.spec.rows)) state.dirty = true
 		else if (state.dirty !== true) {
 			if (!state.dirty) state.dirty = new Set()
 			for (const key of keys) state.dirty.add(key)
@@ -2330,9 +2340,12 @@ function createFeed() {
 				const targetSeq = Math.max(state.dirtySeq ?? seq, seq)
 				state.dirty = false
 				let diff
-				if (work === true || !state.spec.row) {
+				if (work === true || (!state.spec.row && !state.spec.rows)) {
 					const all = await state.spec.all(state.viewer, state.param)
 					diff = applyDiff(state, all, false, targetSeq)
+				} else if (state.spec.rows) {
+					const entries = await state.spec.rows([...work], state.viewer, state.param)
+					diff = applyDiff(state, entries, true, targetSeq)
 				} else {
 					const entries = await Promise.all(
 						[...work].map(async (key) => [
@@ -2381,11 +2394,26 @@ function createFeed() {
 	const onSocket = (socket, run) =>
 		(socket.feedQueue = (socket.feedQueue ?? Promise.resolve()).then(run).catch(() => {}))
 
+	const fireListeners = (view) => {
+		const set = listeners.get(view)
+		if (set) for (const fn of set) fn()
+	}
+
 	return {
 		seq: () => seq,
 		define: (name, spec) => specs.set(name, spec),
+		onUpdate: (view, fn) => {
+			let set = listeners.get(view)
+			if (!set) listeners.set(view, (set = new Set()))
+			set.add(fn)
+		},
 		onCommit: (publication) => {
 			seq = Math.max(seq + 1, publication.seq)
+			for (const [view, set] of listeners) {
+				const spec = specs.get(view)
+				if (spec && publication.changes.some((change) => Boolean(spec.match?.(change))))
+					for (const fn of set) fn()
+			}
 			for (const state of states.values()) {
 				if (!state.ready) continue
 				let matched = false
@@ -2407,6 +2435,7 @@ function createFeed() {
 		},
 		touch: (view, key) => {
 			seq++
+			fireListeners(view)
 			for (const state of states.values()) {
 				if (!state.ready) continue
 				if (state.view !== view && !state.view.startsWith(`${view}/`)) continue
@@ -2526,6 +2555,97 @@ function createFeed() {
 }
 
 const feed = createFeed()
+
+/** Each thread's place, kept from its doc as it changes: archived or not, and its parent */
+const placed = new Map()
+/** Each thread's work tasks heard start and not yet end */
+const workIn = new Map()
+/** Each agent's thread, by the agent's conversation */
+const agentThreads = new Map()
+/** Cached open families map: invalidated only when a thread is created, archived, unarchived or reparented */
+let familiesCache = null
+/** Family ids affected by topology changes in the commit currently being published */
+let movedFamilies = null
+function families() {
+	if (familiesCache) return familiesCache
+	const open = new Map()
+	for (const [threadId, meta] of placed) if (!meta.hidden) open.set(threadId, meta)
+	const children = new Map()
+	const sorted = [...open.keys()].sort((left, right) => right - left)
+	for (const threadId of sorted) {
+		const parent = open.get(threadId).parent
+		if (parent && open.has(parent)) {
+			let list = children.get(parent)
+			if (!list) children.set(parent, (list = []))
+			list.push(threadId)
+		}
+	}
+	const built = new Map()
+	const byRoot = new Map()
+	for (const threadId of sorted) {
+		let root = threadId
+		for (let hops = 0; open.has(open.get(root)?.parent) && hops < 20; hops++)
+			root = open.get(root).parent
+		if (!byRoot.has(root)) {
+			const family = [{ id: root, depth: 0 }]
+			const seen = new Set([root])
+			for (let index = 0; index < family.length; index++)
+				for (const child of children.get(family[index].id) ?? [])
+					if (!seen.has(child)) {
+						seen.add(child)
+						family.push({ id: child, depth: family[index].depth + 1 })
+					}
+			byRoot.set(root, family)
+		}
+		built.set(threadId, byRoot.get(root))
+	}
+	return (familiesCache = built)
+}
+const familyOf = (id) => families().get(id) ?? [{ id, depth: 0 }]
+/** Only a family's root carries the full `family` array; descendants carry `root` so wire size stays O(N) instead of O(N²) */
+const familyField = (id) => {
+	const list = familyOf(id)
+	const root = list[0]?.id ?? id
+	return root === id ? { family: list } : { root }
+}
+const place = (id, value, record = records.get(id)) => {
+	const before = placed.get(id)
+	const parent = value.parent ?? record?.parent?.conversationId ?? before?.parent ?? null
+	const now = {
+		hidden: Boolean(value.hidden),
+		parent,
+	}
+	const topologyChanged = !before || before.hidden !== now.hidden || before.parent !== now.parent
+	const oldRoot = topologyChanged ? familyOf(id)[0]?.id : undefined
+	const oldParentRoot = topologyChanged && parent ? familyOf(parent)[0]?.id : undefined
+	placed.set(id, now)
+	if (topologyChanged) {
+		familiesCache = null
+		if (movedFamilies) {
+			movedFamilies.add(id)
+			if (oldRoot) movedFamilies.add(oldRoot)
+			if (oldParentRoot) movedFamilies.add(oldParentRoot)
+			const newRoot = familyOf(id)[0]?.id
+			if (newRoot) movedFamilies.add(newRoot)
+			if (parent) {
+				const newParentRoot = familyOf(parent)[0]?.id
+				if (newParentRoot) movedFamilies.add(newParentRoot)
+			}
+			// If `id` was itself a root whose children now become roots (e.g. archived/unarchived), update direct children's roots too
+			if (before?.hidden !== now.hidden)
+				for (const [tid, meta] of placed) if (meta.parent === id) movedFamilies.add(tid)
+		}
+	}
+	for (const { conversation } of Object.values(value.agents ?? {}))
+		agentThreads.set(conversation, id)
+	return { before, now }
+}
+const touchThread = (threadId) => {
+	const meta = placed.get(threadId)
+	if (!meta || !meta.hidden) feed.touch('threads', threadId)
+	if (!meta || meta.hidden) feed.touch('archived', threadId)
+	feed.touch(`thread/${threadId}`)
+}
 
 // ── Modules ───────────────────────────────────────────────────────────────
 
@@ -2673,6 +2793,12 @@ compactAt = hook('compactAt')
 const webhook = hook('webhook')
 harnessed = undefined
 const remembers = hook('remembers')
+for (const conv of await conversations()) {
+	if (!conv.owner) {
+		records.set(conv.id, conv)
+		place(conv.id, await thread(conv.id), conv)
+	}
+}
 for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
 harness.resume()
 for (const module of modules) await module.start?.()
@@ -2690,13 +2816,13 @@ async function input(req) {
 	return JSON.parse(body || '{}')
 }
 
-async function archiveThread(id, archived) {
+async function archiveThread(id, archived, requestKey) {
 	await conversation(id)
-	await commit(async (tx) => {
+	return once(scopedKey(`archive ${id}`, requestKey), `archive ${id}`, async (tx) => {
 		if (archived) for (const hook of archiving) await hook(tx, id)
 		;(await tx.doc(Thread, id)).hidden = Boolean(archived)
+		return { id, archived: Boolean(archived) }
 	})
-	return { id, archived: Boolean(archived) }
 }
 
 async function markRead(id, reader) {
@@ -2789,8 +2915,10 @@ const routes = /** @type {[string, Function][]} */ ([
 				url.searchParams.has(name) ? Number(url.searchParams.get(name)) : undefined
 			return threadView(id, user(req), { after: number('after'), last: number('last') })
 		},
-		'POST /api/threads/:id/archive': async (req, id) =>
-			archiveThread(id, (await input(req)).archived),
+		'POST /api/threads/:id/archive': async (req, id) => {
+			const body = await input(req)
+			return archiveThread(id, body.archived, body.key)
+		},
 		'POST /api/threads/:id/entries': async (req, id) => postEntry(id, user(req), await input(req)),
 		'POST /api/threads/:id/withdraw': async (req, id) =>
 			withdraw(id, user(req), (await input(req)).entry),
@@ -3098,117 +3226,79 @@ function nudge() {
 	}
 }
 
-/** The lists a browser fetches again when its socket names them; a runner coming or going moves every agent on it */
-const WORK = ['threads', 'archived']
-const docLists = {
-	'ade.runners': WORK,
-	'ade.bots': ['threads', 'archived'],
-}
-/** Each thread's place, kept from its doc as it changes: archived or not, parent, and its dismissed question */
-const placed = new Map()
-/** Each thread's work tasks heard start and not yet end */
-const workIn = new Map()
-/** Each agent's thread, by the agent's conversation */
-const agentThreads = new Map()
-const place = (id, value, record = records.get(id)) => {
-	const before = placed.get(id)
-	const parent = value.parent ?? record?.parent?.conversationId ?? before?.parent ?? null
-	const now = {
-		hidden: Boolean(value.hidden),
-		parent,
-	}
-	placed.set(id, now)
-	for (const { conversation } of Object.values(value.agents ?? {}))
-		agentThreads.set(conversation, id)
-	return { before, now }
-}
-/** Open threads' family around `id`: its root through parents and forks, then every open descendant, newest first */
-function familyOf(id) {
-	if (placed.get(id)?.hidden) return [{ id, depth: 0 }]
-	const open = new Map()
-	for (const [threadId, meta] of placed) if (!meta.hidden) open.set(threadId, meta)
-	if (!open.has(id)) return [{ id, depth: 0 }]
-	const children = new Map()
-	const sorted = [...open.keys()].sort((left, right) => right - left)
-	for (const threadId of sorted) {
-		const parent = open.get(threadId).parent
-		if (parent && open.has(parent)) {
-			let list = children.get(parent)
-			if (!list) children.set(parent, (list = []))
-			list.push(threadId)
-		}
-	}
-	let root = id
-	for (let hops = 0; open.has(open.get(root)?.parent) && hops < 20; hops++)
-		root = open.get(root).parent
-	const family = [{ id: root, depth: 0 }]
-	const seen = new Set([root])
-	for (let index = 0; index < family.length; index++)
-		for (const child of children.get(family[index].id) ?? [])
-			if (!seen.has(child)) {
-				seen.add(child)
-				family.push({ id: child, depth: family[index].depth + 1 })
+const defineThreadView = (name, archived) =>
+	feed.define(name, {
+		perViewer: true,
+		keyOf: (row) => row.id,
+		all: (viewer) => threadList(viewer, archived),
+		rows: async (ids, viewer) => {
+			const [busy, homes, runnersKnown] = await Promise.all([work(), homesOf?.() ?? {}, known()])
+			return Promise.all(
+				ids.map(async (id) => {
+					const meta = placed.get(id)
+					if (!meta || meta.hidden !== archived) return [id, null]
+					return [id, await threadRow(id, viewer, busy, homes, undefined, runnersKnown)]
+				}),
+			)
+		},
+		match: (change) => {
+			if (change.type === 'conversation') {
+				if (!change.value.owner) return movedFamilies?.size ? [...movedFamilies] : [change.value.id]
+				const tid = agentThreads.get(change.value.id)
+				return tid ? [tid] : false
 			}
-	return family
-}
-/** The list a thread's row is in, or both while it's not known yet */
-const listOf = (conversationId) => {
-	const at = placed.get(agentThreads.get(conversationId) ?? conversationId)
-	return at ? [at.hidden ? 'archived' : 'threads'] : ['threads', 'archived']
-}
-/** Which lists one stored commit can move; an agent's own transcript and live doc move none. Threads whose last work
- * task the commit ended go in `ended`. */
-function listsOf({ changes }, ended) {
-	// A thread's doc first, so the rest of its commit, like its creation, names the list it's in
-	const moves = new Map()
-	for (const change of changes)
-		if (
-			change.type === 'document' &&
-			change.kind === 'change' &&
-			change.record.kind === 'ade.thread'
-		)
-			moves.set(change, place(change.conversationId, change.value))
-	return changes.flatMap((change) => {
-		if (change.type === 'conversation') return listOf(change.value.id)
-		if (change.type === 'entry') {
-			const { kind, conversationId } = /** @type {any} */ (change.value)
-			if (!kind.startsWith('ade.')) return []
-			return listOf(conversationId)
-		}
-		if (change.type === 'task') {
-			// A thread or runner works while its task lives: only the task's start and end move a list
-			const { id, kind, conversationId, state } = change.value
-			if (!isWork(kind)) return []
-			const tasks = workIn.get(conversationId) ?? new Set()
-			if (state.status !== 'terminal') {
-				if (tasks.has(id)) return []
-				workIn.set(conversationId, tasks.add(id))
-			} else if ((tasks.delete(id), !tasks.size)) {
-				// One live since before start ends here too; `busy` makes sure
-				workIn.delete(conversationId)
-				ended.add(conversationId)
+			if (change.type === 'entry') {
+				const { kind, conversationId } = /** @type {any} */ (change.value)
+				return kind.startsWith('ade.') ? [conversationId] : false
 			}
-			return listOf(conversationId)
-		}
-		if (change.type === 'submission') return []
-		const { kind } = change.record
-		if (kind === 'ade.thread') {
-			if (!moves.has(change)) return ['threads', 'archived']
-			const { before = moves.get(change).now, now } = moves.get(change)
-			const moved = before.hidden !== now.hidden
-			return moved ? ['threads', 'archived'] : listOf(change.conversationId)
-		}
-		if (kind === AgentDoc.definition.kind)
-			return [
-				...(change.type === 'document' && change.conversationId
-					? listOf(change.conversationId)
-					: ['threads', 'archived']),
-			]
-		return docLists[kind] ?? []
+			if (change.type === 'task') {
+				const { kind, conversationId } = change.value
+				return isWork(kind) ? [conversationId] : false
+			}
+			if (change.type === 'document') {
+				const { kind } = change.record
+				if (kind === 'ade.thread')
+					return movedFamilies?.size
+						? [...new Set([change.conversationId, ...movedFamilies])]
+						: [change.conversationId]
+				if (kind === AgentDoc.definition.kind) {
+					const tid = change.conversationId && agentThreads.get(change.conversationId)
+					return tid ? [tid] : true
+				}
+				if (kind === 'ade.bots' || kind === 'ade.runners') return true
+			}
+			return false
+		},
 	})
-}
+defineThreadView('threads', false)
+defineThreadView('archived', true)
+feed.define('thread/', {
+	perViewer: true,
+	keyOf: (row) => row.key,
+	all: async (viewer, param) => {
+		const id = Number(param)
+		if (!placed.has(id)) return []
+		return [{ key: 'thread', ...(await threadRow(id, viewer, await work())) }]
+	},
+	match: (change, param) => {
+		const id = Number(param)
+		if (change.type === 'conversation')
+			return change.value.id === id || agentThreads.get(change.value.id) === id
+		if (change.type === 'entry')
+			return change.value.conversationId === id && change.value.kind.startsWith('ade.')
+		if (change.type === 'task')
+			return change.value.conversationId === id && isWork(change.value.kind)
+		if (change.type === 'document') {
+			const { kind } = change.record
+			if (kind === 'ade.thread') return change.conversationId === id
+			if (kind === AgentDoc.definition.kind) return agentThreads.get(change.conversationId) === id
+			if (kind === 'ade.bots' || kind === 'ade.runners') return true
+		}
+		return false
+	},
+})
 
-/** Browsers hear which lists changed, at most every 100 ms, and fetch only those again */
+/** Browsers hear which lists changed, at most every 100 ms (only `server` until it moves to the feed) */
 let flushing
 const changedLists = new Set()
 function notify(lists) {
@@ -3223,7 +3313,6 @@ function notify(lists) {
 			const sent = JSON.stringify({ changed })
 			for (const socket of clients) socket.send(sent)
 		}
-		for (const module of modules) module.changed?.(changed)
 	}, 100)
 }
 const entryStored = modules.flatMap((module) => module.entryStored ?? [])
@@ -3231,9 +3320,30 @@ const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
 harness.observeCommits({
 	advance: (publication) => {
-		feed.onCommit(publication)
 		const ended = new Set()
-		notify(listsOf(publication, ended))
+		movedFamilies = new Set()
+		for (const change of publication.changes) {
+			if (
+				change.type === 'document' &&
+				change.kind === 'change' &&
+				change.record.kind === 'ade.thread'
+			)
+				place(change.conversationId, change.value)
+			else if (change.type === 'task') {
+				const { id, kind, conversationId, state } = change.value
+				if (!isWork(kind)) continue
+				const tasks = workIn.get(conversationId) ?? new Set()
+				if (state.status !== 'terminal') workIn.set(conversationId, tasks.add(id))
+				else if ((tasks.delete(id), !tasks.size)) {
+					workIn.delete(conversationId)
+					ended.add(conversationId)
+				}
+			}
+		}
+		feed.onCommit(publication)
+		movedFamilies = null
+		for (const wake of changes) wake()
+		nudge()
 		for (const change of publication.changes)
 			if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
 			else if (change.type === 'document' && change.kind === 'change')
@@ -3247,12 +3357,6 @@ harness.observeCommits({
 	},
 	end: () => {},
 })
-for (const conv of await conversations()) {
-	if (!conv.owner) {
-		records.set(conv.id, conv)
-		place(conv.id, await thread(conv.id), conv)
-	}
-}
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
 const FIRST = 15
@@ -3589,7 +3693,9 @@ async function upgrade(req, raw, head, serve = false) {
 			say('runner', `${name} offline`)
 			feed.touch('runners')
 			feed.touch('bots')
-			notify(WORK)
+			feed.touch('threads')
+			feed.touch('archived')
+			feed.touch('thread')
 		}
 	}
 	socket.on('close', close)
@@ -3667,7 +3773,9 @@ async function upgrade(req, raw, head, serve = false) {
 	runners.connect(connection, (text) => socket.send(text))
 	feed.touch('runners')
 	feed.touch('bots')
-	notify(WORK)
+	feed.touch('threads')
+	feed.touch('archived')
+	feed.touch('thread')
 	socket.send(JSON.stringify({ op: 'ready' }))
 	if (runner.version && runner.version !== bundle.version) {
 		outdated.add(connection)

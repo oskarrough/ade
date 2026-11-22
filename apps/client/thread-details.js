@@ -8,12 +8,12 @@ import {
 	api,
 	colorOf,
 	family,
+	familyOf,
 	forkedFrom,
 	homeBot,
 	newThreadTools,
 	people,
 	renameThread,
-	reloadThreads,
 	server,
 	setNewThreadTools,
 	threadOf,
@@ -40,7 +40,7 @@ export function DetailsPage(props) {
 		).values(),
 	]
 	/** Each family member's depth, read once for every row */
-	const depths = createMemo(() => new Map((here()?.family ?? []).map((one) => [one.id, one.depth])))
+	const depths = createMemo(() => new Map(familyOf(id()).map((one) => [one.id, one.depth])))
 	const depth = (member) => depths().get(member) ?? 0
 	const parentOf = (member) => {
 		const thread = threadOf(member)
@@ -192,7 +192,6 @@ function Title(props) {
 		setAsking(true)
 		try {
 			await api(`/api/threads/${props.thread}/auto-title`, {})
-			reloadThreads()
 		} catch (failure) {
 			setFailed(`No new title: ${failure.message}`)
 		} finally {
@@ -249,7 +248,6 @@ function Tools(props) {
 		setError('')
 		try {
 			await api(`/api/threads/${props.thread}/${path}`, body)
-			reloadThreads()
 		} catch (failure) {
 			setError(failure.message)
 		}

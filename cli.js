@@ -115,6 +115,21 @@ function show({ id, data: message }) {
 	)
 }
 
+/** Subscribe to `thread/<id>` on the feed and wait until its row reaches `minSeq` with `busy: false`, calling `onRow` on each update */
+async function waitThread(socket, frames, id, minSeq, onRow = async (_row) => {}) {
+	let row = null
+	for (;;) {
+		const next = await frames.next()
+		if (next.done) throw new Error('Server disconnected while waiting')
+		const frame = JSON.parse(String(next.value[0]))
+		if (frame.view !== `thread/${id}`) continue
+		const updated = frame.put?.find((item) => item.key === 'thread')?.row
+		if (updated) row = updated
+		if (row) await onRow(row)
+		if (frame.seq >= minSeq && row && !row.busy) return row
+	}
+}
+
 async function post() {
 	const body = rest.join(' ')
 	if (!body) throw new Error('post what?')
@@ -124,11 +139,14 @@ async function post() {
 		: Number(flags.thread)
 	const seen = (await api('GET', `/api/threads/${id}?last=1`)).entries.at(-1)?.id ?? 0
 	const to = flags.to && (flags.to.includes('nobody') ? null : flags.to.map(agent))
-	/** Listen before posting so even an immediate answer can't slip between the read and the wait */
+	/** Subscribe before posting so even an immediate answer can't slip between the post and the wait */
 	const socket = flags['no-wait'] ? null : socketTo()
-	const changes = socket && on(socket, 'message', { close: ['close'] })
+	const frames = socket && on(socket, 'message', { close: ['close'] })
 	try {
-		if (socket) await once(socket, 'open')
+		if (socket) {
+			await once(socket, 'open')
+			socket.send(JSON.stringify({ sub: `thread/${id}` }))
+		}
 		const posted = await api('POST', `/api/threads/${id}/entries`, {
 			body,
 			...(flags.to ? { to } : {}),
@@ -152,23 +170,25 @@ async function post() {
 		if (flags['no-wait'] || !asked) return
 		let last = posted.entry ?? seen
 		let waiting = ''
-		for (;;) {
+		const flushEntries = async () => {
 			const view = await api('GET', `/api/threads/${id}?after=${last}`)
 			for (const entry of view.entries) {
 				if (entry.id !== posted.entry) show(entry)
 				last = entry.id
 			}
-			const blocked = view.agents
+		}
+		socket.send(JSON.stringify({ sync: `thread/${id}`, seq: posted.seq ?? 0 }))
+		await waitThread(socket, frames, id, posted.seq ?? 0, async (row) => {
+			const blocked = (row.agents ?? [])
 				.filter((agent) => agent.status === 'blocked')
 				.map((agent) => agent.to?.runner)
 			if (blocked.join() !== waiting && (waiting = blocked.join()))
 				console.error(`waiting for ${waiting}, offline…`)
-			if (!view.busy) return
-			if ((await changes.next()).done)
-				throw new Error('Server disconnected while waiting for the answer')
-		}
+			await flushEntries()
+		})
+		await flushEntries()
 	} finally {
-		await changes?.return()
+		await frames?.return()
 		socket?.close()
 	}
 }
@@ -204,20 +224,16 @@ const commands = {
 	async wait() {
 		const id = Number(rest[0])
 		const socket = socketTo()
-		const changes = on(socket, 'message', { close: ['close'] })
+		const frames = on(socket, 'message', { close: ['close'] })
 		try {
 			await once(socket, 'open')
-			for (;;) {
-				const view = await api('GET', `/api/threads/${id}?last=0`)
-				if (!view.busy) {
-					// What came after the newest message that asked someone
-					const after = flags.after ? Number(flags.after) : await lastAsk(id)
-					return (await api('GET', `/api/threads/${id}?after=${after}`)).entries.forEach(show)
-				}
-				if ((await changes.next()).done) throw new Error('Server disconnected while waiting')
-			}
+			socket.send(JSON.stringify({ sub: `thread/${id}` }))
+			await waitThread(socket, frames, id, 0)
+			// What came after the newest message that asked someone
+			const after = flags.after ? Number(flags.after) : await lastAsk(id)
+			;(await api('GET', `/api/threads/${id}?after=${after}`)).entries.forEach(show)
 		} finally {
-			await changes.return()
+			await frames.return()
 			socket.close()
 		}
 	},

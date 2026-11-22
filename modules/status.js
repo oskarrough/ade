@@ -6,7 +6,7 @@
 export const on = true
 
 /** One telling at a time, so an older one never lands after a newer one; only a change to the thread list is told */
-export function server({ runners, known, threadList }) {
+export function server({ runners, known, threadList, feed }) {
 	let telling
 	let again = false
 	function tell() {
@@ -36,7 +36,8 @@ export function server({ runners, known, threadList }) {
 				}
 			})
 	}
-	return { changed: (lists) => lists.includes('threads') && tell() }
+	feed.onUpdate('threads', tell)
+	return {}
 }
 
 // oxlint-disable-next-line no-control-regex -- strip terminal control characters

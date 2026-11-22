@@ -9,7 +9,7 @@ import {
 	createStore,
 	latest,
 	onSettled,
-	reconcile,
+	snapshot,
 	untrack,
 } from 'solid-js'
 
@@ -227,14 +227,14 @@ export const {
 	inbox,
 	dismiss,
 	threadOf,
+	familyOf,
 	family,
 	columns,
 	closeColumn,
 	openBeside,
 	setBeside,
-	reloadThreads,
-	reloadArchivedThreads,
-	changeThread,
+	archiveThread,
+	renameThread,
 	forgetBot,
 	revokeRunner,
 	subscribeView,
@@ -243,10 +243,6 @@ export const {
 	write,
 } = createRoot(() => {
 	const [server, setServer] = createSignal(DEFAULT_SERVER)
-	const [threads, setThreads] = createStore(/** @type {any[]} */ ([]))
-	const [archivedThreads, setArchivedThreads] = createStore(/** @type {any[]} */ ([]))
-	/** Both lists as plain rows, set with every fetch: a scan of the whole list reads this one signal instead of every row's fields */
-	const [threadRows, setThreadRows] = createSignal(/** @type {any} */ ({ open: [], archived: [] }))
 
 	// ── One versioned feed, one in-memory store ──
 	let socket = null
@@ -385,31 +381,6 @@ export const {
 			)
 		},
 	)
-	const answered = {}
-	const reloadList = (path, show, enabled = true) => {
-		const asked = performance.now()
-		return (enabled ? api(`/api/${path}`) : Promise.resolve([])).then((data) => {
-			if (asked < (answered[path] ?? 0)) return
-			answered[path] = asked
-			show(data)
-		})
-	}
-	/** Shows a change at once, then asks the server; a refusal takes it back and throws, else it holds until the next fetch confirms it */
-	const optimistically = async (apply, undo, show, request, reload) => {
-		apply()
-		show()
-		const settle = () => {
-			undo()
-			show()
-		}
-		try {
-			await request()
-		} catch (failure) {
-			settle()
-			throw failure
-		}
-		await reload().finally(settle)
-	}
 	/** An inbox row is what it is in its thread: a thread's answer that becomes a question is a new row, not the same one changed */
 	const inboxKey = (item) => `${item.kind} ${item.thread}`
 	const inboxRank = { question: 0, failed: 1, answered: 2 }
@@ -417,6 +388,23 @@ export const {
 	const inboxSort = (left, right) =>
 		inboxRank[left.kind] - inboxRank[right.kind] ||
 		(inboxTime(left) < inboxTime(right) ? 1 : inboxTime(left) > inboxTime(right) ? -1 : 0)
+	const byNewest = (left, right) => right.id - left.id
+	const openSub = subscribeView('threads', { sort: byNewest })
+	const archivedSub = subscribeView('archived', { sort: byNewest })
+	const [threads, setOptimisticThreads] = createOptimisticStore(
+		() => openSub.rows(),
+		/** @type {any[]} */ ([]),
+		{ key: 'id' },
+	)
+	const [archivedThreads, setOptimisticArchived] = createOptimisticStore(
+		() => archivedSub.rows(),
+		/** @type {any[]} */ ([]),
+		{ key: 'id' },
+	)
+	/** Both lists as plain rows: a scan of the whole list reads this memo instead of every row's fields */
+	const threadRows = createMemo(
+		/** @returns {any} */ () => ({ open: openSub.rows(), archived: archivedSub.rows() }),
+	)
 	const [runners, setOptimisticRunners] = viewStore('runners', 'name')
 	const [bots, setOptimisticBots] = viewStore('bots', 'name')
 	/** What needs you, one entry per thread: open questions, then failures, then unread answers */
@@ -430,41 +418,28 @@ export const {
 			: write(`/api/threads/${item.thread}/read`, {})
 		yield caughtUp('inbox', seq)
 	})
-	/** Changes to a thread's row (archived, title) that the server hasn't confirmed; both lists show them over every fetch until it does */
-	const pending = new Map()
-	let fetchedThreads = []
-	let fetchedArchived = []
-	const showThreads = () => {
-		const fresh = new Set(fetchedThreads.map((row) => row.id))
-		const rows = [...fetchedThreads, ...fetchedArchived.filter((row) => !fresh.has(row.id))]
-			.map((row) => (pending.has(row.id) ? { ...row, ...pending.get(row.id) } : row))
-			.sort((a, b) => b.id - a.id)
-		const { open, archived } = listed(rows)
-		setThreads(reconcile(open, 'id'))
-		setArchivedThreads(reconcile(archived, 'id'))
-		setThreadRows({ open, archived })
-	}
-	const reloadThreads = () =>
-		reloadList('threads', (data) => {
-			fetchedThreads = data
-			showThreads()
-		})
-	/** Its own fetch; the main list never carries archived threads */
-	const reloadArchivedThreads = () =>
-		reloadList('threads/archived', (data) => {
-			fetchedArchived = data
-			showThreads()
-		})
-	const changeThread = (id, change, request) => {
-		const mine = { ...pending.get(id), ...change }
-		return optimistically(
-			() => pending.set(id, mine),
-			() => pending.get(id) === mine && pending.delete(id),
-			showThreads,
-			request,
-			() => Promise.all([reloadThreads(), reloadArchivedThreads()]),
-		)
-	}
+	/** The row moves the moment you ask; if the server refuses, it moves back and this throws why */
+	const archiveThread = action(function* (id, archived) {
+		if (archived && family().includes(id)) openThread(null)
+		const moving = (archived ? threads : archivedThreads).find((row) => row.id === id)
+		const moved = moving ? { ...snapshot(moving), archived } : null
+		if (archived) {
+			setOptimisticThreads((rows) => rows.filter((row) => row.id !== id))
+			if (moved) setOptimisticArchived((rows) => [moved, ...rows].sort(byNewest))
+		} else {
+			setOptimisticArchived((rows) => rows.filter((row) => row.id !== id))
+			if (moved) setOptimisticThreads((rows) => [moved, ...rows].sort(byNewest))
+		}
+		const { seq } = yield write(`/api/threads/${id}/archive`, { archived })
+		yield Promise.all([caughtUp('threads', seq), caughtUp('archived', seq)])
+	})
+	const renameThread = action(function* (id, title) {
+		const patch = (rows) => rows.map((row) => (row.id === id ? { ...row, title } : row))
+		setOptimisticThreads(patch)
+		setOptimisticArchived(patch)
+		const { seq } = yield write(`/api/threads/${id}/title`, { title })
+		yield Promise.all([caughtUp('threads', seq), caughtUp('archived', seq)])
+	})
 	const forgetBot = action(function* (name) {
 		setOptimisticBots((rows) => rows.filter((row) => row.name !== name))
 		const { seq } = yield write(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE')
@@ -477,14 +452,9 @@ export const {
 	})
 	const reloads = {
 		server: reloadServer,
-		threads: reloadThreads,
-		archived: reloadArchivedThreads,
 	}
-	/** Every remaining unmigrated list, once the socket is open */
 	const reload = () => {
 		reloadServer()
-		reloadThreads()
-		reloadArchivedThreads()
 	}
 	/** Your new-thread draft comes too, as another page of yours changes it, which the composer takes */
 	const receive = (message) => {
@@ -512,15 +482,25 @@ export const {
 			},
 		)
 	})
-	/** Threads by id, rebuilt only when a fetch shows the list; rows change nowhere else, so the store's rows are read untracked */
+	/** Threads by id, rebuilt only when the feed updates or optimistic membership changes */
 	const byId = createMemo(() => {
 		threadRows()
+		void threads.length
 		return untrack(() => new Map(threads.map((thread) => [thread.id, thread])))
 	})
 	const threadOf = (id) => byId().get(id)
-	/** The open thread's family, as withFamilies finds it: one thread until the list has it, `[null]` for a new one */
+	/** A thread's family, from its root's server-computed `family` list */
+	const familyOf = (id) => {
+		const row = threadOf(id)
+		return (row?.root ? threadOf(row.root)?.family : row?.family) ?? (row ? [{ id, depth: 0 }] : [])
+	}
+	/** The open thread's family ids: one thread until the list has it, `[null]` for a new one */
 	const family = createMemo(() =>
-		current() ? (threadOf(current())?.family.map((member) => member.id) ?? [current()]) : [null],
+		current()
+			? ((list) => (list.length ? list.map((member) => member.id) : [current()]))(
+					familyOf(current()),
+				)
+			: [null],
 	)
 	/** Family members you opened in this page; closing forgets one */
 	const [open, setOpen] = createSignal(new Set())
@@ -576,15 +556,15 @@ export const {
 		inbox,
 		dismiss,
 		threadOf,
+		familyOf,
 		threadRows,
 		family,
 		columns,
 		closeColumn,
 		openBeside,
 		setBeside,
-		reloadThreads,
-		reloadArchivedThreads,
-		changeThread,
+		archiveThread,
+		renameThread,
 		forgetBot,
 		revokeRunner,
 		subscribeView,
@@ -617,13 +597,6 @@ export async function createThread(title, first = {}) {
 	if (!latest(current)) openThread(id)
 	return id
 }
-/** The row moves the moment you ask; if the server refuses, it moves back and this throws why */
-export function archiveThread(id, archived) {
-	if (archived && family().includes(id)) openThread(null)
-	return changeThread(id, { archived }, () => api(`/api/threads/${id}/archive`, { archived }))
-}
-export const renameThread = (id, title) =>
-	changeThread(id, { title }, () => api(`/api/threads/${id}/title`, { title }))
 /** Changes a bot; the feed updates the row */
 export const saveBot = (name, change) => write('/api/bots', { name, ...change })
 
@@ -644,44 +617,6 @@ export const colorOf = (name, property = 'color') => {
 }
 export function forkedFrom(thread) {
 	return thread?.conversation?.parent?.conversationId
-}
-/** Rows as both lists show them: the open ones each with its family, and the archived */
-function listed(rows) {
-	return {
-		open: withFamilies(rows.filter((row) => !row.archived)),
-		archived: rows.filter((row) => row.archived),
-	}
-}
-/**
- * Each row with its `family`: its root, through parents and forks among these rows, then all beneath it, each with its
- * depth, breadth first; members share one array
- */
-function withFamilies(rows) {
-	const byId = new Map(rows.map((row) => [row.id, row]))
-	const parentOf = (row) => row.parent ?? forkedFrom(row)
-	const children = new Map()
-	for (const row of rows) {
-		const parent = parentOf(row)
-		if (byId.has(parent)) children.set(parent, [...(children.get(parent) ?? []), row])
-	}
-	const families = new Map()
-	return rows.map((row) => {
-		let root = row
-		for (let hops = 0; byId.has(parentOf(root)) && hops < 20; hops++)
-			root = byId.get(parentOf(root))
-		if (!families.has(root.id)) {
-			const family = [{ id: root.id, depth: 0 }]
-			const seen = new Set([root.id])
-			for (let index = 0; index < family.length; index++)
-				for (const child of children.get(family[index].id) ?? [])
-					if (!seen.has(child.id)) {
-						seen.add(child.id)
-						family.push({ id: child.id, depth: family[index].depth + 1 })
-					}
-			families.set(root.id, family)
-		}
-		return { ...row, family: families.get(root.id) }
-	})
 }
 export const titleOf = (id) => threadOf(id)?.title ?? `thread ${id}`
 

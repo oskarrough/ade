@@ -19,7 +19,6 @@ import {
 	openInbox,
 	openThread,
 	searchFor,
-	reloadThreads,
 	server,
 	threadOf,
 	threadRows,
@@ -203,7 +202,7 @@ export const threadMenu = (id, { archived = false, open = true } = {}) => {
 		server().modules.includes('auto-title') &&
 			!homeBot(id) && {
 				label: 'Regenerate title',
-				run: () => api(`/api/threads/${id}/auto-title`, {}).then(() => reloadThreads()),
+				run: () => api(`/api/threads/${id}/auto-title`, {}),
 			},
 		{
 			label: 'Fork',
@@ -220,7 +219,7 @@ export const threadMenu = (id, { archived = false, open = true } = {}) => {
 		},
 		!archived && {
 			label: paused ? 'Resume' : 'Pause',
-			run: () => api(`/api/threads/${id}/pause`, { paused: !paused }).then(() => reloadThreads()),
+			run: () => api(`/api/threads/${id}/pause`, { paused: !paused }),
 		},
 		...(homeBot(id)
 			? []

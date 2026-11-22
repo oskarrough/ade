@@ -5,6 +5,7 @@ import {
 	bots,
 	colorOf,
 	current,
+	familyOf,
 	forgetBot,
 	followThread,
 	hrefOf,
@@ -12,7 +13,6 @@ import {
 	hues,
 	openThread,
 	paint,
-	reloadThreads,
 	saveBot,
 	server,
 	threadOf,
@@ -29,11 +29,11 @@ import { openSide } from './side.js'
 import { Sure } from './sure.js'
 import { rename, ThreadItem } from './thread-list.js'
 
-const familyOf = (bot) => new Set((threadOf(bot.home)?.family ?? []).map((member) => member.id))
+const botFamily = (bot) => new Set(familyOf(bot.home).map((member) => member.id))
 
 /** Its own threads without the home, and the unarchived threads it joins elsewhere. */
 export function botThreads(bot) {
-	const family = familyOf(bot)
+	const family = botFamily(bot)
 	const own = [...family].filter((id) => id !== bot.home).sort((a, b) => b - a)
 	const elsewhere = threadRows()
 		.open.filter(
@@ -105,7 +105,6 @@ export function BotSettings(props) {
 		try {
 			if (bots.some((bot) => bot.name === next)) throw new Error(`${next} is another bot`)
 			await saveBot(props.bot.name, { rename: next })
-			await reloadThreads()
 		} catch (failure) {
 			field.value = props.bot.name
 			report(failure)

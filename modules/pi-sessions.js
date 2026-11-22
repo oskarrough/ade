@@ -259,16 +259,24 @@ export async function server(core) {
 		return core.runners.call(name, { op: 'pi-session-list', cwd }, {})
 	}
 
-	return {
-		serve,
-		posted: (tx, threadId) => void touched.add(threadId),
-		async changed() {
+	let syncing
+	const scheduleSync = () => {
+		syncing ??= setTimeout(() => {
+			syncing = undefined
 			const threads = [...touched]
 			touched.clear()
-			for (const threadId of threads) await follow(threadId).catch((error) => console.error(error))
+			for (const threadId of threads) void follow(threadId).catch((error) => console.error(error))
 			for (const [conversation, state] of followed)
-				sync(conversation, state).catch((error) => console.error(error))
+				void sync(conversation, state).catch((error) => console.error(error))
+		}, 100)
+	}
+	return {
+		serve,
+		posted: (tx, threadId) => {
+			touched.add(threadId)
+			scheduleSync()
 		},
+		entryStored: () => scheduleSync(),
 	}
 }
 

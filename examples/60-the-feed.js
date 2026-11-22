@@ -170,5 +170,86 @@ check(
 	JSON.stringify([forgot.json, forgotAgain.json, botDel]),
 )
 
+// Threads and archived on the feed: per-row updates, server-computed family & unread, archive & rename with key
+again.socket.send(JSON.stringify({ sub: 'threads' }))
+again.socket.send(JSON.stringify({ sub: 'archived' }))
+await until(
+	async () =>
+		again.frames.some((frame) => frame.view === 'threads' && frame.reset) &&
+		again.frames.some((frame) => frame.view === 'archived' && frame.reset),
+)
+const parent = (await api('POST', '/api/threads', { title: 'parent' })).json
+const child = (await api('POST', '/api/threads', { title: 'child', parent: parent.id })).json
+const childPut = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === 'threads' &&
+			!frame.reset &&
+			frame.seq >= child.seq &&
+			frame.put?.some((item) => item.key === parent.id && item.row.family?.length === 2),
+	),
+)
+const parentRow = childPut?.put.find((item) => item.key === parent.id)?.row
+check(
+	Boolean(parentRow) &&
+		parentRow.family.map((member) => `${member.id}:${member.depth}`).join(',') ===
+			`${parent.id}:0,${child.id}:1` &&
+		parentRow.unread === false,
+	'threads arrive on the feed with server-computed family and unread',
+	JSON.stringify(parentRow),
+)
+// Renaming updates only that row, idempotently per key
+const renamed = await api('POST', `/api/threads/${child.id}/title`, {
+	title: 'renamed child',
+	key: 'ren-1',
+})
+const renamedAgain = await api('POST', `/api/threads/${child.id}/title`, {
+	title: 'renamed child',
+	key: 'ren-1',
+})
+const renamePut = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === 'threads' &&
+			frame.seq >= renamed.json.seq &&
+			frame.put?.some((item) => item.key === child.id && item.row.title === 'renamed child'),
+	),
+)
+check(
+	renamed.status === 201 &&
+		renamedAgain.status === 201 &&
+		Boolean(renamePut) &&
+		renamePut.put.length === 1,
+	'renaming a thread updates only that row on the feed',
+	JSON.stringify([renamed.json, renamePut]),
+)
+// Archiving deletes from threads (and updates parent family) and puts on archived
+const archived = await api('POST', `/api/threads/${child.id}/archive`, {
+	archived: true,
+	key: 'arch-1',
+})
+const archDel = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === 'threads' &&
+			frame.seq >= archived.json.seq &&
+			frame.del?.includes(child.id) &&
+			frame.put?.some((item) => item.key === parent.id && item.row.family?.length === 1),
+	),
+)
+const archPut = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === 'archived' &&
+			frame.seq >= archived.json.seq &&
+			frame.put?.some((item) => item.key === child.id && item.row.archived === true),
+	),
+)
+check(
+	Boolean(archDel && archPut),
+	'archiving deletes from threads, updates the parent family, and puts on archived',
+	JSON.stringify([archDel, archPut]),
+)
+
 again.socket.close()
 done()
