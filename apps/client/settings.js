@@ -127,7 +127,7 @@ export function Settings() {
 					title="Back to the story: the walkthrough, with the live system around this chat"
 					onClick=${(_event) => setChat(false)}
 				>
-					<${Icon} name="up" /><span>Story</span>
+					<${Icon} name="story" /><span>Story</span>
 				</button>`}
 				foot=${html`
 					<${Show} when=${() => overridden('MODULES')}>

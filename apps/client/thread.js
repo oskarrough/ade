@@ -1200,7 +1200,7 @@ export function Cross(props) {
 							><${Show}
 								when=${working}
 								fallback=${html`<span class="mark mute" aria-label="done"><${Icon} name="check" /></span>`}
-								><span class="mark mute ring" aria-label="working"></span><//><//
+								><span class="mark" aria-label="working"><${Dot} state="working" /></span><//><//
 					></span>
 					<span class="in">${() => (props.data.body ?? '').replace(/\s+/g, ' ')}</span>
 				</summary>

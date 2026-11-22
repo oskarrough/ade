@@ -642,7 +642,7 @@ export function ScheduledTasks(props) {
 	`
 }
 
-/** A schedule call's own row in the chat, one quiet line: ⏰, who, when, the instructions cut off; opened, whole */
+/** A schedule call's own row in the chat, one quiet line: a clock, who, when, the instructions cut off; opened, whole */
 export function ScheduledTaskSet(props) {
 	const when = () => {
 		const args = props.step.args
@@ -658,9 +658,9 @@ export function ScheduledTaskSet(props) {
 	const instructions = () => props.step.args.instructions
 	return html`
 		<${PlainStep}
-			said=${() =>
-				`⏰ ${shortLabel(props.agent.name)} ${when()}${instructions() ? `: ${instructions()}` : ''}`}
-			label=${() => `⏰ ${shortLabel(props.agent.name)} ${when()}`}
+			icon="clock"
+			said=${() => `${shortLabel(props.agent.name)} ${when()}${instructions() ? `: ${instructions()}` : ''}`}
+			label=${() => `${shortLabel(props.agent.name)} ${when()}`}
 		>
 			<${Show} when=${instructions}
 				><div class="whole"><p>${instructions}</p></div><//
@@ -673,8 +673,9 @@ export function ScheduledTaskSet(props) {
  * what an outside event brought */
 export const ScheduledRun = (props) => html`
 	<${PlainStep}
-		said=${() => `⏰ ${firstLine(props.data.body)}`}
-		label="⏰ scheduled task"
+		icon="clock"
+		said=${() => firstLine(props.data.body)}
+		label="scheduled task"
 		entry=${() => props.entry}
 	>
 		<div class="whole">

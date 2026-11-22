@@ -744,7 +744,7 @@ agent-memory {
 						grid-row: 1;
 					}
 
-					/* Line 1: the other side, its model and a post's mark; line 2, under it: the brief and the ▸. A long
+					/* Line 1: the other side, its model and a post's mark; line 2, under it: the brief and the chevron. A long
 					   title gives way with …, so the model and the mark stay in sight on a narrow screen. */
 					.tool {
 						grid-column: 2;
@@ -779,7 +779,7 @@ agent-memory {
 						grid-row: 2;
 					}
 
-					/* Open, the whole message takes line 2's place, so the ▾ goes up beside the title */
+					/* Open, the whole message takes line 2's place, so the chevron goes up beside the title */
 					details[open] > & {
 						&::after {
 							grid-row: 1;
@@ -797,15 +797,6 @@ agent-memory {
 							translate: 0 0.15em;
 						}
 					}
-
-					.ring {
-						width: 0.6em;
-						height: 0.6em;
-						border: 1.5px solid currentColor;
-						border-right-color: transparent;
-						border-radius: 50%;
-						animation: turn 1.6s linear infinite;
-					}
 				}
 
 				> li.sent > details > summary::before {
@@ -820,9 +811,16 @@ agent-memory {
 					content: '✎';
 				}
 
-				/* A plain row (a scheduled task, a bot's change) is one sentence on the text edge, its own ⏰ or words its mark */
+				/* A plain row (a scheduled task, a bot's change) is one sentence on the text edge, its own icon or words its mark */
 				> li.changed.plain > details > summary::before {
 					display: none;
+				}
+
+				> li.changed.plain > details > summary > svg.icon {
+					width: var(--icon-small);
+					height: var(--icon-small);
+					margin-right: 0.5ch;
+					translate: 0 0.15em;
 				}
 
 				/* Old against new as one run of words: removed struck through in a quiet red, added in a quiet green, the same in
@@ -2560,12 +2558,6 @@ body.resizing {
 		color: inherit;
 		background: color-mix(in srgb, var(--pick) 20%, Canvas);
 		border-radius: 2px;
-	}
-}
-
-@keyframes turn {
-	to {
-		transform: rotate(1turn);
 	}
 }
 

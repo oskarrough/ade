@@ -4,6 +4,7 @@ import { createEffect, createMemo, createSignal, createStore, For, onSettled, Sh
 import { entries, titleOf } from './server.js'
 import { Cross, MessageMarkdown, Name } from './thread.js'
 import { doing, messageText, touched } from './agent.js'
+import { Icon } from './icons.js'
 
 /**
  * A turn's line. While its agent works, the step it's in now, and below it the last few steps and the words coming in;
@@ -521,14 +522,15 @@ export function Changed(props) {
 	`
 }
 
-/** A lasting change told as one plain sentence on its own row, read as a step; opened, what's under it. `entry`, when it is a message of its own, lets search and Jump land on it */
+/** A lasting change told as one plain sentence on its own row, read as a step, after its `icon` if it has one; opened, what's under it. `entry`, when it is a message of its own, lets search and Jump land on it */
 export const PlainStep = (props) => html`
 	<li class="elsewhere" data-entry=${() => props.entry}>
 		<ol class="steps">
 			<li class="call changed plain">
 				<details onToggle=${(event) => props.onToggle?.(event)}>
 					<summary>
-						<span class="in">${() => props.said}</span
+						<${Show} when=${() => props.icon}><${Icon} name=${() => props.icon} /><//
+						><span class="in">${() => props.said}</span
 						><span class="label">${() => props.label ?? props.said}</span>
 					</summary>
 					${() => props.children}
