@@ -40,7 +40,7 @@ Friends in my house. The question: does steering agents together in one thread w
 
 The smallest thing it needs is the server knowing who's talking: a message's author comes from how the request arrived (the owner key, or localhost while invites are off; the tailnet login), never from a name the client sends. `?user=` goes away once this is in; it was only ever for faking people. No invites needed here: Tailscale's node sharing lets me add people from outside my tailnet, and the server already knows who's who from their login.
 
-The test is us: about six people simulated through tailnet logins, each in their own browser session, steering bots in one thread.
+Friends join through the tailnet: Tailscale's node sharing lets me add people from outside my own tailnet, and the server knows who's who from their login. Done apart from the test with a real friend, not a simulation.
 
 Inviting someone shows every runner in the house and whose machine each one is. Guests see the same list. No runner-side setting: a runner only joins a house its owner gave it the key to.
 
@@ -50,9 +50,9 @@ The director, the part that picks who answers, becomes one director made from ar
 
 ### 3. Not me
 
-Someone else runs their own, without my help. The question: is it really portable? One command, one data file, HTTPS, invite keys. This is where the name changes to arbe, and where a public address comes in, with invites and revoking as the switch a house turns on before it gets one.
+Someone else runs their own, without my help. The question: is it really portable? The one-command install and the export that writes every thread out as Markdown or JSON, readable without ade installed, are both done.
 
-Before it ships, an export that writes every thread out as Markdown or JSON, readable without ade installed.
+Left: invites and a public address. Both may get built, but stay switched off until someone needs them. The rename to arbe is parked.
 
 The test: a friend gets the install instructions and their data file and gets running without my help. It passes only if they can also leave: export, shut the server down, and still have their threads.
 
@@ -62,8 +62,10 @@ No hosted pilot. Hosting versus audience comes back up only if people still won'
 
 One primitive: wake a thread when something happens, without anyone posting to it, built on Pi Durable's stored sleeps and signals. Three triggers. A time: an agent scheduling itself ("check CI in 5 minutes") or a recurring routine. Another thread finishing: a review that opens once its fix lands, the dependency idea from Vercel Board. An outside event, the last and optional piece: a push or an email, with MCP Events one possible source. arbe's scheduler is the reference to port from.
 
-Two of the three have landed as the `wake` module. A time: `wake({in, every, note})`, a background stored sleep per wake that posts the note back to its agent, survives restarts and Stop, and shows above the composer with × to cancel. Another thread finishing: `wake({after: N, note})` sleeps on a signal the module sends once thread N has no work left, when the server hears that thread's last work task end, archived or not, and on start; it fires at once if N is already idle. Outside events stay last.
+All three have landed. A time and another thread finishing are the `wake` module: `wake({in, every, note})`, a background stored sleep per wake that posts the note back to its agent, survives restarts and Stop, and shows above the composer with × to cancel; `wake({after: N, note})` sleeps on a signal the module sends once thread N has no work left, when the server hears that thread's last work task end, archived or not, and on start; it fires at once if N is already idle. Outside events are the `hooks` module, off by default and never published.
 
 ## Parts bin
 
-From arbe, each as a module when a step misses it, not before: limits per thread ([capabilities](https://arbe.0sk.ar/docs/thinking/capabilities/)), shared files ([files](https://arbe.0sk.ar/docs/files/)), workflows ([workflows](https://arbe.0sk.ar/docs/workflows/)), secrets kept out of the model's context ([secrets](https://arbe.0sk.ar/docs/system/access/secrets/)), rented sandboxes as runners ([environments](https://arbe.0sk.ar/docs/system/sandboxes/environments/)), search ([thread search](https://arbe.0sk.ar/docs/system/chat/thread-search/)), usage ([usage & cost](https://arbe.0sk.ar/docs/usage-cost/)), teams ([teams](https://arbe.0sk.ar/docs/system/access/teams/)), and the CLI's best commands ([CLI](https://arbe.0sk.ar/docs/cli/)).
+From arbe, each as a module when a step misses it, not before: limits per thread ([capabilities](https://arbe.0sk.ar/docs/thinking/capabilities/)), shared files ([files](https://arbe.0sk.ar/docs/files/)), secrets kept out of the model's context ([secrets](https://arbe.0sk.ar/docs/system/access/secrets/)), rented sandboxes as runners ([environments](https://arbe.0sk.ar/docs/system/sandboxes/environments/)), usage ([usage & cost](https://arbe.0sk.ar/docs/usage-cost/)), teams ([teams](https://arbe.0sk.ar/docs/system/access/teams/)), and the CLI's best commands ([CLI](https://arbe.0sk.ar/docs/cli/)).
+
+Search has landed ([thread search](https://arbe.0sk.ar/docs/system/chat/thread-search/)). Workflows ([workflows](https://arbe.0sk.ar/docs/workflows/)) start as bot recipes on wake — Lens, Dawn, Sitter — and the house-wide Wakes list.
