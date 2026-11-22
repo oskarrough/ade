@@ -70,15 +70,11 @@ export const tryEcho = (request) => {
 	if (latest.role === 'user' && text(latest).startsWith('search '))
 		return call('search', { query: text(latest).slice(7) })
 	if (latest.role === 'toolResult' && latest.toolName === 'search') return say(text(latest))
-	// "wake on hook <note>" sets a wake on an outside event, with wake and hooks on, and answers where it posts;
-	// "wake on hook raw <note>" asks for the sender's text too
+	// "wake on hook <note>" sets a wake on an outside event, with wake and hooks on, and answers where it posts
 	const hooked =
 		latest.role === 'user' &&
-		/(?:^|<message from="[^"]*">\n)wake on (\S+)( raw)? (.+?)(?:\n<\/message>)?$/s.exec(
-			text(latest),
-		)
-	if (hooked)
-		return call('wake', { on: hooked[1], note: hooked[3], ...(hooked[2] ? { raw: true } : {}) })
+		/(?:^|<message from="[^"]*">\n)wake on (\S+) (.+?)(?:\n<\/message>)?$/s.exec(text(latest))
+	if (hooked) return call('wake', { on: hooked[1], note: hooked[2] })
 	if (
 		latest.role === 'toolResult' &&
 		latest.toolName === 'wake' &&

@@ -129,21 +129,22 @@ A wake that fires posts `{author, body: note, wake: id, to: [author]}`: the agen
 With `hooks` on too, a wake can be `on` an outside event, and lists as `{id, on, note, agent}`. The owner, and only the owner, reads its secret:
 
 ```
-GET    /api/threads/:id/hooks?wake=N    {wake, on, path, secret, send | github}: where wake N's hook is and how to call it
+GET    /api/threads/:id/hooks?wake=N    {wake, on, path, secret, raw, send | github}: where wake N's hook is, how to call it, and whether its sender's text gets through
 POST   /api/threads/:id/hooks {rotate}  a new secret for that wake; the old one is refused from then on, even on a delivery already under way
+POST   /api/threads/:id/hooks {wake, raw}  `raw: true` lets that hook's sender's text through to the agent, `false` stops it; off until the owner turns it on
 ```
 
-A hook wake set before its secret was kept apart answers 410 here: cancel it and set a new one.
+A hook carries the generation it was issued under; one from an older ade answers 410 here and on its hook: cancel it and set a new one.
 
 Its hook is on a listener of its own, `HOOK_PORT`, which answers nothing else, no page and no socket, and takes no owner key or login, only the wake's secret:
 
 ```
-POST   /hooks/:id                       an event for wake :id: {woke}, {repeat} for one it took already, {ignored} for one it doesn't wait for; 403 for a wrong secret, 404 once it's cancelled, 413 over a megabyte, 429 over 30 a minute or 500 in its life, 503 with 8 already in flight
+POST   /hooks/:id                       an event for wake :id: {woke}, {repeat} for one it took already, {ignored} for one it doesn't wait for; 403 for a wrong secret, 404 once it's cancelled, 413 over a megabyte, 429 over 30 a minute or 500 in its life, counted only once the caller proved the secret, or over 120 tries a minute at GitHub hooks from one caller before its signature is checked (by the last `X-Forwarded-For` address, which Funnel adds), 503 with 8 already in flight, 410 for a hook from an older ade
 ```
 
 A request has 10 seconds to arrive whole. `on: "hook"` takes `Authorization: Bearer <secret>`, any body, and an optional `X-Hook-Event` name; a repeat is the same `Idempotency-Key` header, else the same body. `push` and `ci` take only a body GitHub signed with the secret (X-Hub-Signature-256), and read the event from its shape, not from GitHub's unsigned headers: a push, or a workflow run or check suite that completed with `failure` or `timed_out`; a ping or any other is `ignored`. A repeat is the same signed body, whatever its delivery id.
 
-The wake posts `{author, body: note, wake, event: {from, facts, said?}, to}`: its own note, with what came beside it. `from` is `hook`, `GitHub push` or `GitHub CI`. `facts` are typed, each kept to its own shape or given as `(unusual)`: a push's `repo`, `branch`, `before`, `after`, `pusher` and `commits` (a count); a CI run's `repo`, `workflow`, `conclusion` and `url`; a plain call's `event` and `bytes`. `said`, the sender's own text up to 2000 characters (the head commit's message, the run's title, the call's body), comes only for a wake set with `raw: true`. The agent reads the event after its note in an `<outside-event>` block, escaped, as data from outside ade, not instructions.
+The wake posts `{author, body: note, wake, event: {from, facts, said?}, to}`: its own note, with what came beside it. `from` is `hook`, `GitHub push` or `GitHub CI`. `facts` are typed, each kept to its own shape or given as `(unusual)`: a push's `repo`, `branch`, `before`, `after`, `pusher` and `commits` (a count); a CI run's `repo`, `workflow` (its file, like `.github/workflows/ci.yml`), `workflow_id`, `conclusion` and `url`, never its name; a plain call's `event` and `bytes`. `said`, the sender's own text up to 2000 characters (the head commit's message, the run's title, the call's body), comes only once the owner turned `raw` on for that hook. The agent reads the event after its note in an `<outside-event>` block, escaped, as data from outside ade, not instructions.
 
 With `export` on:
 

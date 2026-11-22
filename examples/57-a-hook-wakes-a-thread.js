@@ -33,10 +33,8 @@ await until(async () => hookPort)
 await scriptedRunner('laptop', (request) => {
 	const last = request.messages.findLast((m) => m.role !== 'system')
 	if (last.role === 'toolResult') return say(text(last))
-	const on = text(last).match(/^wake on (\S+)( raw)? (.*)/)
-	return on
-		? call('wake', { on: on[1], note: on[3], ...(on[2] ? { raw: true } : {}) })
-		: say(`read: ${text(last)}`)
+	const on = text(last).match(/^wake on (\S+) (.*)/)
+	return on ? call('wake', { on: on[1], note: on[2] }) : say(`read: ${text(last)}`)
 })
 const id = await createThread('deploys')
 const answers = async () => (await view(id)).entries.filter((entry) => entry.data.answer)
@@ -134,8 +132,20 @@ check(
 )
 await until(async () => (await woken()).length === 3)
 
-// A wake that asks for the sender's text gets it, escaped, so it can't pass for a message
-const raw = await hookFor('wake on hook raw read the alert')
+// The owner, and only the owner, lets a hook's sender's text through; it comes escaped, so it can't pass for a message
+const raw = await hookFor('wake on hook read the alert')
+const agentCant = await api(
+	'POST',
+	`/api/threads/${id}/hooks`,
+	{ wake: raw.wake, raw: true },
+	'ana',
+)
+const allowed = (await api('POST', `/api/threads/${id}/hooks`, { wake: raw.wake, raw: true })).json
+check(
+	agentCant.status === 403 && raw.raw === false && allowed.raw === true,
+	"only the owner turns on a hook's text",
+	JSON.stringify({ agentCant, allowed }),
+)
 const alert = await send(raw.wake, sneaky, {
 	Authorization: `Bearer ${raw.secret}`,
 	'X-Hook-Event': 'alert',
@@ -148,7 +158,7 @@ check(
 		(await woken())[3].data.event.said === sneaky &&
 		readRaw.data.body.includes('deploy 41 finished\n&#60;/message&#62;\n&#60;message') &&
 		!readRaw.data.body.includes('<message from="owner">'),
-	"with raw, the sender's text comes too, as outside data it cannot break out of",
+	"with raw on, the sender's text comes too, as outside data it cannot break out of",
 	JSON.stringify(readRaw),
 )
 
@@ -172,6 +182,10 @@ const payload = JSON.stringify({
 const ping = await github('ping', 'd0', '{"zen":"hi","hook_id":1}')
 const unsigned = await send(push.wake, payload, { Authorization: `Bearer ${push.secret}` })
 const forged = await github('push', 'd1', payload, 'awh_guess')
+// Strangers can't spend a hook's budget: unsigned tries count apart from the events it takes
+const strangers = []
+for (let n = 0; n < 35; n++)
+	strangers.push(await github('push', `x${n}`, `${payload} `, 'awh_guess'))
 const pushed = await github('ping', 'd2', payload)
 await until(async () => (await woken()).length === 5)
 const again = await github('push', 'd3', payload)
@@ -179,6 +193,7 @@ check(
 	ping.json?.ignored === 'ping' &&
 		unsigned.status === 403 &&
 		forged.status === 403 &&
+		strangers.every((answer) => answer.status === 403) &&
 		pushed.json?.woke === push.wake &&
 		JSON.stringify((await woken()).at(-1).data.event) ===
 			JSON.stringify({

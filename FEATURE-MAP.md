@@ -107,11 +107,13 @@ modules/
                          Hooked `event-N` (listen) and posts its note with the event as `event`; off by default
   hooks.js               outside events for wakes: Hook (the wake's task doc: secret, events taken; issue), webhook (server.js's
                          `webhook` hook, on its own HOOK_PORT listener with HOOK's deadline, size and in-flight caps: checks
-                         before the body, admit (RATE, checked and recorded at once), then GitHub's signature, github reads
-                         the event from the signed body's shape as typed facts (fact, SHAPES; its text only with the wake's
-                         `raw`), then reserves the delivery in one commit that checks the secret is still current, a
+                         before the body, admit (a window checked and recorded at once: PROBES for a caller's unsigned tries at GitHub hooks, by address,
+                         RATE once the caller proved the secret), then GitHub's signature, github reads
+                         the event from the signed body's shape as typed facts (fact, SHAPES; its text only with the owner's
+                         `raw` on the Hook doc), then reserves the delivery in one commit that checks the secret is still current, a
                          `hook {wake}/{digest}` receipt plus a Hooked signal), LIFETIME cap, serve (owner only: GET a hook's
-                         secret, POST rotate; 410 for a hook from before Hook docs); off by default
+                         secret, POST rotate or raw; GENERATION, the Hooked version a hook was issued under: stale, 410 on both
+                         routes for an older one); off by default
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)

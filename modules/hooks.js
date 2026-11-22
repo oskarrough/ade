@@ -11,10 +11,14 @@
  * Each delivery is reserved once, in one commit that checks the secret it came with is still the wake's: a receipt of
  * its own, `hook {wake}/{digest}` (the signed body's, or a plain call's Idempotency-Key or body), and a Hooked signal to
  * the wake on the next key it sleeps on, `event-N`. A repeat finds the receipt and wakes nothing. A wake takes at most
- * LIFETIME events and RATE a minute.
+ * LIFETIME events and RATE a minute, charged only once its caller proved the secret; before that, a caller gets at most
+ * PROBES tries a minute at GitHub hooks, counted by its own address, so strangers can't spend a hook's budget or lock
+ * GitHub out.
  *
- * The agent gets typed facts, each kept to its own shape (a repo, a branch, commit ids, a pusher; a workflow, its
- * conclusion and URL; a plain call's event name and size), never free text, unless its wake asked for it with `raw`.
+ * The agent gets typed facts, each kept to its own shape (a repo, a branch, commit ids, a pusher; a workflow's path or
+ * id, its conclusion and URL; a plain call's event name and size), never free text, unless the owner turned `raw` on
+ * for that hook. Each hook carries the GENERATION it was issued under, the Hooked signal's version; both routes refuse
+ * an older one, which has to be set again.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
@@ -27,13 +31,15 @@ export const EVENTS = {
 	ci: 'each failed GitHub CI run',
 	hook: 'each call to its hook',
 }
+/** What a hook's signal looks like now; a hook issued under another refuses every call and has to be set again */
+const GENERATION = 3
 /**
- * An outside event for a wake: where it came from, its typed facts, and its text only for a wake that asked for it
+ * An outside event for a wake: where it came from, its typed facts, and its text only where the owner allowed it
  * (`raw`); the agent reads all of it as data
  */
 export const Hooked = defineSignal({
 	name: 'ade.hooked',
-	version: 2,
+	version: GENERATION,
 	schema: obj({
 		from: str(),
 		facts: obj({
@@ -44,6 +50,7 @@ export const Hooked = defineSignal({
 			pusher: opt(str()),
 			commits: opt(num()),
 			workflow: opt(str()),
+			workflow_id: opt(num()),
 			conclusion: opt(str()),
 			url: opt(str()),
 			event: opt(str()),
@@ -52,27 +59,35 @@ export const Hooked = defineSignal({
 		said: opt(str()),
 	}),
 })
-/** A hook wake's secret and how many events it has taken, the wake's own doc */
+/** A hook wake's secret, the generation it was issued under, how many events it took, and whether the owner lets its
+ * sender's text through; the wake's own doc */
 const Hook = defineDoc({
 	kind: 'ade.hook',
 	version: 1,
 	scope: 'task',
 	checkpointWhen: () => true,
-	initial: () => ({ secret: '', events: 0 }),
+	initial: () => ({ secret: '', generation: 0, events: 0, raw: false }),
 })
 
 /** How many events a wake takes in its life; each one stays in its task record */
 const LIFETIME = 500
-/** How many a wake takes a minute */
+/** How many a wake takes a minute, from callers that proved its secret */
 const RATE = 30
+/** How many tries a GitHub hook takes a minute before its signature is checked */
+const PROBES = 120
 /** How much of an event a message carries */
 const SAID = 2000
 
 const newSecret = () => `awh_${randomBytes(24).toString('base64url')}`
 /** Gives a new wake its secret, inside the commit that makes it */
 export async function issue(tx, wakeId) {
-	;(await tx.doc(Hook, wakeId)).secret = newSecret()
+	const doc = await tx.doc(Hook, wakeId)
+	doc.secret = newSecret()
+	doc.generation = GENERATION
 }
+/** A hook issued under another generation, or none */
+const stale = (doc) => !doc.secret || doc.generation !== GENERATION
+const STALE = 'This hook is from an older ade; cancel it and set a new wake'
 
 const sha256 = (text) => createHash('sha256').update(text).digest()
 const same = (given, secret) => timingSafeEqual(sha256(given), sha256(secret))
@@ -86,7 +101,7 @@ const SHAPES = {
 	branch: /^[\w./-]{1,100}$/,
 	commit: /^[0-9a-f]{7,64}$/,
 	login: /^[\w.[\]-]{1,60}$/,
-	workflow: /^[\w .()-]{1,80}$/,
+	workflow: /^\.github\/workflows\/[\w.-]{1,100}\.ya?ml$/,
 	url: /^https:\/\/github\.com\/[\w./-]{1,200}$/,
 	event: /^[\w.:-]{1,64}$/,
 }
@@ -131,7 +146,10 @@ function github(on, payload) {
 			from: 'GitHub CI',
 			facts: {
 				repo,
-				workflow: fact(run.name ?? run.app?.name, SHAPES.workflow),
+				workflow: fact(run.path, SHAPES.workflow),
+				workflow_id: Number.isSafeInteger(run.workflow_id ?? run.app?.id)
+					? (run.workflow_id ?? run.app.id)
+					: undefined,
 				conclusion: run.conclusion,
 				url: fact(run.html_url, SHAPES.url),
 			},
@@ -147,12 +165,17 @@ export function server(core) {
 		core.commit(async (tx) => JSON.parse(JSON.stringify(await tx.doc(Hook, wakeId))))
 	/** Each wake's admitted events in the last minute */
 	const recent = new Map()
-	/** Admits one event into the wake's minute, or refuses it; checks and records with no await between */
-	function admit(wakeId) {
-		const minute = (recent.get(wakeId) ?? []).filter((at) => at > Date.now() - 60_000)
-		if (minute.length >= RATE) throw fail(429, `At most ${RATE} events a minute; try again`)
+	/**
+	 * Each caller's unsigned tries at GitHub hooks in the last minute, by its address: the last X-Forwarded-For entry,
+	 * the one the proxy in front (Funnel) added, so one flooding caller can't lock GitHub out
+	 */
+	const tries = new Map()
+	/** Takes one into a wake's minute in `windows`, or refuses it; checks and records with no await between */
+	function admit(windows, wakeId, cap, what) {
+		const minute = (windows.get(wakeId) ?? []).filter((at) => at > Date.now() - 60_000)
+		if (minute.length >= cap) throw fail(429, `At most ${cap} ${what} a minute; try again`)
 		minute.push(Date.now())
-		recent.set(wakeId, minute)
+		windows.set(wakeId, minute)
 	}
 
 	/** A live wake on events, or a 404 that says nothing more */
@@ -176,7 +199,7 @@ export function server(core) {
 	async function webhook(id, { headers, body }) {
 		const record = await live(id)
 		const hook = await hookOf(id)
-		if (!hook.secret) throw fail(404, 'No hook here')
+		if (stale(hook)) throw fail(410, STALE)
 		const gitHub = record.input.on !== 'hook'
 		const signature = headers['x-hub-signature-256']
 		const bearer = /^Bearer (.+)$/.exec(headers.authorization ?? '')?.[1]
@@ -184,13 +207,25 @@ export function server(core) {
 			throw fail(403, "That is not this hook's secret")
 		if (hook.events >= LIFETIME)
 			throw fail(429, `This hook took its ${LIFETIME} events; set a new wake`)
-		admit(id)
+		// A bearer is checked by now; a GitHub signature needs the body, so strangers get their own, smaller budget
+		if (gitHub)
+			admit(
+				tries,
+				String(headers['x-forwarded-for'] ?? 'here')
+					.split(',')
+					.at(-1)
+					.trim(),
+				PROBES,
+				'tries',
+			)
+		else admit(recent, id, RATE, 'events')
 
 		const raw = await body()
 		let event
 		if (gitHub) {
 			const expected = `sha256=${createHmac('sha256', hook.secret).update(raw).digest('hex')}`
 			if (!same(String(signature), expected)) throw fail(403, "That is not this hook's secret")
+			admit(recent, id, RATE, 'events')
 			let payload
 			try {
 				payload = JSON.parse(raw.toString('utf8'))
@@ -217,8 +252,8 @@ export function server(core) {
 		return core.once(receipt, 'hook', async (tx) => {
 			const doc = await tx.doc(Hook, id)
 			// A secret rotated while this one was on its way: what it was signed with no longer counts
-			if (!doc.secret || !same(hook.secret, doc.secret))
-				throw fail(403, "That is not this hook's secret")
+			if (stale(doc)) throw fail(410, STALE)
+			if (!same(hook.secret, doc.secret)) throw fail(403, "That is not this hook's secret")
 			if (doc.events >= LIFETIME)
 				throw fail(429, `This hook took its ${LIFETIME} events; set a new wake`)
 			const facts = Object.fromEntries(
@@ -227,7 +262,7 @@ export function server(core) {
 			const sent = await tx.signal(id, Hooked, `event-${doc.events}`, {
 				from: event.from,
 				facts,
-				...(record.input.raw && event.text ? { said: event.text.slice(0, SAID) } : {}),
+				...(doc.raw && event.text ? { said: event.text.slice(0, SAID) } : {}),
 			})
 			if (sent !== 'delivered') throw fail(404, 'No hook here')
 			doc.events += 1
@@ -236,33 +271,33 @@ export function server(core) {
 	}
 
 	/**
-	 * The owner only. GET `?wake=N`: where wake N's hook is and its secret; POST `{rotate: N}`: a new secret, the old one
-	 * refused from then on. A wake from before secrets were kept here has none, and gets none: set a new one.
+	 * The owner only. GET `?wake=N`: where wake N's hook is, its secret, and whether its sender's text gets through;
+	 * POST `{rotate: N}`: a new secret, the old one refused from then on; POST `{wake: N, raw}`: let the sender's text
+	 * through to the agent, or stop it. A hook from an older generation answers 410: set a new wake.
 	 */
 	async function serve(threadId, query, body, user) {
-		if (user !== core.owner) throw fail(403, "Only the owner reads a hook's secret")
+		if (user !== core.owner) throw fail(403, 'Only the owner reads or changes a hook')
 		if (threadId === undefined) throw new Error('Hooks live in a thread')
-		const wakeId = Number(body === undefined ? query.get('wake') : body.rotate)
-		if (!Number.isInteger(wakeId))
-			throw new Error(body === undefined ? 'wake is the wake id' : 'rotate is the wake id')
+		const wakeId = Number(body === undefined ? query.get('wake') : (body.rotate ?? body.wake))
+		if (!Number.isInteger(wakeId)) throw new Error('wake, or rotate, is the wake id')
+		if (body !== undefined && body.rotate === undefined && typeof body.raw !== 'boolean')
+			throw new Error('raw is true or false')
 		const record = await live(wakeId, threadId)
-		const secret = await core.commit(async (tx) => {
+		const doc = await core.commit(async (tx) => {
 			const doc = await tx.doc(Hook, wakeId)
-			if (!doc.secret)
-				throw fail(
-					410,
-					'This hook is from before its secret was kept apart; cancel it and set a new wake',
-				)
-			if (body !== undefined) doc.secret = newSecret()
-			return doc.secret
+			if (stale(doc)) throw fail(410, STALE)
+			if (body?.rotate !== undefined) doc.secret = newSecret()
+			else if (body !== undefined) doc.raw = body.raw
+			return JSON.parse(JSON.stringify(doc))
 		})
 		return {
 			wake: wakeId,
 			on: record.input.on,
 			path: `/hooks/${wakeId}`,
-			secret,
+			secret: doc.secret,
+			raw: doc.raw,
 			...(record.input.on === 'hook'
-				? { send: `Authorization: Bearer ${secret}` }
+				? { send: `Authorization: Bearer ${doc.secret}` }
 				: {
 						github: `a webhook with content type application/json, ${record.input.on === 'push' ? 'push events' : 'workflow runs'}, and this secret`,
 					}),
