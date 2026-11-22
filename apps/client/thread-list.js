@@ -65,7 +65,7 @@ export function ThreadList() {
 					<//>
 				</ul>
 				<${Show} when=${() => server().modules.includes('inbox')}>
-					<ul class="inbox-row">
+					<ul>
 						<li class=${() => ['new', { current: inboxOpen() }]}>
 							<button
 								type="button"
