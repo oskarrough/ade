@@ -2269,10 +2269,16 @@ body.resizing {
 		visibility: hidden;
 	}
 
+	.thread-list > ul.inbox-row {
+		flex: none;
+		margin-top: var(--space-2);
+	}
+
 	.list-foot {
+		box-sizing: content-box;
+		padding-top: var(--space-2);
 		margin: auto calc(-1 * var(--space-2)) 0;
 		padding-inline: var(--space-2);
-		/* Clear of the home indicator, which would otherwise sit under Inbox, the runner count and the gear; no taller than that when there's no indicator to clear. */
 		padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
 	}
 
