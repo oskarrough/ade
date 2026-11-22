@@ -1558,7 +1558,14 @@ async function status(id, row, busy, reader) {
 		if (entry.data?.answer || entry.data?.error || entry.data?.shell)
 			return entry.data.error || entry.data.shell?.error ? 'error' : 'done'
 	}
-	return (await back(id, KIND, said)) ?? 'idle'
+	const found = (await back(id, KIND, said)) ?? 'idle'
+	// A failure is the reader's only where they wrote; in a thread agents keep among themselves, its asker got it
+	return found === 'error' && !(await concerns(id, reader)) ? 'idle' : found
+}
+/** Whether a thread's failures and answers are `reader`'s to read: they wrote there; with no reader, any person did. The sidebar's dots and the inbox both ask this. */
+async function concerns(id, reader) {
+	const wrote = await authors(id)
+	return reader ? wrote.includes(reader) : wrote.length > 0
 }
 
 /** Who's in a thread needs no state of its own: the people who wrote there, or read, the owner and tailnet logins. Only an open thread needs it. */
@@ -2837,6 +2844,7 @@ const core = {
 	post,
 	route,
 	authors,
+	concerns,
 	afterCommit,
 	abortTask: (id) => harness.abortTask(id, context),
 	/** One task's latest record, or every task matching `query` (Pi's TaskQuery) */

@@ -80,7 +80,7 @@ export function server(core) {
 		const found = await Promise.all(
 			(await core.threadList(reader)).map(async (row) => {
 				if (!['done', 'error'].includes(row.status)) return undefined
-				if (!(await core.authors(row.id)).includes(reader)) return undefined
+				if (!(await core.concerns(row.id, reader))) return undefined
 				// As the status reads it: a `$ cmd` someone stopped is neither an answer nor a failure
 				const message = await core.latestMessage(
 					row.id,

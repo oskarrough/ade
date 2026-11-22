@@ -257,4 +257,26 @@ check(
 	JSON.stringify([heardStart, stillBusy]),
 )
 startSocket.close()
+
+// A failure in a thread you never wrote in is its asker's: no red dot for you, on the thread or on its bot, and no inbox item
+await api('POST', '/api/bots', { name: 'wren', to: 'echo/echo@laptop' })
+const wrenHome = (await api('GET', '/api/bots')).json.find((bot) => bot.name === 'wren').home
+const child = (await api('POST', '/api/threads', { title: 'wren asked', parent: wrenHome })).json.id
+await postEntry(child, 'fail please', 'echo/echo@laptop', 'ida')
+await until(
+	async () => !(await view(child)).busy && (await view(child)).entries.some((e) => e.data.error),
+)
+const childRow = (await api('GET', '/api/threads')).json.find((row) => row.id === child)
+const wren = (await api('GET', '/api/bots')).json.find((bot) => bot.name === 'wren')
+const idaRow = (await api('GET', '/api/threads', undefined, 'ida')).json.find(
+	(row) => row.id === child,
+)
+check(
+	childRow.status !== 'error' &&
+		wren.status !== 'error' &&
+		!(await everything()).some((item) => item.thread === child) &&
+		idaRow?.status === 'error',
+	'a failure where you never wrote shows red only to who did: not on your thread row, its bot or your inbox',
+	JSON.stringify([childRow.status, wren.status, idaRow?.status]),
+)
 done()
