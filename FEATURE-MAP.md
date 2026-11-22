@@ -82,7 +82,8 @@ modules/
                          server.js sorts module extensions by); `projectContext: false` drops the folder's AGENTS.md
                          from the project section (withoutProject), the AGENTS.md switch in BotSettings
   context.js             AGENTS.md, skills and the folder's path (cwd) from the runner;
-                         a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
+                         a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand);
+                         its section's `volatility: 1`, between the static modules and a bot's own (2)
   director.js            the `direct` hook: @mentions ask that bot; a free message in a group, or with one agent and two people
                          writing (core.authors), is saved with a Pick task (`directing`), one pending per author (Thread `picks`);
                          Pick's wait phase sleeps the burst then holds while anyone types (typing, beatOf, typingIn, sent, Nudge signal),
@@ -151,11 +152,16 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          newest SHOWN rows (onScreen, shownFrom) and the rows above, then the page before, near the top (nearTop),
                          holding the view still as they land (hold)
     rows                 projection: messages plus each agent's turns, a row for each lasting call (an ask, a bot change),
-                         live turn, compaction cuts, folded memory lines
+                         live turn, compaction cuts, folded memory lines; `describe` says who said each row, to whom and
+                         from where (voice, otherAuthor/otherThread/otherLabel via `farSide`; ask rows and questions asked
+                         here are sent/received rows too); a row's `name` shows only where the speaker changed, from the
+                         last one that wasn't yours or, alone with one agent, from the last agent's; a crossed row never
+                         counts as the last speaker, so the reply after it is still named
     Asked                in a bot's home, a question another thread asked it, a received `Cross` row; the bot's answer follows as its own Message (askedHere)
     Message              one message: author, the director's pick, fork link (× instead while yours waits for a working agent, `waiting`), Body, Images; one that crossed threads is a `Cross` step row;
                          an answer to someone further up says whom (replyTo in rows); a Stop is one grey line naming who pressed it
     Body, threadLink     a message's markdown; a thread it mentions by title is a link that opens it
+    Images               a message's images; clicking one opens it full-size in a `dialog.lightbox`, a click or Escape closes it
   run.js                 an agent's turns, from its own conversation
     heard, conversations the conversation entries the socket brings
     turnsOf, cutOf       a conversation cut into turns, and where its newest compaction cut it, as the socket's `cut` says (compactions)

@@ -60,7 +60,7 @@ Modules add their own routes under `/api/<module>`. With `bots` on:
 
 ```
 GET    /api/bots
-POST   /api/bots {name, to?, instructions?, color?, rename?}   makes or changes a bot
+POST   /api/bots {name, to?, instructions?, append?, color?, projectContext?, rename?}   makes or changes a bot
 DELETE /api/bots/:name
 GET    /api/threads/:home/bots?asked=4,7   for a bot's home, each thread that asked her: `{thread, question, answer}`, its first message and her answer to it, or `null`
 ```
@@ -69,7 +69,7 @@ GET    /api/threads/:home/bots?asked=4,7   for a bot's home, each thread that as
 
 `GET /api/bots` gives each bot an `answeredAt`: an ISO time, the newest message anywhere she answered (not only her home), or `null` if she never has.
 
-A new bot starts with empty `instructions`; it writes its own with the `bot` tool, or you can set them directly. Every bot also reads one shared instruction, `bots.voice`, rendered just before its own: a chatty default until someone edits it in settings or `POST /api/settings {bots: {voice}}`, empty for none. `GET /api/server`'s `settings.bots.voice` gives the text in effect, default included.
+A new bot starts with empty `instructions`; it writes its own with the `bot` tool, or you can set them directly. `append` adds one line to its instructions rather than replacing them, the same way the `bot` tool's `append` does. `projectContext: false` drops its folder's AGENTS.md from its prompt, keeping its skills; leave it out or send `true` to restore it. Every bot also reads one shared instruction, `bots.voice`, rendered just before its own: a chatty default until someone edits it in settings or `POST /api/settings {bots: {voice}}`, empty for none. `GET /api/server`'s `settings.bots.voice` gives the text in effect, default included.
 
 With `recap` on:
 
