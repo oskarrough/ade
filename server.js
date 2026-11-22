@@ -742,10 +742,21 @@ async function conversationRecord(id) {
 	if (!records.has(id)) records.set(id, await storage.conversation(id, context))
 	return records.get(id)
 }
+/** Each thread's people who wrote there, read once and kept as commits land; see `authors` below */
+const writers = new Map()
+const heardAuthor = (entry) => {
+	const wrote = writers.get(entry.conversationId)
+	if (!wrote) return
+	if (entry.kind === KIND && !byAgent(entry.data)) wrote.authors.add(entry.data.author)
+	wrote.after = Math.max(wrote.after, entry.id)
+}
 harness.observeCommits({
 	advance: ({ changes }) => {
 		for (const change of changes) {
-			if (change.type === 'entry') heardEntry(change.value)
+			if (change.type === 'entry') {
+				heardEntry(change.value)
+				heardAuthor(change.value)
+			}
 			if (change.type === 'conversation' && records.has(change.value.id))
 				records.set(change.value.id, change.value)
 		}
@@ -1477,8 +1488,6 @@ async function status(id, row, busy, reader) {
 	return (await back(id, KIND, said)) ?? 'idle'
 }
 
-/** Each thread's people who wrote there so far, and the newest entry read for them, so a thread is read once per server */
-const writers = new Map()
 /** Who's in a thread needs no state of its own: the people who wrote there, or read, the owner and tailnet logins. Only an open thread needs it. */
 async function people(id) {
 	const wrote = await authors(id)
@@ -1487,18 +1496,30 @@ async function people(id) {
 		(name) => name === owner || name.startsWith('~'),
 	)
 }
+/** Each thread's writers, read once from storage and kept current by `heardAuthor` above as commits land, so a
+ * repeat call, like the inbox's on every change, costs no query */
 async function authors(id) {
-	const handle = await conversation(id)
-	const wrote = writers.get(id) ?? { after: 0, authors: new Set() }
-	writers.set(id, wrote)
-	const read = await collect((cursor) =>
-		handle.entries({ order: 'ascending', minEntryId: wrote.after + 1 }, 500, cursor, context),
-	)
-	for (const record of read) {
-		const entry = /** @type {import("@earendil-works/pi-durable").TypedEntry<Message>} */ (record)
-		if (entry.kind === KIND && !byAgent(entry.data)) wrote.authors.add(entry.data.author)
-		wrote.after = Math.max(wrote.after, entry.id)
+	let wrote = writers.get(id)
+	if (!wrote) {
+		wrote = { after: 0, authors: new Set(), ready: undefined }
+		writers.set(id, wrote)
+		const loading = wrote
+		wrote.ready = (async () => {
+			const handle = await conversation(id)
+			const read = await collect((cursor) =>
+				handle.entries({ order: 'ascending', minEntryId: loading.after + 1 }, 500, cursor, context),
+			)
+			for (const record of read) {
+				const entry = /** @type {import("@earendil-works/pi-durable").TypedEntry<Message>} */ (
+					record
+				)
+				if (entry.kind === KIND && !byAgent(entry.data)) loading.authors.add(entry.data.author)
+				loading.after = Math.max(loading.after, entry.id)
+			}
+		})()
+		wrote.ready.catch(() => writers.get(id) === loading && writers.delete(id))
 	}
+	await wrote.ready
 	/** People only, as the server names them: a bot speaking in its own room writes with no agent's mark, and older
 	 * stores hold names anyone could claim */
 	return [...wrote.authors].filter((name) => name === owner || name.startsWith('~'))
