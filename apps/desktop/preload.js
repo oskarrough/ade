@@ -5,6 +5,11 @@
 	/** The app's runtime, which MyGo puts on every page before this runs */
 	const { mygo } = /** @type {any} */ (window)
 	if (!mygo) return
+	const mark = () => {
+		document.documentElement.dataset.desktop = ''
+	}
+	if (document.documentElement) mark()
+	else document.addEventListener('DOMContentLoaded', mark, { once: true })
 	// Plain http to a tailnet address isn't a secure context, so the page has no
 	// navigator.clipboard; the app's clipboard stands in.
 	if (!navigator.clipboard)

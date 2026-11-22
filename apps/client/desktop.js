@@ -5,6 +5,7 @@
 import { report } from './notice.js'
 
 const mygo = /** @type {any} */ (window).mygo
+if (mygo) document.documentElement.dataset.desktop = ''
 
 /**
  * Shows `items`, `{label, run}`, `null` for a separator, or `false`/`undefined` (omitted), as the window's menu at the

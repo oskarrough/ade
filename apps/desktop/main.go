@@ -232,6 +232,8 @@ func main() {
 			MinHeight:       400,
 			StateKey:        "main",
 			BackgroundColor: "#121212",
+			TitleBarStyle:   mygo.TitleBarHidden,
+			TitleBarHeight:  48,
 			Hidden:          true,
 			Page: mygo.PageOptions{
 				// The ade server is ours: its page may call Desktop and gets

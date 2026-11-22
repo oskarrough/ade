@@ -2724,3 +2724,44 @@ body.resizing {
 		line-height: var(--text-small-line);
 	}
 }
+
+/* arbe desktop hides the OS title bar so the top rows double as the window's own, clear of its buttons. */
+:root[data-desktop] {
+	.thread-list > ul.top-row {
+		min-height: max(var(--header-height), var(--mygo-titlebar-height, 0px));
+		padding-left: var(--mygo-titlebar-inset-left, 0px);
+		--app-region: drag;
+	}
+
+	.thread > header {
+		min-height: max(var(--header-height), var(--mygo-titlebar-height, 0px));
+		pointer-events: auto;
+		--app-region: drag;
+	}
+
+	.threads > .thread:not(:has(~ :is(.thread, .side))) > header {
+		padding-right: calc(var(--space-4) + var(--mygo-titlebar-inset-right, 0px));
+	}
+
+	.side .panes .pane > header {
+		min-height: max(var(--header-height), var(--mygo-titlebar-height, 0px));
+		--app-region: drag;
+	}
+
+	.threads > .side:not(:has(~ :is(.thread, .side))) .panes .pane > header {
+		padding-right: calc(var(--space-4) + var(--mygo-titlebar-inset-right, 0px));
+	}
+
+	@media (max-width: 700px) {
+		.app-bar {
+			min-height: var(--mygo-titlebar-height, auto);
+			padding-left: calc(var(--space-2) + var(--mygo-titlebar-inset-left, 0px));
+			padding-right: calc(var(--space-2) + var(--mygo-titlebar-inset-right, 0px));
+			--app-region: drag;
+		}
+
+		.thread-list > ul.top-row {
+			padding-right: var(--mygo-titlebar-inset-right, 0px);
+		}
+	}
+}
