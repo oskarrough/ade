@@ -24,13 +24,17 @@ const id = await createThread('drafts')
 const draftOf = async (thread, as) =>
 	(await api('GET', `/api/threads/${thread}/draft`, undefined, as)).json.draft
 
-// Another device of yours, watching the thread
+// Another device of yours, with the thread and a new one open: what it hears of each draft, `draft/<id>` and `draft/new`
 const heard = []
 const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
-socket.on('message', (data) => heard.push(JSON.parse(data.toString())))
+socket.on('message', (data) => {
+	const { view, put = [] } = JSON.parse(data.toString())
+	for (const { row } of put) heard.push({ thread: view.slice('draft/'.length), ...row })
+})
 await new Promise((resolve) => socket.once('open', resolve))
-socket.send(JSON.stringify({ watch: id }))
-await until(async () => heard.some((message) => message.thread === id && message.entries))
+socket.send(JSON.stringify({ sub: `draft/${id}` }))
+socket.send(JSON.stringify({ sub: 'draft/new' }))
+await until(async () => heard.length === 2)
 
 const saved = await api('POST', `/api/threads/${id}/draft`, {
 	key: 'draft-1',
@@ -53,7 +57,7 @@ check(
 await until(async () => heard.some((message) => message.draft?.text === 'hello there'))
 check(
 	heard.find((message) => message.draft?.text === 'hello there')?.page === 'laptop',
-	'your other device watching the thread hears it, with the page that saved it',
+	'your other device with the thread open hears it, with the page that saved it',
 )
 check(
 	(await draftOf(id, 'ana')) === null,

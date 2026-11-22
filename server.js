@@ -289,6 +289,7 @@ const Draft = defineDocFamily({
 	scope: 'session',
 	family: true,
 	checkpointWhen: (value, ops, info) => info.deltasSinceBase >= 50,
+	/** @returns {{ key: string, text: string, images: any[], pick: any, page?: string, sent?: string }} */
 	initial: () => ({ key: '', text: '', images: [], pick: null }),
 })
 const now = () => new Date().toISOString()
@@ -1972,8 +1973,8 @@ async function postEntry(id, author, input) {
 					{ steer: input.steer === true, direct, unlessPaused: solo },
 				)
 		if (draft && draft.key === input.key) {
-			Object.assign(draft, { key: '', text: '', images: [], pick: null })
-			afterCommit(tx, () => tellDraft(id, author, { sent: input.key }))
+			Object.assign(draft, { key: '', text: '', images: [], pick: null, sent: input.key })
+			delete draft.page
 		}
 		return result
 	})
@@ -2013,7 +2014,7 @@ async function draftIn(id, person) {
 /**
  * Saves what a person is writing as they type: the fields given replace those kept, under the draft's `key`. A save
  * under a key whose message was already sent changes nothing and says `sent`, so a late save never brings it back.
- * Their other pages on the thread hear it; `page` names the one that saved, which ignores its own.
+ * Their pages hear it on `draft/<id>`; `page` names the one that saved, which ignores its own.
  */
 async function saveDraft(id, person, input) {
 	if (id !== NEW) await conversation(id)
@@ -2032,9 +2033,10 @@ async function saveDraft(id, person, input) {
 		if ((await tx.doc(Receipts, sentKey, null)).receipt) return { draft: null, sent: true }
 		const draft = await tx.doc(Draft, draftOf(id, person), null)
 		Object.assign(draft, changes, { key: input.key })
-		const shown = shownDraft(draft)
-		afterCommit(tx, () => tellDraft(id, person, { draft: shown, page }))
-		return { draft: shown }
+		delete draft.sent
+		if (page) draft.page = page
+		else delete draft.page
+		return { draft: shownDraft(draft) }
 	})
 }
 /** A pick as the composer keeps it, `{agent, bots}`: any small object, or null */
@@ -2043,12 +2045,6 @@ function pickOf(pick) {
 	if (typeof pick !== 'object' || Array.isArray(pick) || JSON.stringify(pick).length > 10000)
 		throw new Error('pick is an object of at most 10 kB, or null')
 	return pick
-}
-/** Each of the person's pages watching the thread hears their draft change; every page of theirs, their new-thread draft */
-function tellDraft(id, person, message) {
-	const sent = JSON.stringify({ thread: id, ...message })
-	for (const socket of clients)
-		if (socket.viewer === person && (id === NEW || socket.thread === id)) socket.send(sent)
 }
 
 /**
@@ -2219,8 +2215,8 @@ async function createThread(
 					{ empty: true, steer: first.steer === true },
 				)
 		if (draft && draft.key === key) {
-			Object.assign(draft, { key: '', text: '', images: [] })
-			afterCommit(tx, () => tellDraft(NEW, person, { sent: key }))
+			Object.assign(draft, { key: '', text: '', images: [], sent: key })
+			delete draft.page
 		}
 		return { id, ...result }
 	})
@@ -3466,6 +3462,22 @@ feed.define('thread/', {
 		const hit = threadMatch(change)
 		return hit === true || (Array.isArray(hit) && hit.includes(Number(param)))
 	},
+})
+
+/** Your draft in a thread, or `new`: as `draftIn` reads it, with the `page` that saved it last, or the key it was `sent` under */
+feed.define('draft/', {
+	perViewer: true,
+	keyOf: () => 'draft',
+	all: async (viewer, param) => {
+		const draft = await harness.snapshot(Draft, draftOf(param, viewer), context)
+		return [
+			{ key: 'draft', draft: draft && shownDraft(draft), page: draft?.page, sent: draft?.sent },
+		]
+	},
+	match: (change, param, state) =>
+		change.type === 'document' &&
+		change.record.kind === 'ade.draft' &&
+		change.record.key === draftOf(param, state.viewer),
 })
 
 feed.define('server', {

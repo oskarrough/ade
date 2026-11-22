@@ -94,9 +94,6 @@ const [entries, setEntries] = createStore({}, { shallow: true })
 const [earlier, setEarlier] = createStore({})
 const [people, setPeople] = createStore({})
 export { entries, earlier, people }
-let heardNewDraft = (_message) => {}
-/** The composer hears your new-thread draft change on another page of yours through this */
-export const onNewDraft = (hear) => void (heardNewDraft = hear)
 /** Each watched thread's way to ask for its page before the ones it has, or all of them; answers once they're in */
 export const pagers = new Map()
 export const loadEarlier = (thread, all = false) =>
@@ -289,7 +286,7 @@ export const {
 	const sendSocket = (frame) => {
 		if (socket?.readyState === 1) socket.send(JSON.stringify(frame))
 	}
-	/** Active views on this page, keyed by view name: `{ seq, synced, map, rows, setRows, waiters, refs, sort }` */
+	/** Active views on this page, keyed by view name: `{ seq, synced, map, rows, setRows, waiters, refs, sort, heard }` */
 	const views = new Map()
 	const orderOf = (view) => {
 		const list = [...view.map.values()]
@@ -335,10 +332,12 @@ export const {
 			view.setRows(orderOf(view))
 			if (frame.view.startsWith('thread/'))
 				heardThread(Number(frame.view.slice('thread/'.length)), view.map, reset)
+			view.heard?.(view.map, frame, reset)
 		}
 		wakeWaiters(view, reset)
 	}
-	const subscribeView = (name, { sort } = {}) => {
+	/** `heard(rows, frame, reset)` hears each frame that changed the view, for a caller that takes its rows apart */
+	const subscribeView = (name, { sort, heard } = {}) => {
 		let view = views.get(name)
 		if (!view) {
 			const [rows, setRows] = createSignal(/** @type {any[]} */ ([]))
@@ -353,6 +352,7 @@ export const {
 				waiters: [],
 				refs: 0,
 				sort,
+				heard,
 			}
 			views.set(name, view)
 		} else if (sort && !view.sort) {
@@ -506,14 +506,9 @@ export const {
 		)
 		yield caughtUp('runners', seq, boot)
 	})
-	/** Your new-thread draft comes too, as another page of yours changes it, which the composer takes */
-	const receive = (message) => {
-		if (message.view) return applyFrame(message)
-		if (message.thread === 'new') heardNewDraft(message)
-	}
 	onSettled(() => {
 		watch(
-			receive,
+			applyFrame,
 			(ws) => {
 				socket = ws
 				if (restarting() === 'down') location.reload()

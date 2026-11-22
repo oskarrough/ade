@@ -38,8 +38,8 @@ import {
 	saveBot,
 	sending,
 	server,
+	subscribeView,
 	threadRows,
-	onNewDraft,
 	threadOf,
 	url,
 } from './server.js'
@@ -181,11 +181,14 @@ export function Composer(props) {
 	/** Whom it asks: in the inbox, the agent that asked, and no one until the thread's list knows it; never a guess from history */
 	const whom = () => (props.inbox ? [props.asks].filter(Boolean) : recipients(props.thread))
 	const free = () => !props.inbox && directing(props.thread) && !pick(props.thread)
-	// Coming to a thread takes up its draft as saved, which another device may have changed meanwhile
+	// Coming to a thread takes up its draft as saved, which another device may have changed meanwhile, then each change
 	createEffect(
 		() => active() && (props.thread ?? 'new'),
 		(thread) => {
-			if (thread) loadDraft(thread)
+			if (!thread) return
+			const draft = subscribeView(`draft/${thread}`, { heard: heardDraft })
+			loadDraft(thread)
+			return () => draft.release()
 		},
 	)
 	createEffect(
@@ -871,17 +874,21 @@ function tookDraft(thread, saved) {
 		else if (store.picks[thread] && !store.picks[thread].held) delete store.picks[thread]
 	})
 }
+/** Read, not taken from the feed's first frame, which can predate the save a page closing just before sent */
 const loadDraft = (thread) =>
 	api(draftPath(thread))
 		.then(({ draft }) => tookDraft(thread, draft))
 		.catch(() => {})
 /** Where a thread's draft is kept; `new`, the one for a thread not started yet */
 const draftPath = (thread) => (thread === 'new' ? '/api/draft' : `/api/threads/${thread}/draft`)
-onNewDraft((message) => heardDraft('new', message))
-/** The thread's socket tells this person's pages when their draft there changed, or was sent */
-export function heardDraft(thread, message) {
-	if (message.sent) wasSent(thread, message.sent)
-	else if (message.page !== page) tookDraft(thread, message.draft)
+/** Each save another page of yours makes to a draft on screen, or its send */
+function heardDraft(rows, frame, reset) {
+	if (reset) return
+	const name = frame.view.slice('draft/'.length)
+	const thread = name === 'new' ? name : Number(name)
+	const { draft, page: saver, sent } = rows.get('draft')
+	if (sent) wasSent(thread, sent)
+	else if (saver !== page) tookDraft(thread, draft)
 }
 /** Each thread's pick, `{agent, bots}`, kept by thread id; a new thread's under `new` */
 const pick = (thread = current()) => compose.picks[thread ?? 'new'] ?? null

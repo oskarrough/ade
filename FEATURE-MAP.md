@@ -12,7 +12,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   recipients, invited               who a message asks; bots it @mentions that aren't in the thread yet
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused
   ask, route, ROUTE, routed, fresh  whom a message asks; the director's saved pick
-  Draft, saveDraft, draftIn, tellDraft, NEW, spentUnder   a person's unsent draft per thread, and for a new one
+  Draft, saveDraft, draftIn, NEW, spentUnder   a person's unsent draft per thread, and for a new one; `draft/<id>` feed view
   createThread, written, mayAsk     a thread and its first message in one commit
   withdraw, WITHDRAWAL              a message taken back before any agent read it
   afterCommit                       best-effort work after a commit
@@ -86,10 +86,10 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   type declarations for CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
   client.js              root: the chat, or the live system around it
-  server.js              the server as the client sees it: api, write, watch, restart and restarting (reload once it's back), in-memory feed store (`subscribeView`, `feedView`, `feedItem`, `openThreadFeed`, `caughtUp`),
+  server.js              the server as the client sees it: api, write, watch, restart and restarting (reload once it's back), in-memory feed store (`subscribeView` with its `heard`, `feedView`, `feedItem`, `openThreadFeed`, `caughtUp`),
                          actions (`archiveThread`, `renameThread`, `dismiss`, `forgetBot`, `revokeRunner`), threadOf, familyOf, current, page, openThread, fork, earlier, loadEarlier, sending, me
   thread.js              one thread on screen
-    Thread               `thread/<id>` feed (shaped messages, people, earlier) + `/ws` (`watch`) for turns/live/drafts; follow, onScreen, shownFrom, nearTop, hold
+    Thread               `thread/<id>` feed (shaped messages, people, earlier) + `/ws` (`watch`) for turns/live; follow, onScreen, shownFrom, nearTop, hold
     rows                 server-shaped messages laid out with agent turns, lasting calls, cuts and memory lines
     Asked                in a bot's home, a question another thread asked it (askedHere)
     Message              one message: author, pick, fork link, waiting, Body, Images; `Cross` for one that crossed threads
@@ -113,7 +113,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     skills, loadSkills, skillsFor   `/` lists skills
     appendQuote, textareas   quotes from the quote button
     choose, configure, toFor   model picker and runner controls
-    changeDraftFor, saveLater, save, wasSent, tookDraft, loadDraft, heardDraft, onNewDraft, sendingNow   drafts
+    changeDraftFor, saveLater, save, wasSent, tookDraft, heardDraft, sendingNow   drafts, heard on `draft/<id>`
     Composer             submit, add, pickRecipients, filled, compactNow, folderOf, where
     PickerBot            bots in the picker
   agent.js               agent labels and live work: doing, agentTo, formatAgent, lastToolCall, liveOf, modelsOf

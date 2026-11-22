@@ -62,7 +62,7 @@ import {
 	turnsOf,
 } from './run.js'
 import { Break, breakOf, Stamp } from './time.js'
-import { appendQuote, Composer, heardDraft } from './composer.js'
+import { appendQuote, Composer } from './composer.js'
 import { copyText, nativeMenu, selectedIn } from './desktop.js'
 import { threadMenu } from './thread-list.js'
 import { Dot } from './dot.js'
@@ -529,7 +529,6 @@ export function Thread(props) {
 				(message) => {
 					if (message.thread !== id) return
 					if (message.older && message.done) finishTurns()
-					if ('draft' in message || message.sent) heardDraft(id, message)
 					if (message.activity) heardActivity(id, message.activity)
 					if (message.agent && message.entries) {
 						heard(message.agent, message.entries, {
