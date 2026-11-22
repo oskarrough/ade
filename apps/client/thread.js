@@ -933,6 +933,7 @@ function describe(row, forks) {
 		return {
 			voice: 'sent',
 			...farSide(author, thread, titleOf(thread)),
+			otherModel: shortLabel(author),
 			fresh: row.ask.args.thread === undefined,
 		}
 	}
@@ -1121,16 +1122,15 @@ export function Clamp(props) {
 }
 
 /**
- * A message that crossed threads, as a step of a run: → sent or ← received, the other side in its colour, then the
- * message's first line, quieter. Every row starts closed; a tap opens it to the whole message in ink, then any answer that
- * came of it, and last a way to the other thread. Who and where come from its `row`; `sent` overrides its voice, as an
+ * A message that crossed threads, as a step of a run, on two lines: → sent or ← received, "new thread" when a post
+ * started it, the other side as a link to its thread, the model it asked and, for a post, a ring while that thread works
+ * or a ✓; under it, the message's first line, quieter, which a tap opens to the whole message in ink. Who and where come from its `row`; `sent` overrides its voice, as an
  * ask's answer comes back on the ask's own row.
  */
 export function Cross(props) {
 	const sent = () => props.sent ?? props.row.voice === 'sent'
 	const label = () => props.row.otherLabel
-	/** A post's own line: its title in grey, then a turning ring while that thread works on it, a ✓ once it's answered or idle */
-	const post = () => Boolean(props.row.ask)
+	const working = () => !props.row.answer && threadOf(props.row.otherThread)?.status === 'working'
 	return html`
 		<li class=${() => ['call', sent() ? 'sent' : 'received']}>
 			<details>
@@ -1139,30 +1139,27 @@ export function Cross(props) {
 						props.title ??
 						`${sent() ? 'to' : 'from'} ${props.row.otherAuthor || label()} in thread ${props.row.otherThread}`}
 				>
-					<${Show}
-						when=${post}
-						fallback=${html`<span
-							class="tool"
-							title=${label}
-							style=${() => colorOf(props.row.otherAuthor)}
-							>${label}</span
-						>`}
-					>
-						<span class="tool post" title=${label}
-							>${() => (props.row.fresh && sent() ? 'new thread ' : '')}${label}<${Show}
-								when=${() => sent()}
-								><${Show}
-									when=${() => !props.row.answer && threadOf(props.row.otherThread)?.status === 'working'}
-									fallback=${html`<span class="mark" aria-label="done">✓</span>`}
-									><span class="mark ring" aria-label="working"></span><//><//
-						></span>
-					<//>
+					<span class="tool"
+						><${Show} when=${() => props.row.fresh && sent()}
+							><span class="mute">new thread </span><//
+						><${ThreadLink} id=${() => props.row.otherThread}
+							><span
+								style=${() => (props.row.otherModel ? undefined : colorOf(props.row.otherAuthor))}
+								>${label}</span
+							><//
+						><${Show} when=${() => props.row.otherModel}
+							><span class="mute">${() => ` ${props.row.otherModel}`}</span><//
+						><${Show} when=${() => props.row.ask && sent()}
+							><${Show}
+								when=${working}
+								fallback=${html`<span class="mark mute" aria-label="done">✓</span>`}
+								><span class="mark mute ring" aria-label="working"></span><//><//
+					></span>
 					<span class="in">${() => (props.data.body ?? '').replace(/\s+/g, ' ')}</span>
 				</summary>
 				<div class="whole">
 					<${Body} data=${() => props.data} />
 					<${Images} images=${() => props.data.images} />
-					<div class="open"><${ThreadLink} id=${() => props.row.otherThread}>open thread<//></div>
 				</div>
 			</details>
 		</li>

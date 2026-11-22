@@ -680,6 +680,11 @@ agent-memory {
 					}
 
 					/* A wake's note and what an outside event brought, as they came */
+					/* Opened, the whole message lines up under the title, where its first line was */
+					> details > .whole {
+						padding-left: 1rem;
+					}
+
 					.whole > p {
 						white-space: pre-wrap;
 					}
@@ -687,20 +692,48 @@ agent-memory {
 					.whole > .answer {
 						margin-top: var(--space-2);
 					}
-
-					.whole > .open {
-						margin-top: var(--space-1);
-						color: var(--mute);
-						font-size: var(--text-small);
-						line-height: var(--text-small-line);
-					}
 				}
 
-				/* A post's line is quiet: its thread's title in grey, then a small grey ring turning while that thread works,
-				   or a ✓ once it's done. */
-				> li:is(.sent, .received) .tool.post {
-					color: var(--mute);
-					font-weight: normal;
+				/* A crossed row is two lines: the other side, its model and a post's mark; then, indented and grey, the
+				   message's first line. */
+				> li:is(.sent, .received) > details > summary {
+					display: grid;
+					grid-template-columns: 1rem minmax(0, 1fr) auto;
+
+					&::before {
+						grid-column: 1;
+						grid-row: 1;
+					}
+
+					/* Line 1: the other side, its model and a post's mark; line 2, under it: the brief and the ▸ */
+					.tool {
+						grid-column: 2;
+						grid-row: 1;
+						max-width: none;
+						font-weight: normal;
+						color: var(--ink);
+
+						.thread-link {
+							color: inherit;
+						}
+					}
+
+					.in {
+						grid-column: 2;
+						grid-row: 2;
+					}
+
+					&::after {
+						grid-column: 3;
+						grid-row: 2;
+					}
+
+					/* Open, the whole message takes line 2's place, so the ▾ goes up beside the title */
+					details[open] > & {
+						&::after {
+							grid-row: 1;
+						}
+					}
 
 					.mark {
 						display: inline-block;
