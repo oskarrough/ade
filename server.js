@@ -230,28 +230,17 @@ const DELIVERY = 'ade.delivery'
 const TAIL = 20000
 /** Our docs are small, so every change stores the whole doc and a read replays nothing */
 const base = () => true
-const Runners = defineDoc({
-	kind: 'ade.runners',
-	version: 1,
-	scope: 'session',
-	checkpointWhen: base,
-	initial: () => ({}),
-})
-const Keys = defineDoc({
-	kind: 'ade.keys',
-	version: 1,
-	scope: 'session',
-	checkpointWhen: base,
-	initial: () => ({}),
-})
+/**
+ * @template {Record<string, import("@earendil-works/chord/json").JsonValue>} Value
+ * @param {string} kind
+ * @param {() => Value} initial
+ */
+const sessionDoc = (kind, initial) =>
+	defineDoc({ kind, version: 1, scope: 'session', checkpointWhen: base, initial })
+const Runners = sessionDoc('ade.runners', () => ({}))
+const Keys = sessionDoc('ade.keys', () => ({}))
 /** The name the server's own runner got the first time, kept so a new hostname doesn't make it another runner */
-const Lent = defineDoc({
-	kind: 'ade.lent',
-	version: 1,
-	scope: 'session',
-	checkpointWhen: base,
-	initial: () => ({ name: '' }),
-})
+const Lent = sessionDoc('ade.lent', () => ({ name: '' }))
 /** `agents` holds a {@link Recipient} for the thread's one agent, at `AGENT`, and for each bot, by name */
 const Thread = defineDoc({
 	kind: 'ade.thread',
@@ -457,7 +446,8 @@ const Shell = defineTask({
 	version: 1,
 	initial: () => ({ phase: 'run' }),
 	phases: {
-		async run({ id, conversationId: threadId, input }, rt, ctx) {
+		async run(task, rt, ctx) {
+			const { id, conversationId: threadId, input } = task
 			await rt.commit(() => ({ status: 'running', checkpoint: { phase: 'interrupted' } }), ctx)
 			const run = {
 				threadId,
@@ -486,32 +476,23 @@ const Shell = defineTask({
 			)
 			const output =
 				result.ok === true ? { code: result.value.exitCode } : { error: result.error.message }
-			await rt.commit(
-				async (tx) => (await printed(tx, threadId, input, { ...run, ...output }), finished()),
-				ctx,
-			)
+			await finishShell(task, rt, ctx, { ...run, ...output })
 			shells.delete(id)
 		},
-		interrupted: ({ conversationId, input }, rt, ctx) =>
-			rt.commit(
-				async (tx) => (
-					await printed(tx, conversationId, input, { error: 'interrupted by a restart' }),
-					finished()
-				),
-				ctx,
-			),
+		interrupted: (task, rt, ctx) =>
+			finishShell(task, rt, ctx, { error: 'interrupted by a restart' }),
 	},
-	async abort({ id, conversationId, input }, rt, ctx) {
-		await rt.commit(
-			async (tx) => (
-				await printed(tx, conversationId, input, { ...shells.get(id), error: 'stopped' }),
-				finished('aborted')
-			),
-			ctx,
-		)
-		shells.delete(id)
+	async abort(task, rt, ctx) {
+		await finishShell(task, rt, ctx, { ...shells.get(task.id), error: 'stopped' }, true)
+		shells.delete(task.id)
 	},
 })
+
+const finishShell = ({ conversationId, input }, rt, ctx, output, aborted = false) =>
+	rt.commit(async (tx) => {
+		await printed(tx, conversationId, input, output)
+		return finished(aborted ? 'aborted' : 'completed')
+	}, ctx)
 
 function printed(
 	tx,
@@ -696,32 +677,34 @@ for (const signal of ['SIGINT', 'SIGTERM'])
  */
 const RECENT = 50
 const tails = new Map()
-async function recent(id) {
-	let tail = tails.get(id)
-	if (!tail) {
-		tail = { entries: [], whole: false, ready: undefined, older: new Map() }
-		tails.set(id, tail)
-		const loading = tail
-		tail.ready = (async () => {
-			const handle = await harness.conversation(id, context)
-			const page = handle
-				? await handle.entries({ order: 'descending' }, RECENT, undefined, context)
-				: { items: [], next: undefined }
-			// Entries committed while it read came in already; each goes in once, in order
-			const have = new Set(loading.entries.map((entry) => entry.id))
-			loading.entries = [
-				...page.items.filter((entry) => !have.has(entry.id)).reverse(),
-				...loading.entries,
-			]
-				.sort((a, b) => a.id - b.id)
-				.slice(-RECENT)
-			loading.whole = !page.next && loading.entries.length < RECENT
-		})()
-		tail.ready.catch(() => tails.get(id) === loading && tails.delete(id))
+/** Publish before loading: commits can append while the read is pending. Failed reads may be tried again. */
+async function loadEntries(cache, key, load) {
+	let value = cache.get(key)
+	if (!value) {
+		value = { entries: [], ready: undefined }
+		cache.set(key, value)
+		const loading = value
+		value.ready = load(value)
+		value.ready.catch(() => cache.get(key) === loading && cache.delete(key))
 	}
-	await tail.ready
-	return tail
+	await value.ready
+	return value
 }
+const recent = (id) =>
+	loadEntries(tails, id, async (tail) => {
+		tail.whole = false
+		tail.older = new Map()
+		const handle = await harness.conversation(id, context)
+		const page = handle
+			? await handle.entries({ order: 'descending' }, RECENT, undefined, context)
+			: { items: [], next: undefined }
+		// Entries committed while it read came in already; each goes in once, in order
+		const have = new Set(tail.entries.map((entry) => entry.id))
+		tail.entries = [...page.items.filter((entry) => !have.has(entry.id)).reverse(), ...tail.entries]
+			.sort((a, b) => a.id - b.id)
+			.slice(-RECENT)
+		tail.whole = !page.next && tail.entries.length < RECENT
+	})
 const heardEntry = (entry) => {
 	const tail = tails.get(entry.conversationId)
 	if (!tail) return
@@ -739,26 +722,18 @@ const heardEntry = (entry) => {
  */
 async function older(id, kind) {
 	const tail = await recent(id)
-	let kept = tail.older.get(kind)
-	if (!kept) {
-		kept = { entries: [], ready: undefined }
-		tail.older.set(kind, kept)
+	const kept = await loadEntries(tail.older, kind, async (kept) => {
 		const before = tail.entries[0]?.id
-		const loading = kept
-		kept.ready = (async () => {
-			const handle = await harness.conversation(id, context)
-			const maxEntryId = /** @type {import("@earendil-works/pi-durable").EntryId} */ (before - 1)
-			const found =
-				handle && before !== undefined
-					? await collect((cursor) =>
-							handle.entries({ order: 'ascending', maxEntryId }, 500, cursor, context),
-						)
-					: []
-			loading.entries = [...found.filter((entry) => entry.kind === kind), ...loading.entries]
-		})()
-		kept.ready.catch(() => tail.older.get(kind) === loading && tail.older.delete(kind))
-	}
-	await kept.ready
+		const handle = await harness.conversation(id, context)
+		const maxEntryId = /** @type {import("@earendil-works/pi-durable").EntryId} */ (before - 1)
+		const found =
+			handle && before !== undefined
+				? await collect((cursor) =>
+						handle.entries({ order: 'ascending', maxEntryId }, 500, cursor, context),
+					)
+				: []
+		kept.entries = [...found.filter((entry) => entry.kind === kind), ...kept.entries]
+	})
 	return kept.entries
 }
 /** Each read conversation's record, as its commits change it */

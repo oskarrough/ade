@@ -5,7 +5,7 @@ Where things live, so you open the right file first. The README says what each t
 ```
 bin.js                   installed executable `ade`: dispatches to server, CLI commands, or runner
 server.js                the server: Pi Durable store, tasks, HTTP API, /ws, runners, settings
-  Thread, Runners, Keys, Receipts   the docs it keeps (defineDoc)
+  Thread, Runners, Keys, Receipts   the docs it keeps (defineDoc); sessionDoc shares session doc defaults
   Anchor, Admit, Deliver, Shell     the tasks: own an agent, take a message in, hand it over, run `$ cmd`
   person                            whether a person wrote a message; Admit hands one person's as typed, and tags them once a second writes
   address, whom, modelOn, reach     whom a `to` asks, on which runner and model
@@ -28,10 +28,12 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
   outcome, tell, restore, faulted   what a finished delivery posts back (a bot's answer asks whom direct says), or a failure says
   reachable                         a message waits for its agent's runner, following the agent if it moves
+  finishShell                       commit a shell's printed output and terminal outcome together
   gone                              an agent's folder that no longer exists: it doesn't run, the thread says so
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
   threadList, threadRow, threadView, people   what GET /api/threads returns; people kept per thread (writers), read once;
                                     newest, a thread's messages read back from its end (?last, ?after)
+  loadEntries                       publish a cache entry before its async load; concurrent reads share it, failures evict it
   recent, older, back, conversationRecord   each thread's newest entries and record kept as commits land, its older ones read
                                     once; `back` looks newest first through both, for status and latestMessage (openQuestion)
   anyRunner, mayRun                 `bash` with an optional `runner`, and the `runners` tool listing whom an agent may run commands on
