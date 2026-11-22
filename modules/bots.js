@@ -39,12 +39,24 @@ export function server(core) {
 		if (name === AGENT)
 			throw new Error(`${AGENT} is what every thread calls its own; pick another name`)
 	}
-	async function change({ name, rename = undefined, to, instructions, color = undefined }) {
+	async function change({
+		name,
+		rename = undefined,
+		to,
+		instructions,
+		append = undefined,
+		color = undefined,
+		projectContext = undefined,
+	}) {
 		await valid(name)
 		if (rename !== undefined && rename !== name) await valid(rename)
 		else rename = undefined
 		if (instructions !== undefined && typeof instructions !== 'string')
 			throw new Error('instructions is text')
+		if (append !== undefined && (typeof append !== 'string' || !append.trim()))
+			throw new Error('append is a line of text')
+		if (projectContext !== undefined && typeof projectContext !== 'boolean')
+			throw new Error('projectContext is true or false')
 		if (
 			color !== undefined &&
 			color !== null &&
@@ -55,10 +67,14 @@ export function server(core) {
 			const { name: _, ...agent } = await core.address(typeof to === 'string' ? agentTo(to) : to)
 			to = agent
 		}
-		return { name, rename, to, instructions, color }
+		return { name, rename, to, instructions, append: append?.trim(), color, projectContext }
 	}
 	/** `ids`, every thread, read before the commit: a rename moves the bot's agent in each one it's in */
-	async function write(tx, { name, rename, to, instructions, color }, ids = []) {
+	async function write(
+		tx,
+		{ name, rename, to, instructions, append, color, projectContext },
+		ids = [],
+	) {
 		const all = await tx.doc(Bots)
 		if (rename) {
 			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
@@ -76,6 +92,9 @@ export function server(core) {
 			if (to) all[name].to = to
 			if (instructions !== undefined) all[name].instructions = instructions
 		}
+		if (append) all[name].instructions = [all[name].instructions, append].filter(Boolean).join('\n')
+		if (projectContext === false) all[name].projectContext = false
+		else if (projectContext) delete all[name].projectContext
 		if (color === null) delete all[name].color
 		else if (color !== undefined) all[name].color = color
 		return JSON.parse(JSON.stringify({ name, ...all[name] }))
@@ -128,8 +147,9 @@ export function server(core) {
 		name: 'bot',
 		description:
 			'Only for a bot, in its home thread. Leave out `name`, or give your own, to rewrite yourself: your instructions, ' +
-			'which every agent of your name reads, or the model you join new threads with. A new name makes another bot, ' +
-			'with its own home thread, from your model unless you give one.',
+			'which every agent of your name reads, or the model you join new threads with. To add a lesson, `append` it ' +
+			'rather than resending the whole text. A new name makes another bot, with its own home thread, from your model ' +
+			'unless you give one.',
 		parameters: obj({
 			name: opt(str({ description: 'A new bot to make; leave out for yourself' })),
 			instructions: opt(
@@ -138,6 +158,7 @@ export function server(core) {
 						'The whole text: who the bot is, how it works, what it knows about the people it works with',
 				}),
 			),
+			append: opt(str({ description: 'A line to add to the end of your instructions' })),
 			model: opt(str({ description: 'model@runner, as `pi --model` takes the model' })),
 		}),
 		replay: 'safe',
@@ -154,6 +175,7 @@ export function server(core) {
 			const asked = await change({
 				name,
 				instructions: args.instructions,
+				append: args.append,
 				to: args.model ?? (name === at.name ? undefined : { ...own, name: undefined }),
 			})
 			const made = await core.once(`bot ${api.taskId}`, 'bot', async (tx) => {
@@ -179,12 +201,36 @@ export function server(core) {
 		},
 	})
 
+	/** The agent's bot, in its section and the one after it with its threads and the other bots, which change most */
+	const botOf = async ({ conversationId, read }) => {
+		const at = await core.home(conversationId)
+		const all = at && ((await read.snapshot(Bots, context)) ?? {})
+		return all?.[at.name] && { at, all, bot: all[at.name] }
+	}
 	const section = {
 		key: 'bot',
-		render: async ({ conversationId, agent, read }) => {
-			const at = await core.home(conversationId)
-			const all = at && ((await read.snapshot(Bots, context)) ?? {})
-			const bot = all?.[at.name]
+		render: async (input) => {
+			const { at, bot } = (await botOf(input)) ?? {}
+			if (!bot) return undefined
+			const home = at.thread === bot.home
+			return [
+				voice,
+				bot.instructions ||
+					(home
+						? "You're new: you have no instructions yet. Find out with the person here who you are, and write it down with your bot tool."
+						: ''),
+				`You are the bot ${at.name}, one person in every thread you're in.`,
+				home && 'This is your home. Ask before you change your model.',
+			]
+				.filter(Boolean)
+				.join('\n\n')
+		},
+	}
+	const around = {
+		key: 'bot-threads',
+		tag: false,
+		render: async (input) => {
+			const { at, all, bot } = (await botOf(input)) ?? {}
 			if (!bot) return undefined
 			const threads = (await core.threadList(at.name)).filter(
 				(thread) =>
@@ -193,24 +239,30 @@ export function server(core) {
 			const where = threads.map(
 				(thread) => `${thread.id} "${thread.title}"${thread.id === bot.home ? ' (home)' : ''}`,
 			)
-			const home = at.thread === bot.home
 			const others = Object.keys(all).filter((name) => name !== at.name)
+			// Empty rather than gone, so it keeps its place when a thread joins
 			return [
-				voice,
-				bot.instructions ||
-					(home
-						? "You're new: you have no instructions yet. Find out with the person here who you are, and write it down with your bot tool."
-						: ''),
-				`You are the bot ${at.name}, one person in every thread you're in.${where.length ? ` You're also in thread${where.length > 1 ? 's' : ''} ${where.join(', ')}; ${core.modulesOn?.includes('recap') ? "check one's recap to see where it stands, read it for detail, " : 'read one when it matters, '}and post to one to speak there yourself.` : ''}`,
+				where.length &&
+					`You're also in thread${where.length > 1 ? 's' : ''} ${where.join(', ')}; ${core.modulesOn?.includes('recap') ? "check one's recap to see where it stands, read it for detail, " : 'read one when it matters, '}and post to one to speak there yourself.`,
 				others.length &&
-					agent.tools.some((tool) => tool.name === 'post') &&
+					input.agent.tools.some((tool) => tool.name === 'post') &&
 					`The other bot${others.length > 1 ? 's are' : ' is'} ${others.join(', ')}: post with \`to\` set to a name to ask one.`,
-				home && 'This is your home. Ask before you change your model.',
 			]
 				.filter(Boolean)
 				.join('\n\n')
 		},
 	}
+	/** A bot with `projectContext: false` reads its folder's skills, but not its AGENTS.md files */
+	const withoutProject = (project) => ({
+		...project,
+		render: async (input, context) => {
+			const text = await project.render(input, context)
+			if (typeof text !== 'string' || (await botOf(input))?.bot.projectContext !== false)
+				return text
+			const end = text.lastIndexOf('</project_context>')
+			return end < 0 ? text : text.slice(end + '</project_context>'.length).replace(/^\n+/, '')
+		},
+	})
 	return {
 		serve,
 		remove,
@@ -220,7 +272,14 @@ export function server(core) {
 		botNames,
 		homesOf,
 		settings: { voice },
-		extension: defineExtension({ name: 'ade.bots', tools: [bot], sections: [section] }),
+		extension: defineExtension({
+			name: 'ade.bots',
+			tools: [bot],
+			sections: [section, around],
+			wraps: [{ section: 'project', wrap: withoutProject }],
+		}),
+		/** Its sections change most, so they come last in the prompt */
+		volatility: 2,
 		async posted(tx, threadId, entry) {
 			if (!entry.data.answer) return
 			const all = await tx.doc(Bots)

@@ -22,7 +22,7 @@ import {
 } from './server.js'
 import { formatAgent } from './agent.js'
 import { agent, openPicker } from './composer.js'
-import { Dot } from './dot.js'
+import { Dot, Switch } from './dot.js'
 import { report } from './notice.js'
 import { Sure } from './sure.js'
 import { ThreadItem } from './thread-list.js'
@@ -149,6 +149,14 @@ export function BotSettings(props) {
 			>
 				${() => formatAgent(props.bot.to)}
 			</button>
+			<div class="hands">
+				<${Switch}
+					on=${() => props.bot.projectContext !== false}
+					title="Its agents read the AGENTS.md files in their folder; off leaves them out, and skills stay"
+					onToggle=${(on) => saveBot(props.bot.name, { projectContext: on }).catch(report)}
+					><span>AGENTS.md</span><//
+				>
+			</div>
 			<h3>Colour</h3>
 			<div class="colors">
 				<button

@@ -50,6 +50,8 @@ export function server({ runners, known, reach }) {
 		serve,
 		expand,
 		extension: defineExtension({ name: 'ade.context', sections: [section] }),
+		/** AGENTS.md changes more than the other modules' sections, less than a bot's */
+		volatility: 1,
 	}
 }
 

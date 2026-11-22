@@ -2063,7 +2063,10 @@ core.owner = owner
 /** Tailnet logins that are the owner through Serve, `ownerLogins` in ade.json: the owner's own devices */
 const ownerLogins = loginList(settings.config.ownerLogins ?? [])
 const modules = await load('server', core, settings)
-for (const module of modules) if (module.extension) registry.install(module.extension)
+// The prompt keeps its sections in this order, and a cached prompt survives up to its first change, so the sections
+// that change most go last: a module's `volatility`, 0 unless it says otherwise
+for (const module of modules.toSorted((a, b) => (a.volatility ?? 0) - (b.volatility ?? 0)))
+	if (module.extension) registry.install(module.extension)
 const customModules = (settings.config.modules ?? [])
 	.map((entry) => entry.replace(/^[+-]/, ''))
 	.filter((entry) => entry.includes('/'))

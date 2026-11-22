@@ -60,7 +60,7 @@ The server's address, port, Serve port and data file come from the environment (
 
 So, what's different about this one? Not much, but it adds patterns I've found useful enough to write down. Each is a module; you can switch any of them on or off.
 
-- bots are agents with a name, instructions and a home thread; a new one starts with none, and writes its own once it has something to say. Every bot also reads one shared instruction, a chatty default editable in settings, rendered just before its own (`bots`)
+- bots are agents with a name, instructions and a home thread; a new one starts with none, and writes its own once it has something to say. Every bot also reads one shared instruction, a chatty default editable in settings, rendered just before its own; a bot adds a lesson as one line, and can skip its folder's AGENTS.md (`bots`)
 - agents and bots message each other (`talk`); a bot posting in a thread it's in speaks there as itself, and its message carries `posted: true`, so it reads as an agent's, never a person's
 - group messages go to the thread, not the last bot you asked; the director picks who answers, including the thread's agent (`director`)
 - bots remember long threads as short summary lines they can zoom back into, so they can stick around for good (`memory`)

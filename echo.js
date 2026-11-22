@@ -59,6 +59,8 @@ export const tryEcho = (request) => {
 		return director(request)
 	if (text(request.messages[0] ?? { content: '' }).startsWith('# Recap')) return recap(request)
 	const latest = request.messages.at(-1)
+	if (latest.role === 'user' && text(latest).startsWith('bot append '))
+		return call('bot', { append: text(latest).slice(11) })
 	if (latest.role === 'user' && text(latest).startsWith('bot '))
 		return call('bot', { instructions: text(latest).slice(4) })
 	// "fail" makes the run fail, as a model error would

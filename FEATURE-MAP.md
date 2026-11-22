@@ -76,7 +76,11 @@ modules/
                          homesOf, which server.js threadRow uses to title a home with its bot's name; a new bot starts
                          with empty instructions, hers to write with the `bot` tool; DEFAULT_VOICE and `voice`, the
                          shared instruction every bot's prompt carries just before its own (section), editable as
-                         `bots.voice` in ade.json through settings (settings: {voice}, server.js's saveSettings)
+                         `bots.voice` in ade.json through settings (settings: {voice}, server.js's saveSettings);
+                         the `bot` tool's `append` adds one line to the instructions; its threads and the other bots
+                         in a section of their own (bot-threads), last since they change most (`volatility`, which
+                         server.js sorts module extensions by); `projectContext: false` drops the folder's AGENTS.md
+                         from the project section (withoutProject), the AGENTS.md switch in BotSettings
   context.js             AGENTS.md, skills and the folder's path (cwd) from the runner;
                          a folder's skills by name (serve), a person's /skill:name expanded as pi does (expand, skillCommand)
   director.js            the `direct` hook: @mentions ask that bot; a free message in a group, or with one agent and two people

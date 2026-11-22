@@ -32,6 +32,7 @@ const route = (runner) => (request) => {
 	const t = text(last)
 	if (last.role === 'toolResult') return say(`tool: ${t}`)
 	if (t.includes('be a pirate')) return call('bot', { instructions: 'Answer like a pirate.' })
+	if (t.includes('learn arr')) return call('bot', { append: 'Say arr.' })
 	if (t.includes('make wren')) return call('bot', { name: 'wren', instructions: 'Review diffs.' })
 	if (t.includes('ask wren'))
 		return call('post', { to: 'wren', title: 'a diff', body: 'look at this' })
@@ -84,6 +85,13 @@ check(
 	'rewriting herself, her bot call keeps what she was before, so a thread can show old against new',
 	JSON.stringify(rewrote),
 )
+await postEntry(home, 'learn arr', 'ada')
+v = await answered(home, 3)
+check(
+	(await bots()).find((b) => b.name === 'ada')?.instructions === 'Answer like a pirate.\nSay arr.',
+	'a lesson goes on the end of her instructions as one line, without resending them',
+	JSON.stringify(await bots()),
+)
 const atHomeAlready = answers(v).at(-1).data.createdAt
 check(
 	(await bots()).find((b) => b.name === 'ada')?.answeredAt === atHomeAlready,
@@ -97,10 +105,11 @@ v = await answered(shed)
 const ada = v.agents.find((a) => a.name === 'ada')
 const answeredAway = answers(v)[0]?.data.createdAt
 check(
-	(await bots()).find((b) => b.name === 'ada')?.instructions === 'Answer like a pirate.' &&
+	(await bots()).find((b) => b.name === 'ada')?.instructions ===
+		'Answer like a pirate.\nSay arr.' &&
 		ada?.to.runner === 'laptop' &&
 		answers(v)[0]?.data.author === 'ada' &&
-		prompt.laptop.includes('Answer like a pirate.') &&
+		prompt.laptop.includes(String.raw`Answer like a pirate.\nSay arr.`) &&
 		prompt.laptop.includes(`${home} \\"ada\\" (home)`),
 	'at home she writes her own instructions; asked elsewhere, she joins with them and knows her home',
 	JSON.stringify([await bots(), ada, prompt.laptop]),
