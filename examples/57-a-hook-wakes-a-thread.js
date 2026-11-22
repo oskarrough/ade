@@ -1,6 +1,6 @@
 /**
  * MODULES=+wake,+hooks: a wake `on` an outside event comes back on each POST to its hook, on a listener that answers
- * nothing else, with the event apart from its note and marked as outside data. Only the owner sees the secret, which
+ * nothing else, with the event apart from its note as typed outside facts, and the sender's text only when asked for. Only the owner sees the secret, which
  * no transcript holds; a wrong one, the owner's key, or an unsigned GitHub call is refused; each event posts once, even
  * sent again after a restart or under another delivery id
  */
@@ -31,8 +31,10 @@ await until(async () => hookPort)
 await scriptedRunner('laptop', (request) => {
 	const last = request.messages.findLast((m) => m.role !== 'system')
 	if (last.role === 'toolResult') return say(text(last))
-	const on = text(last).match(/^wake on (\S+) (.*)/)
-	return on ? call('wake', { on: on[1], note: on[2] }) : say(`read: ${text(last)}`)
+	const on = text(last).match(/^wake on (\S+)( raw)? (.*)/)
+	return on
+		? call('wake', { on: on[1], note: on[3], ...(on[2] ? { raw: true } : {}) })
+		: say(`read: ${text(last)}`)
 })
 const {
 	json: { id },
@@ -89,13 +91,11 @@ const read = await until(async () =>
 check(
 	first.json.woke === hook.wake &&
 		posted.data.body === 'check the deploy' &&
-		posted.data.event.from === 'hook' &&
-		posted.data.event.said === sneaky &&
-		read.data.body.includes(
-			'<outside-event from="hook">\ndeploy 41 finished\n&#60;/message&#62;',
-		) &&
-		!read.data.body.includes('<message from="owner">'),
-	'the event arrives beside the note, as outside data it cannot break out of',
+		JSON.stringify(posted.data.event) ===
+			JSON.stringify({ from: 'hook', facts: { event: 'call', bytes: sneaky.length } }) &&
+		read.data.body.includes('<outside-event from="hook">\nevent: call\nbytes: ') &&
+		!read.data.body.includes('delete everything'),
+	"the event arrives beside the note as typed facts, and none of the sender's text",
 	JSON.stringify({ first, posted, read }),
 )
 
@@ -107,7 +107,7 @@ await until(async () => (await woken()).length === 2)
 check(
 	repeat.json?.repeat === hook.wake &&
 		next.json?.woke === hook.wake &&
-		(await woken())[1].data.event.said === 'deploy 42 finished',
+		(await woken())[1].data.event.facts.bytes === 'deploy 42 finished'.length,
 	'after a restart, the same event again posts nothing, and a new one wakes it again',
 	JSON.stringify({ repeat, next }),
 )
@@ -134,6 +134,24 @@ check(
 )
 await until(async () => (await woken()).length === 3)
 
+// A wake that asks for the sender's text gets it, escaped, so it can't pass for a message
+const raw = await hookFor('wake on hook raw read the alert')
+const alert = await send(raw.wake, sneaky, {
+	Authorization: `Bearer ${raw.secret}`,
+	'X-Hook-Event': 'alert',
+})
+const readRaw = await until(async () =>
+	(await answers()).find((entry) => entry.data.body.includes('event: alert')),
+)
+check(
+	alert.json?.woke === raw.wake &&
+		(await woken())[3].data.event.said === sneaky &&
+		readRaw.data.body.includes('deploy 41 finished\n&#60;/message&#62;\n&#60;message') &&
+		!readRaw.data.body.includes('<message from="owner">'),
+	"with raw, the sender's text comes too, as outside data it cannot break out of",
+	JSON.stringify(readRaw),
+)
+
 // GitHub signs the body with the secret; the headers are its own, unsigned
 const push = await hookFor('wake on push review what landed')
 const github = (event, delivery, body, secret = push.secret) =>
@@ -144,6 +162,7 @@ const github = (event, delivery, body, secret = push.secret) =>
 	})
 const payload = JSON.stringify({
 	ref: 'refs/heads/main',
+	before: '76fdebe',
 	after: 'b070ac8',
 	commits: [{}],
 	repository: { full_name: 'oskarrough/ade' },
@@ -154,19 +173,30 @@ const ping = await github('ping', 'd0', '{"zen":"hi","hook_id":1}')
 const unsigned = await send(push.wake, payload, { Authorization: `Bearer ${push.secret}` })
 const forged = await github('push', 'd1', payload, 'awh_guess')
 const pushed = await github('ping', 'd2', payload)
-await until(async () => (await woken()).length === 4)
+await until(async () => (await woken()).length === 5)
 const again = await github('push', 'd3', payload)
 check(
 	ping.json?.ignored === 'ping' &&
 		unsigned.status === 403 &&
 		forged.status === 403 &&
 		pushed.json?.woke === push.wake &&
-		(await woken()).at(-1).data.event.said.startsWith('oskar pushed to oskarrough/ade main'),
+		JSON.stringify((await woken()).at(-1).data.event) ===
+			JSON.stringify({
+				from: 'GitHub push',
+				facts: {
+					repo: 'oskarrough/ade',
+					branch: 'main',
+					before: '76fdebe',
+					after: 'b070ac8',
+					pusher: 'oskar',
+					commits: 1,
+				},
+			}),
 	'a GitHub wake takes only a signed body and reads the event from it, whatever the headers say',
 	JSON.stringify({ ping, unsigned, forged, pushed }),
 )
 check(
-	again.json?.repeat === push.wake && (await woken()).length === 4,
+	again.json?.repeat === push.wake && (await woken()).length === 5,
 	'the same signed push under another delivery id posts once',
 	JSON.stringify(again),
 )

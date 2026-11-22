@@ -123,7 +123,15 @@ export const WokeLine = (props) => html`
 			wake${() => (props.data.event ? `, with what came from ${props.data.event.from}, outside ade:` : '')}
 		</div>
 		<${Show} when=${() => props.data.event}>
-			<div class="links outside">${() => props.data.event.said}</div>
+			<div class="links outside">
+				${() =>
+					[
+						...Object.entries(props.data.event.facts ?? {}).map(
+							([name, value]) => `${name}: ${value}`,
+						),
+						...(props.data.event.said === undefined ? [] : [props.data.event.said]),
+					].join('\n')}
+			</div>
 		<//>
 	<//>
 `

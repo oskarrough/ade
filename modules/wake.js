@@ -17,7 +17,7 @@
  * posts its own note with each event beside it as `event`, which the agent reads as outside data, not as its note;
  * it listens until cancelled.
  */
-import { num, obj, opt, str } from '@earendil-works/pi-schema'
+import { bool, num, obj, opt, str } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
 import { background, finished, writtenTo } from '../util.js'
 import { EVENTS, Hooked, issue } from './hooks.js'
@@ -157,7 +157,7 @@ export function server(core) {
 									author: writtenTo(to),
 									body: input.note,
 									wake: id,
-									event: { from: heard.value.from, said: heard.value.said },
+									event: JSON.parse(JSON.stringify(heard.value)),
 									to: [to],
 								},
 								{ member: true },
@@ -200,7 +200,13 @@ export function server(core) {
 						on: opt(
 							str({
 								description:
-									"Wake on an outside event instead: 'push' or 'ci' (a failed run) from a GitHub webhook, 'hook' from any service's POST. Only the owner sees its secret.",
+									"Wake on an outside event instead: 'push' or 'ci' (a failed run) from a GitHub webhook, 'hook' from any service's POST. You get its typed facts (repo, branch, commits; workflow, conclusion; event name, size). Only the owner sees its secret.",
+							}),
+						),
+						raw: opt(
+							bool({
+								description:
+									"With on: also hand you the event's own text (a commit message, a run's title, a call's body), written by whoever sent it. Leave out unless you need it.",
 							}),
 						),
 					}
@@ -210,7 +216,7 @@ export function server(core) {
 		replay: 'safe',
 		execute: async (input, api) => {
 			const args =
-				/** @type {{ in?: string, every?: string, after?: number, on?: string, note?: string, cancel?: number }} */ (
+				/** @type {{ in?: string, every?: string, after?: number, on?: string, raw?: boolean, note?: string, cancel?: number }} */ (
 					input
 				)
 			const at = await core.home(api.conversationId)
@@ -231,8 +237,9 @@ export function server(core) {
 				if (!(args.on in EVENTS)) throw new Error('on is push, ci or hook')
 				if (args.in !== undefined || args.every !== undefined || args.after !== undefined)
 					throw new Error('on wakes on events, at no time: leave in, every and after out')
-				when = { on: args.on }
-			} else if (args.after !== undefined) {
+				when = { on: args.on, ...(args.raw === true ? { raw: true } : {}) }
+			} else if (args.raw !== undefined) throw new Error('raw goes with on')
+			else if (args.after !== undefined) {
 				if (args.in !== undefined || args.every !== undefined)
 					throw new Error('after wakes once, at no time: leave in and every out')
 				if (args.after === at.thread) throw new Error('after is another thread')

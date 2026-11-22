@@ -3312,12 +3312,7 @@ if (webhook) {
 	const hooking = http.createServer(
 		{ requestTimeout: HOOK.deadline, headersTimeout: HOOK.deadline },
 		async (req, res) => {
-			const id =
-				req.method === 'POST' &&
-				/^\/hooks\/(\d+)$/.exec(new URL(req.url, 'http://hook').pathname)?.[1]
-			if (!id) return refuse(res, 404, 'Not found')
-			if (Number(req.headers['content-length'] ?? 0) > HOOK.bytes)
-				return refuse(res, 413, 'Request too large')
+			// Counted before anything else, so no request, even a malformed one, runs outside the cap
 			if (inFlight >= HOOK.inFlight) return refuse(res, 503, 'Busy; try again')
 			inFlight++
 			const late = setTimeout(() => req.destroy(), HOOK.deadline)
@@ -3333,6 +3328,11 @@ if (webhook) {
 				return Buffer.concat(chunks)
 			}
 			try {
+				const id =
+					req.method === 'POST' && /^\/hooks\/(\d{1,15})$/.exec(String(req.url).split('?')[0])?.[1]
+				if (!id) throw Object.assign(new Error('Not found'), { status: 404 })
+				if (Number(req.headers['content-length'] ?? 0) > HOOK.bytes)
+					throw Object.assign(new Error('Request too large'), { status: 413 })
 				send(res, 200, await webhook(Number(id), { headers: req.headers, body }))
 			} catch (error) {
 				refuse(res, error.status ?? 400, error.message)
@@ -3388,7 +3388,7 @@ for (const host of process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1'])
 			if (hookPort)
 				say(
 					'hooks',
-					`http://127.0.0.1:${hookPort}/hooks/<wake id>, the only part to publish: tailscale funnel --set-path /hooks http://127.0.0.1:${hookPort}/hooks`,
+					`http://127.0.0.1:${hookPort}/hooks/<wake id>, the only part to publish, on an outside port of its own: tailscale funnel --bg --https=8443 --set-path /hooks http://127.0.0.1:${hookPort}/hooks`,
 				)
 		}
 		connectSelf(
