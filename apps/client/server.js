@@ -145,9 +145,11 @@ export { inboxOpen }
 export function openInbox() {
 	setInboxOpen(true)
 	setSearchFor(null)
+	setUsageOpen(false)
 	drawer(null)
 	const next = new URL(location.href)
 	next.searchParams.delete('search')
+	next.searchParams.delete('usage')
 	next.searchParams.set('inbox', '')
 	history.replaceState(null, '', next)
 }
@@ -157,16 +159,34 @@ const [searchFor, setSearchFor] = createSignal(params.get('search') || null)
 export { searchFor }
 export function openSearch(text) {
 	setInboxOpen(false)
+	setUsageOpen(false)
 	setSearchFor(text)
 	const next = new URL(location.href)
 	next.searchParams.delete('inbox')
+	next.searchParams.delete('usage')
 	next.searchParams.set('search', text)
+	history.replaceState(null, '', next)
+}
+
+/** Whether the house's usage takes the threads' place; opening a thread, the inbox or search leaves it */
+const [usageOpen, setUsageOpen] = createSignal(params.has('usage'))
+export { usageOpen }
+export function openUsage() {
+	setUsageOpen(true)
+	setInboxOpen(false)
+	setSearchFor(null)
+	drawer(null)
+	const next = new URL(location.href)
+	next.searchParams.delete('inbox')
+	next.searchParams.delete('search')
+	next.searchParams.set('usage', '')
 	history.replaceState(null, '', next)
 }
 
 export function openThread(id) {
 	setInboxOpen(false)
 	setSearchFor(null)
+	setUsageOpen(false)
 	setCurrent(id)
 	drawer(null)
 	history.replaceState(null, '', hrefOf(id))

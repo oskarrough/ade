@@ -25,7 +25,7 @@ import { Dot } from './dot.js'
 import { report } from './notice.js'
 import { RunnerList } from './runner.js'
 import { WakeList } from './wake.js'
-import { UsageList } from './usage.js'
+import { UsageToggle } from './usage.js'
 import { Settings } from './settings.js'
 import { BotItem, NewBot } from './bot.js'
 import { SearchField } from './search.js'
@@ -122,7 +122,7 @@ export function ThreadList() {
 				<${Settings} />
 				<${RunnerList} />
 				<${Show} when=${() => server().modules.includes('wake')}><${WakeList} /><//>
-				<${Show} when=${() => server().modules.includes('usage')}><${UsageList} /><//>
+				<${Show} when=${() => server().modules.includes('usage')}><${UsageToggle} /><//>
 				<${Show} when=${behind}>
 					<button
 						type="button"

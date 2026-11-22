@@ -10,6 +10,7 @@ import {
 	drawer,
 	homeBot,
 	inboxOpen,
+	usageOpen,
 	inbox,
 	params,
 	searchFor,
@@ -102,11 +103,17 @@ function Client() {
 						type="button"
 						aria-pressed=${() => String(sideOf(current())?.key === 'details')}
 						style=${() => colorOf(homeBot(current())?.name ?? '')}
-						onClick=${() => inboxOpen() || searchFor() !== null || toggleSide(current(), 'details')}
+						onClick=${() =>
+							inboxOpen() ||
+							searchFor() !== null ||
+							usageOpen() ||
+							toggleSide(current(), 'details')}
 					>
 						<${Dot}
 							state=${() =>
-								inboxOpen() || searchFor() !== null ? '' : threadOf(current())?.status}
+								inboxOpen() || searchFor() !== null || usageOpen()
+									? ''
+									: threadOf(current())?.status}
 						/>
 						<span
 							>${() =>
@@ -114,9 +121,11 @@ function Client() {
 									? `Inbox${inbox.length ? ` ${inbox.length}` : ''}`
 									: searchFor() !== null
 										? `Search: ${searchFor()}`
-										: current()
-											? titleOf(current())
-											: 'New thread'}</span
+										: usageOpen()
+											? 'Usage'
+											: current()
+												? titleOf(current())
+												: 'New thread'}</span
 						>
 					</button>
 				</header>

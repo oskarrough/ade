@@ -1,10 +1,21 @@
-/** Usage: the tokens agents spent and their cost at list price, for the whole house from the list's foot and for one thread in its details. */
+/**
+ * Usage: the tokens agents spent and their cost at list price. The house's as a page in the threads' place, opened from
+ * the list's foot: its totals, what the tokens were, each day, then threads, bots and models. A thread's in its details.
+ */
 import html from '@solidjs/html'
-import { createEffect, createSignal, createUniqueId, For, Show } from 'solid-js'
-import { api, connected, openThread, threadOf, titleOf } from './server.js'
-import { placePopover } from './popover.js'
-import { Panes } from './panes.js'
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import {
+	api,
+	connected,
+	current,
+	openThread,
+	openUsage,
+	threadOf,
+	titleOf,
+	usageOpen,
+} from './server.js'
 import { shortLabel } from './agent.js'
+import { Icon } from './icons.js'
 import { report } from './notice.js'
 
 const DAY = 86_400_000
@@ -12,30 +23,39 @@ const DAY = 86_400_000
 const RANGES = [
 	{ key: 'today', label: 'Today', days: 1 },
 	{ key: 'week', label: 'Last 7 days', days: 7 },
+	{ key: 'fortnight', label: 'Last 14 days', days: 14 },
 	{ key: 'month', label: 'Last 30 days', days: 30 },
+	{ key: 'quarter', label: 'Last 90 days', days: 90 },
 	{ key: 'all', label: 'All time' },
 ]
+const midnight = () => new Date(new Date().setHours(0, 0, 0, 0)).getTime()
 const sinceOf = (key) => {
 	const { days } = RANGES.find((range) => range.key === key) ?? {}
-	if (!days) return 0
-	const midnight = new Date()
-	midnight.setHours(0, 0, 0, 0)
-	return midnight.getTime() - (days - 1) * DAY
+	return days ? midnight() - (days - 1) * DAY : 0
 }
+/** What this clock adds to UTC, so the server's days start at our midnight */
+const zone = () => -new Date().getTimezoneOffset() * 60_000
 
 const number = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 })
 const dollars = (value) => `$${value.toFixed(2)}`
 const tokensOf = (count) => count.input + count.output + count.cacheRead + count.cacheWrite
-/** Tokens, the honest number, and what share of the prompt came from cache */
-const tokens = (count) => {
+const cachedOf = (count) => {
 	const prompt = count.input + count.cacheRead + count.cacheWrite
-	const cached = prompt ? Math.round((count.cacheRead / prompt) * 100) : 0
-	return `${number.format(tokensOf(count))} tokens, ${cached}% from cache`
+	return prompt ? Math.round((count.cacheRead / prompt) * 100) : 0
 }
+const percent = (part, whole) => {
+	const share = whole ? (part / whole) * 100 : 0
+	return share >= 10 || share === 0 ? `${Math.round(share)}%` : `${share.toFixed(1)}%`
+}
+/** Tokens, the honest number, and what share of the prompt came from cache */
+const tokens = (count) => `${number.format(tokensOf(count))} tokens, ${cachedOf(count)}% from cache`
 /** The list price, and the part of it that's a real bill */
 const cost = (count) =>
 	`${dollars(count.cost)}${count.billed >= 0.005 ? `, ${dollars(count.billed)} billed` : ''}`
 const calls = (count) => `${count.calls.toLocaleString()} ${count.calls === 1 ? 'call' : 'calls'}`
+
+const LIST_PRICE =
+	'List price is what the tokens would cost on an API key; a subscription login bills none of it.'
 
 /** The range picker both views share; each keeps its own pick */
 const Range = (props) => html`
@@ -53,7 +73,79 @@ const Range = (props) => html`
 	</select>
 `
 
-/** One row per model, with whose it was where a thread has several agents */
+const KINDS = [
+	{ key: 'cacheRead', label: 'Cache read' },
+	{ key: 'cacheWrite', label: 'Cache write' },
+	{ key: 'input', label: 'Input' },
+	{ key: 'output', label: 'Output' },
+]
+/** What the tokens were, as one bar cut in four, each part named with its count and share */
+const Mix = (props) => {
+	const whole = () => tokensOf(props.count)
+	return html`
+		<div class="usage-mix">
+			<div class="bar" role="img" aria-label=${() => `${tokens(props.count)}`}>
+				<${For} each=${KINDS}
+					>${(kind) =>
+						html`<span
+							class=${kind.key}
+							style=${() => ({ 'flex-grow': props.count[kind.key] })}
+						></span>`}<//
+				>
+			</div>
+			<div class="legend">
+				<${For} each=${KINDS}
+					>${(kind) =>
+						html`<span class=${kind.key}
+							>${kind.label} ${() => number.format(props.count[kind.key])}
+							<i>${() => percent(props.count[kind.key], whole())}</i></span
+						>`}<//
+				>
+			</div>
+		</div>
+	`
+}
+
+/** A bar for each day of the range, its height the day's cost or tokens, days without calls empty */
+const Days = (props) => {
+	const bars = createMemo(() => {
+		const known = new Map(props.days.map((day) => [day.day, day]))
+		const first = props.since || props.days[0]?.day || midnight()
+		const out = []
+		for (
+			let day = first;
+			day <= midnight();
+			day = new Date(day).setDate(new Date(day).getDate() + 1)
+		)
+			out.push({ day, count: known.get(day) })
+		return out
+	})
+	const valueOf = (count) => (count ? (props.measure === 'cost' ? count.cost : tokensOf(count)) : 0)
+	const top = () => Math.max(...bars().map((bar) => valueOf(bar.count)), 0) || 1
+	const label = (day) =>
+		new Date(day).toLocaleDateString(undefined, {
+			weekday: 'short',
+			day: 'numeric',
+			month: 'short',
+		})
+	return html`
+		<div class="usage-days">
+			<${For} each=${bars}
+				>${(bar) => html`
+					<div
+						title=${() =>
+							`${label(bar.day)}: ${bar.count ? `${cost(bar.count)} · ${tokens(bar.count)} · ${calls(bar.count)}` : 'no calls'}`}
+					>
+						<span style=${() => ({ height: `${(valueOf(bar.count) / top()) * 100}%` })}></span>
+						<small>${new Date(bar.day).getDate()}</small>
+					</div>
+				`}<//
+			>
+		</div>
+	`
+}
+
+/** One row per model, with whose it was where several agents share the list */
 const ModelRows = (props) => html`
 	<${For} each=${() => props.models}
 		>${(row) => html`
@@ -71,97 +163,141 @@ const ModelRows = (props) => html`
 	>
 `
 
-const TOTAL =
-	'List price is what the tokens would cost on an API key; a subscription login bills none of it.'
-
-/** The house's usage in a popover from the list's foot: its total, each model, then the threads that cost most */
-export function UsageList() {
-	let button, panel
-	const id = createUniqueId()
-	const [range, setRange] = createSignal('week')
+/** The house's usage in the threads' place: totals, the token mix, each day, then threads, bots and models */
+export function Usage() {
+	const [range, setRange] = createSignal('fortnight')
+	const [measure, setMeasure] = createSignal('cost')
 	const [usage, setUsage] = createSignal()
-	const load = () => api(`/api/usage?since=${sinceOf(range())}`).then(setUsage, report)
 	createEffect(
 		() => [range(), connected()],
-		([, online]) => {
-			if (online && panel?.matches(':popover-open')) load()
+		([picked, online]) => {
+			if (online) api(`/api/usage?since=${sinceOf(picked)}&zone=${zone()}`).then(setUsage, report)
 		},
 	)
-	const go = (thread) => {
-		panel.hidePopover()
-		openThread(thread)
-	}
 	return html`
-		<button
-			class="ghost small foot-toggle usage-toggle"
-			type="button"
-			aria-label="Usage"
-			title="Tokens and cost across the house"
-			ref=${(el) => (button = el)}
-			popovertarget=${id}
-		>
-			<span>Usage</span>
-		</button>
-		<div
-			class="popover usage-list"
-			id=${id}
-			popover
-			ref=${(el) => (panel = el)}
-			onToggle=${(event) => {
-				if (event.newState !== 'open') return
-				placePopover(panel, button)
-				load()
-			}}
-		>
-			<${Panes} title="Usage" open=${() => false} onClose=${(_event) => panel.hidePopover()}>
-				<${Range} range=${range} onPick=${setRange} />
-				<${Show} when=${usage} keyed fallback=${html`<p class="mute">Counting…</p>`}
+		<article class="thread current inbox usage" aria-label="Usage">
+			<header>
+				<h2 class="title">
+					<button type="button" class="ghost thread-name" title="Tokens and cost across the house">
+						<span>Usage</span>
+					</button>
+				</h2>
+				<button
+					type="button"
+					class="close"
+					title="Back to the thread"
+					aria-label="Close"
+					onClick=${() => openThread(current())}
+				>
+					<${Icon} name="close" />
+				</button>
+			</header>
+			<ul>
+				<li class="usage-range"><${Range} range=${range} onPick=${setRange} /></li>
+				<${Show} when=${usage} keyed fallback=${html`<li class="mute">Counting…</li>`}
 					>${(found) => html`
 						<${Show}
 							when=${() => found.total.calls}
-							fallback=${html`<p class="mute">No model calls in this time.</p>`}
+							fallback=${html`<li class="mute">No model calls in this time.</li>`}
 						>
-							<ul class="rows">
-								<li title=${TOTAL}>
-									<div>
-										<b>${() => `${cost(found.total)} at list price`}</b>
-										<small>${() => calls(found.total)}</small>
-										<small>${() => tokens(found.total)}</small>
-									</div>
-								</li>
-								<${ModelRows} models=${found.models} />
-							</ul>
-							<h2>Threads</h2>
-							<ul class="rows">
-								<${For} each=${found.threads}
-									>${(row) => html`
-										<li
-											role="button"
-											tabindex="0"
-											onClick=${(_e) => go(row.thread)}
-											onKeyDown=${(event) =>
-												event.key === 'Enter' &&
-												event.target === event.currentTarget &&
-												go(row.thread)}
-										>
-											<div>
-												<b>${() => (threadOf(row.thread) ? titleOf(row.thread) : row.title)}</b>
-												<small>${() => `${calls(row)}${row.archived ? ' · archived' : ''}`}</small>
-												<small>${() => `${tokens(row)} · ${cost(row)}`}</small>
-											</div>
-										</li>
-									`}<//
+							<li class="usage-total" title=${LIST_PRICE}>
+								<b>${() => `${cost(found.total)} at list price`}</b>
+								<small
+									>${() =>
+										`${number.format(tokensOf(found.total))} tokens · ${calls(found.total)} · ${found.threadCount} ${found.threadCount === 1 ? 'thread' : 'threads'}`}</small
 								>
-							</ul>
+							</li>
+							<li><${Mix} count=${found.total} /></li>
+							<li>
+								<nav class="tabs" aria-label="Days by">
+									<${For} each=${['cost', 'tokens']}
+										>${(key) =>
+											html`<button
+												type="button"
+												class="ghost small"
+												aria-pressed=${() => String(measure() === key)}
+												onClick=${(_event) => setMeasure(key)}
+											>
+												${key === 'cost' ? 'Cost' : 'Tokens'}
+											</button>`}<//
+									>
+								</nav>
+								<${Days} days=${found.days} since=${() => sinceOf(range())} measure=${measure} />
+							</li>
+							<li>
+								<h3>Threads</h3>
+								<ul class="rows usage">
+									<${For} each=${found.threads}
+										>${(row) => html`
+											<li
+												role="button"
+												tabindex="0"
+												onClick=${(_event) => openThread(row.thread)}
+												onKeyDown=${(event) =>
+													event.key === 'Enter' &&
+													event.target === event.currentTarget &&
+													openThread(row.thread)}
+											>
+												<div>
+													<b>${() => (threadOf(row.thread) ? titleOf(row.thread) : row.title)}</b>
+													<small
+														>${() =>
+															`${percent(row.cost, found.total.cost)} · ${cost(row)} · ${calls(row)}${row.archived ? ' · archived' : ''}`}</small
+													>
+													<small>${() => tokens(row)}</small>
+												</div>
+											</li>
+										`}<//
+									>
+								</ul>
+							</li>
+							<li>
+								<h3>Bots</h3>
+								<ul class="rows usage">
+									<${For} each=${found.bots}
+										>${(row) => html`
+											<li>
+												<div>
+													<b>${() => (row.bot === 'agent' ? "Threads' own agents" : row.bot)}</b>
+													<small
+														>${() =>
+															`${percent(row.cost, found.total.cost)} · ${cost(row)} · ${calls(row)}`}</small
+													>
+													<small>${() => tokens(row)}</small>
+												</div>
+											</li>
+										`}<//
+									>
+								</ul>
+							</li>
+							<li>
+								<h3>Models</h3>
+								<ul class="rows usage">
+									<${ModelRows} models=${found.models} />
+								</ul>
+							</li>
 						<//>
 					`}<//
 				>
-			<//>
-		</div>
+			</ul>
+		</article>
 	`
 }
 
-/** A thread's usage in its details: its total and a row per agent and model, fetched again when its work starts or ends */
+/** The list's foot opens the house's usage, or goes back to the thread */
+export const UsageToggle = () => html`
+	<button
+		class="ghost small foot-toggle usage-toggle"
+		type="button"
+		aria-pressed=${() => String(usageOpen())}
+		title="Tokens and cost across the house"
+		onClick=${(_event) => (usageOpen() ? openThread(current()) : openUsage())}
+	>
+		<span>Usage</span>
+	</button>
+`
+
+/** A thread's usage in its details: its total, the token mix and a row per agent and model, fetched again when its work starts or ends */
 export function ThreadUsage(props) {
 	const [range, setRange] = createSignal('all')
 	const [usage, setUsage] = createSignal()
@@ -182,7 +318,7 @@ export function ThreadUsage(props) {
 					fallback=${html`<p class="mute">No model calls in this time.</p>`}
 				>
 					<ul class="rows usage">
-						<li title=${TOTAL}>
+						<li title=${LIST_PRICE}>
 							<div>
 								<b>${() => `${cost(found.total)} at list price`}</b>
 								<small
@@ -191,7 +327,7 @@ export function ThreadUsage(props) {
 											? `${calls(found.total)} · ${found.models[0].model}`
 											: calls(found.total)}</small
 								>
-								<small>${() => tokens(found.total)}</small>
+								<${Mix} count=${found.total} />
 							</div>
 						</li>
 						<${Show} when=${() => found.models.length > 1}>

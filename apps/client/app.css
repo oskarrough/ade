@@ -2310,3 +2310,108 @@ body.resizing {
 		transform: rotate(1turn);
 	}
 }
+
+/* Usage: the house's page is the inbox's column; its sections are list items, each with a small heading. */
+.thread.usage > ul > li {
+	padding-bottom: var(--space-4);
+
+	> h3 {
+		margin: 0 0 var(--space-2);
+		font-size: var(--text-ui);
+	}
+
+	&.usage-total small {
+		display: block;
+		color: var(--mute);
+	}
+}
+
+/* What the tokens were: one bar in four parts, named under it in the same colours. */
+.usage-mix {
+	--cacheRead: var(--pick);
+	--cacheWrite: var(--wait);
+	--input: var(--edge);
+	--output: var(--ok);
+
+	> .bar {
+		display: flex;
+		height: 6px;
+		margin: var(--space-2) 0;
+		border-radius: 3px;
+		overflow: hidden;
+		background: var(--tint);
+	}
+
+	> .legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1) var(--space-3);
+		color: var(--mute);
+		font-size: var(--text-small);
+
+		> span::before {
+			content: '';
+			display: inline-block;
+			width: 0.5em;
+			height: 0.5em;
+			margin-right: var(--space-1);
+			border-radius: 50%;
+			background: var(--kind);
+		}
+
+		i {
+			margin-left: 0.25em;
+			font-style: normal;
+			opacity: 0.7;
+		}
+	}
+
+	.cacheRead {
+		--kind: var(--cacheRead);
+	}
+	.cacheWrite {
+		--kind: var(--cacheWrite);
+	}
+	.input {
+		--kind: var(--input);
+	}
+	.output {
+		--kind: var(--output);
+	}
+
+	> .bar > span {
+		background: var(--kind);
+	}
+}
+
+/* A bar a day, its height the day's share of the busiest. */
+.usage-days {
+	display: flex;
+	align-items: stretch;
+	gap: 2px;
+	height: 8rem;
+	margin-top: var(--space-2);
+
+	> div {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+		align-items: center;
+
+		> span {
+			width: 100%;
+			min-height: 1px;
+			max-height: calc(100% - var(--text-small-line));
+			border-radius: 2px 2px 0 0;
+			background: var(--pick);
+		}
+
+		> small {
+			color: var(--mute);
+			font-size: var(--text-small);
+			line-height: var(--text-small-line);
+		}
+	}
+}

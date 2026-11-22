@@ -9,7 +9,9 @@
  * honest number either way. Model calls modules make for themselves (titles, memory lines, the director, recaps)
  * and compaction summaries aren't stored as turns, so they aren't counted.
  *
- * `GET /api/usage?since=&until=` answers the house's `{total, models, threads}`, `GET /api/threads/:id/usage` the
+ * `GET /api/usage?since=&until=&zone=` answers the house's `{total, models, days, threads, bots, threadCount}`: days
+ * start at the asker's midnight, `zone` being what its clock adds to UTC in milliseconds; bots are each bot's turns across
+ * every thread, and `agent` the threads' own agents. `GET /api/threads/:id/usage` answers the
  * thread's `{total, models}`, one model row per agent there; `since` and `until` are epoch milliseconds. Each count
  * is `{calls, input, output, cacheRead, cacheWrite, cost, billed}`, cost and billed in dollars. The turns are read
  * once, on the first request, then kept as Pi stores each new one.
@@ -93,9 +95,12 @@ export function server(core) {
 			)
 	}
 
+	const DAY = 86_400_000
+	/** `since` and `until` in epoch milliseconds, and `zone`, what the asker's clock adds to UTC, which its days follow */
 	const range = (query) => ({
 		since: Number(query.get('since')) || 0,
 		until: Number(query.get('until')) || Number.MAX_SAFE_INTEGER,
+		zone: Number(query.get('zone')) || 0,
 	})
 	/** A row of sums as the API answers it: billed is the whole cost on a metered model, else what the provider reported */
 	const counted = ({ reported, ...row }, metered) => ({
@@ -111,13 +116,27 @@ export function server(core) {
 			},
 			{ calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, billed: 0 },
 		)
+	/** Rows summed by what `key` says each belongs to, most expensive first */
+	const grouped = (rows, key) => {
+		/** @type {Map<any, any[]>} */
+		const groups = new Map()
+		for (const row of rows) groups.set(key(row), [...(groups.get(key(row)) ?? []), row])
+		return [...groups]
+			.map(([group, of]) => [group, add(of)])
+			.sort((one, other) => other[1].cost - one[1].cost)
+	}
 
 	const byModel = db.prepare(`
 		select provider, model, ${SUMS} from turns where at >= :since and at < :until
 		group by provider, model order by sum(cost) desc
 	`)
 	const byConversation = db.prepare(`
-		select conversation, ${SUMS} from turns where at >= :since and at < :until group by conversation
+		select conversation, provider, model, ${SUMS} from turns where at >= :since and at < :until
+		group by conversation, provider, model
+	`)
+	const byDay = db.prepare(`
+		select cast((at + :zone) / ${DAY} as integer) as day, provider, model, ${SUMS} from turns
+		where at >= :since and at < :until group by day, provider, model
 	`)
 	const ofConversation = db.prepare(`
 		select provider, model, ${SUMS} from turns
@@ -125,35 +144,47 @@ export function server(core) {
 		group by provider, model order by sum(cost) desc
 	`)
 
+	/** The house: its total, each model, each day, the threads that cost most, and each bot across its threads */
 	async function house(query) {
 		await built()
 		const between = range(query)
 		const metered = await meteredOf()
-		const models = /** @type {any[]} */ (byModel.all(between)).map((row) =>
-			counted(row, metered(row.provider, row.model)),
-		)
-		const threadOf = new Map(
+		const priced = (/** @type {any} */ row) => counted(row, metered(row.provider, row.model))
+		const { zone: _, ...within } = between
+		const models = /** @type {any[]} */ (byModel.all(within)).map(priced)
+		const days = grouped(/** @type {any[]} */ (byDay.all(between)).map(priced), (row) => row.day)
+			.map(([day, sums]) => ({ day: day * DAY - between.zone, ...sums }))
+			.sort((one, other) => one.day - other.day)
+		const owners = new Map(
 			(await core.conversations()).map((one) => [one.id, one.owner?.conversationId ?? one.id]),
 		)
-		/** @type {Map<number, any[]>} */
-		const perThread = new Map()
-		for (const row of /** @type {any[]} */ (byConversation.all(between))) {
-			const thread = threadOf.get(row.conversation) ?? row.conversation
-			perThread.set(thread, [...(perThread.get(thread) ?? []), counted(row, false)])
+		const rows = /** @type {any[]} */ (byConversation.all(within)).map((row) => ({
+			...priced(row),
+			thread: owners.get(row.conversation) ?? row.conversation,
+		}))
+		const threadIds = [...new Set(rows.map((row) => row.thread))]
+		const found = await Promise.all(threadIds.map((id) => core.thread(id)))
+		const docs = new Map(threadIds.map((id, index) => [id, found[index]]))
+		/** Whose a conversation is: a bot by name, else the thread's own agent */
+		const whose = (row) => {
+			const agents = Object.entries(docs.get(row.thread)?.agents ?? {})
+			const key = agents.find(([, agent]) => agent.conversation === row.conversation)?.[0]
+			return key && key !== AGENT ? key : AGENT
 		}
-		const ranked = [...perThread]
-			.map(([thread, rows]) => ({ thread, ...add(rows) }))
-			.sort((one, other) => other.cost - one.cost)
-			.slice(0, THREADS)
-		const docs = await Promise.all(ranked.map((row) => core.thread(row.thread)))
 		return {
 			total: add(models),
 			models,
-			threads: ranked.map((row, index) => ({
-				...row,
-				title: docs[index]?.title ?? '',
-				archived: Boolean(docs[index]?.hidden),
-			})),
+			days,
+			threads: grouped(rows, (row) => row.thread)
+				.slice(0, THREADS)
+				.map(([thread, sums]) => ({
+					thread,
+					...sums,
+					title: docs.get(thread)?.title ?? '',
+					archived: Boolean(docs.get(thread)?.hidden),
+				})),
+			bots: grouped(rows, whose).map(([bot, sums]) => ({ bot, ...sums })),
+			threadCount: threadIds.length,
 		}
 	}
 
@@ -169,13 +200,12 @@ export function server(core) {
 		const owned = (await core.conversations()).filter(
 			(one) => one.id === id || one.owner?.conversationId === id,
 		)
+		const { zone: _, ...within } = between
 		const models = owned.flatMap((one) =>
-			/** @type {any[]} */ (ofConversation.all({ conversation: one.id, ...between })).map(
-				(row) => ({
-					agent: names.get(one.id) ?? AGENT,
-					...counted(row, metered(row.provider, row.model)),
-				}),
-			),
+			/** @type {any[]} */ (ofConversation.all({ conversation: one.id, ...within })).map((row) => ({
+				agent: names.get(one.id) ?? AGENT,
+				...counted(row, metered(row.provider, row.model)),
+			})),
 		)
 		models.sort((one, other) => other.cost - one.cost)
 		return { total: add(models), models }

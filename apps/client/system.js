@@ -8,6 +8,7 @@ import {
 	inboxOpen,
 	runners,
 	searchFor,
+	usageOpen,
 	server,
 	threadOf,
 	url,
@@ -27,11 +28,13 @@ import { DetailsPage } from './thread-details.js'
 import { ThreadList } from './thread-list.js'
 import { Wires } from './wires.js'
 import { QuoteButton } from './quote.js'
+import { Usage } from './usage.js'
 
 const SIDE_PAGES = { canvas: Canvas, director: Director, recap: Recap }
 
 export function System() {
 	const searching = () => searchFor() !== null && server().modules.includes('search')
+	const showingUsage = () => usageOpen() && server().modules.includes('usage')
 	const shown = createMemo(() => columns().map(threadOf).filter(Boolean))
 	const agents = createMemo(() =>
 		shown().flatMap((thread) => thread.agents.map((agent) => ({ ...agent, thread: thread.id }))),
@@ -109,9 +112,14 @@ export function System() {
 						<${Show} when=${searching}>
 							<${Search} />
 						<//>
+						<${Show} when=${showingUsage}>
+							<${Usage} />
+						<//>
 						<${For}
 							each=${() =>
-								(inboxOpen() && server().modules.includes('inbox')) || searching() ? [] : columns()}
+								(inboxOpen() && server().modules.includes('inbox')) || searching() || showingUsage()
+									? []
+									: columns()}
 							>${(id) => html`
 								<${Thread} id=${() => id} />
 								<${Show} when=${() => sideOf(id)}>
