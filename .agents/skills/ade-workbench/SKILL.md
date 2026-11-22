@@ -55,8 +55,10 @@ Each step is one command: `node cli.js post --to ada --to bram "hi"` starts a th
 
 ## Landing with jj
 
-- Commit only your own paths with `jj commit -m … <paths>`, and before pushing read `jj diff -r @- --git` to check it holds only your lines.
-- Then fetch, rebase onto `main` with `jj rebase -s @- -o main` (not `-r @-`, which moves only the empty change and leaves the commit off `main`), `jj bookmark set main -r <id>`, `jj git push`. If SSH is refused, use HTTPS with the GitHub CLI login, and check the output says main moved.
+- Land only from your own `.work/` workspace (see "jj workspaces" below), never from the shared checkout at `~/sites/ade`. That checkout's `@` is the default workspace, and others (Oskar included) commit there too; two commits landing around the same time there means `@-` can resolve to someone else's commit instead of yours, and you'd rebase and push that. Your own workspace's `@` is yours alone.
+- Commit only your own paths with `jj commit -m … <paths>`, and note the commit id it prints (or read it back with `jj log -r @- -T 'commit_id.short()' --no-graph`). Use that id, not a bare `@-`, for every step below — nothing else in your own workspace moves it, but naming it is cheap insurance and makes retries unambiguous. Before pushing, `jj diff -r <id> --git` to check it holds only your lines.
+- Then fetch, rebase onto `main` with `jj rebase -s <id> -o main` (not `-r <id>`, which moves only the empty change and leaves the commit off `main`), `jj bookmark set main -r <id>`, `jj git push`. If SSH is refused, use HTTPS with the GitHub CLI login, and check the output says main moved.
+- If `jj git push` refuses the move ("stale info", bookmark conflicted, or main moved on the remote), that's jj checking for you that main didn't move backwards or lose a commit — treat it as news, not an error to push through. Re-fetch, rebase your id onto `main@origin` (the bookmark may be conflicted after the fetch; rebasing explicitly onto `main@origin` and then `jj bookmark set main -r <id>` again resolves that), and push again. Repeat until it lands. Never pass `--allow-backwards` or `--ignore-immutable`, and never force a push to make the rejection go away — those are how main has moved backwards or lost a commit before. If retrying doesn't converge (a real conflict in the diff, not just a moved main), stop and report instead of forcing.
 - In a sprint that holds pushes, do all of this except `jj git push`, then forget the workspace.
 - Bring Oskar's checkout up: in `~/sites/ade`, `jj rebase -s default@ -o main` (rebases his in-progress working-copy commit onto the new `main`; resolve conflicts only in files you both touched, otherwise they're his to settle), then `jj workspace update-stale` if it reports the working copy is stale.
 
@@ -66,7 +68,7 @@ Each step is one command: `node cli.js post --to ada --to bram "hi"` starts a th
 
 ## jj workspaces
 
-- Make one with `jj workspace add .work/<short-name> -r main`, then `pnpm install --frozen-lockfile`. When done, `jj workspace forget` it and delete its folder.
+- Make one with `jj workspace add .work/<short-name> -r main` before you land anything, even a one-line fix — not only for parallel or big work. All workspaces, including Oskar's own checkout, share one jj store, so your workspace's `@` is private to you, but the shared checkout's `@` isn't private to anyone. Then `pnpm install --frozen-lockfile`. When done, `jj workspace forget` it and delete its folder.
 - Screenshots and scratch files still go in `~/sites/ade/.work/<your-name>/`, since a workspace's folder is deleted when you're done, and never in `/tmp`, which file tools can't reach.
 - Workspaces have no `.git`: use `jj status`, `jj file list` and `jj log -r main@origin` to inspect them.
 - A long run in a workspace, like a real-model bench, can leave its working copy stale when others move `main` meanwhile; copy your changed files aside before `jj workspace update-stale`, then check `jj status` still has them.

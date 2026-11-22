@@ -4,8 +4,8 @@
 
 - Read [FEATURE-MAP.md](FEATURE-MAP.md) first to find the file and function a task touches; update it when you add or move a file or a major function. [GLOSSARY.md](GLOSSARY.md) defines the terms.
 - How to run, check, measure and land (try.js, its scripted bot, agent-browser, real data, perf, jj) is in the skill `.agents/skills/ade-workbench/SKILL.md`; load it before you start a server, open a browser, make a workspace or push.
-- Work on `main` in `~/sites/ade`; a `.work/` jj workspace is only for when several workers run in parallel or a big change would break Oskar's checkout for a while. Scratch files and screenshots go in `~/sites/ade/.work/<your-name>/`, never a shared folder or `/tmp`.
-- Commit only your own paths, since a shared checkout holds other people's edits too, push `main` yourself, and report a commit id only after `jj log -r main@origin` shows it.
+- You may edit and explore in `~/sites/ade` directly, but commit and land only from your own `.work/` jj workspace (`jj workspace add .work/<short-name> -r main`), even for a one-line fix and even alone: `~/sites/ade` is the shared checkout, other workers and Oskar commit there too, and `@-` there can resolve to someone else's commit instead of yours. Scratch files and screenshots go in `~/sites/ade/.work/<your-name>/`, never a shared folder or `/tmp`.
+- Commit only your own paths, push `main` yourself, and report a commit id only after `jj log -r main@origin` shows it. If `jj git push` refuses because main moved, fetch and rebase onto it and push again; never force the push or move main backwards to get past the refusal — see the skill's "Landing with jj" for the exact steps.
 - Never abandon, restore or revert someone else's work (formatting it is fine); if you need lines someone else is changing, agree in their thread who goes first.
 - `~/sites/ade` is Oskar's own checkout; :3000 runs from it and he may have uncommitted edits there. After pushing, bring it up to `main` without disturbing those edits, and change only the files your task needs there.
 - While a sprint holds pushes, land as usual but stop before `jj git push`; the lead squashes and pushes at the sprint's end.
