@@ -156,13 +156,19 @@ function Update() {
 	const restarts = () =>
 		server().stale && server().settings?.restarts && me() === server().settings.owner
 	const update = busy(async () => (restarts() ? restart() : location.reload()))
-	const label = () => (restarting() ? 'Restarting…' : restarts() ? 'Update and restart' : 'Update')
+	const label = () => {
+		if (restarting()) return 'Restarting…'
+		const n = changes().length
+		const countPart = n === 1 ? '1 update' : n > 1 ? `${n} updates` : ''
+		if (restarts()) return countPart ? `${countPart}, restart` : 'Restart'
+		return countPart || 'Update'
+	}
 	return html`<${Show} when=${() => behind() || restarts()}>
 		<button
 			type="button"
 			class="ghost small foot-toggle update-toggle"
 			disabled=${() => Boolean(restarting())}
-			aria-label=${() => (changes().length ? `${label()}, ${changes().length} commits` : label())}
+			aria-label=${label}
 			title=${() =>
 				changes().join('\n') ||
 				(restarts()
@@ -171,9 +177,6 @@ function Update() {
 			onClick=${(_e) => update()}
 		>
 			<span>${label}</span>
-			<${Show} when=${() => changes().length}
-				><small class="count" aria-hidden="true">${() => changes().length}</small><//
-			>
 		</button>
 	<//>`
 }
