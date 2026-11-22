@@ -41,7 +41,6 @@ export function duration(text, name) {
 	return ms
 }
 
-/** The thread a wake waits on has no work left */
 const Ended = defineSignal({ name: 'ade.thread-ended', version: 1, schema: obj({}) })
 /** A wake `on` events sleeps until its nth */
 const listen = (n) => ({
@@ -291,7 +290,6 @@ export function server(core) {
 		},
 	})
 
-	/** GET: the thread's pending wakes; POST `{cancel}`: cancels one */
 	async function serve(threadId, _query, body) {
 		if (threadId === undefined) throw new Error('Wakes live in a thread')
 		await core.conversation(threadId)

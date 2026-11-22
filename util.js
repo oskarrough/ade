@@ -8,7 +8,6 @@ export const finished = (status = 'completed', result = null) => ({
 	outcome: { status, result },
 })
 
-/** A background task owned by its thread */
 export const background = (threadId) => ({
 	ownership: { kind: /** @type {const} */ ('conversation') },
 	conversationId: threadId,
@@ -132,7 +131,6 @@ export function field(value, name) {
 	return value.trim()
 }
 
-/** Whether an agent wrote it, in this thread or from another */
 export const byAgent = (message) =>
 	Boolean(
 		message.answer ||

@@ -172,7 +172,6 @@ async function post() {
 	}
 }
 
-/** The newest message in a thread that asked someone, looked for back from its end, twice as far each time; 0 for none */
 async function lastAsk(id) {
 	for (let last = 50; ; last *= 2) {
 		const { entries } = await api('GET', `/api/threads/${id}?last=${last}`)

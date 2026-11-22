@@ -49,7 +49,6 @@ const director = (request) => {
 		),
 	)
 }
-/** A recap: one open line for the newest message it was shown */
 const recap = (request) => {
 	const [, at, who, said] =
 		[...text(request.messages.at(-1)).matchAll(/^\[(\d+)\] (\S+)[^:]*: (.*)$/gm)].at(-1) ?? []

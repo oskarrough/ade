@@ -22,7 +22,6 @@ import { defineDoc, defineSignal } from '@earendil-works/pi-durable'
 
 export const on = false
 
-/** What a wake can be `on`, as the strip says it */
 export const EVENTS = {
 	push: 'each GitHub push',
 	ci: 'each failed GitHub CI run',

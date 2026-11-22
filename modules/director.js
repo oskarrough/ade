@@ -23,6 +23,7 @@ import { defineExtension, defineSignal, defineTask } from '@earendil-works/pi-du
 import { obj } from '@earendil-works/pi-schema'
 import { messageText } from '../remote.js'
 import {
+	complete,
 	AGENT,
 	agentTo,
 	writtenTo,
@@ -65,7 +66,6 @@ export function server(core) {
 	const own = core.config?.director ?? {}
 	const name = process.env.DIRECTOR_MODEL || own.model
 	const picks = own.picks !== false || Boolean(process.env.DIRECTOR_MODEL)
-	/** The messages it reads before the new one; how long before a pick gives way to the thread agent; the quiet it waits for */
 	const { context, timeoutMs, burstMs } = directorTimes(own)
 	const tell = (threadId, event) => core.activity(threadId, { purpose: 'director', ...event })
 	let calls = 0
@@ -149,7 +149,6 @@ export function server(core) {
 				body.usage?.input_tokens,
 			)
 		}
-		const model = core.models.getModel(`runner:${to.runner}`, to.model)
 		const ask = [
 			'Conversation (newest last):',
 			...said.map((entry) => `[${entry.author}] ${entry.body}`),
@@ -160,21 +159,15 @@ export function server(core) {
 			'Candidates:',
 			...candidates.map((candidate) => `- ${candidate.name}: ${candidate.persona}`),
 		].join('\n')
-		const reply = await core.models.completeSimple(
-			model,
-			{
-				messages: [
-					{ role: 'system', content: RULES, timestamp: Date.now() },
-					{ role: 'user', content: ask, timestamp: Date.now() },
-				],
-			},
-			{
-				signal,
-				...(to.thinkingLevel && to.thinkingLevel !== 'off' ? { reasoning: to.thinkingLevel } : {}),
-			},
+		const reply = await complete(
+			core,
+			to,
+			[
+				{ role: 'system', content: RULES, timestamp: Date.now() },
+				{ role: 'user', content: ask, timestamp: Date.now() },
+			],
+			signal,
 		)
-		if (reply.stopReason === 'error' || reply.stopReason === 'aborted')
-			throw new Error(reply.errorMessage ?? reply.stopReason)
 		const tokens = reply.usage?.totalTokens
 		let answer
 		try {
@@ -190,7 +183,6 @@ export function server(core) {
 		)
 	}
 
-	/** The thread's agents, and those of them who could answer a message by `author` */
 	async function agentsOf(threadId, author) {
 		const participants = await core.agentsHere(threadId)
 		return { participants, here: participants.filter((agent) => agent.name !== author) }
@@ -204,7 +196,6 @@ export function server(core) {
 		const all = await core.messages(threadId)
 		const at = all.findIndex((one) => one.id === entry)
 		const message = all[at].data
-		/** The messages it picks for: the author's own it took over, then this one */
 		const first = Math.min(
 			at,
 			...covers.map((id) => all.findIndex((one) => one.id === id)).filter((i) => i >= 0),
@@ -328,12 +319,10 @@ export function server(core) {
 	 * (`on: false`) stays as long, so a beat sent before it but arriving after, with a `seq` no higher, is ignored.
 	 */
 	const typists = new Map()
-	/** A person's beat or stop in a thread, while it lasts */
 	const beatOf = (threadId, person) => {
 		const beat = typists.get(threadId)?.get(person)
 		return beat && beat.until > Date.now() ? beat : undefined
 	}
-	/** Who's typing in a thread now, until when */
 	const typingIn = (threadId) =>
 		new Map(
 			[...(typists.get(threadId)?.keys() ?? [])]
@@ -380,7 +369,6 @@ export function server(core) {
 	const picked = (threadId, entry, route, confidence) =>
 		tell(threadId, { kind: 'picked', entry, to: route.to, reason: route.picked, confidence })
 
-	/** The Pick task's model call and route, its own phase */
 	async function call({ id, conversationId: threadId, input }, rt, ctx) {
 		const { entry, steer, author, covers = [] } = input
 		const row = await core.thread(threadId)
@@ -466,7 +454,6 @@ export function server(core) {
 		},
 	})
 
-	/** In the commit that saves a message the director picks for, its Pick task, part of the thread's work */
 	const directing = (
 		tx,
 		threadId,
@@ -481,7 +468,6 @@ export function server(core) {
 		)
 	}
 
-	/** How many answers in a row end the thread, with no one else writing since */
 	async function botTurns(threadId) {
 		const said = (await core.messages(threadId)).filter((entry) => !entry.data.shell)
 		const last = said.findLastIndex((entry) => !entry.data.answer && !entry.data.error)

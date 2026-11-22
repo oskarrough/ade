@@ -35,7 +35,6 @@ const ACTIONS = JSON.parse(
 		return { ...value, required: value.required.filter((name) => name !== 'note') }
 	},
 )
-/** The actions agents get: those that need no layout */
 const ALONE = ['create', 'update', 'delete', 'move', 'label']
 
 /** The starter kit's shape types and tldraw's geo kinds, both ways (its convertFocusedShapeToTldrawShape) */
@@ -62,7 +61,6 @@ const FILLS = {
 	tint: 'solid',
 	pattern: 'pattern',
 }
-/** A note is a fixed square, scaled */
 const NOTE = 200
 
 const schema = createTLSchema()
@@ -148,7 +146,6 @@ export function server(core) {
 		return { room, storage, save }
 	}
 
-	/** A room nobody is in saves and closes; the next to come opens it from its snapshot */
 	async function close(threadId) {
 		const open = rooms.get(threadId)
 		if (!open) return
@@ -169,7 +166,6 @@ export function server(core) {
 			const records = recordsOf(storage)
 			const all = { ...records }
 			const renamed = {}
-			/** In the order the actions touched them, as canvas_act answers them */
 			const touched = new Set()
 			const applied = actions.map((action) => {
 				const type = action?._type
@@ -539,7 +535,6 @@ const overlaps = (shape, area) => {
 	return x <= area.x + area.w && x + w >= area.x && y <= area.y + area.h && y + h >= area.y
 }
 
-/** A new shape on top of the page: a geo, note or text, or an arrow joined to the two shapes it points between */
 function created(shape, records, by, renamed) {
 	const page = Object.values(records)
 		.filter((record) => record.typeName === 'page')
@@ -563,12 +558,19 @@ function created(shape, records, by, renamed) {
 			isLocked: false,
 			opacity: 1,
 			meta: { by },
-			props,
+			props: {
+				color: shape.color ?? (type === 'note' ? 'yellow' : 'black'),
+				size: 's',
+				font: 'draw',
+				scale: 1,
+				richText,
+				...props,
+			},
 		}
 		schema.types.shape.validate(made)
 		return made
 	}
-	const { x, y, h, text = '', color } = shape
+	const { x, y, h, text = '' } = shape
 	const w = shape.w ?? shape.maxWidth ?? undefined
 	const richText = toRichText(text)
 	if (shape._type === 'arrow') {
@@ -584,19 +586,15 @@ function created(shape, records, by, renamed) {
 		const arrow = made('arrow', head.x, head.y, {
 			kind: 'arc',
 			labelColor: 'black',
-			color: color ?? 'black',
 			fill: 'none',
 			dash: 'draw',
 			size: 'm',
 			arrowheadStart: 'none',
 			arrowheadEnd: 'arrow',
-			font: 'draw',
 			start: { x: 0, y: 0 },
 			end: { x: tail.x - head.x, y: tail.y - head.y },
 			bend: 0,
-			richText,
 			labelPosition: 0.5,
-			scale: 1,
 			elbowMidPoint: 0.5,
 		})
 		const bindings = [
@@ -630,29 +628,20 @@ function created(shape, records, by, renamed) {
 	if (type === 'text')
 		return [
 			made('text', x, y, {
-				color: color ?? 'black',
-				size: 's',
-				font: 'draw',
 				textAlign: 'start',
 				w: w ?? 200,
-				richText,
-				scale: 1,
 				autoSize: w === undefined,
 			}),
 		]
 	if (type === 'note')
 		return [
 			made('note', x, y, {
-				color: color ?? 'yellow',
 				labelColor: 'black',
-				size: 's',
-				font: 'draw',
 				fontSizeAdjustment: 1,
 				align: 'middle',
 				verticalAlign: 'middle',
 				growY: 0,
 				url: '',
-				richText,
 				scale: w ? w / NOTE : 1,
 				textLastEditedBy: null,
 			}),
@@ -665,17 +654,12 @@ function created(shape, records, by, renamed) {
 			w: w ?? 100,
 			h: h ?? 100,
 			growY: 0,
-			scale: 1,
 			flipX: false,
 			flipY: false,
 			labelColor: 'black',
-			color: color ?? 'black',
 			fill: FILLS[shape.fill] ?? 'none',
-			size: 's',
-			font: 'draw',
 			align: 'middle',
 			verticalAlign: 'middle',
-			richText,
 		}),
 	]
 }

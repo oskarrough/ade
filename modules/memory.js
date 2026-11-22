@@ -26,6 +26,7 @@ import {
 	agentTo,
 	byAgent,
 	collect,
+	firstIn,
 	written,
 	finished,
 	background,
@@ -55,7 +56,6 @@ const kept = ({ data: message }) =>
 			? `${message.author} (agent${message.from ? `, ${message.re ? 'answering' : 'writing'} from thread ${message.from}` : ''})`
 			: message.author
 	}: ${written(message).replace(/\n/g, '\n  ')}`
-/** What memory keeps of a message: a withdrawn one only says it was */
 const keptOf = (entry, withdrawn) =>
 	kept(withdrawn.has(entry.id) ? { data: { author: entry.data.author, withdrawn: true } } : entry)
 const cut = (text) => {
@@ -302,7 +302,6 @@ export function server(core) {
 					const mine = input.backfill
 						? (id) => input.entry === undefined || id <= input.entry
 						: (id) => id === input.entry
-					/** A withdrawn message's line is written again, saying only that */
 					const missing = input.again
 						? positions.has(input.entry)
 							? [positions.get(input.entry)]
@@ -398,12 +397,10 @@ export function server(core) {
 		if (!(tokens >= EARLY * compactAt)) return
 		const home = await core.home(api.conversationId)
 		if (!home?.thread || !remembers(await core.thread(home.thread))) return
-		let cursor, seen
-		do {
-			const page = await api.entries({ order: 'descending' }, 100, cursor, context)
-			seen = page.items.find((entry) => entry.kind === 'ade.delivery')
-			cursor = page.next
-		} while (!seen && cursor)
+		const seen = await firstIn(
+			(cursor) => api.entries({ order: 'descending' }, 100, cursor, context),
+			(entry) => entry.kind === 'ade.delivery',
+		)
 		if (!seen?.data.held?.length) return
 		const at = (await indexOf(core, home.thread)).positions.get(Math.max(...seen.data.held))
 		if (at !== undefined) await demand(home.thread, { fill: 'leaves', upTo: at + 1 })
@@ -575,7 +572,6 @@ export function server(core) {
 						await core.commit((tx) => tx.createTask(Line, { backfill: true }, background(row.id)))
 		},
 		posted,
-		/** A withdrawn message's line says only that it was */
 		withdrawn: async (tx, threadId, entry) => {
 			if (remembers(await core.threadIn(tx, threadId)))
 				await tx.createTask(Line, { entry, again: true }, background(threadId))
@@ -604,10 +600,8 @@ export async function indexOf(core, threadId) {
 			positions: new Map(ids.map((id, at) => [id, at])),
 			have: new Map(),
 			long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
-			/** Messages their authors took back, whose lines say only that */
 			withdrawn: new Set(inherited?.withdrawn),
 			newest: 0,
-			/** Goes up with every line this index gains, its own or its parent's */
 			revision: 0,
 			/** A fork's parent, and the parent's revision its lines were last copied at */
 			parent: parent?.conversationId,
