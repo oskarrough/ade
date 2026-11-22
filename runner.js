@@ -147,15 +147,26 @@ async function ready() {
 				`No ade server answers at ${server}. Start one with \`ade\`, or name yours:\n  ${again('--server', 'http://<host>:3000')}`,
 			),
 		)
-	const holder = list.ok && list.json.find((runner) => runner.name === name && runner.online)
-	if (holder)
+	const holder = list.ok && list.json.find((runner) => runner.name === name)
+	if (holder?.online)
 		stop(
 			`A runner named ${name} is already online${holder.dir ? `, in ${holder.dir}` : ''}. Give this one its own name:\n  ${again('--name', `${name}-2`)}`,
 		)
+	taken = holder
 	if (!args.key) await mint()
 }
-/** A key of its own, which only the server's owner gets: on the server's machine that's whoever runs this */
+/** A runner by this name, holding a key, when this one started */
+let taken
+/**
+ * A key of its own, which only the server's owner gets: on the server's machine that's whoever runs this. A name that
+ * holds a key is another machine's or folder's, offline for now: it takes that over only when named on purpose.
+ */
 async function mint() {
+	if (taken && !args.name)
+		stop(
+			`A runner named ${name} already exists${taken.dir ? `, in ${taken.dir}` : ''}, offline for now. Give this one its own name:\n  ${again('--name', `${name}-2`)}\nor take its name over, which replaces its key:\n  ${again('--name', name)}`,
+		)
+	if (taken) console.log(`This replaces ${name}'s key: the runner that had it can't connect again.`)
 	const res = await fetch(`${server}/api/runners`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },

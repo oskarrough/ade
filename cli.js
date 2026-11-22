@@ -238,9 +238,10 @@ const commands = {
 			throw new Error(
 				'ade key <name>: name the runner, as threads will address it, like\n  ade key laptop',
 			)
+		const had = (await api('GET', '/api/runners')).find((runner) => runner.name === name)
 		const { key, ade, connect } = await api('POST', '/api/runners', { name })
 		console.log(
-			`A key for the runner ${name}; any runner already using that name is cut off until it gets this one.\n\nOn the runner's machine, in the folder agents should start in:\n  ${ade}\nwithout ade installed there:\n  ${connect}\nOn this machine, \`ade runner --name ${name}\` alone does it.\n\nADE_KEY=${key}`,
+			`${had ? `This replaces ${name}'s key: ${name}${had.online ? ' is cut off and' : ''} stays offline until it connects with the line below.` : `A key for the new runner ${name}.`}\n\nOn the runner's machine, in the folder agents should start in:\n  ${ade}\nwithout ade installed there:\n  ${connect}\nOn this machine, \`ade runner --name ${name}\` alone does it.\n\nADE_KEY=${key}`,
 		)
 	},
 	async revoke() {

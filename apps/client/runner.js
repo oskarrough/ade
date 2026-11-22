@@ -221,7 +221,7 @@ export function ConnectRunner(props) {
 	const [name, setName] = createSignal(props.name ?? '')
 	const [error, setError] = createSignal('')
 	const [copied, setCopied] = createSignal('')
-	// A new key for an online runner cuts it off, so the button asks first, in its own words.
+	// A new key for a runner that has one replaces it, online or not, so the button asks first, in its own words.
 	const [cutting, setCutting] = createSignal(false)
 	const existing = () => runners.find((runner) => runner.name === name().trim())
 	const add = busy(
@@ -235,7 +235,7 @@ export function ConnectRunner(props) {
 	)
 	const submit = (event) => {
 		event.preventDefault()
-		if (existing()?.online && !cutting()) return setCutting(true)
+		if (existing() && !cutting()) return setCutting(true)
 		setCutting(false)
 		add()
 	}
@@ -275,7 +275,12 @@ export function ConnectRunner(props) {
 					onBlur=${(_e) => setCutting(false)}
 				>
 					<${Busy} state=${add.state}
-						>${() => (cutting() ? 'Cut it off?' : existing() ? 'New key' : 'Add runner')}<//
+						>${() =>
+							cutting()
+								? `Replace ${existing()?.name}'s key?`
+								: existing()
+									? 'New key'
+									: 'Add runner'}<//
 					>
 				</button>
 			</form>
