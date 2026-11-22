@@ -29,7 +29,9 @@ import {
 	entries,
 	homeBot,
 	loadEarlier,
+	me,
 	openThread,
+	people,
 	runners,
 	saveBot,
 	sending,
@@ -37,7 +39,7 @@ import {
 	threadRows,
 	threadOf,
 } from './server.js'
-import { agentTo, formatAgent } from './agent.js'
+import { agentTo, formatAgent, shortLabel } from './agent.js'
 import { placePopover } from './popover.js'
 import { matches, metered, Metered, ModelPicker } from './model-picker.js'
 import { conversations } from './run.js'
@@ -119,9 +121,28 @@ export function Composer(props) {
 				})
 		},
 	)
+	/**
+	 * Who's in the thread, as the placeholder names them: its agents and bots, or whom it asks before any is here, then the
+	 * other people who wrote or read. A group is more than one agent, or anyone besides you.
+	 */
+	const members = () => {
+		const agents = here(props.thread).map((agent) => shortLabel(agent.name))
+		const others = (people[props.thread] ?? [])
+			.filter((name) => name !== me())
+			.map((name) => shortLabel(name))
+		return {
+			names: [
+				...new Set([
+					...(agents.length ? agents : whom().map((to) => recipientWords(to, props.thread)[0])),
+					...others,
+				]),
+			],
+			group: !props.inbox && !homeBot(props.thread) && (agents.length > 1 || others.length > 0),
+		}
+	}
 	const asking = () =>
-		free()
-			? 'the thread'
+		members().group && !pick(props.thread)
+			? ''
 			: whom()
 					.map((to) => recipientWords(to, props.thread).filter(Boolean).join(':'))
 					.join(' + ')
@@ -377,8 +398,8 @@ export function Composer(props) {
 					placeholder=${() =>
 						homeBot(props.thread)
 							? `Write to ${homeBot(props.thread).name}`
-							: whom().length
-								? 'Write a message'
+							: members().names.length
+								? `Write to ${listed(members().names)}`
 								: 'Pick a model below, then write'}
 					value=${() => draft().draft}
 					onFocus=${() => {
@@ -473,7 +494,7 @@ export function Composer(props) {
 					type="button"
 					class="ghost small pick"
 					aria-label=${() =>
-						`Asks ${asking() || 'no one yet; pick a model'}${folderOf(props.thread) ? ` in ${folderOf(props.thread)}` : ''}`}
+						`${asking() ? `Asks ${asking()}` : members().group ? 'Pick someone for one message' : 'Asks no one yet; pick a model'}${folderOf(props.thread) ? ` in ${folderOf(props.thread)}` : ''}`}
 					ref=${(el) => (button = el)}
 					aria-expanded="false"
 					title=${() =>
@@ -491,8 +512,9 @@ export function Composer(props) {
 				>
 					<span
 						><${Show}
-							when=${() => !free() && whom().length}
-							fallback=${() => asking() || 'Pick a model'}
+							when=${() => asking() && !free() && whom().length}
+							fallback=${() =>
+								members().group ? `${where(props.thread)}pick someone` : asking() || 'Pick a model'}
 							><${For} each=${() => whom()}
 								>${(to, index) => [
 									() => (index() ? ' + ' : agent(props.thread) ? where(props.thread) : ''),
@@ -816,7 +838,8 @@ const recipientWords = (to, thread) => {
 }
 /** The folder the next message's agent works in: as picked, else where it runs now, else its runner's own */
 const folderOf = (thread) => {
-	const to = agent(thread)
+	// In a group whose last message asked no agent, the thread's own agent still works where it did
+	const to = agent(thread) ?? here(thread).find((agent) => agent.to && !agent.to.name)?.to
 	const runner = to && runners.find((runner) => runner.name === to.runner)
 	if (!runner?.dir) return
 	const running = here(thread).find(
@@ -827,11 +850,20 @@ const folderOf = (thread) => {
 	return /^([/\\]|[A-Za-z]:)/.test(dir) ? dir : `${runner.dir}/${dir}`
 }
 /** Where the agent works, before whom the box asks: `ade/`, or `office:ade/` once more than one runner is online */
+/** Names as a sentence lists them: "a", "a and b", "a, b and c", or past three "a, b and 2 others" */
+const listed = (names) =>
+	names.length <= 3
+		? names.length > 1
+			? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+			: names[0]
+		: `${names.slice(0, 2).join(', ')} and ${names.length - 2} others`
 const where = (thread) => {
 	const folder = folderOf(thread)?.split(/[\\/]/).filter(Boolean).pop()
 	if (!folder) return ''
 	const several = runners.filter((runner) => runner.online).length > 1
-	return `${several ? `${agent(thread).runner}:` : ''}${folder}/ `
+	const runner = (agent(thread) ?? here(thread).find((agent) => agent.to && !agent.to.name)?.to)
+		?.runner
+	return `${several ? `${runner}:` : ''}${folder}/ `
 }
 /** What a runner's controls show: the agent asked, if it runs there, else what was last chosen there */
 export const toFor = (runner, thread = current()) =>
