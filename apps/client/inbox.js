@@ -56,7 +56,7 @@ export function Inbox() {
 			</header>
 			<ul>
 				<li class="room"><${Notice} /></li>
-				<${For} each=${() => inbox} keyed=${(item) => item.thread}>
+				<${For} each=${() => inbox} keyed=${(item) => `${item.kind} ${item.thread}`}>
 					${(item) =>
 						item().question
 							? html`<${Question} item=${() => item()} />`
