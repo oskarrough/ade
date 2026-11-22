@@ -682,12 +682,23 @@ harness.closed.then(
 		end.kind === 'failed' &&
 		(console.error('pi-durable: storage failed, exiting:', end.error), process.exit(1)),
 )
-/** A stop closes the harness, so the tasks it cuts off wait to resume, and Pi doesn't count them as crashed */
+/**
+ * A stop closes the harness, so the tasks it cuts off wait to resume, and Pi doesn't count them as crashed. Closing
+ * waits for running task code to return, so one that ignores its abort signal could wait forever: a deadline forces
+ * the exit anyway, and a second signal, while that first close is still working, skips straight to it.
+ */
 let stopping
+const CLOSE_DEADLINE = 5_000
 for (const signal of ['SIGINT', 'SIGTERM'])
 	process.on(signal, () => {
 		console.error(`stopped by ${signal}`)
-		stopping ??= harness.close(context).finally(() => process.exit(0))
+		if (stopping) return process.exit(0)
+		stopping = Promise.race([
+			harness.close(context),
+			new Promise((resolve) => setTimeout(resolve, CLOSE_DEADLINE)).then(() =>
+				console.error(`the harness didn't close within ${CLOSE_DEADLINE}ms; exiting anyway`),
+			),
+		]).finally(() => process.exit(0))
 	})
 
 /**

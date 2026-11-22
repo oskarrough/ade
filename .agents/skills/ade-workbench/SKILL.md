@@ -18,7 +18,7 @@ AGENTS.md has the rules; this is the how.
 
 ## A scratch server: try.js
 
-Start `node scripts/try.js &` from `.work/<your-name>/`, since it writes files where it starts, and keep `$!` with absolute log and pid paths. In a second it has bots and director on, three bots (bot1, bot2, bot3) that answer with their name, persona and what they were handed, a real runner on the scripted model `echo/try@bot`, and one answered thread. It prints its address, its Serve port (people come in with `Tailscale-User-Login`), the `export ADE_SERVER=…` for the CLI and the `kill` that stops it.
+Start `node scripts/try.js &` from `.work/<your-name>/`, since it writes files where it starts, and keep `$!` with absolute log and pid paths. Its store lives in a fresh temp folder deleted the moment it exits, so there's no restarting try.js itself on the same data; for that, run `server.js` directly with your own `DB_PATH` and `XDG_CONFIG_HOME` (as under "Real data" below) and start it again with the same ones. In a second it has bots and director on, three bots (bot1, bot2, bot3) that answer with their name, persona and what they were handed, a real runner on the scripted model `echo/try@bot`, and one answered thread. It prints its address, its Serve port (people come in with `Tailscale-User-Login`), the `export ADE_SERVER=…` for the CLI and the `kill` that stops it.
 
 `MODULES=+web-search node scripts/try.js` layers module changes on its own list; try.js locks module switches, so the settings panel's Save can only be exercised through memory's compact-at field. A shell started from a server's runner inherits `SERVE_PORT` and `MODULES`: start a scratch server with `env -u SERVE_PORT -u MODULES …` or it takes the real one's.
 
