@@ -10,14 +10,12 @@ import {
 	createStore,
 	For,
 	getOwner,
-	latest,
 	onSettled,
 	reconcile,
 	runWithOwner,
 	Show,
 	Switch,
 	Match,
-	untrack,
 } from 'solid-js'
 import {
 	api,
@@ -93,7 +91,7 @@ const firstLine = (text) =>
 		.trim()
 
 /** Each asked thread's first message, the question, and its answer if it had one yet, for the home of the bot it asks; `null` when it isn't one */
-const [questions, setQuestions] = createRoot(() => createStore({}, { shallow: true }))
+const [questions, setQuestions] = createStore({}, { shallow: true })
 /** Each asked thread's latest look, with its status then; an unanswered one is looked at again when that moves */
 const fetched = new Map()
 /** Rows a thread opens on; as many more come each time you scroll near the top */
@@ -208,7 +206,7 @@ export function Thread(props) {
 	/** The newest compaction's cut, once the messages on screen reach it */
 	const cut = createMemo(() => {
 		const newest = newestCut(
-			(latest(thread)?.agents ?? []).map((agent) => perConversation(agent.conversation).cut()),
+			(thread()?.agents ?? []).map((agent) => perConversation(agent.conversation).cut()),
 		)
 		return newest && newest.at >= start() ? newest : null
 	})
@@ -225,7 +223,8 @@ export function Thread(props) {
 	const rows = createProjection(
 		() => {
 			const all = messages()
-			const turns = (latest(thread)?.agents ?? []).flatMap((agent) => {
+			const agents = thread()?.agents ?? []
+			const turns = agents.flatMap((agent) => {
 				const live = doing[props.id]?.[agent.conversation]
 				const turns = perConversation(agent.conversation)
 					.turns()
@@ -256,7 +255,7 @@ export function Thread(props) {
 				if (entry.data.createdAt) return Date.parse(entry.data.createdAt)
 				const answer = entry.data.answer
 				if (answer) return perConversation(answer.conversation).times().said.get(answer.entry)
-				const times = (latest(thread)?.agents ?? [])
+				const times = agents
 					.map((agent) => perConversation(agent.conversation).times().asked.get(entry.id))
 					.filter((time) => time !== undefined)
 				return times.length ? Math.min(...times) : undefined
@@ -286,7 +285,6 @@ export function Thread(props) {
 			)
 			const shown = all.filter((entry) => !answers.has(entry.id) && !entry.data.withdrawn)
 			// Your message sent while an agent works waits for it to pick it up, and until then you can take it back
-			const agents = latest(thread)?.agents ?? []
 			const working = agents.some((agent) => doing[props.id]?.[agent.conversation]?.run)
 			const handedUpTo = Math.max(
 				-1,
@@ -485,7 +483,7 @@ export function Thread(props) {
 	createEffect(
 		() => (ready() && rows.length ? ((rows.at(-SHOWN) ?? rows[0])?.at ?? -Infinity) : null),
 		(start) => {
-			if (start !== null && untrack(shownFrom) === null) setShownFrom(start)
+			if (start !== null) setShownFrom((from) => from ?? start)
 		},
 	)
 	const titleClick = () =>

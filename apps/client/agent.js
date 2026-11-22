@@ -1,7 +1,7 @@
 /** Agents' labels and live work, shared by a thread and its runner. */
-import { createRoot, createStore } from 'solid-js'
+import { createStore } from 'solid-js'
 
-export const [doing, setDoing] = createRoot(() => createStore({}))
+export const [doing, setDoing] = createStore({})
 
 export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 

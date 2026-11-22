@@ -1,15 +1,6 @@
 /** An agent's turns, read from its own conversation: each one line in the thread, opened into every step it took */
 import html from '@solidjs/html'
-import {
-	createEffect,
-	createMemo,
-	createRoot,
-	createSignal,
-	createStore,
-	For,
-	onSettled,
-	Show,
-} from 'solid-js'
+import { createEffect, createMemo, createSignal, createStore, For, onSettled, Show } from 'solid-js'
 import { entries, titleOf } from './server.js'
 import { Cross, MessageMarkdown, Name } from './thread.js'
 import { doing, messageText, touched } from './agent.js'
@@ -155,7 +146,7 @@ ${() => (props.step.name ? JSON.stringify(props.step.args, null, 2) : props.step
 }
 
 /** The messages an opened handed step lights where they are in the thread */
-const [lit, setLit] = createRoot(() => createSignal(null))
+const [lit, setLit] = createSignal(null)
 /** Lights a step's messages, or with `null` puts out what `step` lit */
 const light = (on, step) =>
 	setLit((now) =>
@@ -236,7 +227,7 @@ const seconds = (ms) => {
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /** One clock for every live turn, ticking only while one is on screen */
-const [clock, setClock] = createRoot(() => createSignal(Date.now()))
+const [clock, setClock] = createSignal(Date.now())
 let ticking = 0,
 	timer
 const tick = () => {
@@ -248,11 +239,11 @@ const tick = () => {
  * Each agent conversation on screen, its entries as Pi keeps them.
  * Entries never change once written, so the store is shallow: a read tracks the conversation, not each entry's fields.
  */
-const [conversations, setConversations] = createRoot(() => createStore({}, { shallow: true }))
+const [conversations, setConversations] = createStore({}, { shallow: true })
 
 export { conversations }
 /** Each agent's newest compaction cut, as the socket sends it with the first batch and after each compaction: `null` for none */
-const [compactions, setCompactions] = createRoot(() => createStore({}, { shallow: true }))
+const [compactions, setCompactions] = createStore({}, { shallow: true })
 
 /**
  * Takes an agent's entries off the socket: as far back as the thread's messages on each new watch, then each one once,

@@ -1,9 +1,9 @@
 /** What went wrong, above the active composer's input; goes by itself. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
-import { createEffect, createRoot, createSignal, Show } from 'solid-js'
+import { createEffect, createSignal, Show } from 'solid-js'
 
-const [notice, setNotice] = createRoot(() => createSignal('', { equals: false }))
+const [notice, setNotice] = createSignal('', { equals: false })
 export const report = (error) => setNotice(error?.message ?? String(error))
 
 export function Notice() {

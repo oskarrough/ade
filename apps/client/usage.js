@@ -3,11 +3,20 @@
  * settings: its totals, what the tokens were, each day, then threads, bots and models. A thread's in its details.
  */
 import html from '@solidjs/html'
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import {
+	createDeferred,
+	createMemo,
+	createSignal,
+	Errored,
+	For,
+	isPending,
+	latest,
+	Loading,
+	Show,
+} from 'solid-js'
 import { api, connected, current, openThread, threadOf, titleOf } from './server.js'
 import { shortLabel } from './agent.js'
 import { Icon } from './icons.js'
-import { report } from './notice.js'
 
 const DAY = 86_400_000
 /** How far back a view counts, from local midnight `days - 1` days ago */
@@ -158,13 +167,12 @@ const ModelRows = (props) => html`
 export function Usage() {
 	const [range, setRange] = createSignal('fortnight')
 	const [measure, setMeasure] = createSignal('cost')
-	const [usage, setUsage] = createSignal()
-	createEffect(
-		() => [range(), connected()],
-		([picked, online]) => {
-			if (online) api(`/api/usage?since=${sinceOf(picked)}&zone=${zone()}`).then(setUsage, report)
-		},
-	)
+	const usage = createMemo((previous) => {
+		const since = sinceOf(range())
+		return connected()
+			? api(`/api/usage?since=${since}&zone=${zone()}`).then((found) => ({ ...found, since }))
+			: previous
+	})
 	return html`
 		<article class="thread current inbox usage" aria-label="Usage">
 			<header>
@@ -184,92 +192,105 @@ export function Usage() {
 				</button>
 			</header>
 			<ul>
-				<li class="usage-range"><${Range} range=${range} onPick=${setRange} /></li>
-				<${Show} when=${usage} keyed fallback=${html`<li class="mute">Counting…</li>`}
-					>${(found) => html`
-						<${Show}
-							when=${() => found.total.calls}
-							fallback=${html`<li class="mute">No model calls in this time.</li>`}
-						>
-							<li class="usage-total" title=${LIST_PRICE}>
-								<b>${() => `${cost(found.total)} at list price`}</b>
-								<small
-									>${() =>
-										`${number.format(tokensOf(found.total))} tokens · ${calls(found.total)} · ${found.threadCount} ${found.threadCount === 1 ? 'thread' : 'threads'}`}</small
-								>
-							</li>
-							<li><${Mix} count=${found.total} /></li>
-							<li>
-								<nav class="tabs" aria-label="Days by">
-									<${For} each=${['cost', 'tokens']}
-										>${(key) =>
-											html`<button
-												type="button"
-												class="ghost small"
-												aria-pressed=${() => String(measure() === key)}
-												onClick=${(_event) => setMeasure(key)}
-											>
-												${key === 'cost' ? 'Cost' : 'Tokens'}
-											</button>`}<//
-									>
-								</nav>
-								<${Days} days=${found.days} since=${() => sinceOf(range())} measure=${measure} />
-							</li>
-							<li>
-								<h3>Threads</h3>
-								<ul class="rows usage">
-									<${For} each=${found.threads}
-										>${(row) => html`
-											<li
-												role="button"
-												tabindex="0"
-												onClick=${(_event) => openThread(row.thread)}
-												onKeyDown=${(event) =>
-													event.key === 'Enter' &&
-													event.target === event.currentTarget &&
-													openThread(row.thread)}
-											>
-												<div>
-													<b>${() => (threadOf(row.thread) ? titleOf(row.thread) : row.title)}</b>
-													<small
-														>${() =>
-															`${percent(row.cost, found.total.cost)} · ${cost(row)} · ${calls(row)}${row.archived ? ' · archived' : ''}`}</small
-													>
-													<small>${() => tokens(row)}</small>
-												</div>
-											</li>
-										`}<//
-									>
-								</ul>
-							</li>
-							<li>
-								<h3>Bots</h3>
-								<ul class="rows usage">
-									<${For} each=${found.bots}
-										>${(row) => html`
-											<li>
-												<div>
-													<b>${() => (row.bot === 'agent' ? "Threads' own agents" : row.bot)}</b>
-													<small
-														>${() =>
-															`${percent(row.cost, found.total.cost)} · ${cost(row)} · ${calls(row)}`}</small
-													>
-													<small>${() => tokens(row)}</small>
-												</div>
-											</li>
-										`}<//
-									>
-								</ul>
-							</li>
-							<li>
-								<h3>Models</h3>
-								<ul class="rows usage">
-									<${ModelRows} models=${found.models} />
-								</ul>
-							</li>
-						<//>
-					`}<//
+				<li class="usage-range"><${Range} range=${() => latest(range)} onPick=${setRange} /></li>
+				<${Errored}
+					fallback=${(error) => html`<li class="mute" role="alert">${() => error().message}</li>`}
 				>
+					<${Loading} fallback=${html`<li class="mute">Counting…</li>`}>
+						<${Show} when=${() => isPending(usage) && usage()}>
+							<li class="mute" role="status">Updating usage…</li>
+						<//>
+						<${Show} when=${usage} keyed fallback=${html`<li class="mute">Counting…</li>`}
+							>${(found) => html`
+								<${Show}
+									when=${() => found.total.calls}
+									fallback=${html`<li class="mute">No model calls in this time.</li>`}
+								>
+									<li class="usage-total" title=${LIST_PRICE}>
+										<b>${() => `${cost(found.total)} at list price`}</b>
+										<small
+											>${() =>
+												`${number.format(tokensOf(found.total))} tokens · ${calls(found.total)} · ${found.threadCount} ${found.threadCount === 1 ? 'thread' : 'threads'}`}</small
+										>
+									</li>
+									<li><${Mix} count=${found.total} /></li>
+									<li>
+										<nav class="tabs" aria-label="Days by">
+											<${For} each=${['cost', 'tokens']}
+												>${(key) =>
+													html`<button
+														type="button"
+														class="ghost small"
+														aria-pressed=${() => String(measure() === key)}
+														onClick=${(_event) => setMeasure(key)}
+													>
+														${key === 'cost' ? 'Cost' : 'Tokens'}
+													</button>`}<//
+											>
+										</nav>
+										<${Days} days=${found.days} since=${found.since} measure=${measure} />
+									</li>
+									<li>
+										<h3>Threads</h3>
+										<ul class="rows usage">
+											<${For} each=${found.threads}
+												>${(row) => html`
+													<li
+														role="button"
+														tabindex="0"
+														onClick=${(_event) => openThread(row.thread)}
+														onKeyDown=${(event) =>
+															event.key === 'Enter' &&
+															event.target === event.currentTarget &&
+															openThread(row.thread)}
+													>
+														<div>
+															<b
+																>${() => (threadOf(row.thread) ? titleOf(row.thread) : row.title)}</b
+															>
+															<small
+																>${() =>
+																	`${percent(row.cost, found.total.cost)} · ${cost(row)} · ${calls(row)}${row.archived ? ' · archived' : ''}`}</small
+															>
+															<small>${() => tokens(row)}</small>
+														</div>
+													</li>
+												`}<//
+											>
+										</ul>
+									</li>
+									<li>
+										<h3>Bots</h3>
+										<ul class="rows usage">
+											<${For} each=${found.bots}
+												>${(row) => html`
+													<li>
+														<div>
+															<b
+																>${() => (row.bot === 'agent' ? "Threads' own agents" : row.bot)}</b
+															>
+															<small
+																>${() =>
+																	`${percent(row.cost, found.total.cost)} · ${cost(row)} · ${calls(row)}`}</small
+															>
+															<small>${() => tokens(row)}</small>
+														</div>
+													</li>
+												`}<//
+											>
+										</ul>
+									</li>
+									<li>
+										<h3>Models</h3>
+										<ul class="rows usage">
+											<${ModelRows} models=${found.models} />
+										</ul>
+									</li>
+								<//>
+							`}<//
+						>
+					<//>
+				<//>
 			</ul>
 		</article>
 	`
@@ -278,45 +299,53 @@ export function Usage() {
 /** A thread's usage in its details: its total, the token mix and a row per agent and model, fetched again when its work starts or ends */
 export function ThreadUsage(props) {
 	const [range, setRange] = createSignal('all')
-	const [usage, setUsage] = createSignal()
-	createEffect(
-		() => [props.thread, range(), threadOf(props.thread)?.busy, connected()],
-		([thread, picked, , online]) => {
-			if (online)
-				api(`/api/threads/${thread}/usage?since=${sinceOf(picked)}`).then(setUsage, report)
-		},
-	)
+	// Counting tokens should not hold the thread’s work status back.
+	const usage = createDeferred((previous) => {
+		const thread = props.thread
+		const since = sinceOf(range())
+		void threadOf(thread)?.busy
+		return connected() ? api(`/api/threads/${thread}/usage?since=${since}`) : previous
+	})
 	return html`
 		<h2>Usage</h2>
 		<${Range} range=${range} onPick=${setRange} />
-		<${Show} when=${usage} keyed
-			>${(found) => html`
-				<${Show}
-					when=${() => found.total.calls}
-					fallback=${html`<p class="mute">No model calls in this time.</p>`}
-				>
-					<ul class="rows usage">
-						<li title=${LIST_PRICE}>
-							<div>
-								<b>${() => `${cost(found.total)} at list price`}</b>
-								<small
-									>${() =>
-										found.models.length === 1
-											? `${calls(found.total)} · ${found.models[0].model}`
-											: calls(found.total)}</small
-								>
-								<${Mix} count=${found.total} />
-							</div>
-						</li>
-						<${Show} when=${() => found.models.length > 1}>
-							<${ModelRows}
-								models=${found.models}
-								agents=${new Set(found.models.map((row) => row.agent)).size > 1}
-							/>
-						<//>
-					</ul>
-				<//>
-			`}<//
+		<${Errored}
+			fallback=${(error) => html`<p class="mute" role="alert">${() => error().message}</p>`}
 		>
+			<${Loading} fallback=${html`<p class="mute">Counting…</p>`}>
+				<${Show} when=${() => isPending(usage) && usage()}>
+					<p class="mute" role="status">Updating usage…</p>
+				<//>
+				<${Show} when=${usage} keyed fallback=${html`<p class="mute">Counting…</p>`}
+					>${(found) => html`
+						<${Show}
+							when=${() => found.total.calls}
+							fallback=${html`<p class="mute">No model calls in this time.</p>`}
+						>
+							<ul class="rows usage">
+								<li title=${LIST_PRICE}>
+									<div>
+										<b>${() => `${cost(found.total)} at list price`}</b>
+										<small
+											>${() =>
+												found.models.length === 1
+													? `${calls(found.total)} · ${found.models[0].model}`
+													: calls(found.total)}</small
+										>
+										<${Mix} count=${found.total} />
+									</div>
+								</li>
+								<${Show} when=${() => found.models.length > 1}>
+									<${ModelRows}
+										models=${found.models}
+										agents=${new Set(found.models.map((row) => row.agent)).size > 1}
+									/>
+								<//>
+							</ul>
+						<//>
+					`}<//
+				>
+			<//>
+		<//>
 	`
 }

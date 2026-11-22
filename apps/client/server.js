@@ -322,7 +322,7 @@ export const {
 					show()
 				},
 				path,
-				!module || untrack(server).modules.includes(module),
+				!module || server().modules.includes(module),
 			)
 		const remove = (id, request) =>
 			optimistically(
@@ -439,7 +439,7 @@ export const {
 	/** Family members you opened in this page; closing forgets one */
 	const [open, setOpen] = createSignal(new Set())
 	createEffect(current, (here) => {
-		if (here && !untrack(open).has(here)) setOpen((ids) => new Set([...ids, here]))
+		if (here) setOpen((ids) => (ids.has(here) ? ids : new Set([...ids, here])))
 	})
 	/** The columns on screen: the thread you're in and the open members of its family, in the family's order */
 	const columns = createMemo(() => family().filter((id) => id === current() || open().has(id)))

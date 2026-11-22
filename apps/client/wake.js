@@ -1,12 +1,14 @@
 /** Wakes: an agent coming back to its thread later. Its pending wakes above the composer, each with ×; every wake in the house from the list's foot; the row a wake call leaves in the chat. */
 import html from '@solidjs/html'
 import {
-	createEffect,
-	createRoot,
+	createDeferred,
 	createSignal,
 	createStore,
 	createUniqueId,
+	Errored,
 	For,
+	isPending,
+	Loading,
 	Show,
 } from 'solid-js'
 import { Icon } from './icons.js'
@@ -40,7 +42,7 @@ const span = (ms) => {
 }
 
 /** Each thread's count of wake changes heard on its socket, which its strip fetches again on */
-const [heard, setHeard] = createRoot(() => createStore({}))
+const [heard, setHeard] = createStore({})
 export function heardWake(thread, event) {
 	if (event.purpose === 'wake')
 		setHeard((all) => {
@@ -60,15 +62,12 @@ const whenOf = (wake) =>
 export function WakeList() {
 	let button, panel
 	const id = createUniqueId()
-	const [wakes, setWakes] = createSignal([])
-	const load = () => api('/api/wake').then(setWakes, report)
-	/** Open, it fetches again whenever the socket says a wake changed or comes back */
-	createEffect(
-		() => [wakesChanged(), connected()],
-		([, online]) => {
-			if (online && panel?.matches(':popover-open')) load()
-		},
-	)
+	const [open, setOpen] = createSignal(false)
+	const wakes = createDeferred((previous) => {
+		if (!open()) return undefined
+		void wakesChanged()
+		return connected() ? api('/api/wake') : (previous ?? [])
+	})
 	const cancel = (wake) => api('/api/wake', { cancel: wake.id }).catch(report)
 	/** A row opens its thread */
 	const go = (wake) => {
@@ -92,45 +91,56 @@ export function WakeList() {
 			popover
 			ref=${(el) => (panel = el)}
 			onToggle=${(event) => {
-				if (event.newState !== 'open') return
-				placePopover(panel, button)
-				load()
+				const opening = event.newState === 'open'
+				if (opening) placePopover(panel, button)
+				setOpen(opening)
 			}}
 		>
 			<${Panes} title="Wakes" open=${() => false} onClose=${(_event) => panel.hidePopover()}>
-				<ul class="rows">
-					<${For} each=${wakes} keyed=${(wake) => wake.id}
-						>${(wake) => html`
-							<li
-								role="button"
-								tabindex="0"
-								title=${() => `${shortLabel(wake().agent)} wakes ${whenOf(wake())}: ${wake().note}`}
-								onClick=${(_e) => go(wake())}
-								onKeyDown=${(event) =>
-									event.key === 'Enter' && event.target === event.currentTarget && go(wake())}
-							>
-								<div>
-									<b>${() => titleOf(wake().thread)}</b>
-									<small>${() => `⏰ ${whenOf(wake())}`}</small>
-									<small>${() => `${shortLabel(wake().agent)}: ${wake().note}`}</small>
-								</div>
-								<button
-									type="button"
-									class="ghost small"
-									aria-label="Cancel this wake"
-									title="Cancel this wake"
-									onClick=${(event) => {
-										event.stopPropagation()
-										cancel(wake())
-									}}
-								>
-									<${Icon} name="close" />
-								</button>
-							</li>
-						`}<//
+				<${Show} when=${open}>
+					<${Errored}
+						fallback=${(error) => html`<p class="mute" role="alert">${() => error().message}</p>`}
 					>
-				</ul>
-				<${Show} when=${() => !wakes().length}><p class="mute">No wakes set.</p><//>
+						<${Loading} fallback=${html`<p class="mute">Reading wakes…</p>`}>
+							<${Show} when=${() => isPending(wakes)}>
+								<p class="mute">${() => (wakes() ? 'Updating wakes…' : 'Reading wakes…')}</p>
+							<//>
+							<ul class="rows">
+								<${For} each=${wakes} keyed=${(wake) => wake.id}
+									>${(wake) => html`
+										<li
+											role="button"
+											tabindex="0"
+											title=${() => `${shortLabel(wake().agent)} wakes ${whenOf(wake())}: ${wake().note}`}
+											onClick=${(_e) => go(wake())}
+											onKeyDown=${(event) =>
+												event.key === 'Enter' && event.target === event.currentTarget && go(wake())}
+										>
+											<div>
+												<b>${() => titleOf(wake().thread)}</b>
+												<small>${() => `⏰ ${whenOf(wake())}`}</small>
+												<small>${() => `${shortLabel(wake().agent)}: ${wake().note}`}</small>
+											</div>
+											<button
+												type="button"
+												class="ghost small"
+												aria-label="Cancel this wake"
+												title="Cancel this wake"
+												onClick=${(event) => {
+													event.stopPropagation()
+													cancel(wake())
+												}}
+											>
+												<${Icon} name="close" />
+											</button>
+										</li>
+									`}<//
+								>
+							</ul>
+							<${Show} when=${() => wakes()?.length === 0}><p class="mute">No wakes set.</p><//>
+						<//>
+					<//>
+				<//>
 			<//>
 		</div>
 	`
@@ -138,52 +148,54 @@ export function WakeList() {
 
 /** The thread's pending wakes, fetched when it opens, when the socket (re)connects, and when a wake changes */
 export function Wakes(props) {
-	const [wakes, setWakes] = createSignal([])
-	const load = () => api(`/api/threads/${props.thread}/wake`).then(setWakes, () => setWakes([]))
-	createEffect(
-		() => [props.thread, connected(), heard[props.thread]],
-		([, online]) => {
-			if (online) load()
-		},
-	)
-	const cancel = (id) => api(`/api/threads/${props.thread}/wake`, { cancel: id }).then(load, report)
+	const wakes = createDeferred((previous) => {
+		const thread = props.thread
+		void heard[thread]
+		return connected() ? api(`/api/threads/${thread}/wake`).catch(() => []) : (previous ?? [])
+	})
+	const cancel = (id) => api(`/api/threads/${props.thread}/wake`, { cancel: id }).catch(report)
 	return html`
-		<${For} each=${wakes} keyed=${(wake) => wake.id}
-			>${(wake) => {
-				const [open, setOpen] = createSignal(false)
-				/** Opened, a hook wake shows the owner where its hook is and its secret; anyone else, nothing */
-				const [hook, setHook] = createSignal('')
-				const toggle = () => {
-					const opening = !open()
-					setOpen(opening)
-					if (opening && wake().on !== undefined && !hook())
-						api(`/api/threads/${props.thread}/hooks?wake=${wake().id}`).then(
-							(found) => setHook(`, ${found.path}, secret ${found.secret}`),
-							() => {},
-						)
-				}
-				const when = () => whenOf(wake())
-				return html`
-					<p class=${() => ({ notice: true, open: open() })} role="status">
-						<span
-							class="line"
-							title=${() => `${shortLabel(wake().agent)} wakes ${when()}: ${wake().note}`}
-							onClick=${(_e) => toggle()}
-							>${() => `⏰ ${when()}: ${wake().note}${open() ? hook() : ''}`}</span
-						>
-						<button
-							type="button"
-							class="ghost small"
-							aria-label="Cancel this wake"
-							title="Cancel this wake"
-							onClick=${(_e) => cancel(wake().id)}
-						>
-							<${Icon} name="close" />
-						</button>
-					</p>
-				`
-			}}<//
-		>
+		<${Loading}>
+			<${Show} when=${() => isPending(wakes)}>
+				<p class="notice">Updating wakes…</p>
+			<//>
+			<${For} each=${wakes} keyed=${(wake) => wake.id}
+				>${(wake) => {
+					const [open, setOpen] = createSignal(false)
+					/** Opened, a hook wake shows the owner where its hook is and its secret; anyone else, nothing */
+					const [hook, setHook] = createSignal('')
+					const toggle = () => {
+						const opening = !open()
+						setOpen(opening)
+						if (opening && wake().on !== undefined && !hook())
+							api(`/api/threads/${props.thread}/hooks?wake=${wake().id}`).then(
+								(found) => setHook(`, ${found.path}, secret ${found.secret}`),
+								() => {},
+							)
+					}
+					const when = () => whenOf(wake())
+					return html`
+						<p class=${() => ({ notice: true, open: open() })} role="status">
+							<span
+								class="line"
+								title=${() => `${shortLabel(wake().agent)} wakes ${when()}: ${wake().note}`}
+								onClick=${(_e) => toggle()}
+								>${() => `⏰ ${when()}: ${wake().note}${open() ? hook() : ''}`}</span
+							>
+							<button
+								type="button"
+								class="ghost small"
+								aria-label="Cancel this wake"
+								title="Cancel this wake"
+								onClick=${(_e) => cancel(wake().id)}
+							>
+								<${Icon} name="close" />
+							</button>
+						</p>
+					`
+				}}<//
+			>
+		<//>
 	`
 }
 

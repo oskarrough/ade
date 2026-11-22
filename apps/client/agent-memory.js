@@ -1,15 +1,17 @@
 /** Memory belongs to one visible thread. Disposing it discards every outstanding read. */
 import html from '@solidjs/html'
 import {
+	affects,
+	createEffect,
 	createMemo,
 	createSignal,
 	For,
 	Errored,
+	isPending,
+	latest,
 	Loading,
-	onSettled,
 	refresh,
 	Show,
-	untrack,
 } from 'solid-js'
 import { api, connected, current, entries, server, threadOf } from './server.js'
 import { cutOf, newestCut, plural } from './run.js'
@@ -103,27 +105,23 @@ export function Memory() {
 
 function ThreadMemory(props) {
 	// The keyed owner fixes the thread until this entire view is disposed.
-	const path = untrack(() => `/api/threads/${props.thread}/memory`)
-	const read = (query = '') => api(path + query)
+	const read = (query) => api(`/api/threads/${props.thread}/memory${query}`)
 	const view = createMemo(() => read(`?room=${props.room}`))
-	/** Read again every 3 s while lines are still being written, else once a message lands */
-	const count = () => entries[props.thread]?.length ?? 0
-	onSettled(() => {
-		let seen = untrack(count)
-		const timer = setInterval(() => {
-			const writing = untrack(() => {
-				try {
-					return view().cut.some((line) => line.text.includes('not summarized yet'))
-				} catch {
-					return true
-				}
-			})
-			if (!writing && untrack(count) === seen) return
-			seen = untrack(count)
-			refresh(view)
-		}, 3000)
-		return () => clearInterval(timer)
-	})
+	/** Read again after 3 s while lines are still being written or after a message lands */
+	createEffect(
+		() => ({
+			writing: view().cut.some((line) => line.text.includes('not summarized yet')),
+			messages: entries[props.thread]?.length ?? 0,
+		}),
+		({ writing, messages }, previous) => {
+			if (!writing && (!previous || messages === previous.messages)) return
+			const timer = setTimeout(() => {
+				affects(view)
+				refresh(view)
+			}, 3000)
+			return () => clearTimeout(timer)
+		},
+	)
 	const Lines = (props) => html`
 		<ul>
 			<${For} each=${() => props.nodes} keyed=${key}>
@@ -177,6 +175,9 @@ function ThreadMemory(props) {
 	let root
 	return html`
 		<div class="memory reads" ref=${(el) => (root = el)}>
+			<${Show} when=${() => isPending(view)}>
+				<p class="mute">Updating memory…</p>
+			<//>
 			<${Show} when=${() => view().total} fallback=${html`<p class="mute">No messages yet.</p>`}>
 				<label class="room"
 					>Room
@@ -185,7 +186,7 @@ function ThreadMemory(props) {
 						min="0"
 						max="100"
 						aria-label="Memory room"
-						value=${() => props.room}
+						value=${() => latest(() => props.room)}
 						onInput=${(event) => props.onRoom(Number(event.currentTarget.value))}
 					/>
 					<span

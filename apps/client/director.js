@@ -4,7 +4,7 @@
  * of it; this page hears it while the thread is open, and forgets it on reload.
  */
 import html from '@solidjs/html'
-import { createRoot, createStore, For, Show, untrack } from 'solid-js'
+import { createStore, For, Show, untrack } from 'solid-js'
 import { openSide, PageTabs } from './side.js'
 import { Panes } from './panes.js'
 import { Dot } from './dot.js'
@@ -13,7 +13,7 @@ import { Dot } from './dot.js'
 const KEEP = 200
 
 /** Each thread's events, oldest first; a model call's end replaces its start */
-const [activity, setActivity] = createRoot(() => createStore({}))
+const [activity, setActivity] = createStore({})
 
 export function heardActivity(thread, event) {
 	if (event.purpose !== 'director') return

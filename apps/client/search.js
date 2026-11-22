@@ -4,7 +4,18 @@
  * around the match, and opens the thread scrolled to that message, lit as a recap link lights it.
  */
 import html from '@solidjs/html'
-import { createEffect, createMemo, createSignal, For, Loading, Show, untrack } from 'solid-js'
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	isPending,
+	latest,
+	Loading,
+	onSettled,
+	Show,
+	untrack,
+} from 'solid-js'
 import {
 	api,
 	colorOf,
@@ -27,12 +38,15 @@ export function SearchField() {
 	let timer
 	// Closed from anywhere else, it empties
 	createEffect(searchFor, (text) => {
-		if (text === null) setDraft('')
+		if (text !== null) return
+		clearTimeout(timer)
+		setDraft('')
 	})
+	onSettled(() => () => clearTimeout(timer))
 	const close = () => {
 		clearTimeout(timer)
 		setDraft('')
-		if (searchFor() !== null) openThread(current())
+		if (latest(searchFor) !== null) openThread(current())
 	}
 	const typed = (text) => {
 		setDraft(text)
@@ -104,6 +118,9 @@ export function Search() {
 			</header>
 			<ul>
 				<${Loading} fallback=${html`<li class="mute">Searching…</li>`}>
+					<${Show} when=${() => isPending(results)}>
+						<li class="mute" role="status">Updating results…</li>
+					<//>
 					<${For} each=${results} keyed=${(item) => item.message}>
 						${(item) => html`<${Result} item=${() => item()} />`}
 					<//>

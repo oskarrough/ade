@@ -2,14 +2,12 @@
 import html from '@solidjs/html'
 import {
 	createEffect,
-	createRoot,
 	createSignal,
 	createStore,
 	createUniqueId,
 	For,
 	Show,
 	snapshot,
-	untrack,
 } from 'solid-js'
 import { api, connected, openUsage, server, setChat } from './server.js'
 import { ModelPicker } from './model-picker.js'
@@ -92,8 +90,10 @@ export function Settings() {
 	})
 	// The page reconnects on its own; once the server is back, the panel is ready for the next change
 	createEffect(connected, (up) => {
-		if (up && untrack(() => draft.state !== 'saving' && draft.state !== ''))
-			setDraft((store) => void (store.state = ''))
+		if (up)
+			setDraft((store) => {
+				if (store.state !== 'saving') store.state = ''
+			})
 	})
 	return html`
 		<button
@@ -386,9 +386,13 @@ const shown = (text) => {
 }
 
 /** Changes not saved yet, kept if the settings close before saving: module switches, then each section's fields */
-const [draft, setDraft] = createRoot(() =>
-	createStore({ modules: {}, memory: {}, director: {}, bots: {}, state: '' }),
-)
+const [draft, setDraft] = createStore({
+	modules: {},
+	memory: {},
+	director: {},
+	bots: {},
+	state: '',
+})
 const SECTIONS = ['memory', 'director', 'bots']
 /** What the server runs for a field it may leave unset */
 const DEFAULTS = { memory: { model: '', compactAt: 100000 }, director: {}, bots: { voice: '' } }

@@ -191,16 +191,16 @@ function ListEdge() {
 }
 
 /** The side column's edges drag the same way, either side of it: the recap, details and canvas share its width. */
-function SideEdge({ after }) {
+function SideEdge(props) {
 	const fit = (px) => Math.round(Math.min(Math.max(px, 288), innerWidth * 0.7))
-	const page = (el) => (after ? el.previousElementSibling : el.nextElementSibling)
+	const page = (el) => (props.after ? el.previousElementSibling : el.nextElementSibling)
 	return Edge({
 		label: 'Side column width',
 		width: (edge) => page(edge).offsetWidth,
 		drag: (edge) => {
 			const rect = page(edge).getBoundingClientRect()
 			const wanted = (pointer) =>
-				after ? pointer.clientX - rect.left : rect.right - pointer.clientX
+				props.after ? pointer.clientX - rect.left : rect.right - pointer.clientX
 			// The threads beside it keep their own least width, so the page stops where it would squeeze one.
 			return (pointer) => {
 				sideWidth.set(fit(wanted(pointer)))
@@ -208,25 +208,27 @@ function SideEdge({ after }) {
 			}
 		},
 		set: (edge, px) => sideWidth.set(px && fit(px)),
-		grow: after ? 1 : -1,
+		get grow() {
+			return props.after ? 1 : -1
+		},
 		edge: 'side-edge',
 	})
 }
 
-function Edge({ ref = undefined, label, width, drag, set, grow, edge: name }) {
+function Edge(props) {
 	return html`
 		<div
-			ref=${(el) => ref?.(el)}
-			class=${name}
+			ref=${(el) => props.ref?.(el)}
+			class=${() => props.edge}
 			role="separator"
 			aria-orientation="vertical"
-			aria-label=${label}
+			aria-label=${() => props.label}
 			tabindex="0"
 			title="Drag to resize; double-click to reset"
 			onPointerDown=${(event) => {
 				const edge = event.currentTarget
 				edge.setPointerCapture(event.pointerId)
-				const move = drag(edge)
+				const move = props.drag(edge)
 				const up = () => {
 					edge.removeEventListener('pointermove', move)
 					edge.removeEventListener('pointerup', up)
@@ -237,12 +239,12 @@ function Edge({ ref = undefined, label, width, drag, set, grow, edge: name }) {
 				document.body.classList.add('resizing')
 				event.preventDefault()
 			}}
-			onDblClick=${(event) => set(event.currentTarget, null)}
+			onDblClick=${(event) => props.set(event.currentTarget, null)}
 			onKeyDown=${(event) => {
 				const step = { ArrowLeft: -16, ArrowRight: 16 }[event.key]
 				if (!step) return
 				event.preventDefault()
-				set(event.currentTarget, width(event.currentTarget) + grow * step)
+				props.set(event.currentTarget, props.width(event.currentTarget) + props.grow * step)
 			}}
 		></div>
 	`

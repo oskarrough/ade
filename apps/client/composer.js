@@ -12,10 +12,8 @@ import { Icon } from './icons.js'
 import {
 	createEffect,
 	createSignal,
-	createRoot,
 	createStore,
 	For,
-	onCleanup,
 	onSettled,
 	Show,
 	snapshot,
@@ -52,9 +50,12 @@ import { imageContent, imageUrl } from './images.js'
 export function Composer(props) {
 	let input, box, picker, button, chooser, anchor, recall, recallButton, mentionList
 	// So appendQuote can reach this thread's box from outside, even when it isn't the active one
-	onCleanup(() => {
-		const key = props.thread ?? 'new'
-		if (textareas.get(key) === input) textareas.delete(key)
+	onSettled(() => {
+		const key = untrack(() => props.thread ?? 'new')
+		textareas.set(key, input)
+		return () => {
+			if (textareas.get(key) === input) textareas.delete(key)
+		}
 	})
 	const [mention, setMention] = createSignal(null)
 	const [highlighted, setHighlighted] = createSignal(0)
@@ -309,8 +310,8 @@ export function Composer(props) {
 				add(files)
 			}}
 		>
-			<${Show} when=${() => props.thread && server().modules?.includes('wake')}>
-				<${Wakes} thread=${() => props.thread} />
+			<${Show} when=${() => server().modules?.includes('wake') && props.thread} keyed>
+				${(thread) => html`<${Wakes} thread=${thread} />`}
 			<//>
 			<${Show} when=${open}><${Notice} /><//>
 			<${Show} when=${() => draft().images.length}>
@@ -338,10 +339,7 @@ export function Composer(props) {
 			<div class="box" ref=${(el) => (box = el)}>
 				<textarea
 					class=${() => ({ draft: true, elsewhere: !active() })}
-					ref=${(el) => {
-						input = el
-						textareas.set(props.thread ?? 'new', el)
-					}}
+					ref=${(el) => (input = el)}
 					rows="1"
 					autocomplete="off"
 					enterkeyhint=${() => (touch() ? 'enter' : 'send')}
@@ -676,7 +674,7 @@ function MentionRow(option, mention) {
 	`
 }
 
-const [compose, setCompose] = createRoot(() => createStore({ drafts: {}, picks: {}, settings: {} }))
+const [compose, setCompose] = createStore({ drafts: {}, picks: {}, settings: {} })
 const emptyDraft = { draft: '', images: [], sending: false }
 /**
  * Tells the thread you're typing, so the director's picks wait for you: a beat every 2 s while there's text, one
@@ -770,7 +768,7 @@ const mentionsFor = (query, thread) => {
 		)
 }
 /** Each runner folder's skills, `runner:dir` → [{name, description}], fetched once per page */
-const [skills, setSkills] = createRoot(() => createStore({}))
+const [skills, setSkills] = createStore({})
 /** Where the message's agent works: the runner and folder its skills come from */
 const workplace = (thread) => {
 	const to = recipients(thread)[0]

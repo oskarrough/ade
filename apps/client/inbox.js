@@ -7,7 +7,17 @@
  * the thread read, for you alone.
  */
 import html from '@solidjs/html'
-import { createMemo, For, Loading, onSettled, refresh, Show, untrack } from 'solid-js'
+import {
+	affects,
+	createEffect,
+	createMemo,
+	For,
+	isPending,
+	Loading,
+	refresh,
+	Show,
+	untrack,
+} from 'solid-js'
 import {
 	api,
 	colorOf,
@@ -57,10 +67,14 @@ export function Inbox() {
 			<ul>
 				<li class="room"><${Notice} /></li>
 				<${For} each=${() => inbox} keyed=${(item) => `${item.kind} ${item.thread}`}>
-					${(item) =>
-						item().question
-							? html`<${Question} item=${() => item()} />`
-							: html`<${Unread} item=${() => item()} />`}
+					${(item) => html`
+						<${Show}
+							when=${() => item().kind === 'question'}
+							fallback=${() => html`<${Unread} item=${item} />`}
+						>
+							<${Question} item=${item} />
+						<//>
+					`}
 				<//>
 				<${Show} when=${() => !inbox.length}>
 					<li class="mute">Nothing needs you</li>
@@ -152,23 +166,29 @@ function Unread(props) {
 
 /** Where the thread stands, in one line: the recap's newest open topic, else its newest */
 function RecapLine(props) {
-	let writing = false
 	// Asked with ?open, as the Recap tab asks: a page behind catches up, and comes again while it's written
 	const page = createMemo(() =>
-		api(`/api/threads/${props.thread}/recap?open`).then(
-			(page) => ((writing = page.writing), page),
-			() => ({ page: '' }),
-		),
+		api(`/api/threads/${props.thread}/recap?open`).catch(() => ({ page: '' })),
 	)
-	onSettled(() => {
-		const timer = setInterval(() => writing && refresh(page), 3000)
-		return () => clearInterval(timer)
-	})
+	createEffect(
+		() => page().writing,
+		(writing) => {
+			if (!writing) return
+			const timer = setTimeout(() => {
+				affects(page)
+				refresh(page)
+			}, 3000)
+			return () => clearTimeout(timer)
+		},
+	)
 	const line = () => {
 		const topics = topicsOf(page().page)
 		return (topics.findLast((topic) => !topic.done) ?? topics.at(-1))?.text
 	}
 	return html`
+		<${Show} when=${() => isPending(page)}>
+			<p class="mute">Updating recap…</p>
+		<//>
 		<${Show} when=${line}>
 			<p class="mute recap-line" innerHTML=${() => inline(line(), links)}></p>
 		<//>

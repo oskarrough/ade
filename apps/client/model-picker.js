@@ -145,11 +145,11 @@ function PickerRunner(runner, props, search) {
 	const [available, setAvailable] = createSignal([])
 	let asked = false
 	createEffect(
-		() => Boolean(search()) || all(),
-		(wanted) => {
-			if (!wanted || asked) return
+		() => (search() || all() ? runner.name : null),
+		(name) => {
+			if (!name || asked) return
 			asked = true
-			api(`/api/runners/${encodeURIComponent(runner.name)}/available`).then(setAvailable, () => {
+			api(`/api/runners/${encodeURIComponent(name)}/available`).then(setAvailable, () => {
 				asked = false
 			})
 		},

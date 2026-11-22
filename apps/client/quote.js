@@ -5,7 +5,7 @@
  * in the composer or elsewhere on the page; a touch screen never gets it, so it doesn't fight the native selection menu.
  */
 import html from '@solidjs/html'
-import { onCleanup } from 'solid-js'
+import { onSettled } from 'solid-js'
 import { appendQuote } from './composer.js'
 
 const touch = () => matchMedia('(pointer: coarse)').matches
@@ -44,10 +44,12 @@ export function QuoteButton() {
 		thread = at.thread
 		button?.togglePopover(true)
 	}
-	document.addEventListener('selectionchange', onSelectionChange)
-	onCleanup(() => {
-		document.removeEventListener('selectionchange', onSelectionChange)
-		marker?.remove()
+	onSettled(() => {
+		document.addEventListener('selectionchange', onSelectionChange)
+		return () => {
+			document.removeEventListener('selectionchange', onSelectionChange)
+			marker?.remove()
+		}
 	})
 	const quote = () => {
 		const text = document.getSelection()?.toString() ?? ''

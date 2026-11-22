@@ -1,9 +1,9 @@
 /** When things were said: a row's time on hover, and the quiet lines where a day changes or an hour passes */
 import html from '@solidjs/html'
-import { createRoot, createSignal, Show } from 'solid-js'
+import { createSignal, Show } from 'solid-js'
 
 /** One clock for every time on screen, a minute at a time */
-const [minute, setMinute] = createRoot(() => createSignal(Date.now()))
+const [minute, setMinute] = createSignal(Date.now())
 setInterval(() => setMinute(Date.now()), 60_000)
 
 const HOUR = 3_600_000
