@@ -103,7 +103,7 @@ modules/
                          POST a dismissal, kept as the Thread doc's `dismissed`); off by default
   wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
                          sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and on the
-                         server's `ended`, over core.busy), taskChanged tells the thread's pages (`wake` activity), pending (the thread's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake),
+                         server's `ended`, over core.busy), taskChanged tells the thread's pages (`wake` activity), pending (the thread's or the house's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake and /api/wake),
                          archiving cancels them; duration parses 5m, 1h30m; with hooks on, a wake `on` an event sleeps on
                          Hooked `event-N` (listen) and posts its note with the event as `event`; off by default
   hooks.js               outside events for wakes: Hook (the wake's task doc: secret, events taken; issue), webhook (server.js's
@@ -184,7 +184,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   runner.js              runner list, a runner's agents, ConnectRunner
   bot.js                 a bot's settings, its threads row, new bot; botThreads shares its own/elsewhere lists
   thread-list.js         the thread list, its family rows (including children and bot homes), and with inbox on, the Inbox toggle
-  wake.js                Wakes, the thread's pending wakes above the composer as one-line `.notice` lines (`.line`, open on click) with × (refetched on connect and on
+  wake.js                WakeList, every wake in the house in a popover from the list's foot (GET/POST /api/wake), × cancels one;
+                         Wakes, the thread's pending wakes above the composer as one-line `.notice` lines (`.line`, open on click) with × (refetched on connect and on
                          each `wake` activity its socket hears, heardWake);
                          WakeSet, a wake call's row in the chat (run.js LASTING); WokeLine under a message a wake posted
   search.js              SearchField, the sidebar's field (results as you type, Escape closes); Search, its results in the threads' place
@@ -259,7 +260,7 @@ Where a feature lives:
 - Status dots: server.js status/busiest, client dot.js. Explicit questions waiting on a person: modules/inbox.js openQuestion, util.js byAgent.
 - The inbox: modules/inbox.js (`ask_person`, openQuestion, questions), client inbox.js, server.js inbox/dismiss/inboxOpen, thread-list.js (its toggle), system.js (in the threads' place), composer.js `inbox`.
 - Pi session files, both ways: modules/pi-sessions.js; the runner's messages are `pi-session`, `pi-session-list` and `pi-session-read` in remote.js serveRunner, shipped with the runner through RUNNER_FILES; cli.js `import`.
-- Wakes: modules/wake.js, modules/hooks.js (outside events), util.js byAgent/said (`wake` marks the message; an `event` follows it as `<outside-event>`), client wake.js, composer.js (the strip), thread.js (rows, WokeLine), time.js `ahead`.
+- Wakes: modules/wake.js, modules/hooks.js (outside events), util.js byAgent/said (`wake` marks the message; an `event` follows it as `<outside-event>`), client wake.js, composer.js (the strip), thread-list.js (WakeList in the foot), thread.js (rows, WokeLine), time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, client settings.js.
 - A page behind its ade: server.js hashOf/clientVersion (`client` in GET /api/server, `server` named on the socket when apps/client changes), git, GET /api/changes (the commits since the page's), client server.js `behind`/`changes`, thread-list.js (Update in the list's foot, with the count of commits).
 - The desktop window: apps/desktop main.go (window, links, offline page, notifications, updater), preload.js (notifications from the thread list, the clipboard on plain http), release.sh (`pnpm desktop:release`).

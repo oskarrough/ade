@@ -120,8 +120,10 @@ A question leaves the inbox once a person writes in its thread, the same moment 
 With `wake` on:
 
 ```
-GET    /api/threads/:id/wake            [{id, at?, after?, every?, note, agent}]: the thread's pending wakes, timed ones soonest first, then those waiting on thread `after`
+GET    /api/threads/:id/wake            [{id, thread, at?, after?, on?, every?, note, agent}]: the thread's pending wakes, timed ones soonest first, then those waiting on thread `after`
 POST   /api/threads/:id/wake {cancel}   cancels that wake (its id): {cancelled}, or {fired} if a one-off went off first, {ended} if it had ended otherwise
+GET    /api/wake                        every pending wake in the house, the same rows
+POST   /api/wake {cancel}               cancels any wake by its id, as above
 ```
 
 A wake that fires posts `{author, body: note, wake: id, to: [author]}`: the agent that set it, asking itself. Each change to a thread's wakes (set, fired, cancelled) sends the pages watching it `{thread, activity: {purpose: "wake", kind: "changed"}}`; fetch its wakes again then, and after a reconnect.

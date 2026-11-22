@@ -1,8 +1,18 @@
-/** Wakes: an agent coming back to its thread later. Its pending wakes above the composer, each with ×; the row a wake call leaves in the chat. */
+/** Wakes: an agent coming back to its thread later. Its pending wakes above the composer, each with ×; every wake in the house from the list's foot; the row a wake call leaves in the chat. */
 import html from '@solidjs/html'
-import { createEffect, createRoot, createSignal, createStore, For, Show } from 'solid-js'
+import {
+	createEffect,
+	createRoot,
+	createSignal,
+	createStore,
+	createUniqueId,
+	For,
+	Show,
+} from 'solid-js'
 import { Icon } from './icons.js'
-import { api, connected, titleOf } from './server.js'
+import { api, connected, openThread, titleOf } from './server.js'
+import { placePopover } from './popover.js'
+import { Panes } from './panes.js'
 import { shortLabel } from './agent.js'
 import { PlainStep } from './run.js'
 import { ahead } from './time.js'
@@ -32,10 +42,95 @@ const span = (ms) => {
 /** Each thread's count of wake changes heard on its socket, which its strip fetches again on */
 const [heard, setHeard] = createRoot(() => createStore({}))
 export function heardWake(thread, event) {
-	if (event.purpose === 'wake')
-		setHeard((all) => {
-			all[thread] = (all[thread] ?? 0) + 1
-		})
+	if (event.purpose === 'wake') changed(thread)
+}
+const changed = (thread) =>
+	setHeard((all) => {
+		all[thread] = (all[thread] ?? 0) + 1
+	})
+
+/** When a wake goes off next, or what it waits for, and how often it repeats */
+const whenOf = (wake) =>
+	wake.on !== undefined
+		? `on ${EVENTS[wake.on]}`
+		: wake.after === undefined
+			? `${ahead(wake.at)}${wake.every ? `, then every ${span(wake.every)}` : ''}`
+			: `once ${titleOf(wake.after)} is done`
+
+/** Every wake in the house, in a popover from the list's foot: its thread, when, its note, and × to cancel it; fetched each time it opens */
+export function WakeList() {
+	let button, panel
+	const id = createUniqueId()
+	const [wakes, setWakes] = createSignal([])
+	const load = () => api('/api/wake').then(setWakes, report)
+	const cancel = (wake) =>
+		api('/api/wake', { cancel: wake.id }).then(() => {
+			changed(wake.thread)
+			return load()
+		}, report)
+	/** A row opens its thread */
+	const go = (wake) => {
+		panel.hidePopover()
+		openThread(wake.thread)
+	}
+	return html`
+		<button
+			class="ghost small foot-toggle wake-toggle"
+			type="button"
+			aria-label="Wakes"
+			title="Every wake set in the house"
+			ref=${(el) => (button = el)}
+			popovertarget=${id}
+		>
+			<span>Wakes</span>
+		</button>
+		<div
+			class="popover wake-list"
+			id=${id}
+			popover
+			ref=${(el) => (panel = el)}
+			onToggle=${(event) => {
+				if (event.newState !== 'open') return
+				placePopover(panel, button)
+				load()
+			}}
+		>
+			<${Panes} title="Wakes" open=${() => false} onClose=${(_event) => panel.hidePopover()}>
+				<ul class="rows">
+					<${For} each=${wakes} keyed=${(wake) => wake.id}
+						>${(wake) => html`
+							<li
+								role="button"
+								tabindex="0"
+								title=${() => `${shortLabel(wake().agent)} wakes ${whenOf(wake())}: ${wake().note}`}
+								onClick=${(_e) => go(wake())}
+								onKeyDown=${(event) => event.key === 'Enter' && go(wake())}
+							>
+								<div>
+									<b>${() => titleOf(wake().thread)}</b>
+									<small>${() => `⏰ ${whenOf(wake())}`}</small>
+									<small>${() => `${shortLabel(wake().agent)}: ${wake().note}`}</small>
+								</div>
+								<button
+									type="button"
+									class="ghost small"
+									aria-label="Cancel this wake"
+									title="Cancel this wake"
+									onClick=${(event) => {
+										event.stopPropagation()
+										cancel(wake())
+									}}
+								>
+									<${Icon} name="close" />
+								</button>
+							</li>
+						`}<//
+					>
+				</ul>
+				<${Show} when=${() => !wakes().length}><p class="mute">No wakes set.</p><//>
+			<//>
+		</div>
+	`
 }
 
 /** The thread's pending wakes, fetched when it opens, when the socket (re)connects, and when a wake changes */
@@ -64,12 +159,7 @@ export function Wakes(props) {
 							() => {},
 						)
 				}
-				const when = () =>
-					wake().on !== undefined
-						? `on ${EVENTS[wake().on]}`
-						: wake().after === undefined
-							? `${ahead(wake().at)}${wake().every ? `, then every ${span(wake().every)}` : ''}`
-							: `once ${titleOf(wake().after)} is done`
+				const when = () => whenOf(wake())
 				return html`
 					<p class=${() => ({ notice: true, open: open() })} role="status">
 						<span

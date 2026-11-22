@@ -6,7 +6,8 @@
  * the thread's Stop, and holds no process. When it's due it posts the note to the agent that set it, as that agent
  * (`wake` on the message), then sleeps again with `every` or ends. One that came due while the server was down fires
  * once on start; a recurring one skips the slots it missed. The thread shows its pending wakes above the composer
- * (serve), where × cancels one; archiving the thread cancels them all.
+ * (serve), where × cancels one, and the list's foot shows every wake in the house; archiving the thread cancels them
+ * all.
  *
  * A wake `after` thread N sleeps on a signal instead of a time. When the server hears a thread's work end (`ended`),
  * and once on start, settle signals each such wake whose thread has no work left (core.busy: no agent answering or
@@ -41,7 +42,11 @@ export function duration(text, name) {
 	return ms
 }
 
-const Ended = defineSignal({ name: 'ade.thread-ended', version: 1, schema: obj({}) })
+const Ended = defineSignal({
+	name: 'ade.thread-ended',
+	version: 1,
+	schema: obj({}),
+})
 /** A wake `on` events sleeps until its nth */
 const listen = (n) => ({
 	status: /** @type {const} */ ('sleeping'),
@@ -61,11 +66,15 @@ export function server(core) {
 			})
 		).filter((record) => !record.abortRequested)
 
-	/** The thread's pending wakes, timed ones soonest first, then those waiting on a thread: `{id, at?, after?, every?, note, agent}` */
+	/**
+	 * The thread's pending wakes, or the whole house's, timed ones soonest first, then those waiting on a thread or an
+	 * event: `{id, thread, at?, after?, on?, every?, note, agent}`
+	 */
 	async function pending(threadId) {
 		return (await sleeping(threadId))
-			.map(({ id, input, state }) => ({
+			.map(({ id, conversationId, input, state }) => ({
 				id,
+				thread: conversationId,
 				...(input.on !== undefined
 					? { on: input.on }
 					: input.after === undefined
@@ -99,13 +108,19 @@ export function server(core) {
 	const settling = (threadId) => settle(threadId).catch((error) => console.error(error))
 
 	/**
-	 * Cancels one of the thread's wakes, and says what came of it: `{cancelled}`, or `{fired}` for a one-off that went off
+	 * Cancels one of the thread's wakes, or any in the house without a thread, and says what came of it: `{cancelled}`, or `{fired}` for a one-off that went off
 	 * first, `{ended}` for one that ended otherwise
 	 */
 	async function cancel(threadId, id) {
 		const record = await core.task(id)
-		if (record?.kind !== Wake.definition.name || record.conversationId !== threadId)
-			throw Object.assign(new Error(`No wake ${id} in thread ${threadId}`), { status: 404 })
+		if (
+			record?.kind !== Wake.definition.name ||
+			(threadId !== undefined && record.conversationId !== threadId)
+		)
+			throw Object.assign(
+				new Error(`No wake ${id}${threadId === undefined ? '' : ` in thread ${threadId}`}`),
+				{ status: 404 },
+			)
 		if ((await core.abortTask(id)) === 'marked') await core.waitForTask(id)
 		const outcome = /** @type {any} */ ((await core.task(id))?.state)?.outcome
 		if (outcome?.status === 'aborted') return { cancelled: id }
@@ -172,7 +187,11 @@ export function server(core) {
 					if (!input.every) return finished('completed', { fired: true })
 					const slot = /** @type {any} */ (state).checkpoint.at ?? input.at
 					const next = slot + Math.max(1, Math.ceil((rt.now() - slot) / input.every)) * input.every
-					return { status: 'sleeping', until: next, checkpoint: { phase: 'fire', at: next } }
+					return {
+						status: 'sleeping',
+						until: next,
+						checkpoint: { phase: 'fire', at: next },
+					}
 				}, ctx)
 			},
 		},
@@ -183,8 +202,16 @@ export function server(core) {
 		name: 'wake',
 		description: `Come back to this thread later: your note arrives here as a message to you after \`in\`, and again every \`every\` if you give it, or once thread \`after\` has finished its work${hooks ? ', or on each outside event `on` names until you cancel it' : ''}. Returns at once. Or cancel a wake by its id.`,
 		parameters: obj({
-			in: opt(str({ description: 'How long until the first wake: 90s, 5m, 1h30m, 2d' })),
-			every: opt(str({ description: 'Wake again this often, at least 1m; `in` defaults to it' })),
+			in: opt(
+				str({
+					description: 'How long until the first wake: 90s, 5m, 1h30m, 2d',
+				}),
+			),
+			every: opt(
+				str({
+					description: 'Wake again this often, at least 1m; `in` defaults to it',
+				}),
+			),
 			after: opt(
 				num({
 					description:
@@ -192,7 +219,9 @@ export function server(core) {
 				}),
 			),
 			note: opt(
-				str({ description: "What to do when you wake, written so you'll know without context" }),
+				str({
+					description: "What to do when you wake, written so you'll know without context",
+				}),
 			),
 			...(hooks
 				? {
@@ -221,7 +250,9 @@ export function server(core) {
 					: ended.fired
 						? 'Too late: it already went off,'
 						: 'It had already ended,'
-				return { output: [{ type: 'text', text: `${said} wake ${args.cancel}.` }] }
+				return {
+					output: [{ type: 'text', text: `${said} wake ${args.cancel}.` }],
+				}
 			}
 			const note = args.note?.trim()
 			if (!note) throw new Error('note is required')
@@ -283,9 +314,9 @@ export function server(core) {
 		},
 	})
 
+	/** A thread's wakes, or without one every wake in the house; a POST `{cancel}` cancels one */
 	async function serve(threadId, _query, body) {
-		if (threadId === undefined) throw new Error('Wakes live in a thread')
-		await core.conversation(threadId)
+		if (threadId !== undefined) await core.conversation(threadId)
 		if (body === undefined) return pending(threadId)
 		if (!Number.isInteger(body.cancel)) throw new Error('cancel is the wake id')
 		return cancel(threadId, body.cancel)
