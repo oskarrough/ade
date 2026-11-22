@@ -2,7 +2,7 @@
 import WebSocket from 'ws'
 import { api, base, check, done, kill, runner, server, until } from './lib.js'
 
-await server({ MODULES: '+bots' })
+await server({ MODULES: '+bots,+schedule,+talk' })
 
 const open = () =>
 	new Promise((resolve, reject) => {
@@ -249,6 +249,122 @@ check(
 	Boolean(archDel && archPut),
 	'archiving deletes from threads, updates the parent family, and puts on archived',
 	JSON.stringify([archDel, archPut]),
+)
+
+// Thread/<id> feed: shaped messages per viewer, key echo, withdrawal del, cross-thread, scheduled run, stopped
+const room = (await api('POST', '/api/threads', { title: 'room' })).json.id
+again.socket.send(JSON.stringify({ sub: `thread/${room}` }))
+await until(async () =>
+	again.frames.some((frame) => frame.view === `thread/${room}` && frame.reset),
+)
+// Owner posts with a key; owner sees voice: 'mine', friend (via Serve) sees voice: 'said' with showName: true
+const firstMsg = (
+	await api('POST', `/api/threads/${room}/entries`, {
+		body: 'hello room',
+		to: null,
+		key: 'msg-key-1',
+	})
+).json
+const firstPut = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === `thread/${room}` &&
+			!frame.reset &&
+			frame.seq >= firstMsg.seq &&
+			frame.put?.some((item) => item.key === firstMsg.entry),
+	),
+)
+const ownerRow = firstPut?.put.find((item) => item.key === firstMsg.entry)?.row
+check(
+	Boolean(ownerRow) &&
+		ownerRow.voice === 'mine' &&
+		ownerRow.showName === false &&
+		ownerRow.data.key === 'msg-key-1' &&
+		ownerRow.clamp === true,
+	'thread/<id> feed puts a shaped message with voice mine and echoes its key',
+	JSON.stringify(ownerRow),
+)
+// Friend posts twice in a row: owner sees showName true on the first, false on the second
+await api('POST', `/api/threads/${room}/entries`, { body: 'from ida 1', to: null }, 'ida')
+await api('POST', `/api/threads/${room}/entries`, { body: 'from ida 2', to: null }, 'ida')
+const ownerView = (await api('GET', `/api/threads/${room}`)).json
+const idaView = (await api('GET', `/api/threads/${room}`, undefined, 'ida')).json
+const [o0, o1, o2] = ownerView.entries
+const [i0, i1, i2] = idaView.entries
+check(
+	o0.voice === 'mine' &&
+		o1.voice === 'said' &&
+		o1.showName === true &&
+		o1.speaker === '~ida+github' &&
+		o2.voice === 'said' &&
+		o2.showName === false &&
+		i0.voice === 'said' &&
+		i0.showName === true &&
+		i1.voice === 'mine' &&
+		i2.voice === 'mine',
+	'messages arrive shaped per viewer with speaker, showName and voice',
+	JSON.stringify({
+		owner: [o0, o1, o2].map((e) => [e.voice, e.showName, e.speaker]),
+		ida: [i0, i1, i2].map((e) => [e.voice, e.showName, e.speaker]),
+	}),
+)
+// Scheduled task run arrives shaped as voice: 'run'
+await api('POST', '/api/schedule', { thread: room, instructions: 'ping later', in: '1h' })
+const scheduled = (await api('GET', `/api/threads/${room}/schedule`)).json[0]
+await api('POST', `/api/threads/${room}/schedule`, { run: scheduled.id })
+const runPut = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === `thread/${room}` &&
+			frame.put?.some(
+				(item) => item.row.voice === 'run' && item.row.data?.scheduledTask === scheduled.id,
+			),
+	),
+)
+check(
+	Boolean(runPut),
+	'a scheduled task run arrives shaped with voice run on the feed',
+	JSON.stringify(runPut),
+)
+
+// Withdrawing an unread message sends `del` for its entry id on the thread/<id> feed
+const slowThread = (await api('POST', '/api/threads', { title: 'withdraw-feed' })).json.id
+again.socket.send(JSON.stringify({ sub: `thread/${slowThread}` }))
+await until(async () =>
+	again.frames.some((frame) => frame.view === `thread/${slowThread}` && frame.reset),
+)
+// Ask an agent on an offline runner so the message stays queued and withdrawable
+const offline = await api('POST', '/api/runners', { name: 'asleep' })
+check(offline.status === 201, 'minted offline runner')
+await api('POST', `/api/threads/${slowThread}/entries`, { body: 'hold on', to: 'echo/one@laptop' })
+await until(async () => (await api('GET', `/api/threads/${slowThread}`)).json.entries.length >= 2)
+await api('POST', `/api/threads/${slowThread}/entries`, { body: 'slow', to: 'echo/try@laptop' })
+await until(async () => (await api('GET', `/api/threads/${slowThread}`)).json.busy)
+const extra = (
+	await api('POST', `/api/threads/${slowThread}/entries`, {
+		body: 'take me back',
+		to: 'echo/try@laptop',
+	})
+).json
+const extraPut = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === `thread/${slowThread}` && frame.put?.some((item) => item.key === extra.entry),
+	),
+)
+const taken = await api('POST', `/api/threads/${slowThread}/withdraw`, { entry: extra.entry })
+const extraDel = await until(async () =>
+	again.frames.find(
+		(frame) =>
+			frame.view === `thread/${slowThread}` &&
+			frame.seq >= taken.json.seq &&
+			frame.del?.includes(extra.entry),
+	),
+)
+check(
+	Boolean(extraPut) && taken.status === 201 && Boolean(extraDel),
+	'withdrawing a message deletes its entry id on the thread/<id> feed',
+	JSON.stringify([taken.json, extraDel]),
 )
 
 again.socket.close()

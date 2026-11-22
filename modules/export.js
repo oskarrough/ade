@@ -40,7 +40,7 @@ export function server(core) {
 		]
 		const files = {}
 		for (const row of rows) {
-			const entries = await core.messages(row.id)
+			const entries = await core.shapeMessages(row.id, await core.messages(row.id), core.owner)
 			const { reads } = await core.thread(row.id)
 			const wrote = entries
 				.filter((entry) => !byAgent(entry.data))

@@ -17,7 +17,9 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   withdraw, WITHDRAWAL              a message taken back before any agent read it
   afterCommit                       best-effort work after a commit
   isWork, busy, workIn              whether a thread has work
-  core.*                            what modules call: activity, conversations, snapshot, spent, task, tasks, signal
+  createFeed, feed                  one versioned `/ws` feed (`seq`, `define`, `onCommit`, `touch`, `subscribe`, `sync`, `onUpdate`)
+  shapeMessages, families, familyField   per-viewer message shaping (`speaker`, `showName`, `voice`, `to`, `other*`) and open families
+  core.*                            what modules call: activity, conversations, feed, snapshot, spent, task, tasks, signal
   entryStored, documentStored, endedHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks)
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
@@ -83,11 +85,11 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   browser-modules.d.ts   type declarations for CDN imports (tldraw, diff)
   client.html            the walkthrough and the app's page; the promises every change serves
   client.js              root: the chat, or the live system around it
-  server.js              the server as the client sees it: api, watch, feedView, threadOf, current, openThread,
-                         fork, earlier, loadEarlier, me
+  server.js              the server as the client sees it: api, write, watch, in-memory feed store (`subscribeView`, `viewStore`, `feedView`, `feedItem`, `openThreadFeed`, `caughtUp`),
+                         actions (`archiveThread`, `renameThread`, `dismiss`, `forgetBot`, `revokeRunner`), threadOf, familyOf, current, openThread, fork, earlier, loadEarlier, sending, me
   thread.js              one thread on screen
-    Thread               the /ws subscription, follow, onScreen, shownFrom, nearTop, hold
-    rows                 messages, turns, lasting calls, cuts and memory lines as rows; describe, farSide
+    Thread               `thread/<id>` feed (shaped messages, people, earlier) + `/ws` (`turnsOnly`) for turns/live/drafts; follow, onScreen, shownFrom, nearTop, hold
+    rows                 server-shaped messages laid out with agent turns, lasting calls, cuts and memory lines
     Asked                in a bot's home, a question another thread asked it (askedHere)
     Message              one message: author, pick, fork link, waiting, Body, Images; `Cross` for one that crossed threads
     Body, threadLink     a message's markdown; thread titles as links

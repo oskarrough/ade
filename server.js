@@ -1629,24 +1629,182 @@ const threadList = async (reader, archived = false) => {
 		),
 	)
 }
-/** A thread's row and people, with its messages: all of them, those after `after`, or the newest `last` */
-async function threadView(id, reader, { after, last } = {}) {
+/** Short display label for an author: a model's bare id, a tailnet login without `~` or `+provider`, or a name as is */
+function shortLabel(author) {
+	if (!author) return ''
+	if (author.includes('@')) return author.split('@')[0].split('/').pop().split(':')[0]
+	return author.startsWith('~') ? author.slice(1).replace(/\+.*$/, '') : author
+}
+
+/**
+ * Shapes a thread's messages for one viewer so any client draws them without deriving speaker changes, reply targets,
+ * cross-thread labels or row kinds. `seed` is the message right before a paged window so the first visible row knows
+ * whether the speaker changed.
+ */
+async function shapeMessages(threadId, list, viewer, { seed = undefined, row = undefined } = {}) {
+	if (!list.length) return []
+	row ??= await thread(threadId)
+	const botSet = new Set((await botNames?.()) ?? [])
+	const homes = (await homesOf?.()) ?? {}
+	const isGroup = Object.keys(row.agents).length > 1 || (await authors(threadId)).length > 1
+	const solo = !isGroup
+	const byPerson = (entry) =>
+		!entry.data.from &&
+		!entry.data.answer &&
+		!entry.data.error &&
+		!entry.data.scheduledTask &&
+		!entry.data.stopped &&
+		!entry.data.author?.includes('@') &&
+		!botSet.has(entry.data.author)
+	const all = seed ? [seed, ...list] : list
+	const byId = new Map(all.map((entry) => [entry.id, entry]))
+	const firstAnswer = new Map()
+	for (const entry of all)
+		if (!entry.data.from)
+			for (const id of entry.data.re ?? []) if (!firstAnswer.has(id)) firstAnswer.set(id, entry.id)
+	const sentTo = (entry) =>
+		entry.data.from
+			? undefined
+			: (entry.data.re ?? [])
+					.map((id) => byId.get(id))
+					.find(
+						(question) =>
+							question?.data.from && !question.data.re && firstAnswer.get(question.id) === entry.id,
+					)
+	const otherIds = new Set()
+	for (const entry of list) {
+		const from =
+			sentTo(entry) ?? (entry.data.from && entry.data.from !== threadId ? entry : undefined)
+		if (from?.data.from) otherIds.add(from.data.from)
+	}
+	const otherTitles = new Map()
+	await Promise.all(
+		[...otherIds].map(async (other) => {
+			const title = homes[other] ?? (await thread(other))?.title
+			if (title) otherTitles.set(other, title)
+		}),
+	)
+	const farSide = (author, otherThread) => {
+		const title = otherTitles.get(otherThread)
+		return {
+			otherAuthor: author,
+			otherThread,
+			otherLabel:
+				botSet.has(author) || !title ? shortLabel(author) || `thread ${otherThread}` : title,
+		}
+	}
+	let previous, written, last, answering, prevTime
+	const shaped = []
+	for (const entry of all) {
+		const data = entry.data
+		const curTime = data.createdAt ? Date.parse(data.createdAt) : undefined
+		if (prevTime && curTime && curTime - prevTime > 3_600_000)
+			last = solo ? undefined : (answering = undefined)
+		if (curTime) prevTime = curTime
+		const replied =
+			data.answer && !data.from && data.re?.length ? byId.get(Math.max(...data.re)) : undefined
+		const to =
+			isGroup &&
+			replied &&
+			byPerson(replied) &&
+			previous &&
+			byPerson(previous) &&
+			replied.data.author !== data.author &&
+			replied !== previous &&
+			replied !== written
+				? replied.data.author
+				: undefined
+		const sent = sentTo(entry)
+		const from = sent ?? (data.from && data.from !== threadId ? entry : undefined)
+		const voice = sent
+			? 'sent'
+			: from
+				? 'received'
+				: data.scheduledTask
+					? 'run'
+					: data.stopped
+						? 'stopped'
+						: data.author === viewer
+							? 'mine'
+							: 'said'
+		const speaker = data.author
+		const agentRow = !byPerson(entry)
+		const prior = solo && agentRow ? (answering ?? speaker) : last
+		const showName = voice === 'said' && Boolean(speaker && (speaker !== prior || to))
+		if (['sent', 'received', 'run'].includes(voice)) last = undefined
+		else {
+			if (speaker !== viewer) last = speaker
+			if (speaker && agentRow) answering = speaker
+		}
+		previous = entry
+		if (!data.answer && !data.error) written = entry
+		if (entry === seed) continue
+		shaped.push({
+			...entry,
+			speaker,
+			showName,
+			voice,
+			...(to ? { to } : {}),
+			...(from ? farSide(from.data.author, from.data.from) : {}),
+			clamp: byPerson(entry) || data.author === viewer,
+			failed: Boolean(data.error),
+			...(data.picked ? { picked: data.picked, pickedNobody: !data.to?.length } : {}),
+		})
+	}
+	return shaped
+}
+
+/** A thread's row and people, with its shaped messages: all of them, those after `after`, before `before`, or the newest `last` */
+async function threadView(id, reader, { after, before, last } = {}) {
 	const handle = await conversation(id)
+	let raw, earlier, seed
+	if (after === undefined && before === undefined && last === undefined) {
+		raw = (await messages(id)).filter((entry) => !entry.data.withdrawn)
+	} else {
+		const limit = last !== undefined ? last + 1 : Infinity
+		const found = (await newest(handle, { after, before, last: limit })).filter(
+			(entry) => !entry.data.withdrawn,
+		)
+		if (last !== undefined) {
+			earlier = found.length > last
+			raw = earlier ? found.slice(-last) : found
+			seed = earlier ? found[0] : undefined
+		} else {
+			raw = found
+		}
+	}
 	return {
 		...(await threadRow(id, reader, await work())),
 		people: await people(id),
-		entries: (after === undefined && last === undefined
-			? await messages(id)
-			: await newest(handle, { after, last })
-		).filter((entry) => !entry.data.withdrawn),
+		...(earlier !== undefined && { earlier }),
+		entries: await shapeMessages(id, raw, reader, { seed }),
 	}
 }
-/** A thread's newest messages, read back from its end: those after `after`, or the newest `last`, with their picks */
-async function newest(handle, { after = -1, last = Infinity }) {
+/** A thread's newest messages, read back from its end: those after `after`, before `before`, or the newest `last`, with their picks */
+async function newest(handle, { after = -1, before = undefined, last = Infinity }) {
+	const routes = new Map()
+	// Picks or withdrawals appended after `before` can target messages before `before`
+	if (before !== undefined) {
+		for (let cursor; ;) {
+			const page = await handle.entries(
+				{ order: 'ascending', minEntryId: before },
+				200,
+				cursor,
+				context,
+			)
+			for (const entry of page.items)
+				if (entry.kind === ROUTE || entry.kind === WITHDRAWAL) routed([entry], routes)
+			if (!(cursor = page.next)) break
+		}
+	}
 	const read = []
 	let count = 0
+	const query = {
+		order: /** @type {const} */ ('descending'),
+		...(before !== undefined && { maxEntryId: /** @type {any} */ (before - 1) }),
+	}
 	for (let cursor; count < last;) {
-		const page = await handle.entries({ order: 'descending' }, 200, cursor, context)
+		const page = await handle.entries(query, 200, cursor, context)
 		const ended = page.items.findIndex((entry) => entry.id <= after)
 		for (const entry of ended < 0 ? page.items : page.items.slice(0, ended)) {
 			if (entry.kind === KIND && ++count > last) break
@@ -1654,7 +1812,7 @@ async function newest(handle, { after = -1, last = Infinity }) {
 		}
 		if (ended >= 0 || !(cursor = page.next)) break
 	}
-	return routed(read.reverse())
+	return routed(read.reverse(), routes)
 }
 
 /** An agent's thread owns its conversation, through its Anchor */
@@ -1781,6 +1939,7 @@ async function postEntry(id, author, input) {
 					{
 						author,
 						body,
+						...(input.key ? { key: input.key } : {}),
 						...(images ? { images } : {}),
 						...(to.length ? { to } : {}),
 						...(picked ? { picked } : {}),
@@ -2025,7 +2184,13 @@ async function createThread(
 			: await post(
 					tx,
 					id,
-					{ author: person, body, ...(images ? { images } : {}), ...(to.length ? { to } : {}) },
+					{
+						author: person,
+						body,
+						...(key ? { key } : {}),
+						...(images ? { images } : {}),
+						...(to.length ? { to } : {}),
+					},
 					{ empty: true, steer: first.steer === true },
 				)
 		if (draft && draft.key === key) {
@@ -2343,16 +2508,22 @@ function createFeed() {
 				state.dirty = false
 				let diff
 				if (work === true || (!state.spec.row && !state.spec.rows)) {
-					const all = await state.spec.all(state.viewer, state.param, state.query)
+					const all = await state.spec.all(state.viewer, state.param, state.query, state)
 					diff = applyDiff(state, all, false, targetSeq)
 				} else if (state.spec.rows) {
-					const entries = await state.spec.rows([...work], state.viewer, state.param, state.query)
+					const entries = await state.spec.rows(
+						[...work],
+						state.viewer,
+						state.param,
+						state.query,
+						state,
+					)
 					diff = applyDiff(state, entries, true, targetSeq)
 				} else {
 					const entries = await Promise.all(
 						[...work].map(async (key) => [
 							key,
-							await state.spec.row(key, state.viewer, state.param, state.query),
+							await state.spec.row(key, state.viewer, state.param, state.query, state),
 						]),
 					)
 					diff = applyDiff(state, entries, true, targetSeq)
@@ -2486,7 +2657,7 @@ function createFeed() {
 				if (!state.ready) {
 					state.flushing ??= (async () => {
 						const at = seq
-						const all = await spec.all(viewer, param, query)
+						const all = await spec.all(viewer, param, query, state)
 						const keyOf = spec.keyOf ?? ((row) => row.id)
 						for (const row of all) {
 							const key = keyOf(row)
@@ -2693,6 +2864,7 @@ const core = {
 	threadList,
 	entries,
 	messages,
+	shapeMessages,
 	latestMessage,
 	/** A document's value as stored, read without a commit */
 	snapshot: (doc, id) => harness.snapshot(doc, id, context),
@@ -2920,7 +3092,11 @@ const routes = /** @type {[string, Function][]} */ ([
 		'GET /api/threads/:id': (req, id, url) => {
 			const number = (name) =>
 				url.searchParams.has(name) ? Number(url.searchParams.get(name)) : undefined
-			return threadView(id, user(req), { after: number('after'), last: number('last') })
+			return threadView(id, user(req), {
+				after: number('after'),
+				before: number('before'),
+				last: number('last'),
+			})
 		},
 		'POST /api/threads/:id/archive': async (req, id) => {
 			const body = await input(req)
@@ -3282,10 +3458,33 @@ defineThreadView('archived', true)
 feed.define('thread/', {
 	perViewer: true,
 	keyOf: (row) => row.key,
-	all: async (viewer, param) => {
+	all: async (viewer, param, _query, state) => {
 		const id = Number(param)
 		if (!placed.has(id)) return []
-		return [{ key: 'thread', ...(await threadRow(id, viewer, await work())) }]
+		const handle = await conversation(id)
+		let shown
+		if (state.minId === undefined) {
+			const raw = (await newest(handle, { last: FIRST + 1 })).filter(
+				(entry) => !entry.data.withdrawn,
+			)
+			state.earlier = raw.length > FIRST
+			shown = state.earlier ? raw.slice(-FIRST) : raw
+			state.seed = state.earlier ? raw[0] : undefined
+			state.minId = shown[0]?.id ?? 0
+		} else {
+			shown = (await newest(handle, { after: state.minId - 1 })).filter(
+				(entry) => !entry.data.withdrawn,
+			)
+		}
+		const [meta, who, shaped] = await Promise.all([
+			threadRow(id, viewer, await work()),
+			people(id),
+			shapeMessages(id, shown, viewer, { seed: state.seed }),
+		])
+		return [
+			{ key: 'thread', ...meta, people: who, earlier: state.earlier },
+			...shaped.map((entry) => ({ key: entry.id, ...entry })),
+		]
 	},
 	match: (change, param) => {
 		const id = Number(param)
@@ -3364,12 +3563,12 @@ const PAGE = 50
 /** A browser watches one thread, or asks for its page before the ones it has, one request after another */
 const queued = (socket, run) =>
 	(socket.watches = (socket.watches ?? Promise.resolve()).then(run).catch(() => {}))
-const watch = (socket, id) => {
+const watch = (socket, id, turnsOnly = false) => {
 	socket.thread = id
-	return queued(socket, () => rewatch(socket, id))
+	return queued(socket, () => rewatch(socket, id, turnsOnly))
 }
-const earlier = (socket, id, all) =>
-	queued(socket, () => socket.pages?.id === id && socket.pages.back(all))
+const earlier = (socket, id, all, before) =>
+	queued(socket, () => socket.pages?.id === id && socket.pages.back(all, before))
 /** Where an agent's conversation reaches far enough back for the messages from `from` on: a turn before them */
 const covers = (from) => (entries) =>
 	entries.some(
@@ -3393,7 +3592,7 @@ async function cutOf(handle, agent) {
 		? { id: marker.id, model: marker.model?.map(visible), first: Math.min(...held) }
 		: null
 }
-async function rewatch(socket, id) {
+async function rewatch(socket, id, turnsOnly = false) {
 	const old = socket.watching
 	socket.watching = socket.pages = undefined
 	for (const watch of old ?? []) await watch.stop()
@@ -3414,69 +3613,95 @@ async function rewatch(socket, id) {
 		/** @type {import("@earendil-works/pi-durable").ConversationId} */ (id),
 		context,
 	)
-	const messages = await handle.watch(context)
-	if (!keep(messages)) return
-	/** Who's there changes with a message, or a read: said first, then only when it changed */
-	let toldPeople
-	const present = async () => {
-		const now = await people(id)
-		const said = JSON.stringify(now)
-		if (said === toldPeople) return {}
-		toldPeople = said
-		return { people: now }
-	}
-	const only = (entries) => entries.filter((entry) => entry.kind === KIND)
-	/** Messages with the director's picks, and a message sent before whose pick just came, again */
-	const routes = new Map()
-	const sentMessages = new Map()
-	const withPicks = (entries) => {
-		const fresh = routed(entries, routes)
-		for (const entry of fresh) sentMessages.set(entry.id, entry)
-		const again = entries
-			.filter(
-				(entry) =>
-					(entry.kind === ROUTE || entry.kind === WITHDRAWAL) &&
-					!fresh.some((one) => one.id === entry.data.message),
-			)
-			.flatMap((entry) => {
-				const before = sentMessages.get(entry.data.message)
-				return before ? [withRoute(before, routes)] : []
-			})
-		return [...fresh, ...again]
-	}
-	/** Its newest page of messages, at least `size` of them, or all there are */
-	const page =
-		(after, size = PAGE) =>
-		(entries) =>
-			only(entries).filter((entry) => entry.id < after).length >= size
-	const thread = await told(
-		handle,
-		messages,
-		async (entries, more) => {
-			const shown = withPicks(entries)
-			const changed = await present()
-			// After the first, a batch with no message in it, like a memory line, says nothing a page shows
-			if (shown.length || 'earlier' in more || changed.people)
-				send({ entries: shown, ...more, ...changed })
-		},
-		{ enough: page(Infinity, FIRST) },
-	)
-	/** The oldest message the browser has, or 0 once it has them all, which its agents' turns reach back to */
-	const from = () => (thread.earlier() ? (only(thread.entries())[0]?.id ?? 0) : 0)
 	/** Each followed agent's way back through its conversation */
 	const pagers = new Map()
-	socket.pages = {
-		id,
-		/** The page before the oldest message sent, or all of them: each agent's turns for it first, then the messages */
-		back: async (all) => {
-			const oldest = only(thread.entries())[0]?.id ?? Infinity
-			const older = await thread.back(all ? () => false : page(oldest))
-			for (const [agent, back] of pagers) {
-				const entries = await back(covers(from()))
-				if (entries.length) send({ agent, older: true, entries })
-			}
-			send({ older: true, earlier: older.earlier, entries: withPicks(older.entries) })
-		},
+	let from = () => 0
+	let present = async () => ({})
+	if (turnsOnly) {
+		const initial = (await newest(handle, { last: FIRST + 1 })).filter(
+			(entry) => !entry.data.withdrawn,
+		)
+		const hasEarlier = initial.length > FIRST
+		const oldest = hasEarlier ? (initial.slice(-FIRST)[0]?.id ?? 0) : 0
+		from = () => oldest
+		socket.pages = {
+			id,
+			/** Loads earlier agent turns up to `before` (or all of them), then signals `done` */
+			back: async (all, before) => {
+				for (const [agent, back] of pagers) {
+					const entries = await back(all ? () => false : covers(before ?? 0))
+					if (entries.length) send({ agent, older: true, entries })
+				}
+				send({ older: true, done: true })
+			},
+		}
+	} else {
+		const messages = await handle.watch(context)
+		if (!keep(messages)) return
+		/** Who's there changes with a message, or a read: said first, then only when it changed */
+		let toldPeople
+		present = async () => {
+			const now = await people(id)
+			const said = JSON.stringify(now)
+			if (said === toldPeople) return {}
+			toldPeople = said
+			return { people: now }
+		}
+		const only = (entries) => entries.filter((entry) => entry.kind === KIND)
+		/** Messages with the director's picks, and a message sent before whose pick just came, again */
+		const routes = new Map()
+		const sentMessages = new Map()
+		const withPicks = (entries) => {
+			const fresh = routed(entries, routes)
+			for (const entry of fresh) sentMessages.set(entry.id, entry)
+			const again = entries
+				.filter(
+					(entry) =>
+						(entry.kind === ROUTE || entry.kind === WITHDRAWAL) &&
+						!fresh.some((one) => one.id === entry.data.message),
+				)
+				.flatMap((entry) => {
+					const before = sentMessages.get(entry.data.message)
+					return before ? [withRoute(before, routes)] : []
+				})
+			return [...fresh, ...again]
+		}
+		/** Its newest page of messages, at least `size` of them, or all there are */
+		const page =
+			(after, size = PAGE) =>
+			(entries) =>
+				only(entries).filter((entry) => entry.id < after).length >= size
+		const thread = await told(
+			handle,
+			messages,
+			async (entries, more) => {
+				const shown = await shapeMessages(id, withPicks(entries), socket.viewer)
+				const changed = await present()
+				// After the first, a batch with no message in it, like a memory line, says nothing a page shows
+				if (shown.length || 'earlier' in more || changed.people)
+					send({ entries: shown, ...more, ...changed })
+			},
+			{ enough: page(Infinity, FIRST) },
+		)
+		/** The oldest message the browser has, or 0 once it has them all, which its agents' turns reach back to */
+		from = () => (thread.earlier() ? (only(thread.entries())[0]?.id ?? 0) : 0)
+		socket.pages = {
+			id,
+			/** The page before the oldest message sent, or all of them: each agent's turns for it first, then the messages */
+			back: async (all) => {
+				const oldest = only(thread.entries())[0]?.id ?? Infinity
+				const older = await thread.back(all ? () => false : page(oldest))
+				for (const [agent, back] of pagers) {
+					const entries = await back(covers(from()))
+					if (entries.length) send({ agent, older: true, entries })
+				}
+				send({
+					older: true,
+					earlier: older.earlier,
+					entries: await shapeMessages(id, withPicks(older.entries), socket.viewer),
+				})
+			},
+		}
 	}
 	/** By conversation, which stays as an agent switches model or runner */
 	const follow = async (agents) => {
@@ -3716,8 +3941,8 @@ async function upgrade(req, raw, head, serve = false) {
 			if ('sub' in message) feed.subscribe(socket, message.sub, message.after)
 			else if ('unsub' in message) feed.unsubscribe(socket, message.unsub)
 			else if ('sync' in message) feed.sync(socket, message.sync, message.seq)
-			else if ('earlier' in message) earlier(socket, message.earlier, message.all)
-			else if ('watch' in message) watch(socket, message.watch)
+			else if ('earlier' in message) earlier(socket, message.earlier, message.all, message.before)
+			else if ('watch' in message) watch(socket, message.watch, message.turnsOnly === true)
 		})
 		socket.person = sender
 		return clients.add(socket)

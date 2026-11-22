@@ -79,7 +79,7 @@ export { connected }
 export const [newThreadTools, setNewThreadTools] = createSignal(null)
 /** The last key this page made, {name, connect}: the key is shown once, so it outlives the form that asked */
 export const [minted, setMinted] = createSignal(null)
-/** Each thread's messages. A message comes again only when something is added to it, like the director's pick, so the store is shallow: a read tracks the thread's list, not each message's fields */
+/** Each thread's messages, written only by the `thread/<id>` feed, older pages and optimistic sends. */
 export const [entries, setEntries] = createStore({}, { shallow: true })
 /** Whether a thread has messages before the ones on screen, which come a page at a time as you scroll up */
 export const [earlier, setEarlier] = createStore({})
@@ -90,43 +90,74 @@ export const onNewDraft = (hear) => void (heardNewDraft = hear)
 export const pagers = new Map()
 export const loadEarlier = (thread, all = false) =>
 	earlier[thread] || all ? (pagers.get(thread)?.(all) ?? Promise.resolve()) : Promise.resolve()
-/** Your message shows the moment you send it, marked `sending`, after the thread's last, until its socket brings the server's copy; `drop` takes it back when the send failed */
+export const [people, setPeople] = createStore({})
+/** Earlier pages loaded by scrolling up, per thread, and optimistic sends keyed by request `key` */
+const olderPages = new Map()
+const pendingSent = new Map()
+const sentAtByKey = new Map()
+const feedEntries = new Map()
+function recomputeEntries(thread) {
+	const live = feedEntries.get(thread)
+	const older = olderPages.get(thread) ?? []
+	const pending = pendingSent.get(thread) ?? []
+	if (!live && !older.length && !pending.length) return
+	const serverList = live ?? []
+	const haveIds = new Set(serverList.map((entry) => entry.id))
+	const haveKeys = new Set(serverList.map((entry) => entry.data?.key).filter(Boolean))
+	const stamped = serverList.map((entry) => {
+		const at = entry.data?.key && sentAtByKey.get(entry.data.key)
+		return at !== undefined && entry.sentAt === undefined ? { ...entry, sentAt: at } : entry
+	})
+	const waiting = pending.filter((entry) => !haveKeys.has(entry.data.key))
+	if (waiting.length !== pending.length) {
+		if (waiting.length) pendingSent.set(thread, waiting)
+		else pendingSent.delete(thread)
+	}
+	setEntries((all) => {
+		all[thread] = [...older.filter((entry) => !haveIds.has(entry.id)), ...stamped, ...waiting]
+	})
+}
+/** Prepends an earlier page loaded on scroll; `more` updates `earlier[thread]` */
+export function prependOlder(thread, more, hasEarlier) {
+	const currentOlder = olderPages.get(thread) ?? []
+	const have = new Set(currentOlder.map((entry) => entry.id))
+	olderPages.set(thread, [...more.filter((entry) => !have.has(entry.id)), ...currentOlder])
+	setEarlier((all) => {
+		all[thread] = hasEarlier
+	})
+	recomputeEntries(thread)
+}
+/** Your message shows the moment you send it, marked `sending`, matched to the server's copy by its request `key` */
 export function sending(thread, data) {
+	const at = performance.now()
+	if (data.key) sentAtByKey.set(data.key, at)
 	const entry = {
 		id: (entries[thread]?.at(-1)?.id ?? 0) + 0.9,
 		sending: true,
-		sentAt: performance.now(),
+		sentAt: at,
+		speaker: me(),
+		showName: false,
+		voice: 'mine',
+		clamp: true,
+		failed: false,
 		data: { author: me(), ...data },
 	}
-	setEntries((all) => {
-		all[thread] = [...(all[thread] ?? []), entry]
-	})
-	return () =>
-		setEntries((all) => {
-			if (all[thread]?.includes(entry)) all[thread] = all[thread].filter((one) => one !== entry)
-		})
+	pendingSent.set(thread, [...(pendingSent.get(thread) ?? []), entry])
+	recomputeEntries(thread)
+	const drop = () => {
+		const list = pendingSent.get(thread)
+		if (!list?.includes(entry)) return
+		const next = list.filter((one) => one !== entry)
+		if (next.length) pendingSent.set(thread, next)
+		else pendingSent.delete(thread)
+		recomputeEntries(thread)
+	}
+	const settle = (seq) => {
+		if (typeof seq === 'number') void caughtUp(`thread/${thread}`, seq).then(drop)
+		else drop()
+	}
+	return { drop, settle }
 }
-/** New messages into a thread's list, each once and after it; each of yours that came back replaces the oldest one you were sending with that text */
-export const merged = (list, more) => {
-	const have = new Set(list.map((entry) => entry.id))
-	const back = more.filter((entry) => entry.data.author === me() && !have.has(entry.id))
-	const waiting = list.filter((entry) => {
-		if (!entry.sending) return false
-		const at = back.findIndex((ack) => ack.data.body === entry.data.body.trim())
-		if (at === -1) return true
-		const [ack] = back.splice(at, 1)
-		ack.sentAt = entry.sentAt
-		return false
-	})
-	// A message sent again carries what came after it, like the director's pick: the new copy replaces the old
-	const again = new Map(more.map((entry) => [entry.id, entry]))
-	return [
-		...list.filter((entry) => !entry.sending).map((entry) => again.get(entry.id) ?? entry),
-		...more.filter((entry) => !have.has(entry.id)),
-		...waiting,
-	]
-}
-export const [people, setPeople] = createStore({})
 const [current, setCurrent] = createSignal(Number(params.get('thread')) || null)
 export { current }
 
@@ -284,7 +315,29 @@ export const {
 			}
 			view.synced = true
 		}
-		if (changed) view.setRows(orderOf(view))
+		if (changed) {
+			view.setRows(orderOf(view))
+			if (frame.view.startsWith('thread/')) {
+				const threadId = Number(frame.view.slice('thread/'.length))
+				const meta = view.map.get('thread')
+				if (meta) {
+					if (meta.people)
+						setPeople((all) => {
+							all[threadId] = meta.people
+						})
+					if ('earlier' in meta && !olderPages.has(threadId))
+						setEarlier((all) => {
+							all[threadId] = meta.earlier
+						})
+				}
+				const msgs = [...view.map.entries()]
+					.filter(([key]) => typeof key === 'number')
+					.map(([, row]) => row)
+					.sort((left, right) => left.id - right.id)
+				feedEntries.set(threadId, msgs)
+				recomputeEntries(threadId)
+			}
+		}
 		wakeWaiters(view, Boolean(frame.reset))
 	}
 	const subscribeView = (name, { sort } = {}) => {
@@ -579,6 +632,11 @@ export function feedView(nameOf, options) {
 		return () => sub.release()
 	})
 	return createMemo(() => active()?.rows() ?? [])
+}
+/** Subscribe to a thread's `thread/<id>` feed (shaped messages, people and earlier flag) */
+export function openThreadFeed(id) {
+	const sub = subscribeView(`thread/${id}`)
+	return () => sub.release()
 }
 /** Subscribe to a single-row dynamic view (`recap/<id>`, `memory/<id>`, `usage/<id>`, `usage`) */
 export function feedItem(nameOf) {

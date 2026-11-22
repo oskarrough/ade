@@ -29,9 +29,40 @@ A message its author takes back leaves a withdrawal entry (`ade.withdrawal`, `{m
 
 Every message carries `createdAt`, the ISO time the server wrote it; one brought in from a pi session keeps pi's time.
 
+Every message returned by `GET /api/threads/:id`, `GET /api/export` or the `/ws` feed arrives already shaped for the viewer asking:
+
+- `speaker`: who spoke (`data.author`)
+- `showName`: whether the speaker's name should show above this message (true when the speaker changed from the last non-viewer speaker, after an hour gap, after a crossed row or scheduled run, or when `to` names a reply target)
+- `voice`: the row kind — `mine` (the viewer's own message), `said` (written here by someone else), `sent` (`→` cross-thread answer back to another thread), `received` (`←` cross-thread message from another thread), `run` (a scheduled task's fold), or `stopped` (who pressed Stop)
+- `to`: in a group thread, the person an agent's answer replies to when it isn't the message right above or the newest message someone wrote
+- `otherAuthor`, `otherThread`, `otherLabel`: for `sent` and `received` rows, the far side's author, thread id and display label
+- `clamp`: true when written by a person or by the viewer; `failed`: true on an error; `picked` and `pickedNobody`: the director's pick summary when present
+
+Write routes (`POST` and `DELETE`) include `seq` in their JSON response: the feed's version once that write's commit was published. Passing `key` (or `?key=` on `DELETE`) on runners, bots, archive, title and inbox dismiss makes those writes idempotent, the same way posting and thread creation are.
+
 With the `inbox` module on, the agent's `ask_person({body})` tool posts a message with `waitingOnPerson: true`. Thread views and lists return `status: "blocked"` until a person's next message, even if agents keep writing. This takes precedence over live work and unread-answer status. It is derived from messages, not stored separately. The tool returns at once, so the agent may carry on or end its turn; the CLI's `post` and `wait` stop waiting once only the question is left. A thread's `busy` says whether it has work whatever its status shows: an agent answering or waiting for its runner, a `$` command, a director pick. With a question open and a command running, it's `blocked` and `busy`, and `wait` waits for the command.
 
-To watch a thread live, open `/ws` and send `{"watch": 3}`. You get its newest messages, at least 15, with `earlier: true` when more lie before them, then new messages and each agent's work as it happens. `people`, who's in the thread, comes with the first messages and again only when it changes. Each agent's turns reach back only as far as the messages you have; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction; `{"changed": ["threads", "runners"]}` names the lists to fetch again, from `threads`, `archived`, `runners`, `bots`, `inbox`, `schedule` (with `schedule` on: a task was set, run, paused or ended anywhere, so `GET /api/schedule` answers anew) and `server`, which names a change to the client's files, so `GET /api/server` answers another `client`: a thread's change names the list it's in, and `inbox` when a question is asked, answered or dismissed, work starts or ends, or someone reads a thread; work names `threads` and `runners` as it starts and ends, so a runner's `calls` are as of your fetch; after a reconnect, fetch them all, since you may have missed some. When a message's pick lands, the socket sends that message again with its `to` and `picked`; replace your copy. Modules also send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `hold` (with the `names` typing), `dropped` and `picked` (with its `confidence`), the last once the pick is saved. Send `{"earlier": 3}` for the page before the oldest you have, at least 50 messages, or `{"earlier": 3, "all": true}` for all of them: each agent's turns for it come first, then the messages, both marked `older: true`, the messages with `earlier` again.
+Every list and open thread syncs over one versioned feed on `/ws`. Subscribe with `{"sub": "<view>", "after": <seq?>}`, unsubscribe with `{"unsub": "<view>"}`, or ask to catch up to a write's version with `{"sync": "<view>", "seq": <seq>}`. Views are `server`, `runners`, `bots`, `inbox`, `threads`, `archived`, `schedule`, `schedule/<id>`, `recap/<id>`, `memory/<id>?room=<n>`, `usage?since=<ms>&zone=<ms>`, `usage/<id>?since=<ms>`, and `thread/<id>`. The server sends ordered envelopes:
+
+```json
+{
+	"view": "threads",
+	"seq": 48211,
+	"reset": true,
+	"put": [
+		{
+			"key": 170311,
+			"seq": 48207,
+			"row": { "id": 170311, "title": "...", "status": "done", "unread": true }
+		}
+	],
+	"del": [170200]
+}
+```
+
+`reset: true` is the full bootstrap (and what a reconnect gets after a restart or eviction); later updates send only changed rows in `put` and removed keys in `del`, and a reconnect with `after` gets only what changed since that `seq`. In `threads`, each family's root row carries `family: [{id, depth}, ...]` and descendants carry `root`. In `bots`, each row carries its server-computed `color`, `defaultColor`, `customColor`, `working` and `status`. In `thread/<id>`, key `"thread"` holds the thread's row, `people` and `earlier`, and integer entry ids hold the shaped messages (the newest 15 on bootstrap, then every new message as `put`, a later director pick as a `put` of the same key, and a withdrawal as a `del`).
+
+To stream an agent's live turns, compaction cuts, drafts and module activity for a thread, send `{"watch": 3}` on `/ws` (or `{"watch": 3, "turnsOnly": true}` when messages come from the `thread/3` feed). Each agent's turns reach back only as far as the messages you have; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction. Modules send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `hold` (with the `names` typing), `dropped` and `picked` (with its `confidence`), the last once the pick is saved. Send `{"earlier": 3}` (or `{"earlier": 3, "all": true}`) for earlier pages, or fetch `GET /api/threads/3?before=<id>&last=50`.
 
 ```
 GET    /api/server                     modules, settings, `me`, who the server takes you for, `client`, what a reload of the page gets,
@@ -46,7 +77,7 @@ GET    /api/threads                    each thread's row; its `parent`, or `conv
 POST   /api/threads {title, parent?, tools?, key?, body?, to?, images?, steer?}  with a body, its first message in the same commit
 GET    /api/draft                      {draft}: yours for a thread not started yet, or null
 POST   /api/draft {key, text?, images?, pick?, page?}  saves it, as a thread's draft saves
-GET    /api/threads/:id                its row, people and messages; `?last=n` only the newest n, `?after=id` only those after one
+GET    /api/threads/:id                its row, people and shaped messages; `?last=n` newest n, `?after=id` after one, `?before=id` before one
 GET    /api/threads/archived
 POST   /api/threads/:id/archive {archived}
 POST   /api/threads/:id/entries {body, to?, images?, steer?, key?}
@@ -148,7 +179,7 @@ POST   /api/schedule {move, runner}     a task that starts a new thread each run
 
 The same POSTs under `/api/threads/:id/schedule` refuse a task from another thread. `schedule` is `{at}` once, `{at, every}` every so often from its first run, `{repeat, hour, minute, dayOfWeek?, timeZone}` by the clock, `{after}` or `{on}`. `at` is its next run and `from` where the wait for it began, the run before or when a one-off was set; a paused task has neither, and `note` says why. `last` is its last run, `{at, thread, entry}`, the message it posted, or `{at, skipped}`: a timed run that comes due while its last run's thread still works is skipped, Temporal's default overlap, and `skipped` says why, as `vps offline` when that run waits for an offline runner, else `the run before still working`. A run missed while the server was down runs once on start. `agent` is the agent that set it, `bot` the bot whose home it runs in, `to` the model a new thread each run asks.
 
-A run posts `{author, body: instructions, scheduledTask: id, to}`: an agent's goes to that agent, asking itself; a person's is theirs, asking the bot, or whom the thread would ask, or the new thread's agent. Each change to a thread's tasks (set, run, paused, cancelled) sends the pages watching it `{thread, activity: {purpose: "schedule", kind: "changed"}}`, and every page `{changed: ["schedule"]}`; fetch again then, and after a reconnect.
+A run posts `{author, body: instructions, scheduledTask: id, to}`: an agent's goes to that agent, asking itself; a person's is theirs, asking the bot, or whom the thread would ask, or the new thread's agent. Subscribe to `schedule` or `schedule/<id>` on the `/ws` feed to hear tasks added, paused, run or cancelled live.
 
 With `hooks` on too, a task can be `on` an outside event, with `schedule: {on}`. The owner, and only the owner, reads its secret:
 

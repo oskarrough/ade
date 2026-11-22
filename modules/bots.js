@@ -155,10 +155,10 @@ export function server(core) {
 		return JSON.parse(JSON.stringify({ name, ...all[name] }))
 	}
 
-	const askedHome = (ids) =>
+	const askedHome = (ids, viewer) =>
 		Promise.all(
 			ids.map(async (thread) => {
-				const messages = await core.messages(thread)
+				const messages = await core.shapeMessages(thread, await core.messages(thread), viewer)
 				const question = messages[0] ?? null
 				const answer =
 					(question && messages.find((entry) => entry.data.re?.includes(question.id))) ?? null
@@ -167,7 +167,7 @@ export function server(core) {
 		)
 	async function serve(id, query, body, by) {
 		if (id !== undefined && body === undefined && query.has('asked'))
-			return askedHome(query.get('asked').split(',').filter(Boolean).map(Number))
+			return askedHome(query.get('asked').split(',').filter(Boolean).map(Number), by)
 		if (id !== undefined)
 			throw new Error('Bots live at /api/bots; a home reads the threads that asked with ?asked=1,2')
 		if (body === undefined) return list(by)

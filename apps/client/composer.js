@@ -266,20 +266,22 @@ export function Composer(props) {
 		)
 		// Sending ends your typing: the server ends it with the message too, and this stop outranks any beat still on its way
 		if (beat.thread) typed(beat.thread, '')
-		let drop
+		let sentRow
 		/** What's on its way, so a page closing before it lands saves it back under its key */
 		const going = { thread: key, key: sent, text: body }
 		sendingNow.add(going)
 		try {
 			if (id) {
-				if (!/^\$\s/.test(body)) drop = sending(id, { body, ...(images.length && { images }) })
-				await api(`/api/threads/${id}/entries`, {
+				if (!/^\$\s/.test(body))
+					sentRow = sending(id, { key: sent, body, ...(images.length && { images }) })
+				const posted = await api(`/api/threads/${id}/entries`, {
 					body,
 					...(toDirector ? {} : { to }),
 					steer: true,
 					...(images.length && { images }),
 					key: sent,
 				})
+				sentRow?.settle(posted.seq)
 			} else
 				// A new thread and its first message are made in one step, under the draft's key
 				id = going.thread = await createThread(defaultTitle(body), {
@@ -290,7 +292,7 @@ export function Composer(props) {
 					...(images.length && { images }),
 				})
 		} catch (error) {
-			drop?.()
+			sentRow?.drop()
 			spent.delete(sent)
 			// Back in the box under its own key: if it landed after all, saving it says so and it goes again
 			changeDraft(

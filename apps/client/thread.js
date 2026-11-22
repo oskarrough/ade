@@ -29,19 +29,16 @@ import {
 	entries,
 	familyOf,
 	loadEarlier,
-	merged,
+	openThreadFeed,
 	pagers,
+	prependOlder,
 	fork,
 	followThread,
 	forkedFrom,
 	homeBot,
 	hrefOf,
-	me,
 	newThreadTools,
 	openThread,
-	setEarlier,
-	setEntries,
-	setPeople,
 	server,
 	threadRows,
 	titleOf,
@@ -106,7 +103,7 @@ export function Thread(props) {
 	/** The forks made from any message shown here, by `thread entry`; a fork is in its source's family, so only the family is read */
 	const forks = createMemo(() => {
 		const at = new Map()
-		for (const member of familyOf(props.thread)) {
+		for (const member of familyOf(props.id)) {
 			const fork = threadOf(member.id)
 			const from = forkedFrom(fork)
 			if (!from || fork.archived) continue
@@ -115,28 +112,13 @@ export function Thread(props) {
 		}
 		return at
 	})
-	/**
-	 * What every row's who-said-it-to-whom reads, worked out once per thread: the people other than you who wrote here, whether it's a group (another person, or more than one agent or bot), and
-	 * `soloAgent`, one agent and only you, a bot's home too, where the answerer is never named: only a switch to
-	 * another model says so.
-	 */
-	const otherPeople = createMemo(
-		() =>
-			new Set(
-				messages()
-					.filter((entry) => byPerson(entry) && entry.data.author !== me())
-					.map((entry) => entry.data.author),
-			),
-	)
-	const isGroup = createMemo(() => otherPeople().size > 0 || (thread()?.agents ?? []).length > 1)
-	const soloAgent = createMemo(() => !isGroup())
 	/** Each message's position in the thread, from 0, as memory and the recap count them */
 	const positions = createMemo(() => new Map(messages().map((entry, at) => [entry.id, at])))
 	/** In a bot's home, the threads others asked it in: it's their one agent, and they started outside its family. A room has more than one. */
 	const askedHere = createMemo(() => {
 		const bot = homeBot(props.id)
 		if (!bot) return []
-		const family = new Set(familyOf(props.thread).map((member) => member.id))
+		const family = new Set(familyOf(props.id).map((member) => member.id))
 		return threadRows().open.filter(
 			(other) =>
 				other.parent !== null &&
@@ -262,25 +244,6 @@ export function Thread(props) {
 					.filter((time) => time !== undefined)
 				return times.length ? Math.min(...times) : undefined
 			}
-			// An answer said here to a question from another thread names where it went
-			const byId = new Map(all.map((entry) => [entry.id, entry]))
-			// Only a question goes back, and only once: an answer that came back here sends nothing on, nor does what follows the first answer
-			const firstAnswer = new Map()
-			for (const entry of all)
-				if (!entry.data.from)
-					for (const id of entry.data.re ?? [])
-						if (!firstAnswer.has(id)) firstAnswer.set(id, entry.id)
-			const sentTo = (entry) =>
-				entry.data.from
-					? undefined
-					: (entry.data.re ?? [])
-							.map((id) => byId.get(id))
-							.find(
-								(question) =>
-									question?.data.from &&
-									!question.data.re &&
-									firstAnswer.get(question.id) === entry.id,
-							)
 			// An answer to an ask line shows in it; one with no line stays a message
 			const answers = new Set(
 				turns.flatMap((row) => (row.turn ? row.turn.steps.map((step) => answerOf(step)?.id) : [])),
@@ -295,19 +258,8 @@ export function Thread(props) {
 					...(doing[props.id]?.[agent.conversation]?.delivery?.held ?? []),
 				]),
 			)
-			const waiting = ({ id, sending, data }) =>
-				working &&
-				!sending &&
-				id > handedUpTo &&
-				data.author === me() &&
-				!(
-					data.answer ||
-					data.error ||
-					data.shell ||
-					data.from ||
-					data.scheduledTask ||
-					data.stopped
-				)
+			const waiting = ({ id, sending, voice, data }) =>
+				working && !sending && id > handedUpTo && voice === 'mine' && !data.shell
 			// What a turn changed beyond itself, each on its own row after it: an ask, with its answer, or a bot rewriting itself
 			const lasting = turns
 				.filter((row) => row.turn)
@@ -331,6 +283,13 @@ export function Thread(props) {
 							perConversation(row.agent.conversation)
 								.turns()
 								.find((turn) => turn.held.includes(answer.id))?.start
+						const otherThread = askedThread(step)
+						const otherAuthor =
+							answer?.data.author ??
+							homeBot(otherThread)?.name ??
+							threadOf(otherThread)?.agents?.[0]?.name ??
+							step.args.to ??
+							''
 						return {
 							key: `${row.key}:ask:${step.key}`,
 							ask: step,
@@ -339,74 +298,61 @@ export function Thread(props) {
 							back,
 							at,
 							time,
+							voice: 'sent',
+							otherAuthor,
+							otherThread,
+							otherLabel: titleOf(otherThread),
+							otherModel: shortLabel(otherAuthor),
+							fresh: step.args.thread === undefined,
 						}
 					}),
 				)
+			const forkMap = forks()
+			const shapeEntry = (entry, threadId) => ({
+				entry,
+				home: props.id,
+				...(threadId !== props.id && { thread: threadId }),
+				at: entry.id,
+				time: timeOf(entry),
+				voice: entry.voice,
+				speaker: entry.speaker,
+				name: entry.showName ? entry.speaker : undefined,
+				to: entry.to,
+				otherAuthor: entry.otherAuthor,
+				otherThread: entry.otherThread,
+				otherLabel: entry.otherLabel,
+				clamp: entry.clamp,
+				failed: entry.failed,
+				picked: entry.picked,
+				pickedNobody: entry.pickedNobody,
+				forks: forkMap.get(`${threadId} ${entry.id}`),
+			})
 			// A question from another thread, where it came in, on one line that opens to it; the bot's answer follows as its
 			// own message, which lives in the thread that asked
 			const asked = askedHere().flatMap((other) => {
 				const got = questions[other.id]
 				if (!got) return []
+				const otherAuthor = got.question.speaker ?? got.question.data.author
 				const question = {
 					key: `asked:${other.id}`,
 					asked: other.id,
 					question: got.question,
 					at: got.question.id,
 					time: timeOf(got.question),
+					voice: 'received',
+					otherAuthor,
+					otherThread: other.id,
+					otherLabel: shortLabel(otherAuthor),
 				}
 				const answer = got.answer && {
 					key: `asked:${other.id}:${got.answer.id}`,
-					home: props.id,
-					entry: got.answer,
-					thread: other.id,
-					at: got.answer.id,
-					time: timeOf(got.answer),
+					...shapeEntry(got.answer, other.id),
 				}
 				return answer ? [question, answer] : [question]
 			})
-			/**
-			 * Whom each answer replies to, when it isn't the message right above it nor the newest one someone wrote: the
-			 * person who wrote the newest message its turn was handed, never an agent or a report, and only under a person's
-			 * message. One pass, each agent's turns walked once in step.
-			 */
-			const replyTo = new Map()
-			const walked = new Map()
-			const turnOf = ({ conversation, entry }) => {
-				const turns = perConversation(conversation).turns()
-				let at = walked.get(conversation) ?? -1
-				while (at + 1 < turns.length && turns[at + 1].delivery < entry) at++
-				walked.set(conversation, at)
-				return turns[at]
-			}
-			const naming = isGroup()
-			let previous, written
-			for (const entry of all) {
-				const { answer, from, author } = entry.data
-				const turn = answer && !from ? turnOf(answer) : undefined
-				const replied = turn?.held.length ? byId.get(Math.max(...turn.held)) : undefined
-				// Only a person is worth naming, and only when a person's message sits right above
-				if (
-					naming &&
-					replied &&
-					byPerson(replied) &&
-					previous &&
-					byPerson(previous) &&
-					replied.data.author !== author &&
-					replied !== previous &&
-					replied !== written
-				)
-					replyTo.set(entry.id, replied.data.author)
-				previous = entry
-				if (!entry.data.answer && !entry.data.error) written = entry
-			}
 			const said = shown.map((entry) => ({
 				key: entry.sentAt != null ? `local:${entry.sentAt}` : entry.id,
-				home: props.id,
-				entry,
-				at: entry.id,
-				time: timeOf(entry),
-				sent: sentTo(entry),
-				to: replyTo.get(entry.id),
+				...shapeEntry(entry, props.id),
 				waiting: waiting(entry),
 			}))
 			// One cut line, the newest compaction's; what the agent reads as lines folds into them, unless opened from it
@@ -423,40 +369,30 @@ export function Thread(props) {
 				...lines,
 				...(newest ? [newest] : []),
 			].sort((one, other) => one.at - other.at)
-			// A new day, or an hour gone by, between two messages that both have their time, opens with a line saying so; before
-			// the run that opens the answer's block, when one does
-			let before
+			// Local day/hour breaks, plus hoisting a message's break/name onto the agent turn right above it
+			let before, lastSpeaker
 			for (const [index, row] of rows.entries()) {
-				if (!row.entry) continue
-				row.break = breakOf(before?.time, row.time)
-				before = row
-				const run = rows[index - 1]
-				if (row.break && (run?.turn || run?.live) && run.agent?.name === row.entry.data.author)
-					[run.break, row.break] = [row.break, undefined]
-			}
-			// Who said it, to whom, from where, once for every row; templates show only what this gives them.
-			// `name` is the speaker, only where it changed: from the last one that wasn't yours, or alone with one agent,
-			// from the last agent's; a break or a `to` names it again
-			const solo = soloAgent()
-			let last, answering
-			for (const row of rows) {
-				if (row.break) last = solo ? undefined : (answering = undefined)
-				Object.assign(row, describe(row, forks()))
-				const data = row.entry?.data
-				const run = row.turn || row.live
-				const speaker = run ? row.agent?.name : row.voice === 'said' ? data.author : undefined
-				const agentRow = Boolean(run || (row.entry && !byPerson(row.entry)))
-				const prior = solo && agentRow ? (answering ?? speaker) : last
-				if (speaker && (speaker !== prior || row.to)) row.name = speaker
-				// A crossed row shows the other thread and a scheduled run is its own quiet line, so nobody here spoke last; whoever
-				// speaks next is named, unless they're the thread's only agent going on
-				if (['sent', 'received', 'run'].includes(row.voice)) {
-					last = undefined
-					continue
+				if (row.entry) {
+					row.break = breakOf(before?.time, row.time)
+					before = row
+					if (row.break && row.voice === 'said' && row.speaker) row.name = row.speaker
+					const prev = rows[index - 1]
+					if ((prev?.turn || prev?.live) && prev.agent?.name === row.speaker) {
+						if (row.break) [prev.break, row.break] = [row.break, undefined]
+						if (row.name) [prev.name, row.name] = [row.name, undefined]
+					}
+					lastSpeaker = ['sent', 'received', 'run'].includes(row.voice)
+						? undefined
+						: row.voice === 'mine'
+							? lastSpeaker
+							: row.speaker
+				} else if (row.turn || row.live) {
+					const next = rows[index + 1]
+					if (!(next?.entry && next.speaker === row.agent?.name)) {
+						if (row.agent?.name && row.agent.name !== lastSpeaker) row.name = row.agent.name
+						if (row.agent?.name) lastSpeaker = row.agent.name
+					}
 				}
-				const author = data ? data.author : run ? row.agent?.name : null
-				if (author !== null && author !== me()) last = author
-				if (author && agentRow) answering = author
 			}
 			// A row that didn't change is handed back as the same object, so the diff skips it and an update costs the rows it touched
 			const next = new Map()
@@ -511,28 +447,56 @@ export function Thread(props) {
 	const markRead = (id) => {
 		if (document.visibilityState === 'visible') api(`/api/threads/${id}/read`, {}).catch(report)
 	}
+	// New messages arriving on the `thread/<id>` feed: stick to bottom on your own send, and mark read for others'
+	createEffect(
+		() => {
+			const id = props.id
+			const last = (entries[id] ?? []).findLast((entry) => !entry.sending)
+			return id && last ? `${id}:${last.id}:${last.voice}` : null
+		},
+		(latest, previous) => {
+			if (!latest || !previous || latest.split(':')[0] !== previous.split(':')[0]) return
+			const [id, , voice] = latest.split(':')
+			if (voice === 'mine') stuck = true
+			markRead(Number(id))
+		},
+	)
 	createEffect(
 		() => props.id,
 		(id) => {
 			if (!id) return
-			let first = true,
-				socket,
+			let socket,
 				asking = null,
-				answered = () => {}
+				turnsDone = () => {}
 			/** Agents whose conversation came on this watch; the next batch from each is appended */
 			const followed = new Set()
-			const answer = () => {
-				asking = null
-				answered()
+			const releaseFeed = openThreadFeed(id)
+			const finishTurns = () => {
+				turnsDone()
+				turnsDone = () => {}
 			}
 			pagers.set(id, (all) => {
 				// Asked for all of it, every row shows, even those already here
 				if (all) setShownFrom(-Infinity)
 				if (!earlier[id]) return Promise.resolve()
 				if (asking) return asking.then(() => all && loadEarlier(id, true))
-				if (!socket || socket.readyState !== socket.OPEN) return Promise.resolve()
-				asking = new Promise((resolve) => (answered = () => resolve(undefined)))
-				socket.send(JSON.stringify({ earlier: id, all }))
+				const oldest = (entries[id] ?? []).find((entry) => !entry.sending)?.id
+				if (oldest === undefined) return Promise.resolve()
+				asking = (async () => {
+					const found = await api(`/api/threads/${id}?before=${oldest}${all ? '' : '&last=50'}`)
+					const nextOldest = all ? 0 : (found.entries[0]?.id ?? 0)
+					if (socket?.readyState === socket.OPEN) {
+						const waitTurns = new Promise((resolve) => (turnsDone = () => resolve(undefined)))
+						socket.send(JSON.stringify({ earlier: id, before: nextOldest, all }))
+						await waitTurns
+					}
+					hold()
+					prependOlder(id, found.entries, all ? false : Boolean(found.earlier))
+				})()
+					.catch(report)
+					.finally(() => {
+						asking = null
+					})
 				return asking
 			})
 			stuck = true
@@ -545,45 +509,9 @@ export function Thread(props) {
 			const close = watch(
 				(message) => {
 					if (message.thread !== id) return
-					if (message.older && !message.agent) {
-						// An earlier page goes on top, and the view stays where it was
-						hold()
-						setEntries((all) => {
-							const have = new Set((all[id] ?? []).map((entry) => entry.id))
-							all[id] = [
-								...message.entries.filter((entry) => !have.has(entry.id)),
-								...(all[id] ?? []),
-							]
-						})
-						setEarlier((all) => {
-							all[id] = message.earlier
-						})
-						answer()
-					} else if (message.entries && !message.agent) {
-						if ('earlier' in message)
-							setEarlier((all) => {
-								all[id] = message.earlier
-							})
-						const snapshot = first
-						first = false
-						// Your own send always shows, live or in a reconnect's snapshot; others' entries follow only a view already at the bottom.
-						const shown = new Set((entries[id] ?? []).map((entry) => entry.id))
-						if (message.entries.some((entry) => entry.data.author === me() && !shown.has(entry.id)))
-							stuck = true
-						setEntries((all) => {
-							all[id] = merged(
-								snapshot ? (all[id] ?? []).filter((entry) => entry.sending) : (all[id] ?? []),
-								message.entries,
-							)
-						})
-						if (!snapshot) markRead(id)
-					}
+					if (message.older && message.done) finishTurns()
 					if ('draft' in message || message.sent) heardDraft(id, message)
 					if (message.activity) heardActivity(id, message.activity)
-					if (message.people)
-						setPeople((all) => {
-							all[id] = message.people
-						})
 					if (message.agent && message.entries) {
 						heard(message.agent, message.entries, {
 							whole: !message.older && !followed.has(message.agent),
@@ -601,16 +529,16 @@ export function Thread(props) {
 				},
 				(opened) => {
 					socket = opened
-					first = true
 					followed.clear()
-					answer()
-					socket.send(JSON.stringify({ watch: id }))
+					finishTurns()
+					socket.send(JSON.stringify({ watch: id, turnsOnly: true }))
 				},
 			)
-			// Its messages stay, so coming back shows them at once while the snapshot catches up.
+			// Its messages stay, so coming back shows them at once while the feed catches up.
 			return () => {
+				releaseFeed()
 				close()
-				answer()
+				finishTurns()
 				pagers.delete(id)
 				document.removeEventListener('visibilitychange', onVisible)
 				setDoing((work) => {
@@ -954,82 +882,6 @@ export function Thread(props) {
 		</article>
 	`
 }
-
-/**
- * What a row says about who, to whom and from where, in flat fields so an unchanged row compares equal:
- * `voice`, mine (your bubble), said (here, by someone else), stopped (a Stop's line), sent or received (crossed
- * threads); for those, the far side as `otherAuthor`, `otherThread` and `otherLabel`; a message's `forks`, `picked`,
- * `clamp` and `failed`; `run` is a scheduled task's run. Ask rows and questions asked here are sent and received rows too.
- */
-function describe(row, forks) {
-	if (row.ask) {
-		const thread = askedThread(row.ask)
-		const author =
-			row.answer?.data.author ??
-			homeBot(thread)?.name ??
-			threadOf(thread)?.agents?.[0]?.name ??
-			row.ask.args.to ??
-			''
-		// A post reads as its thread's title, "new thread" first when the post started it
-		return {
-			voice: 'sent',
-			...farSide(author, thread, titleOf(thread)),
-			otherModel: shortLabel(author),
-			fresh: row.ask.args.thread === undefined,
-		}
-	}
-	if (row.asked) {
-		const author = row.question.data.author
-		return { voice: 'received', ...farSide(author, row.asked, shortLabel(author)) }
-	}
-	const data = row.entry?.data
-	if (!data) return {}
-	const from =
-		row.sent ?? (data.from && data.from !== (row.thread ?? row.home) ? row.entry : undefined)
-	const voice = row.sent
-		? 'sent'
-		: from
-			? 'received'
-			: data.scheduledTask
-				? 'run'
-				: data.stopped
-					? 'stopped'
-					: data.author === me()
-						? 'mine'
-						: 'said'
-	return {
-		voice,
-		...(from && farSide(from.data.author, from.data.from)),
-		forks: forks.get(`${row.thread ?? row.home} ${row.entry.id}`),
-		clamp: byPerson(row.entry) || data.author === me(),
-		failed: Boolean(data.error),
-		...(data.picked && { picked: data.picked, pickedNobody: !data.to?.length }),
-	}
-}
-
-/**
- * The other side of a crossed row: `label` when given, else a bot by its name, a thread's agent by its thread's title,
- * or its model while the thread has none
- */
-function farSide(author, thread, label) {
-	const title = threadOf(thread)?.title
-	const bot = bots.some((bot) => bot.name === author)
-	return {
-		otherAuthor: author,
-		otherThread: thread,
-		otherLabel: label ?? (bot || !title ? shortLabel(author) || titleOf(thread) : title),
-	}
-}
-
-/** A person wrote it here: not an agent, a bot, a report from another thread, a scheduled run or a Stop */
-const byPerson = (entry) =>
-	!entry.data.from &&
-	!entry.data.answer &&
-	!entry.data.error &&
-	!entry.data.scheduledTask &&
-	!entry.data.stopped &&
-	!entry.data.author?.includes('@') &&
-	!bots.some((bot) => bot.name === entry.data.author)
 
 /** A message's or run's author, above it, in their colour; with `to`, whom it answers */
 export const Name = (props) => html`
