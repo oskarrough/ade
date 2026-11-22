@@ -19,6 +19,7 @@ import { Switch } from './dot.js'
 import { markdown } from './markdown.js'
 import { Icon } from './icons.js'
 import { PiSessionList } from './pi-sessions.js'
+import { desktopVersion } from './desktop.js'
 
 export function Settings() {
 	let button, panel
@@ -166,6 +167,9 @@ export function Settings() {
 										: 'Save and restart'}<//
 							>
 						</button>
+					<//>
+					<${Show} when=${desktopVersion}>
+						<p class="mute">${() => `arbe desktop ${desktopVersion()}`}</p>
 					<//>
 				`}
 				open=${picking}

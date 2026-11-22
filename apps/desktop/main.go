@@ -116,6 +116,9 @@ func (Desktop) Notify(thread int, title, body string) error {
 func (Desktop) WriteText(text string) { mygo.Clipboard.WriteText(text) }
 func (Desktop) ReadText() string      { return mygo.Clipboard.ReadText() }
 
+// Version is this app's version, for the page to show.
+func (Desktop) Version() string { return mygo.App.Version() }
+
 // Menu shows labels as the system's context menu at the pointer, an empty one
 // as a separator, and answers the index of the item picked, or -1.
 func (Desktop) Menu(ctx context.Context, labels []string) int {

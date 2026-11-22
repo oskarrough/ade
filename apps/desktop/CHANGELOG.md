@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Settings shows which arbe desktop you're running, at the bottom.
+
 ## 0.1.3
 
 - Dropped the grey title bar so ade's top row reaches the window edge, with native window buttons inline and drag-to-move on empty space.

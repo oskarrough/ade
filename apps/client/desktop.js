@@ -2,6 +2,7 @@
  * Right-click menus in arbe desktop (apps/desktop): the system's own menu, whose items run the page's own actions. In a
  * browser there's no `window.mygo`, so the right-click stays the browser's.
  */
+import { createRoot, createSignal } from 'solid-js'
 import { report } from './notice.js'
 
 const mygo = /** @type {any} */ (window).mygo
@@ -45,3 +46,10 @@ export const selectedIn = (element) => {
 }
 
 export const copyText = (text) => navigator.clipboard.writeText(text)
+
+/** The desktop app's version, asked once; empty in a browser, or in an app too old to say */
+export const [desktopVersion] = createRoot(() => {
+	const [version, setVersion] = createSignal('')
+	mygo?.call('Desktop.Version').then(setVersion, () => {})
+	return [version]
+})
