@@ -8,12 +8,14 @@ import html from '@solidjs/html'
 import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
 import {
 	api,
+	besideKey,
 	bots,
 	colorOf,
 	current,
 	drawer,
 	inbox,
 	openInbox,
+	openBeside,
 	openSearch,
 	openThread,
 	openUsage,
@@ -143,7 +145,7 @@ export function Jump() {
 		label: row.title || `thread ${row.id}`,
 		state: row.status,
 		note: row.archived ? 'archived' : '',
-		run: () => openThread(row.id),
+		run: (event) => (besideKey(event) ? openBeside : openThread)(row.id),
 	})
 
 	/** Best first: the title starting with what's typed, then a word of it, then anywhere; open before archived; opened lately before the rest */
@@ -199,7 +201,7 @@ export function Jump() {
 						state: threadOf(bot.home)?.status,
 						note: 'bot',
 						fit: fit(text, bot.name),
-						run: () => openThread(bot.home),
+						run: (event) => (besideKey(event) ? openBeside : openThread)(bot.home),
 					}))
 					.sort((a, b) => a.fit - b.fit),
 			},
@@ -246,9 +248,10 @@ export function Jump() {
 	})
 
 	const close = () => panel.hidePopover()
-	const go = (option) => {
+	/** Runs a row; a thread's or bot's, with Ctrl or Cmd held, opens beside */
+	const go = (option, event) => {
 		close()
-		option.run()
+		option.run(event)
 	}
 	const walk = (step) => {
 		const count = options().length
@@ -316,7 +319,7 @@ export function Jump() {
 							if (step) walk(step)
 							else if (event.key === 'Enter') {
 								const option = options().find((each) => each.key === highlighted())
-								if (option) go(option)
+								if (option) go(option, event)
 							} else return
 							event.preventDefault()
 						}}
@@ -359,7 +362,7 @@ function JumpRow(option, highlighted, go) {
 			aria-selected=${() => String(highlighted() === option().key)}
 			class="ghost model"
 			onMouseDown=${(event) => event.preventDefault()}
-			onClick=${() => go(option())}
+			onClick=${(event) => go(option(), event)}
 		>
 			<${Show} when=${() => option().state !== undefined}
 				><${Dot} state=${() => option().state}

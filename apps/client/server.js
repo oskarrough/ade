@@ -175,6 +175,9 @@ export function openUsage() {
 }
 
 export function openThread(id) {
+	// Moving into a column on screen keeps every column where it is; going anywhere else leaves those opened beside
+	const shown = untrack(columns)
+	setBeside(shown.includes(id) && shown.length > 1 ? shown : [])
 	setInboxOpen(false)
 	setSearchFor(null)
 	setUsageOpen(false)
@@ -184,10 +187,15 @@ export function openThread(id) {
 }
 
 /** A link to a thread opens it here, and still opens in a new tab or window when the click asks for one */
+/** Ctrl-click, or Cmd-click on a Mac, opens a thread in a column beside the ones on screen */
+export const besideKey = (event) => Boolean(event?.ctrlKey || event?.metaKey)
+
+/** A thread link's click: a plain one opens the thread, Ctrl or Cmd puts it beside, Shift and Alt are the browser's */
 export function followThread(event, id) {
-	if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+	if (event.shiftKey || event.altKey) return
 	event.preventDefault()
-	openThread(id)
+	if (besideKey(event)) openBeside(id)
+	else openThread(id)
 }
 
 /** A thread's address: what a real link needs, so it can also be opened in a new tab or copied */
@@ -222,6 +230,8 @@ export const {
 	family,
 	columns,
 	closeColumn,
+	openBeside,
+	setBeside,
 	reloadThreads,
 	reloadArchivedThreads,
 	changeThread,
@@ -514,11 +524,33 @@ export const {
 	)
 	/** Family members you opened in this page; closing forgets one */
 	const [open, setOpen] = createSignal(new Set())
+	/** Other threads opened beside them with Ctrl or Cmd, in the order you opened them */
+	const [beside, setBeside] = createSignal([])
+	/** One more column, beside the ones on screen; the thread you're in stays */
+	const openBeside = (id) => {
+		if (!untrack(current)) return openThread(id)
+		// From the inbox, search or usage, back to the threads, with this one beside
+		if (untrack(inboxOpen) || untrack(searchFor) !== null || untrack(usageOpen))
+			openThread(untrack(current))
+		if (untrack(family).includes(id)) setOpen((ids) => new Set([...ids, id]))
+		else setBeside((ids) => (ids.includes(id) ? ids : [...ids, id]))
+	}
 	createEffect(current, (here) => {
 		if (here) setOpen((ids) => (ids.has(here) ? ids : new Set([...ids, here])))
 	})
 	/** The columns on screen: the thread you're in and the open members of its family, in the family's order */
-	const columns = createMemo(() => family().filter((id) => id === current() || open().has(id)))
+	const columns = createMemo(() => {
+		const shown = family().filter((id) => id === current() || open().has(id))
+		const at = beside().indexOf(current())
+		const before =
+			at < 0
+				? []
+				: beside()
+						.slice(0, at)
+						.filter((id) => !shown.includes(id))
+		const after = beside().filter((id) => !shown.includes(id) && !before.includes(id))
+		return [...before, ...shown, ...after]
+	})
 	/** Closing the thread you're in moves you to its nearest open neighbour, or to a new thread when it was alone */
 	const closeColumn = (id) => {
 		if (id === current()) {
@@ -531,6 +563,7 @@ export const {
 			next.delete(id)
 			return next
 		})
+		setBeside((ids) => ids.filter((each) => each !== id))
 	}
 	return {
 		threads,
@@ -547,6 +580,8 @@ export const {
 		family,
 		columns,
 		closeColumn,
+		openBeside,
+		setBeside,
 		reloadThreads,
 		reloadArchivedThreads,
 		changeThread,

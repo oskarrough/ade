@@ -18,11 +18,13 @@ import {
 } from 'solid-js'
 import {
 	api,
+	besideKey,
 	colorOf,
 	current,
 	drawer,
 	hrefOf,
 	loadEarlier,
+	openBeside,
 	openSearch,
 	openThread,
 	searchFor,
@@ -134,9 +136,10 @@ export function Search() {
 /** One match: its thread, who wrote it and when, then the words around it with the match tinted */
 function Result(props) {
 	const open = (event) => {
-		if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+		if (event.shiftKey || event.altKey) return
 		event.preventDefault()
-		showMessage(props.item.thread, props.item.message)
+		if (besideKey(event)) openBeside(props.item.thread)
+		else showMessage(props.item.thread, props.item.message)
 	}
 	return html`
 		<li class="question result" data-thread=${() => props.item.thread}>
