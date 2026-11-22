@@ -27,6 +27,7 @@ import { Icon } from './icons.js'
 import { placePopover } from './popover.js'
 import { marked, showMessage } from './search.js'
 import { setArchivedPage, setCreatingBot } from './thread-list.js'
+import { openTaskForm } from './schedule.js'
 
 const RECENT = 'ade.recent'
 const readRecent = () => {
@@ -127,7 +128,11 @@ export function Jump() {
 			},
 			{ label: 'Settings', run: press('.settings-toggle') },
 			{ label: 'Runners', run: press('.runner-toggle') },
-			on('wake') && { label: 'Wakes', run: press('.wake-toggle') },
+			on('schedule') && { label: 'Scheduled tasks', run: press('.schedule-toggle') },
+			on('schedule') && {
+				label: 'Schedule a task',
+				run: () => openTaskForm(current() ?? undefined),
+			},
 			on('usage') && { label: 'Usage', run: openUsage },
 		]
 			.filter(Boolean)

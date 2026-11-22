@@ -46,7 +46,7 @@ import { conversations } from './run.js'
 import { Compaction, Memory } from './agent-memory.js'
 import { Panes } from './panes.js'
 import { Notice, report } from './notice.js'
-import { Wakes } from './wake.js'
+import { ScheduledTasks } from './schedule.js'
 import { imageContent, imageUrl } from './images.js'
 
 export function Composer(props) {
@@ -330,8 +330,8 @@ export function Composer(props) {
 				add(files)
 			}}
 		>
-			<${Show} when=${() => server().modules?.includes('wake') && props.thread} keyed>
-				${(thread) => html`<${Wakes} thread=${thread} />`}
+			<${Show} when=${() => server().modules?.includes('schedule') && props.thread} keyed>
+				${(thread) => html`<${ScheduledTasks} thread=${thread} />`}
 			<//>
 			<${Show} when=${open}><${Notice} /><//>
 			<${Show} when=${() => draft().images.length}>

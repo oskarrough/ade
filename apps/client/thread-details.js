@@ -25,6 +25,7 @@ import { ThreadItem } from './thread-list.js'
 import { Dot, Switch } from './dot.js'
 import { PiSource } from './pi-sessions.js'
 import { ThreadUsage } from './usage.js'
+import { openTaskForm } from './schedule.js'
 
 /** A thread's details as a page of the side column: its title, who's in it, its bot, its family and tools; a bot's threads open over them */
 export function DetailsPage(props) {
@@ -150,6 +151,18 @@ export function DetailsPage(props) {
 				<//>
 				<${Show} when=${() => server().modules.includes('usage') && id()}>
 					<${ThreadUsage} thread=${id()} />
+				<//>
+				<${Show} when=${() => server().modules.includes('schedule') && id()}>
+					<div class="hands">
+						<button
+							type="button"
+							class="ghost small"
+							title="Instructions that arrive here later, once or on a schedule"
+							onClick=${(_event) => openTaskForm(id())}
+						>
+							Schedule a task
+						</button>
+					</div>
 				<//>
 			<//>
 		</aside>

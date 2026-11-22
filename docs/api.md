@@ -27,7 +27,7 @@ Every message carries `createdAt`, the ISO time the server wrote it; one brought
 
 With the `inbox` module on, the agent's `ask_person({body})` tool posts a message with `waitingOnPerson: true`. Thread views and lists return `status: "blocked"` until a person's next message, even if agents keep writing. This takes precedence over live work and unread-answer status. It is derived from messages, not stored separately. The tool returns at once, so the agent may carry on or end its turn; the CLI's `post` and `wait` stop waiting once only the question is left. A thread's `busy` says whether it has work whatever its status shows: an agent answering or waiting for its runner, a `$` command, a director pick. With a question open and a command running, it's `blocked` and `busy`, and `wait` waits for the command.
 
-To watch a thread live, open `/ws` and send `{"watch": 3}`. You get its newest messages, at least 15, with `earlier: true` when more lie before them, then new messages and each agent's work as it happens. `people`, who's in the thread, comes with the first messages and again only when it changes. Each agent's turns reach back only as far as the messages you have; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction; `{"changed": ["threads", "runners"]}` names the lists to fetch again, from `threads`, `archived`, `runners`, `bots`, `inbox`, `wakes` (with `wake` on: a wake was set, fired or ended anywhere, so `GET /api/wake` answers anew) and `server`, which names a change to the client's files, so `GET /api/server` answers another `client`: a thread's change names the list it's in, and `inbox` when a question is asked, answered or dismissed, work starts or ends, or someone reads a thread; work names `threads` and `runners` as it starts and ends, so a runner's `calls` are as of your fetch; after a reconnect, fetch them all, since you may have missed some. When a message's pick lands, the socket sends that message again with its `to` and `picked`; replace your copy. Modules also send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `hold` (with the `names` typing), `dropped` and `picked` (with its `confidence`), the last once the pick is saved. Send `{"earlier": 3}` for the page before the oldest you have, at least 50 messages, or `{"earlier": 3, "all": true}` for all of them: each agent's turns for it come first, then the messages, both marked `older: true`, the messages with `earlier` again.
+To watch a thread live, open `/ws` and send `{"watch": 3}`. You get its newest messages, at least 15, with `earlier: true` when more lie before them, then new messages and each agent's work as it happens. `people`, who's in the thread, comes with the first messages and again only when it changes. Each agent's turns reach back only as far as the messages you have; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction; `{"changed": ["threads", "runners"]}` names the lists to fetch again, from `threads`, `archived`, `runners`, `bots`, `inbox`, `schedule` (with `schedule` on: a task was set, run, paused or ended anywhere, so `GET /api/schedule` answers anew) and `server`, which names a change to the client's files, so `GET /api/server` answers another `client`: a thread's change names the list it's in, and `inbox` when a question is asked, answered or dismissed, work starts or ends, or someone reads a thread; work names `threads` and `runners` as it starts and ends, so a runner's `calls` are as of your fetch; after a reconnect, fetch them all, since you may have missed some. When a message's pick lands, the socket sends that message again with its `to` and `picked`; replace your copy. Modules also send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `hold` (with the `names` typing), `dropped` and `picked` (with its `confidence`), the last once the pick is saved. Send `{"earlier": 3}` for the page before the oldest you have, at least 50 messages, or `{"earlier": 3, "all": true}` for all of them: each agent's turns for it come first, then the messages, both marked `older: true`, the messages with `earlier` again.
 
 ```
 GET    /api/server                     modules, settings, `me`, who the server takes you for, `client`, what a reload of the page gets,
@@ -117,36 +117,48 @@ POST   /api/threads/:id/inbox {dismiss}   hides that question (its message id) u
 
 A question leaves the inbox once a person writes in its thread, the same moment the thread stops being blocked. A dismissed one stays blocked; it's only out of the inbox. After the questions come, for you alone, threads you wrote in whose last run failed and then those with an answer you haven't read, newest first in each: the ones the sidebar dots red and blue. Reading the thread (`POST /api/threads/:id/read`, what opening it does) takes one out. Threads you never wrote in, like those agents started among themselves, never come.
 
-With `wake` on:
+With `schedule` on:
 
 ```
-GET    /api/threads/:id/wake            [{id, thread, at?, after?, on?, every?, note, agent}]: the thread's pending wakes, timed ones soonest first, then those waiting on thread `after`
-POST   /api/threads/:id/wake {cancel}   cancels that wake (its id): {cancelled}, or {fired} if a one-off went off first, {ended} if it had ended otherwise
-GET    /api/wake                        every pending wake in the house, the same rows
-POST   /api/wake {cancel}               cancels any wake by its id, as above
+GET    /api/schedule                    every scheduled task in the house, soonest first, then the paused and those waiting on a thread or an event:
+                                          [{id, thread, schedule, at?, from?, paused?, note?, last?, instructions, by, agent?, bot?, to?}]
+GET    /api/threads/:id/schedule        the thread's, the same rows
+POST   /api/schedule {instructions, bot | thread | to, repeat, hour?, minute?, dayOfWeek?, timeZone?, key?}
+                                        a person's new task: {id, thread}. It runs in `bot`'s home, in `thread` as your own message there,
+                                          or with `to` (`{runner, model, thinkingLevel?}`) in a new thread each run, under one made for the task.
+                                          `repeat` is once, hourly, daily, weekdays, weekly or webhook (with hooks on), at `hour` and `minute`
+                                          on `timeZone`'s clock (hourly takes only the minute), `dayOfWeek` 0 (Sunday) to 6 for weekly, as
+                                          Temporal's Schedules name them; `in` and `every` durations work too
+POST   /api/threads/:id/schedule {instructions, …}  the same, running in that thread
+POST   /api/schedule {cancel}           cancels a task by its id: {cancelled}, or {fired} if a one-off ran first, {ended} if it had ended otherwise
+POST   /api/schedule {pause, note?} | {resume}  pauses one by its id, with a note why, or resumes it: {paused} or {resumed};
+                                          it sleeps that way a moment later
+POST   /api/schedule {run}              runs it once now, outside its schedule: {ran}
 ```
 
-A wake that fires posts `{author, body: note, wake: id, to: [author]}`: the agent that set it, asking itself. Each change to a thread's wakes (set, fired, cancelled) sends the pages watching it `{thread, activity: {purpose: "wake", kind: "changed"}}`; fetch its wakes again then, and after a reconnect.
+The same POSTs under `/api/threads/:id/schedule` refuse a task from another thread. `schedule` is `{at}` once, `{at, every}` every so often from its first run, `{repeat, hour, minute, dayOfWeek?, timeZone}` by the clock, `{after}` or `{on}`. `at` is its next run and `from` where the wait for it began, the run before or when a one-off was set; a paused task has neither, and `note` says why. `last` is its last run, `{at, thread, entry}`, the message it posted, or `{at, skipped: true}`: a timed run comes due while its last run's thread still works is skipped, Temporal's default overlap. A run missed while the server was down runs once on start. `agent` is the agent that set it, `bot` the bot whose home it runs in, `to` the model a new thread each run asks.
 
-With `hooks` on too, a wake can be `on` an outside event, and lists as `{id, on, note, agent}`. The owner, and only the owner, reads its secret:
+A run posts `{author, body: instructions, scheduledTask: id, to}`: an agent's goes to that agent, asking itself; a person's is theirs, asking the bot, or whom the thread would ask, or the new thread's agent. Each change to a thread's tasks (set, run, paused, cancelled) sends the pages watching it `{thread, activity: {purpose: "schedule", kind: "changed"}}`, and every page `{changed: ["schedule"]}`; fetch again then, and after a reconnect.
 
-```
-GET    /api/threads/:id/hooks?wake=N    {wake, on, path, secret, raw, send | github}: where wake N's hook is, how to call it, and whether its sender's text gets through
-POST   /api/threads/:id/hooks {rotate}  a new secret for that wake; the old one is refused from then on, even on a delivery already under way
-POST   /api/threads/:id/hooks {wake, raw}  `raw: true` lets that hook's sender's text through to the agent, `false` stops it; off until the owner turns it on
-```
-
-A hook carries the generation it was issued under; one from an older ade answers 410 here and on its hook: cancel it and set a new one.
-
-Its hook is on a listener of its own, `HOOK_PORT`, which answers nothing else, no page and no socket, and takes no owner key or login, only the wake's secret:
+With `hooks` on too, a task can be `on` an outside event, with `schedule: {on}`. The owner, and only the owner, reads its secret:
 
 ```
-POST   /hooks/:id                       an event for wake :id: {woke}, {repeat} for one it took already, {ignored} for one it doesn't wait for; 403 for a wrong secret, 404 once it's cancelled, 413 over a megabyte, 429 over 30 a minute or 500 in its life, counted only once the caller proved the secret, or over 120 tries a minute at GitHub hooks from one caller before its signature is checked (by the last `X-Forwarded-For` address, which Funnel adds), 503 with 8 already in flight, 410 for a hook from an older ade
+GET    /api/threads/:id/hooks?task=N    {task, on, path, secret, raw, send | github}: where task N's hook is, how to call it, and whether its sender's text gets through
+POST   /api/threads/:id/hooks {rotate}  a new secret for that task; the old one is refused from then on, even on a delivery already under way
+POST   /api/threads/:id/hooks {task, raw}  `raw: true` lets that hook's sender's text through to the agent, `false` stops it; off until the owner turns it on
+```
+
+A hook carries the generation it was issued under; one from an older ade answers 410 here and on its hook: cancel it and schedule a new one.
+
+Its hook is on a listener of its own, `HOOK_PORT`, which answers nothing else, no page and no socket, and takes no owner key or login, only the task's secret:
+
+```
+POST   /hooks/:id                       an event for task :id: {ran}, {repeat} for one it took already, {ignored} for one it doesn't wait for or while it's paused; 403 for a wrong secret, 404 once it's cancelled, 413 over a megabyte, 429 over 30 a minute or 500 in its life, counted only once the caller proved the secret, or over 120 tries a minute at GitHub hooks from one caller before its signature is checked (by the last `X-Forwarded-For` address, which Funnel adds), 503 with 8 already in flight, 410 for a hook from an older ade
 ```
 
 A request has 10 seconds to arrive whole. `on: "hook"` takes `Authorization: Bearer <secret>`, any body, and an optional `X-Hook-Event` name; a repeat is the same `Idempotency-Key` header, else the same body. `push` and `ci` take only a body GitHub signed with the secret (X-Hub-Signature-256), and read the event from its shape, not from GitHub's unsigned headers: a push, or a workflow run or check suite that completed with `failure` or `timed_out`; a ping or any other is `ignored`. A repeat is the same signed body, whatever its delivery id.
 
-The wake posts `{author, body: note, wake, event: {from, facts, said?}, to}`: its own note, with what came beside it. `from` is `hook`, `GitHub push` or `GitHub CI`. `facts` are typed, each kept to its own shape or given as `(unusual)`: a push's `repo`, `branch`, `before`, `after`, `pusher` and `commits` (a count); a CI run's `repo`, `workflow` (its file, like `.github/workflows/ci.yml`), `workflow_id`, `conclusion` and `url`, never its name; a plain call's `event` and `bytes`. `said`, the sender's own text up to 2000 characters (the head commit's message, the run's title, the call's body), comes only once the owner turned `raw` on for that hook. The agent reads the event after its note in an `<outside-event>` block, escaped, as data from outside ade, not instructions.
+The task posts `{author, body: instructions, scheduledTask, event: {from, facts, said?}, to}`: its own instructions, with what came beside them. `from` is `hook`, `GitHub push` or `GitHub CI`. `facts` are typed, each kept to its own shape or given as `(unusual)`: a push's `repo`, `branch`, `before`, `after`, `pusher` and `commits` (a count); a CI run's `repo`, `workflow` (its file, like `.github/workflows/ci.yml`), `workflow_id`, `conclusion` and `url`, never its name; a plain call's `event` and `bytes`. `said`, the sender's own text up to 2000 characters (the head commit's message, the run's title, the call's body), comes only once the owner turned `raw` on for that hook. The agent reads the event after its instructions in an `<outside-event>` block, escaped, as data from outside ade, not instructions.
 
 With `export` on:
 

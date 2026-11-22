@@ -23,8 +23,8 @@ What a message to `echo/try@bot` makes it do:
 - A message of just `fail` makes its run fail, as a model error would.
 - With `MODULES=+inbox`, a message starting `ask <question>` makes it call `ask_person`, but only in a thread with one person in it, since with several people messages arrive wrapped with the sender's name.
 - With `MODULES=+search`, a message starting `search <words>` makes it call `search` and answer with what it found.
-- With `MODULES=+wake`, `wake 5m <note>` sets a one-off wake and `wake every 1h <note>` a repeating one.
-- With `MODULES=+wake,+hooks`, `wake on hook <note>` sets a wake on its hook and answers with its `/hooks/<id>` path. try.js prints the hooks address, `GET /api/threads/N/hooks?wake=<id>` gives the secret to curl it with, and `POST … {wake: <id>, raw: true}` lets the sender's text through.
+- With `MODULES=+schedule`, `schedule 5m <instructions>` schedules a one-off task, `schedule every 1h <instructions>` a repeating one, and `schedule daily 09:00 <instructions>` one by the clock (also hourly, weekdays, weekly). A person's task goes through `POST /api/schedule` or the Scheduled tasks list's New task.
+- With `MODULES=+schedule,+hooks`, `schedule on hook <instructions>` schedules a task on its hook and answers with its `/hooks/<id>` path. try.js prints the hooks address, `GET /api/threads/N/hooks?task=<id>` gives the secret to curl it with, and `POST … {task: <id>, raw: true}` lets the sender's text through.
 - `bot <instructions>` in a bot's home exercises its `bot` tool; `bot append <line>` adds one line.
 - `sleep 0.5` delays it, for examples that need a small delay.
 
@@ -32,7 +32,7 @@ try.js's `bot` runner loads skills, AGENTS.md and runner modules normally; only 
 
 To test anything that needs an agent mid-run, like taking back a waiting message, send `slow` to a thread on the scripted `echo/try@bot`, not to a named bot, whose reply comes back before the tool runs; wait until the tool shows as running, then send and act within the same check, since the window closes when the tool ends.
 
-A change touching how transcript rows, sidebar dots or reply labels render has slipped past checks that only looked at one plain thread before, so open a solo worker thread, a bot home with an unread child thread, a group of two people and two bots, a thread with cross-thread asks and an incoming worker report, and a thread with a wake notice, before landing. Build them with the scripted bot's own commands: `wake 5m <note>` for the wake notice, `post` (and `post --to` a second bot) for the group and cross-thread asks, and `ask <question>` for the worker report.
+A change touching how transcript rows, sidebar dots or reply labels render has slipped past checks that only looked at one plain thread before, so open a solo worker thread, a bot home with an unread child thread, a group of two people and two bots, a thread with cross-thread asks and an incoming worker report, and a thread with a scheduled task above its composer, before landing. Build them with the scripted bot's own commands: `schedule 5m <instructions>` for the scheduled task, `post` (and `post --to` a second bot) for the group and cross-thread asks, and `ask <question>` for the worker report.
 
 ### The CLI
 

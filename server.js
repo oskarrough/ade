@@ -75,7 +75,8 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {{ conversation: import("@earendil-works/pi-durable").ConversationId, entry: number }} [answer]  The agent's entry it copies.
  * @property {true} [waitingOnPerson]  An agent's explicit question, open until a person next writes.
  * @property {true} [posted]  A bot's own post in a thread it's in, or opens, with its post tool: an agent's, as its answers are.
- * @property {number} [wake]  The wake that posted it: an agent's own note, back to it when its time came.
+ * @property {number} [scheduledTask]  The scheduled task that posted it, when its time came: an agent's own instructions
+ *   back to it, or a person's, as they set them.
  * @property {true} [error]  The agent gave no answer.
  * @property {true} [stopped]  Its author pressed Stop while the thread was working; the body says `stopped`.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
@@ -1298,14 +1299,14 @@ async function route(
 	return { to: to.map(writtenTo), ...(picked ? { picked } : {}) }
 }
 
-/** A message someone wrote to the thread, not an agent's answer back, its own wake or a command's output: one that takes over a pick */
+/** A message someone wrote to the thread, not an agent's answer back, a scheduled task's run or a command's output: one that takes over a pick */
 const fresh = ({ kind, data }) =>
 	kind === KIND &&
 	!data.answer &&
 	!data.error &&
 	!data.shell &&
 	!data.re &&
-	!data.wake &&
+	!data.scheduledTask &&
 	!data.stopped
 
 /**
@@ -1687,7 +1688,7 @@ async function invited(id, body) {
 
 /**
  * A caller's own key, namespaced by its scope so two scopes' keys never share a receipt: a message's `post {id}/{key}`
- * is reused by a retry or Matrix's event id; a hook's `hook {wake}/{digest}` is its own; a thread's `create thread/{key}` by nothing else.
+ * is reused by a retry or Matrix's event id; a hook's `hook {task}/{digest}` is its own; a thread's `create thread/{key}` by nothing else.
  */
 function scopedKey(scope, key) {
 	if (key === undefined) return undefined
@@ -2058,6 +2059,8 @@ const core = {
 	instructionsOf: (name) => instructionsOf?.(name),
 	botAgent: (name) => botAgent?.(name),
 	botNames: () => botNames?.() ?? [],
+	/** Each bot's home: `{[thread]: name}` */
+	homes: async () => (await homesOf?.()) ?? {},
 	startThread,
 	newAgent,
 	setUp,
@@ -3368,7 +3371,7 @@ for (const host of process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1'])
 			if (hookPort)
 				say(
 					'hooks',
-					`http://127.0.0.1:${hookPort}/hooks/<wake id>, the only part to publish, on an outside port of its own: tailscale funnel --bg --https=8443 --set-path /hooks http://127.0.0.1:${hookPort}/hooks`,
+					`http://127.0.0.1:${hookPort}/hooks/<task id>, the only part to publish, on an outside port of its own: tailscale funnel --bg --https=8443 --set-path /hooks http://127.0.0.1:${hookPort}/hooks`,
 				)
 		}
 		connectSelf(

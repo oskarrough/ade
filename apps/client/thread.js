@@ -74,7 +74,7 @@ import { messageDiagrams } from './mermaid.js'
 import { sideOf, toggleSide } from './side.js'
 import { heardActivity } from './director.js'
 import { CanvasRow } from './canvas.js'
-import { heardWake, WakeSet, Woke } from './wake.js'
+import { heardSchedule, ScheduledRun, ScheduledTaskSet } from './schedule.js'
 
 /** A folded summary's text, without the literal <summary> wrapper tags some memories still carry */
 const stripSummaryTag = (text) =>
@@ -298,7 +298,14 @@ export function Thread(props) {
 				!sending &&
 				id > handedUpTo &&
 				data.author === me() &&
-				!(data.answer || data.error || data.shell || data.from || data.wake || data.stopped)
+				!(
+					data.answer ||
+					data.error ||
+					data.shell ||
+					data.from ||
+					data.scheduledTask ||
+					data.stopped
+				)
 			// What a turn changed beyond itself, each on its own row after it: an ask, with its answer, or a bot rewriting itself
 			const lasting = turns
 				.filter((row) => row.turn)
@@ -306,7 +313,8 @@ export function Thread(props) {
 					lastingOf(row.turn.steps).map((step, index) => {
 						const at = row.at + (index + 1) / 1000
 						const time = step.result.time
-						const kind = { canvas_act: 'drew', wake: 'wake', post: 'ask' }[step.name] ?? 'changed'
+						const kind =
+							{ canvas_act: 'drew', schedule: 'scheduled', post: 'ask' }[step.name] ?? 'changed'
 						if (kind !== 'ask')
 							return {
 								key: `${row.key}:${step.name}:${step.key}`,
@@ -438,9 +446,9 @@ export function Thread(props) {
 				const agentRow = Boolean(run || (row.entry && !byPerson(row.entry)))
 				const prior = solo && agentRow ? (answering ?? speaker) : last
 				if (speaker && (speaker !== prior || row.to)) row.name = speaker
-				// A crossed row shows the other thread and a wake is its own quiet line, so nobody here spoke last; whoever
+				// A crossed row shows the other thread and a scheduled run is its own quiet line, so nobody here spoke last; whoever
 				// speaks next is named, unless they're the thread's only agent going on
-				if (['sent', 'received', 'woke'].includes(row.voice)) {
+				if (['sent', 'received', 'run'].includes(row.voice)) {
 					last = undefined
 					continue
 				}
@@ -570,7 +578,7 @@ export function Thread(props) {
 					}
 					if (message.activity) {
 						heardActivity(id, message.activity)
-						heardWake(id, message.activity)
+						heardSchedule(id, message.activity)
 					}
 					if (message.people)
 						setPeople((all) => {
@@ -906,11 +914,11 @@ export function Thread(props) {
 										thread=${() => props.id}
 									/>
 								<//>
-								<${Match} when=${() => row().voice === 'woke'}>
-									<${Woke} data=${() => row().entry.data} entry=${() => row().entry.id} />
+								<${Match} when=${() => row().voice === 'run'}>
+									<${ScheduledRun} data=${() => row().entry.data} entry=${() => row().entry.id} />
 								<//>
-								<${Match} when=${() => row().wake}>
-									<${WakeSet} step=${() => row().wake} agent=${() => row().agent} />
+								<${Match} when=${() => row().scheduled}>
+									<${ScheduledTaskSet} step=${() => row().scheduled} agent=${() => row().agent} />
 								<//>
 								<${Match} when=${() => row().changed}>
 									<${Changed} step=${() => row().changed} agent=${() => row().agent} />
@@ -945,7 +953,7 @@ export function Thread(props) {
  * What a row says about who, to whom and from where, in flat fields so an unchanged row compares equal:
  * `voice`, mine (your bubble), said (here, by someone else), stopped (a Stop's line), sent or received (crossed
  * threads); for those, the far side as `otherAuthor`, `otherThread` and `otherLabel`; a message's `forks`, `picked`,
- * `clamp` and `failed`; `woke` is a wake's own note. Ask rows and questions asked here are sent and received rows too.
+ * `clamp` and `failed`; `run` is a scheduled task's run. Ask rows and questions asked here are sent and received rows too.
  */
 function describe(row, forks) {
 	if (row.ask) {
@@ -976,8 +984,8 @@ function describe(row, forks) {
 		? 'sent'
 		: from
 			? 'received'
-			: data.wake
-				? 'woke'
+			: data.scheduledTask
+				? 'run'
 				: data.stopped
 					? 'stopped'
 					: data.author === me()
@@ -1007,12 +1015,12 @@ function farSide(author, thread, label) {
 	}
 }
 
-/** A person wrote it here: not an agent, a bot, a report from another thread, a wake or a Stop */
+/** A person wrote it here: not an agent, a bot, a report from another thread, a scheduled run or a Stop */
 const byPerson = (entry) =>
 	!entry.data.from &&
 	!entry.data.answer &&
 	!entry.data.error &&
-	!entry.data.wake &&
+	!entry.data.scheduledTask &&
 	!entry.data.stopped &&
 	!entry.data.author?.includes('@') &&
 	!bots.some((bot) => bot.name === entry.data.author)

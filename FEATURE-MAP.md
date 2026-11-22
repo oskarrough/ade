@@ -20,14 +20,14 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   core.activity                     short-lived `{thread, activity}` socket events a module sends while it works (the Director tab)
   afterCommit                       best-effort work once a server commit is stored
   isWork, busy, workIn              what counts as a thread working (Deliver, Shell, modules' `work` kinds); whether a thread has
-                                    work (a view's `busy`, CLI waits, wake); listsOf hears its last one end, which calls
+                                    work (a view's `busy`, CLI waits, scheduled tasks after a thread); listsOf hears its last one end, which calls
                                     modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`; every stored entry,
                                     modules' `entryStored(entry)`
   core.conversations                every conversation's record, threads and the agents' they own
   core.snapshot, core.spent         a doc's stored value without a commit; what a module's own model call spent (modules' `spent`)
   documentStored                    every stored document change, to modules' `documentStored(change)`
-  core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
-  core.signal                       a signal to a sleeping task (wake's Ended)
+  core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (schedule lists a thread's sleeping ones)
+  core.signal                       a signal to a sleeping task (schedule's Ended and Control)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
   outcome, tell, restore, faulted   what a finished delivery posts back (a bot's answer asks whom direct says), or a failure says
   reachable                         a message waits for its agent's runner, following the agent if it moves
@@ -58,7 +58,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   earlier, covers                   an earlier page on request, after the agent turns that reach back to it
   mintKey, revoke, upgrade          runner keys and the runner's socket; a module's own thread socket (its `connect`)
   saveSettings, restart, connectSelf   settings (POST /api/settings, the owner only), restart, the server lending its own machine, under the name it first got
-echo.js                  echo/try scripted model responses: file tools, slow commands, posts, `ask` questions, `wake` calls, `search`, bots, director and recap
+echo.js                  echo/try scripted model responses: file tools, slow commands, posts, `ask` questions, `schedule` calls, `search`, bots, director and recap
 runner.js                a runner: offers its models and folder shortcuts, connects, runs agents in any folder on its machine; ready (server up, name free, its own key on the server's machine), again (the `ade runner` line every hint prints)
 runner-updater.js        what `curl <server>/connect-runner | sh` starts (it saves the key in ~/.config/ade/key.<name>); keeps the runner up to date
 remote.js                the runner protocol, both ends: createRunners (server), serveRunner (runner),
@@ -109,18 +109,23 @@ modules/
   inbox.js               `ask_person` posts an explicitly marked question; openQuestion reads the latest relevant message via server.js latestMessage: the question, unless a person has replied, used by server.js status and core.openQuestion; every thread's open question, newest first (questions, over openQuestion), then for the reader the threads they wrote in that
                          the list's status dots `error` or `done` (unread, over core.threadList and core.authors), serve (GET /api/inbox,
                          POST a dismissal, kept as the Thread doc's `dismissed`); off by default
-  wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
-                         sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and on the
-                         server's `ended`, over core.busy), taskChanged tells the thread's pages (`wake` activity) and every page (`wakes` changed, core.notify), pending (the thread's or the house's sleeping wakes), cancel, serve (GET/POST /api/threads/:id/wake and /api/wake),
-                         archiving cancels them; duration parses 5m, 1h30m; with hooks on, a wake `on` an event sleeps on
-                         Hooked `event-N` (listen) and posts its note with the event as `event`; off by default
-  hooks.js               outside events for wakes: Hook (the wake's task doc: secret, events taken; issue), webhook (server.js's
+  schedule.js            scheduled tasks: `schedule`, an agent's instructions posted back to it later, and a person's from the list
+                         (create: in a bot's home, a thread, or a new thread each run under the task's own); ScheduledTask, a
+                         background stored sleep owned by the thread (asleep: its time, Control `control-N` for pause with a note, resume and run now,
+                         Hooked `event-N` or Ended), run posts one run (recipients worked out before its commit) and keeps it as
+                         `last`, or skips a timed run while the last run's thread is busy; scheduleOf reads
+                         a schedule ({at}, {at, every}, {repeat, hour, minute, dayOfWeek, timeZone}, {after}, {on}); nextRun and lastRun walk
+                         the wall clock in its zone (wall, instant), so 7:30 stays 7:30; settle runs tasks after an idle thread;
+                         pending lists a thread's or the house's with `at` and `from`; cancel, control (pause, resume), serve
+                         (GET/POST /api/schedule and /api/threads/:id/schedule); taskChanged tells the thread's pages (`schedule`
+                         activity) and every page (`schedule` changed); archiving cancels them; off by default
+  hooks.js               outside events for scheduled tasks: Hook (the task's doc: secret, events taken; issue), webhook (server.js's
                          `webhook` hook, on its own HOOK_PORT listener with HOOK's deadline, size and in-flight caps: checks
                          before the body, admit (a window checked and recorded at once: PROBES for a caller's unsigned tries at GitHub hooks, by address,
                          RATE once the caller proved the secret), then GitHub's signature, github reads
                          the event from the signed body's shape as typed facts (fact, SHAPES; its text only with the owner's
                          `raw` on the Hook doc), then reserves the delivery in one commit that checks the secret is still current, a
-                         `hook {wake}/{digest}` receipt plus a Hooked signal), LIFETIME cap, serve (owner only: GET a hook's
+                         `hook {task}/{digest}` receipt plus a Hooked signal; a paused task ignores events), LIFETIME cap, serve (owner only: GET a hook's
                          secret, POST rotate or raw; GENERATION, the Hooked version a hook was issued under: stale, 410 on both
                          routes for an older one); off by default
   web-search.js          `web_search`
@@ -181,7 +186,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     Exchange             an ask's own row in the asking thread: a sent `Cross` row, then the answer as a received one
     answersIn, answerOf  a post step's answer from the thread it asked
     LASTING, lastingOf   the tool calls that change something beyond the run, each its own row: posts that ask, `bot` rewrites,
-                         canvas_act (canvas.js CanvasRow), wake (wake.js WakeSet)
+                         canvas_act (canvas.js CanvasRow), schedule (schedule.js ScheduledTaskSet)
     Changed              a bot rewriting itself: ✎, its name, what changed; opened, a word diff of old against new (the call's details.before; jsdiff from esm.sh on first open, wordDiff), unchanged stretches folded into ⋯ (Fold)
     Turn, Step, Call     a turn's line, opened into steps
     handedStep, light, litIn   the handed step as a count (none for the one message above); opened, it lights those messages
@@ -205,18 +210,22 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   runner.js              runner list, a runner's agents, ConnectRunner
   bot.js                 a bot's settings, its threads row, new bot; botThreads shares its own/elsewhere lists
   thread-list.js         the thread list, its family rows (including children and bot homes), and with inbox on, the Inbox toggle
-  wake.js                WakeList, every wake in the house in a popover from the list's foot (GET/POST /api/wake), × cancels one,
-                         fetched again while open on the socket's `wakes` change (server.js wakesChanged);
-                         Wakes, the thread's pending wakes above the composer as one-line `.notice` lines (`.line`, open on click) with × (refetched on connect and on
-                         each `wake` activity its socket hears, heardWake);
-                         WakeSet, a wake call's row in the chat (run.js LASTING); WokeLine under a message a wake posted
+  schedule.js            ScheduledTaskList, every task in the house in a popover from the list's foot (GET/POST /api/schedule),
+                         fetched again while open on the socket's `schedule` change (server.js scheduleChanged), with New task
+                         opening TaskForm over it (Panes detail; Runs in a bot, a thread or a new thread with ModelPicker in its
+                         own popover; Repeat; Time on this browser's clock); openTaskForm opens it from a thread's details or Jump;
+                         ScheduledTasks, the thread's above the composer as one-line `.notice` lines (`.line`, open on click),
+                         refetched on connect and each `schedule` activity (heardSchedule); each with Ring (how far along the
+                         wait from `from` to `at` is, on a one-second clock, countdown), LastRun (opens its message, or says skipped)
+                         and Controls (run now, pause with a note or resume, ×);
+                         ScheduledTaskSet, a schedule call's row in the chat (run.js LASTING); ScheduledRun, a run's own line
   search.js              SearchField, the sidebar's field (results as you type, Escape closes); Search, its results in the threads' place
                          (server.js searchFor/openSearch; system.js), inbox rows with the match in <mark>; showMessage opens a thread
                          on an entry id (`data-entry`), loading earlier pages if needed, and thread.js `reveal` lights it, as recap links do
   jump.js                Jump, Cmd-K or Ctrl-K (and -O) anywhere, or the phone bar's search button (openJump): the model picker's frame
                          (`.model-picker.jump`, centred by placePopover with no button) with one field over every thread, archived ones
                          too, bots, actions (New thread, New bot through thread-list.js creatingBot, Inbox, the list foot's Settings,
-                         Runners and Wakes pressed, Usage) and with search on the first message hits (search.js marked, showMessage);
+                         Runners and Scheduled tasks pressed, Schedule a task, Usage) and with search on the first message hits (search.js marked, showMessage);
                          empty, the threads this browser opened last (`ade.recent`); sections ordered by how well their best row fits, a bot then an action winning a tie
   usage.js               Usage, the house's usage in the threads' place (server.js usageOpen/openUsage; system.js), opened by
                          UsageToggle at the list's foot: the total, Mix (the token kinds as one bar), Days (a bar a day, cost or
@@ -290,7 +299,7 @@ Where a feature lives:
 - Status dots: server.js status/busiest, client dot.js. Explicit questions waiting on a person: modules/inbox.js openQuestion, util.js byAgent.
 - The inbox: modules/inbox.js (`ask_person`, openQuestion, questions), client inbox.js, server.js inbox/dismiss/inboxOpen, thread-list.js (its toggle), system.js (in the threads' place), composer.js `inbox`.
 - Pi session files, both ways: modules/pi-sessions.js; the runner's messages are `pi-session`, `pi-session-list` and `pi-session-read` in remote.js serveRunner, shipped with the runner through RUNNER_FILES; cli.js `import`.
-- Wakes: modules/wake.js, modules/hooks.js (outside events), util.js byAgent/said (`wake` marks the message; an `event` follows it as `<outside-event>`), client wake.js, composer.js (the strip), thread-list.js (WakeList in the foot), thread.js (rows, WokeLine), time.js `ahead`.
+- Scheduled tasks: modules/schedule.js, modules/hooks.js (outside events), util.js said (`scheduledTask` marks the message; an `event` follows it as `<outside-event>`), client schedule.js, composer.js (the strip), thread-list.js (the list in the foot), thread-details.js and jump.js (Schedule a task), thread.js (rows, ScheduledRun), time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, client settings.js.
 - Right-click menus in arbe desktop: client desktop.js (nativeMenu, only with `window.mygo`), thread-list.js threadMenu (thread rows), thread.js Message messageMenu (Quote, Copy, Fork from here).
 - A page behind its ade: server.js hashOf/clientVersion (`client` in GET /api/server, `server` named on the socket when apps/client changes), git, GET /api/changes (the commits since the page's), client server.js `behind`/`changes`, thread-list.js (Update in the list's foot, with the count of commits).

@@ -704,7 +704,7 @@ agent-memory {
 						}
 					}
 
-					/* A wake's note and what an outside event brought, as they came */
+					/* A scheduled run's instructions and what an outside event brought, as they came */
 					/* Opened, the whole message starts where its first line was, in the same grey, so nothing moves */
 					> details > .whole {
 						padding-left: var(--fold);
@@ -804,7 +804,7 @@ agent-memory {
 					content: '✎';
 				}
 
-				/* A plain row (a wake, a bot's change) is one sentence on the text edge, its own ⏰ or words its mark */
+				/* A plain row (a scheduled task, a bot's change) is one sentence on the text edge, its own ⏰ or words its mark */
 				> li.changed.plain > details > summary::before {
 					display: none;
 				}
@@ -1197,7 +1197,7 @@ agent-memory {
 }
 
 /* A sheet's own headings, and a bot's parts within it, read as one kind of small label. */
-:is(.thread-details, .thread-list) {
+:is(.thread-details, .thread-list, .task-form) {
 	:is(h2, h3) {
 		font-size: var(--text-small);
 		font-weight: 500;
@@ -1218,12 +1218,14 @@ agent-memory {
 
 /* A bot's part of the sheet, and its + new, sized like the hands toggle and its tools. */
 .thread-details .bot > :is(textarea, input, button),
-.thread-details .bot > .sure > * {
+.thread-details .bot > .sure > *,
+.task-form > :is(textarea, select, button, .when, .actions) {
 	margin: 0 var(--space-2);
 }
 
 /* Its name, and its model, which opens the composer's picker, are fields like the others. */
-.thread-details .bot > :is(input.bot-name, button.bot-model) {
+.thread-details .bot > :is(input.bot-name, button.bot-model),
+.task-form > :is(select, button.bot-model) {
 	display: block;
 	background: var(--tint);
 	box-sizing: border-box;
@@ -1277,6 +1279,7 @@ agent-memory {
 
 /* Instructions are written like a message: the composer's box, growing with what's in it, up to a dozen lines, then it scrolls so what's under it stays in view. */
 .thread-details .instructions,
+.task-form .instructions,
 .popover:has(> .panes) .options > textarea {
 	display: block;
 	box-sizing: border-box;
@@ -1287,8 +1290,103 @@ agent-memory {
 	resize: none;
 }
 
-.thread-details .instructions {
+.thread-details .instructions,
+.task-form .instructions {
 	width: calc(100% - 2 * var(--space-2));
+}
+
+/* A new task's time and day on one line, its zone after them; Schedule at the end, as a form's send. */
+.task-form {
+	padding-bottom: var(--space-2);
+
+	> .when {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+
+		small {
+			color: var(--mute);
+			font-size: var(--text-small);
+		}
+	}
+
+	> .actions {
+		display: flex;
+		justify-content: end;
+		margin-top: var(--space-4);
+	}
+}
+
+/* How far along a scheduled task's wait is: a ring in the text's quiet ink, filling as its run nears. */
+svg.ring {
+	flex: none;
+	width: 1em;
+	height: 1em;
+	transform: rotate(-90deg);
+	color: var(--mute);
+
+	circle {
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+	}
+
+	.track {
+		opacity: 0.25;
+	}
+
+	.done {
+		transition: stroke-dashoffset 1s linear;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.done {
+			transition: none;
+		}
+	}
+}
+
+/* A detail keeps its list's frame; the form needs more room than a short list gives it. */
+.schedule-list .panes:has(> .pane.detail) > .pane:first-child {
+	min-height: min(34rem, 80vh);
+}
+
+/* A task's buttons sit on a line of their own under it, so its words keep the row's width. */
+.schedule-list .rows > li {
+	flex-wrap: wrap;
+
+	> .controls {
+		display: flex;
+		flex-basis: 100%;
+		justify-content: end;
+		gap: var(--space-1);
+	}
+}
+
+/* A task's instructions take two lines in the list, the rest on hover. */
+.schedule-list .rows > li small.said {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+/* Pause asks why in a line of its own where the buttons were; Enter pauses, Escape keeps it running. */
+.pause-note {
+	display: flex;
+	flex: 1 1 10rem;
+	gap: var(--space-1);
+	margin-left: auto;
+
+	input {
+		flex: 1;
+		min-width: 0;
+	}
+}
+
+/* Paused, a task reads quieter, its ring empty. */
+:is(.notice, .schedule-list .rows > li).paused {
+	color: var(--mute);
 }
 
 .thread-details #members {
@@ -1939,7 +2037,12 @@ body.resizing {
 		margin-left: auto;
 	}
 
-	/* A notice that's one of a list, like a pending wake, keeps to one line until clicked open */
+	/* Its buttons keep together at the end */
+	button ~ button {
+		margin-left: 0;
+	}
+
+	/* A notice that's one of a list, like a scheduled task, keeps to one line until clicked open */
 	> .line {
 		min-width: 0;
 		overflow: hidden;

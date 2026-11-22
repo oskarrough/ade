@@ -89,23 +89,39 @@ export const tryEcho = (request) => {
 	if (latest.role === 'user' && text(latest).startsWith('search '))
 		return call('search', { query: text(latest).slice(7) })
 	if (latest.role === 'toolResult' && latest.toolName === 'search') return say(text(latest))
-	// "wake on hook <note>" sets a wake on an outside event, with wake and hooks on, and answers where it posts
+	// "schedule on hook <instructions>" schedules a task on an outside event, with schedule and hooks on, and answers where it posts
 	const hooked =
 		latest.role === 'user' &&
-		/(?:^|<message from="[^"]*">\n)wake on (\S+) (.+?)(?:\n<\/message>)?$/s.exec(text(latest))
-	if (hooked) return call('wake', { on: hooked[1], note: hooked[2] })
+		/(?:^|<message from="[^"]*">\n)schedule on (\S+) (.+?)(?:\n<\/message>)?$/s.exec(text(latest))
+	if (hooked) return call('schedule', { on: hooked[1], instructions: hooked[2] })
 	if (
 		latest.role === 'toolResult' &&
-		latest.toolName === 'wake' &&
+		latest.toolName === 'schedule' &&
 		text(latest).includes('/hooks/')
 	)
 		return say(text(latest))
-	// "wake 5m <note>" or "wake every 1m <note>" sets a wake, with wake on
-	const waking =
+	// "schedule daily 09:00 <instructions>" schedules by the clock; "schedule 5m …" or "schedule every 1m …" after a while
+	const clocked =
 		latest.role === 'user' &&
-		/(?:^|<message from="[^"]*">\n)wake (every )?(\S+) (.+?)(?:\n<\/message>)?$/s.exec(text(latest))
-	if (waking) return call('wake', { [waking[1] ? 'every' : 'in']: waking[2], note: waking[3] })
-	if (latest.role === 'toolResult' && latest.toolName === 'wake') return say('Wake set.')
+		/(?:^|<message from="[^"]*">\n)schedule (hourly|daily|weekdays|weekly) (\d{1,2}:\d{2}) (.+?)(?:\n<\/message>)?$/s.exec(
+			text(latest),
+		)
+	if (clocked)
+		return call('schedule', {
+			repeat: clocked[1],
+			hour: Number(clocked[2].split(':')[0]),
+			minute: Number(clocked[2].split(':')[1]),
+			instructions: clocked[3],
+		})
+	const timed =
+		latest.role === 'user' &&
+		/(?:^|<message from="[^"]*">\n)schedule (every )?(\S+) (.+?)(?:\n<\/message>)?$/s.exec(
+			text(latest),
+		)
+	if (timed)
+		return call('schedule', { [timed[1] ? 'every' : 'in']: timed[2], instructions: timed[3] })
+	if (latest.role === 'toolResult' && latest.toolName === 'schedule')
+		return say(latest.isError ? `failed: ${text(latest)}` : 'Scheduled.')
 	// "hands" runs `uname -n; pwd` on every online runner in one turn; "hands slow" sleeps first
 	const hands = request.messages.findLast(
 		(m) => m.role === 'user' && /(?:^|\n)hands\b/.test(text(m)),

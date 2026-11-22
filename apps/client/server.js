@@ -87,8 +87,8 @@ export function watch(receive, opened = (_socket) => {}, closed = () => {}) {
 
 /** Page lifetime; components own the messages of just the threads on screen. */
 const [connected, setConnected] = createSignal(false)
-/** How often the socket said the house's wakes changed; the Wakes list fetches again on it */
-export const [wakesChanged, setWakesChanged] = createSignal(0)
+/** How often the socket said the house's scheduled tasks changed; their list fetches again on it */
+export const [scheduleChanged, setScheduleChanged] = createSignal(0)
 export { connected }
 export const [newThreadTools, setNewThreadTools] = createSignal(null)
 /** The last key this page made, {name, connect}: the key is shown once, so it outlives the form that asked */
@@ -404,7 +404,7 @@ export const {
 		runners: runnerList.reload,
 		bots: botList.reload,
 		inbox: inboxList.reload,
-		wakes: () => setWakesChanged((count) => count + 1),
+		schedule: () => setScheduleChanged((count) => count + 1),
 	}
 	/** Every list, once the socket is open, so no change slips between a fetch and the socket; bots and inbox wait for the modules */
 	const reload = () => {
