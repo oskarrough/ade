@@ -909,25 +909,20 @@ agent-memory {
 				);
 			}
 
-			.fork {
+			/* Taking back a message you sent while it waits is there until an agent reads it, without a hover */
+			.withdraw {
 				position: absolute;
 				right: 0;
 				top: calc(-1 * var(--space-1));
-				white-space: nowrap;
-				opacity: 0;
 			}
-			/* Taking back a message you sent while it waits is there until an agent reads it, without a hover */
-			.fork.withdraw {
-				opacity: 1;
+
+			&.mine .withdraw {
+				top: calc(-1 * var(--space-3));
+				right: calc(-1 * var(--space-2));
 			}
 		}
 	}
 
-	p.from:not(:empty) {
-		font-size: var(--text-small);
-		padding: var(--space-1) var(--space-4) 0;
-		margin: 0;
-	}
 
 	.links {
 		font-size: var(--text-small);
@@ -1325,10 +1320,6 @@ agent-memory {
 	:is(.thread-list > ul, .thread-family) > li:hover button,
 	.runner-list .rows > li:hover .revoke {
 		visibility: visible;
-	}
-
-	.thread > ul > li:hover .fork {
-		opacity: 1;
 	}
 
 	.thread-link:hover {
@@ -2119,26 +2110,41 @@ body.resizing {
 	text-align: center;
 }
 
-/* A row's time sits in the gap under it, out of the flow so showing it moves nothing: under your bubble on the right, under anyone else's on the left. Only with a mouse on a big screen. */
-.thread > ul > li > time.stamp {
-	display: none;
+/* A row's time and fork sit in the gap under it, out of the flow so showing them moves nothing: on your bubble's side, under its right edge, or under anyone else's words on the left. Only with a mouse on a big screen. */
+.thread > ul > li > .foot {
 	position: absolute;
+	/* The whole strip under the row, above the next one, so the pointer can travel down to fork without losing the hover */
+	z-index: 1;
 	top: 100%;
-	left: 0;
+	inset-inline: 0;
+	min-height: var(--space-5);
+	display: none;
+	align-items: start;
+	gap: var(--space-2);
+	padding-top: var(--space-1);
 	color: var(--mute);
 	font-size: var(--text-small);
-	line-height: var(--space-3);
+	line-height: var(--text-small-line);
 	white-space: nowrap;
+
+	> button.fork {
+		min-height: 0;
+		padding: 0;
+		line-height: inherit;
+
+		&:hover {
+			color: var(--ink);
+		}
+	}
 }
 
-.thread > ul > li.mine > time.stamp {
-	left: auto;
-	right: 0;
+.thread > ul > li.mine > .foot {
+	flex-direction: row-reverse;
 }
 
 @media (hover: hover) and (pointer: fine) and (min-width: 701px) {
-	.thread > ul > li:hover > time.stamp {
-		display: block;
+	.thread > ul > li:hover > .foot {
+		display: flex;
 	}
 }
 

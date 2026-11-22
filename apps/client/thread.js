@@ -1110,7 +1110,6 @@ function Message(props) {
 					</div>
 				`}<//
 			>
-			<${Stamp} time=${() => props.time} />
 			<${Show} when=${() => props.waiting}>
 				<button
 					class="ghost small fork withdraw"
@@ -1122,15 +1121,18 @@ function Message(props) {
 					<${Icon} name="close" />
 				</button>
 			<//>
-			<${Show} when=${() => !props.entry.sending && !props.waiting}>
-				<button
-					class="small fork"
-					title="A new thread from this message"
-					onClick=${() => fork(props.thread, props.entry.id).catch(report)}
-				>
-					fork
-				</button>
-			<//>
+			<div class="foot">
+				<${Stamp} time=${() => props.time} />
+				<${Show} when=${() => !props.entry.sending && !props.waiting}>
+					<button
+						class="ghost small fork"
+						title="A new thread from this message"
+						onClick=${() => fork(props.thread, props.entry.id).catch(report)}
+					>
+						fork
+					</button>
+				<//>
+			</div>
 		</li>
 	`
 }
