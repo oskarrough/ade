@@ -53,7 +53,7 @@ Each step is one command: `node cli.js post --to bot1 --to bot2 "hi"` starts a t
 - Real data: `PORT=<free> DB_PATH=<your copy>.sqlite node server.js --no-runner` on a copy of `${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite`. Without `--no-runner` it brings up its own runner as "oskar" and competes with the real one. Set `XDG_CONFIG_HOME` to a scratch folder with its own `ade/ade.json` for isolated settings; `DB_PATH` moves the store and log, not config.
 - A real model: `POST /api/runners {"name":"oskar"}` for a key and start `ADE_KEY=<key> node runner.js --server <url> --name oskar --dir <workspace folder>` beside it. Use `gpt-6-luna:low@oskar`.
 - To measure a run, read its agent's conversation with `GET /api/conversations/:id` (the id is the agent's `conversation` in `GET /api/threads/N`): every tool call and each answer's token usage are there.
-- `pnpm perf` (under a minute) copies the real store into `.work/perf/` and prints how long each list and the biggest thread take to read and how many rows, what one open page hears on its socket, and how fast that page loads and opens the big thread; add `--why` to see which statements cost most.
+- `pnpm perf` (under a minute) copies the real store into `.work/perf/` and prints how long each list and the biggest thread take to read and how many rows, what one open page hears on its socket, and how fast that page loads and opens the big thread; add `--why` to see which statements cost most. Its `typing in N meanwhile` line saves a draft in the biggest thread ten times a second during the posts above it, five times what a page sends, and times those saves; a change to drafts or typing reads that line and the post line above it.
 
 ## Landing with jj
 

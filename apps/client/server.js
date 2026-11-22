@@ -85,6 +85,9 @@ export const [minted, setMinted] = createSignal(null)
 export const [entries, setEntries] = createStore({}, { shallow: true })
 /** Whether a thread has messages before the ones on screen, which come a page at a time as you scroll up */
 export const [earlier, setEarlier] = createStore({})
+let heardNewDraft = (_message) => {}
+/** The composer hears your new-thread draft change on another page of yours through this */
+export const onNewDraft = (hear) => void (heardNewDraft = hear)
 /** Each watched thread's way to ask for its page before the ones it has, or all of them; answers once they're in */
 export const pagers = new Map()
 export const loadEarlier = (thread, all = false) =>
@@ -508,9 +511,11 @@ export const {
 		reloadThreads()
 		reloadArchivedThreads()
 	}
+	/** Your new-thread draft comes too, as another page of yours changes it, which the composer takes */
 	const receive = (message) => {
 		if (message.view) return applyFrame(message)
 		message.changed?.forEach((list) => reloads[list]?.())
+		if (message.thread === 'new') heardNewDraft(message)
 	}
 	onSettled(() => {
 		watch(
@@ -590,9 +595,10 @@ export const {
 	}
 })
 
-export async function createThread(title) {
+/** With `key`, the new-thread draft's, the thread takes that draft along */
+export async function createThread(title, key = undefined) {
 	const tools = newThreadTools()
-	const { id } = await api('/api/threads', { title, tools })
+	const { id } = await api('/api/threads', { title, tools, key })
 	if (latest(newThreadTools) === tools) setNewThreadTools(null)
 	if (!latest(current)) openThread(id)
 	return id
