@@ -2555,11 +2555,27 @@ body.resizing {
 	}
 }
 
-/* The search field sits in a row like the new bot's name, its magnifier where a row's dot is; first in the sidebar, one gap above New thread/New bot. */
+/* The search field: a row like its siblings, the magnifier where a row's dot is, the input itself bare of any border or fill of its own so nothing boxes it in; focus reads as a selected row does. */
 .thread-list > ul.top-row > li.search {
+	> form.row {
+		padding: var(--space-2) var(--space-2);
+	}
+
 	> form.row > input {
-		/* Let the border and inner padding occupy the gap, not shift the text past Inbox. */
-		margin-left: calc(-1 * var(--space-1) - 1px);
+		flex: 1;
+		min-width: 0;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		background: none;
+
+		&:focus {
+			outline: none;
+		}
+	}
+
+	&:has(input:focus) {
+		background: color-mix(in srgb, CanvasText 13%, transparent);
 	}
 
 	input::-webkit-search-cancel-button {
