@@ -58,6 +58,15 @@ check(
 	JSON.stringify(second?.agents),
 )
 
+const row = async (thread) =>
+	(await api('GET', '/api/threads')).json.find((one) => one.id === thread)
+const newest = second.entries.at(-1).id
+check(
+	(await row(id)).latest === newest,
+	'a thread row says when it last moved, as the id of its newest message',
+	JSON.stringify([(await row(id)).latest, newest]),
+)
+
 const at = first.entries[0].id
 const fork = await api('POST', `/api/threads/${id}/fork`, { at })
 const forked = (await api('GET', `/api/threads/${fork.json.id}`)).json

@@ -54,14 +54,14 @@ Every list and open thread syncs over one versioned feed on `/ws`. Subscribe wit
 		{
 			"key": 170311,
 			"seq": 48207,
-			"row": { "id": 170311, "title": "...", "status": "done", "unread": true }
+			"row": { "id": 170311, "title": "...", "status": "done", "unread": true, "latest": 170342 }
 		}
 	],
 	"del": [170200]
 }
 ```
 
-`reset: true` is the full bootstrap (and what a reconnect gets after a restart, mismatched `boot`, or eviction); later updates send only changed rows in `put` and removed keys in `del`, and a reconnect with `after` and the current `boot` gets only what changed since that `seq`. In `threads`, each family's root row carries `family: [{id, depth}, ...]` and descendants carry `root`. In `bots`, each row carries its server-computed `color`, `defaultColor`, `customColor`, `working` and `status`. In `thread/<id>`, key `"thread"` holds the thread's row, `people` and `earlier`, and integer entry ids hold the shaped messages (the newest 15 on bootstrap, then every new message as `put`, a later director pick as a `put` of the same key, and a withdrawal as a `del`).
+`reset: true` is the full bootstrap (and what a reconnect gets after a restart, mismatched `boot`, or eviction); later updates send only changed rows in `put` and removed keys in `del`, and a reconnect with `after` and the current `boot` gets only what changed since that `seq`. In `threads`, each row's `latest` is the id of its newest message (its own id until it has one), so thread rows sort by latest activity; each family's root row carries `family: [{id, depth}, ...]` and descendants carry `root`. In `bots`, each row carries its server-computed `color`, `defaultColor`, `customColor`, `working` and `status`. In `thread/<id>`, key `"thread"` holds the thread's row, `people` and `earlier`, and integer entry ids hold the shaped messages (the newest 15 on bootstrap, then every new message as `put`, a later director pick as a `put` of the same key, and a withdrawal as a `del`).
 
 To stream an agent's live turns, compaction cuts, drafts and module activity for a thread, send `{"watch": 3}` on `/ws`. Each agent's turns reach back only as far as the thread's newest page; its first batch carries `cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`, and so does any batch with a new compaction. Modules send `{thread, activity}` events as they work, kept nowhere: `{at, purpose, kind, …}`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped). The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `hold` (with the `names` typing), `dropped` and `picked` (with its `confidence`), the last once the pick is saved. Fetch earlier messages with `GET /api/threads/3?before=<id>&last=50`, and ask for their agent turns with `{"earlier": 3, "before": <id>}` (or `"all": true`).
 

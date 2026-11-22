@@ -1627,6 +1627,8 @@ async function threadRow(id, reader, all, homes, doc, runnersKnown) {
 		busy: busy.length > 0,
 		status: rowStatus,
 		unread: ['done', 'error'].includes(rowStatus),
+		/** The id of its newest message, which sorts threads by latest activity; its own id before it has one */
+		latest: (await recent(id)).entries.findLast((entry) => entry.kind.startsWith('ade.'))?.id ?? id,
 		...(!hidden && familyField(id)),
 		conversation: await conversationRecord(id),
 	}
