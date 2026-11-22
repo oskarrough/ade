@@ -2023,7 +2023,18 @@ body.resizing {
 	cursor: zoom-in;
 }
 
+@keyframes send-message {
+	from {
+		translate: 0 2rem;
+		opacity: 0.2;
+	}
+}
+
 @media (prefers-reduced-motion: no-preference) {
+	.thread > ul > li.sending {
+		animation: send-message 200ms ease-out;
+	}
+
 	.lightbox,
 	.lightbox::backdrop {
 		transition:

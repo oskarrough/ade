@@ -234,11 +234,10 @@ export function Composer(props) {
 		}, key)
 		// Sending ends your typing: the server ends it with the message too, and this stop outranks any beat still on its way
 		if (beat.thread) typed(beat.thread, '')
-		// Your message shows at once; a `$ command` waits for its run
-		const drop =
-			id && !/^\$\s/.test(body) ? sending(id, { body, ...(images.length && { images }) }) : () => {}
+		let drop
 		try {
 			id ??= await createThread(defaultTitle(body))
+			if (!/^\$\s/.test(body)) drop = sending(id, { body, ...(images.length && { images }) })
 			await api(`/api/threads/${id}/entries`, {
 				body,
 				...(toDirector ? {} : { to }),
@@ -246,7 +245,7 @@ export function Composer(props) {
 				...(images.length && { images }),
 			})
 		} catch (error) {
-			drop()
+			drop?.()
 			changeDraft((draft) => {
 				if (draft.draft || draft.images.length) return
 				draft.draft = body

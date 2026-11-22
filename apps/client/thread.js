@@ -16,6 +16,7 @@ import {
 	Show,
 	Switch,
 	Match,
+	untrack,
 } from 'solid-js'
 import {
 	api,
@@ -390,7 +391,7 @@ export function Thread(props) {
 				if (!entry.data.answer && !entry.data.error) written = entry
 			}
 			const said = shown.map((entry) => ({
-				key: entry.id,
+				key: entry.sentAt != null ? `local:${entry.sentAt}` : entry.id,
 				home: props.id,
 				entry,
 				at: entry.id,
@@ -614,6 +615,11 @@ export function Thread(props) {
 	/** Your last message's row; the room under it is what the answer hasn't filled yet. The row, not its offset, so rows folding above it (a compaction) move it too */
 	let sent = null,
 		room,
+		/** Set by a send: the next follow glides there instead of jumping; true while it's under way */
+		glide = false,
+		gliding = false,
+		/** How much of the view the answer gets under your message, decided once when you send */
+		reserve = null,
 		bottom = () => {},
 		hold = () => {}
 	// What you send keeps some of the view free under it, so the answer fills that without moving anything, and what came before stays in sight
@@ -622,6 +628,8 @@ export function Thread(props) {
 		(mine) => {
 			if (!mine || !list) return
 			stuck = true
+			glide = true
+			reserve = null
 			sent = [...list.querySelectorAll(':scope > li.mine')].at(-1) ?? null
 			bottom()
 		},
@@ -639,12 +647,26 @@ export function Thread(props) {
 			const seen = list.clientHeight - top - Number.parseFloat(style.paddingBottom)
 			const offset = (element, edge) =>
 				element.getBoundingClientRect()[edge] - list.getBoundingClientRect().top + list.scrollTop
-			const mine = offset(sent, 'bottom')
 			const end = offset(room, 'top')
+			// Measured from the room by layout, so your message sliding in doesn't move what it's measured against
+			const mine = end - (room.offsetTop - sent.offsetTop - sent.offsetHeight)
+			// Space already left under your message, from an answer shorter than its room, is enough when it's a good part of the
+			// view; otherwise enough that your message rises to the top with the answer's page under it
+			if (reserve === null) {
+				// Less what your message itself took, so the room gives that back and nothing moves
+				const left = end + room.offsetHeight - mine - Math.max(0, list.scrollHeight - followed)
+				reserve =
+					left >= 0.4 * seen ? left : Math.max(0.4 * seen, seen - sent.offsetHeight - 2 * top)
+			}
+			const under = reserve
 			// A short thread already has the room, below the view's own end
-			const free = mine + 0.4 * seen <= top + seen ? 0 : Math.max(0, mine + 0.4 * seen - end)
+			const short = mine + under <= top + seen
+			const free = short ? 0 : Math.max(0, mine + under - end)
 			room.style.height = `${free}px`
-			if (!free) sent = null
+			if (free) return
+			// The answer outgrew the room: the view stays where it is, and following picks up again once you scroll to the end
+			if (!short) stuck = false
+			sent = null
 		}
 		/** The line you tap holds still: what opens grows downward, and what closes near the end leaves room under it until something new comes */
 		let held = null,
@@ -709,7 +731,22 @@ export function Thread(props) {
 			if (padded && sent === null) room.style.height = '0px'
 			padded = false
 			fill()
-			if (stuck) list.scrollTop = list.scrollHeight
+			if (stuck && glide) {
+				glide = false
+				const distance = list.scrollHeight - list.clientHeight - list.scrollTop
+				if (distance > 1 && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+					gliding = true
+					const done = () => {
+						if (!gliding) return
+						gliding = false
+						stuck = list.scrollTop + list.clientHeight >= list.scrollHeight - 4
+						followed = list.scrollHeight
+					}
+					list.addEventListener('scrollend', done, { once: true })
+					setTimeout(done, 1000)
+					list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' })
+				} else list.scrollTop = list.scrollHeight
+			} else if (stuck && !gliding) list.scrollTop = list.scrollHeight
 			followed = list.scrollHeight
 			nearTop()
 		}
@@ -795,7 +832,7 @@ export function Thread(props) {
 					}}
 					onScroll=${() => {
 						// Only a scroll at the height we last followed is the reader's; one from content moving under them keeps following
-						if (list.scrollHeight === followed)
+						if (list.scrollHeight === followed && !gliding)
 							stuck = list.scrollTop + list.clientHeight >= list.scrollHeight - 4
 						nearTop()
 					}}
@@ -1000,6 +1037,9 @@ export const Name = (props) => html`
 
 /** One message as the thread's projection describes it: its `row` says whose voice, which name to show and to whom */
 function Message(props) {
+	const arriving = untrack(
+		() => props.entry.sentAt != null && performance.now() - props.entry.sentAt < 1000,
+	)
 	const data = () => props.entry.data
 	/** Its right-click menu in arbe desktop: the selection, else the whole message, quoted or copied, and its fork */
 	const messageMenu = (element) => {
@@ -1025,6 +1065,7 @@ function Message(props) {
 			data-entry=${() => props.entry.id}
 			onContextMenu=${(event) => nativeMenu(event, messageMenu(event.currentTarget))}
 			class=${() => ({
+				sending: arriving,
 				handed: litIn(props.thread, props.entry.id),
 				elsewhere: crossed(),
 				failed: row().failed,

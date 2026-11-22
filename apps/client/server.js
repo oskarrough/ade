@@ -106,6 +106,7 @@ export function sending(thread, data) {
 	const entry = {
 		id: (entries[thread]?.at(-1)?.id ?? 0) + 0.9,
 		sending: true,
+		sentAt: performance.now(),
 		data: { author: me(), ...data },
 	}
 	setEntries((all) => {
@@ -119,12 +120,13 @@ export function sending(thread, data) {
 /** New messages into a thread's list, each once and after it; each of yours that came back replaces the oldest one you were sending with that text */
 export const merged = (list, more) => {
 	const have = new Set(list.map((entry) => entry.id))
-	const back = more.filter((entry) => entry.data.author === me()).map((entry) => entry.data.body)
+	const back = more.filter((entry) => entry.data.author === me() && !have.has(entry.id))
 	const waiting = list.filter((entry) => {
 		if (!entry.sending) return false
-		const at = back.indexOf(entry.data.body.trim())
+		const at = back.findIndex((ack) => ack.data.body === entry.data.body.trim())
 		if (at === -1) return true
-		back.splice(at, 1)
+		const [ack] = back.splice(at, 1)
+		ack.sentAt = entry.sentAt
 		return false
 	})
 	// A message sent again carries what came after it, like the director's pick: the new copy replaces the old
