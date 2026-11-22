@@ -7,6 +7,8 @@ import path from 'node:path'
 import WebSocket from 'ws'
 import { createTLSchema } from '@tldraw/tlschema'
 import {
+	createThread,
+	postEntry,
 	answered,
 	api,
 	base,
@@ -35,9 +37,7 @@ const laptop = await runner('laptop')
 const tailnet = `http://127.0.0.1:${servePort}`
 check(owner === 'oskar', 'on its own machine, you are the owner, by the name ade.json gives', owner)
 
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'doors' })
+const id = await createThread('doors')
 
 // The server's own listener ignores a name in a header or the address
 await fetch(`${base}/api/threads/${id}/entries?user=mallory`, {
@@ -129,12 +129,7 @@ const wrong = await fetch(`${tailnet}/api/me`, {
 })
 check(!wrong.ok && !wrong.headers.get('set-cookie'), 'a wrong key gets no cookie', wrong.status)
 
-await api(
-	'POST',
-	`/api/threads/${id}/entries`,
-	{ body: 'hi from ana', to: 'echo/one@laptop' },
-	'ana',
-)
+await postEntry(id, 'hi from ana', 'echo/one@laptop', 'ana')
 let thread = await answered(id)
 check(
 	thread?.entries.find((entry) => entry.data.body === 'hi from ana')?.data.author === person('ana'),
@@ -159,7 +154,7 @@ check(
 )
 
 // Stop: whoever ends the thread's work, everyone sees it was them
-await api('POST', `/api/threads/${id}/entries`, { body: '$ sleep 30', to: 'laptop' })
+await postEntry(id, '$ sleep 30', 'laptop')
 await until(async () => (await view(id)).busy)
 await api('POST', `/api/threads/${id}/stop`, {}, 'ana')
 const stopped = await until(async () =>

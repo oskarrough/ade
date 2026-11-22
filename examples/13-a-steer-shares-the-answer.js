@@ -1,6 +1,9 @@
 /** A steer joins the answer being written, and another thread's post steers like a person's Enter; a stop withdraws the follow-ups queued behind it, and the next input carries them; a message waiting behind a run that fails still gets its answer; a waiting message its author takes back never reaches the agent, and once read it can't be */
 import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux'
 import {
+	executing,
+	createThread,
+	postEntry,
 	answered,
 	answers,
 	api,
@@ -26,22 +29,10 @@ const bot = await scriptedRunner('bot', (request) =>
 		: call('bash', { command: 'sleep 0.5' }),
 )
 const to = { runner: 'bot', model: 'echo/echo' }
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'steer' })
+const id = await createThread('steer')
 const first = (await api('POST', `/api/threads/${id}/entries`, { body: 'first', to, steer: true }))
 	.json.entry
-check(
-	Boolean(
-		await until(
-			async () =>
-				(await api('GET', '/api/runners')).json.some((r) => r.calls.some((c) => c.what === 'exec')),
-			8000,
-			10,
-		),
-	),
-	'the first input is inside its tool call',
-)
+check(Boolean(await executing()), 'the first input is inside its tool call')
 const second = (
 	await api('POST', `/api/threads/${id}/entries`, { body: 'second', to, steer: true })
 ).json.entry
@@ -80,26 +71,11 @@ const dee = await scriptedRunner('dee', (request) => {
 	return say('dee heard')
 })
 const toDee = { runner: 'dee', model: 'echo/echo' }
-const {
-	json: { id: busy },
-} = await api('POST', '/api/threads', { title: 'busy' })
-const {
-	json: { id: teller },
-} = await api('POST', '/api/threads', { title: 'teller' })
-const work = (await api('POST', `/api/threads/${busy}/entries`, { body: 'work', to: toDee })).json
-	.entry
-check(
-	Boolean(
-		await until(
-			async () =>
-				(await api('GET', '/api/runners')).json.some((r) => r.calls.some((c) => c.what === 'exec')),
-			8000,
-			10,
-		),
-	),
-	'the busy agent is inside its tool call',
-)
-await api('POST', `/api/threads/${teller}/entries`, { body: `tell thread ${busy}`, to: toDee })
+const busy = await createThread('busy')
+const teller = await createThread('teller')
+const work = (await postEntry(busy, 'work', toDee)).json.entry
+check(Boolean(await executing()), 'the busy agent is inside its tool call')
+await postEntry(teller, `tell thread ${busy}`, toDee)
 const news = await until(
 	async () => (await view(busy)).entries.find((e) => e.data.from === teller),
 	8000,
@@ -129,14 +105,12 @@ const cy = await scriptedRunner('cy', (request) => {
 	return say(`cy thinks ${'hmm '.repeat(300)}`)
 })
 const toCy = { runner: 'cy', model: 'echo/echo' }
-const {
-	json: { id: gap },
-} = await api('POST', '/api/threads', { title: 'gap' })
+const gap = await createThread('gap')
 const cyInputs = async () =>
 	(await conversationOf(await view(gap), 'echo/echo@cy')).entries
 		?.filter((e) => e.kind === 'ade.delivery')
 		.map((e) => text(e.model[0])) ?? []
-await api('POST', `/api/threads/${gap}/entries`, { body: 'work', to: toCy })
+await postEntry(gap, 'work', toCy)
 await until(
 	async () =>
 		(await conversationOf(await view(gap), 'echo/echo@cy')).entries?.some(
@@ -145,7 +119,7 @@ await until(
 	8000,
 	20,
 )
-await api('POST', `/api/threads/${gap}/entries`, { body: 'and a follow-up', to: toCy })
+await postEntry(gap, 'and a follow-up', toCy)
 await api('POST', `/api/threads/${gap}/entries`, { body: 'steer now', to: toCy, steer: true })
 const steered = await until(
 	async () => (await cyInputs()).some((t) => t.includes('steer now')),
@@ -159,7 +133,7 @@ check(
 	'the steer was placed, the follow-up withdrawn',
 	JSON.stringify(before),
 )
-await api('POST', `/api/threads/${gap}/entries`, { body: 'again', to: toCy })
+await postEntry(gap, 'again', toCy)
 await answered(gap, 1)
 const last = (await cyInputs()).at(-1)
 check(
@@ -179,24 +153,10 @@ const eve = await scriptedRunner('eve', (request) =>
 			: call('bash', { command: 'sleep 0.5' }),
 )
 const toEve = { runner: 'eve', model: 'echo/echo' }
-const {
-	json: { id: failing },
-} = await api('POST', '/api/threads', { title: 'failed run' })
-await api('POST', `/api/threads/${failing}/entries`, { body: 'first', to: toEve })
-check(
-	Boolean(
-		await until(
-			async () =>
-				(await api('GET', '/api/runners')).json.some(
-					(r) => r.name === 'eve' && r.calls.some((c) => c.what === 'exec'),
-				),
-			8000,
-			10,
-		),
-	),
-	'the first input is inside its tool call',
-)
-await api('POST', `/api/threads/${failing}/entries`, { body: 'second', to: toEve })
+const failing = await createThread('failed run')
+await postEntry(failing, 'first', toEve)
+check(Boolean(await executing('eve')), 'the first input is inside its tool call')
+await postEntry(failing, 'second', toEve)
 const failed =
 	(await until(async () => {
 		const v = await view(failing)
@@ -223,27 +183,11 @@ const fay = await scriptedRunner('fay', (request) =>
 		: say('fay answered'),
 )
 const toFay = { runner: 'fay', model: 'echo/echo' }
-const {
-	json: { id: taking },
-} = await api('POST', '/api/threads', { title: 'take back' })
-await api('POST', `/api/threads/${taking}/entries`, { body: 'work', to: toFay })
-check(
-	Boolean(
-		await until(
-			async () =>
-				(await api('GET', '/api/runners')).json.some(
-					(r) => r.name === 'fay' && r.calls.some((c) => c.what === 'exec'),
-				),
-			8000,
-			10,
-		),
-	),
-	'the agent is inside its tool call',
-)
-const regret = (await api('POST', `/api/threads/${taking}/entries`, { body: 'regret', to: toFay }))
-	.json.entry
-const kept = (await api('POST', `/api/threads/${taking}/entries`, { body: 'kept', to: toFay })).json
-	.entry
+const taking = await createThread('take back')
+await postEntry(taking, 'work', toFay)
+check(Boolean(await executing('fay')), 'the agent is inside its tool call')
+const regret = (await postEntry(taking, 'regret', toFay)).json.entry
+const kept = (await postEntry(taking, 'kept', toFay)).json.entry
 const notMine = await api('POST', `/api/threads/${taking}/withdraw`, { entry: regret }, 'bo')
 check(notMine.status >= 400, "someone else can't take it back", JSON.stringify(notMine.json))
 const back = await api('POST', `/api/threads/${taking}/withdraw`, { entry: regret })

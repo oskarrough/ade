@@ -2,6 +2,7 @@
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import {
+	createThread,
 	answered,
 	api,
 	check,
@@ -76,7 +77,7 @@ await held
 check(picked.includes('is this ready?'), 'once they stop typing, the pick goes on')
 
 // One agent with two people writing: the director decides whether it's for the agent
-const pair = (await api('POST', '/api/threads', { title: 'one agent' })).json.id
+const pair = await createThread('one agent')
 await post(pair, 'hi', undefined, 'echo/echo@laptop')
 await answered(pair)
 const before = picked.length

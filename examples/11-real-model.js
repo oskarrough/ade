@@ -2,7 +2,18 @@
 import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { answers, api, check, done, runner, server, until, view } from './lib.js'
+import {
+	createThread,
+	postEntry,
+	answers,
+	api,
+	check,
+	done,
+	runner,
+	server,
+	until,
+	view,
+} from './lib.js'
 
 const model = process.argv[2] || 'openai-codex/gpt-6-luna'
 const provider = model.split('/')[0]
@@ -22,13 +33,12 @@ const home = { env: { HOME: os.homedir() } }
 await runner('laptop', home)
 await runner('desk', home)
 
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'real' })
-await api('POST', `/api/threads/${id}/entries`, {
-	to: { runner: 'laptop', model },
-	body: 'Start a child thread titled "poem" and ask it for a two-line poem. Don\'t tell it the topic: it has to ask you. The topic is "jujutsu version control". When the poem comes back, show it to me.',
-})
+const id = await createThread('real')
+await postEntry(
+	id,
+	'Start a child thread titled "poem" and ask it for a two-line poem. Don\'t tell it the topic: it has to ask you. The topic is "jujutsu version control". When the poem comes back, show it to me.',
+	{ runner: 'laptop', model },
+)
 const heard = await until(
 	async () => {
 		const v = await view(id)
@@ -53,13 +63,10 @@ for (const t of (await api('GET', '/api/threads')).json.filter((t) => t.parent =
 check(Boolean(heard), 'the parent heard back twice: the question, then the poem')
 
 const name = `${model}@laptop`
-await api(
-	'POST',
-	`/api/threads/${id}/entries`,
-	{
-		to: { runner: 'desk', model },
-		body: 'You just joined. Which agent showed me the poem, and who asked it for one? Answer in one line, with names.',
-	},
+await postEntry(
+	id,
+	'You just joined. Which agent showed me the poem, and who asked it for one? Answer in one line, with names.',
+	{ runner: 'desk', model },
 	'ana',
 )
 const caughtUp = (

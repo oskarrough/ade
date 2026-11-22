@@ -2,6 +2,8 @@
  * memory view writes the waiting message lines, sixteen per call, through a SIGKILL, without merging any */
 // MEMORY_MODEL is set because these threads never ask an agent, so without it their lines would wait for one.
 import {
+	postEntry,
+	createThread,
 	api,
 	check,
 	done,
@@ -46,10 +48,10 @@ const route = (request) => {
 }
 const long = (tag) => `${tag} ${'y'.repeat(2000 - tag.length - 1)}`
 const has = (lines, l, i) => lines.some((x) => x.l === l && x.i === i)
-const post = (id, body) => api('POST', `/api/threads/${id}/entries`, { body, to: null })
+const post = (id, body) => postEntry(id, body, null)
 const open = (id) => api('GET', `/api/threads/${id}/memory`)
 const thread = async (title) => {
-	const id = (await api('POST', '/api/threads', { title })).json.id
+	const id = await createThread(title)
 	await api('POST', `/api/threads/${id}/memory`, { on: true })
 	return id
 }
@@ -58,7 +60,7 @@ let srv = await server(env)
 await scriptedRunner('bot', route)
 
 // Recorded memory can arrive before the rest of a thread's messages.
-const late = (await api('POST', '/api/threads', { title: 'before memory starts' })).json.id
+const late = await createThread('before memory starts')
 await post(late, 'recorded')
 await api('POST', `/api/threads/${late}/memory`, {
 	lines: [{ id: 0, n: 1, text: 'recorded' }],

@@ -3,6 +3,8 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import WebSocket from 'ws'
 import {
+	createThread,
+	postEntry,
 	answered,
 	base,
 	api,
@@ -24,15 +26,13 @@ await scriptedRunner('laptop', (request) => {
 	const asked = text(last).match(/ask: ([^\n]*)\s*$/)?.[1]
 	return asked ? call('ask_person', { body: asked }) : say(`got: ${text(last)}`)
 })
-const thread = async (title) => (await api('POST', '/api/threads', { title })).json.id
-const post = (id, body) =>
-	api('POST', `/api/threads/${id}/entries`, { body, to: 'echo/echo@laptop' })
+const post = (id, body) => postEntry(id, body, 'echo/echo@laptop')
 const inbox = async () => (await api('GET', '/api/inbox')).json
 const asks = (items) =>
 	items.map((item) => `${item.thread}: ${item.question.data.body}`).join(' | ')
 
-const db = await thread('db')
-const ship = await thread('ship')
+const db = await createThread('db')
+const ship = await createThread('ship')
 await post(db, 'ask: SQLite or Postgres?')
 await until(async () => (await inbox()).length === 1)
 await post(ship, 'ask: ship it today?')
@@ -74,8 +74,8 @@ check(
 
 // An answer from the inbox goes to the agent that asked: the item names its conversation
 await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@laptop' })
-const room = await thread('room')
-await api('POST', `/api/threads/${room}/entries`, { body: 'ask: tabs or spaces?', to: 'ada' })
+const room = await createThread('room')
+await postEntry(room, 'ask: tabs or spaces?', 'ada')
 items = await until(async () =>
 	((list) => list.some((item) => item.thread === room) && list)(await inbox()),
 )
@@ -85,11 +85,11 @@ check(
 	'a question names the conversation of the agent that asked it, whom an answer goes to',
 	JSON.stringify([items, ada]),
 )
-await api('POST', `/api/threads/${room}/entries`, { body: 'tabs', to: 'ada' })
+await postEntry(room, 'tabs', 'ada')
 await answered(room, 2)
 
 // A late dismissal of an older question leaves the newer one alone
-const late = await thread('late')
+const late = await createThread('late')
 await post(late, 'ask: A?')
 const first = await until(async () => (await inbox()).find((item) => item.thread === late))
 await post(late, 'ask: B?')
@@ -111,7 +111,7 @@ const heard = []
 const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
 socket.onmessage = ({ data }) => heard.push(JSON.parse(String(data)))
 await new Promise((resolve) => (socket.onopen = resolve))
-const source = await thread('source')
+const source = await createThread('source')
 await post(source, 'ask: fork me?')
 const asked = await until(async () => (await inbox()).find((item) => item.thread === source))
 const { json: fork } = await api('POST', `/api/threads/${source}/fork`, { at: asked.question.id })
@@ -128,7 +128,7 @@ check(
 socket.close()
 
 // A question open doesn't hide a command still running: `wait` waits for it
-const slow = await thread('slow')
+const slow = await createThread('slow')
 await post(slow, '$ sleep 3; echo slept')
 await post(slow, 'ask: meanwhile?')
 await until(async () => (await api('GET', `/api/threads/${slow}`)).json.status === 'blocked')

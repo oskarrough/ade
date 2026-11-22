@@ -1,6 +1,8 @@
 /** MODULES=+search: every thread's messages, archived ones included, are found by their words, with the match marked,
  * as a person searches and as an agent's `search` tool answers; a message taken back is no longer found */
 import {
+	createThread,
+	postEntry,
 	answered,
 	api,
 	call,
@@ -20,16 +22,14 @@ await scriptedRunner('laptop', (request) => {
 	return call('search', { query: 'sqlite storage' })
 })
 const echo = { runner: 'laptop', model: 'echo/echo' }
-const thread = async (title) => (await api('POST', '/api/threads', { title })).json.id
-const write = async (id, body) =>
-	(await api('POST', `/api/threads/${id}/entries`, { body, to: null })).json.entry
+const write = async (id, body) => (await postEntry(id, body, null)).json.entry
 const search = async (words) =>
 	(await api('GET', `/api/search?q=${encodeURIComponent(words)}`)).json
 
-const plans = await thread('storage plans')
+const plans = await createThread('storage plans')
 const decided = await write(plans, 'We decided on SQLite for storage: one user, one machine.')
 await write(plans, 'Lunch at noon?')
-const shelved = await thread('old ideas')
+const shelved = await createThread('old ideas')
 await write(shelved, 'Maybe Postgres for storage one day.')
 await api('POST', `/api/threads/${shelved}/archive`, { archived: true })
 
@@ -72,11 +72,8 @@ check(
 	'a withdrawn message is no longer found',
 )
 
-const asking = await thread('asking')
-await api('POST', `/api/threads/${asking}/entries`, {
-	body: 'where did we pick a store?',
-	to: echo,
-})
+const asking = await createThread('asking')
+await postEntry(asking, 'where did we pick a store?', echo)
 const answer = (await answered(asking)).entries.at(-1).data.body
 check(
 	answer.includes(`thread ${plans} "storage plans"`) &&

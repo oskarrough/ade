@@ -5,6 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import {
+	createThread,
+	postEntry,
 	answered,
 	api,
 	base,
@@ -24,32 +26,27 @@ await server({ MODULES: '+bots,+export' })
 await scriptedRunner('laptop', () => say('got it'))
 const echo = { runner: 'laptop', model: 'echo/echo' }
 
-const thread = async (title) => (await api('POST', '/api/threads', { title })).json.id
-
-const source = await thread('plans')
-await api('POST', `/api/threads/${source}/entries`, { body: 'hello there', to: echo })
+const source = await createThread('plans')
+await postEntry(source, 'hello there', echo)
 await answered(source)
-await api('POST', `/api/threads/${source}/entries`, { body: 'a second message' }, 'ana')
+await postEntry(source, 'a second message', undefined, 'ana')
 const sourceView = await answered(source, 2)
 
 const fork = (await api('POST', `/api/threads/${source}/fork`, { at: sourceView.entries[0].id }))
 	.json.id
 
-const shelved = await thread('old business')
-await api('POST', `/api/threads/${shelved}/entries`, { body: 'wrapping up', to: echo })
+const shelved = await createThread('old business')
+await postEntry(shelved, 'wrapping up', echo)
 await answered(shelved)
 await api('POST', `/api/threads/${shelved}/archive`, { archived: true })
 
 await api('POST', '/api/bots', { name: 'ada', to: echo })
 const home = (await api('GET', '/api/bots')).json.find((bot) => bot.name === 'ada').home
-await api('POST', `/api/threads/${home}/entries`, { body: 'who are you?', to: 'ada' })
+await postEntry(home, 'who are you?', 'ada')
 await answered(home)
 
-const ran = await thread('a run')
-await api('POST', `/api/threads/${ran}/entries`, {
-	body: String.raw`$ printf "line one\nline two\n"`,
-	to: echo,
-})
+const ran = await createThread('a run')
+await postEntry(ran, String.raw`$ printf "line one\nline two\n"`, echo)
 await until(async () => (await view(ran)).entries.at(-1)?.data.shell)
 
 // Nothing is written on the server: a plain GET, so it reaches a server anywhere, not only its own machine

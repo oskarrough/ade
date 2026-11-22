@@ -2,6 +2,8 @@
 import { createModels } from '@earendil-works/pi-ai/models'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import {
+	createThread,
+	postEntry,
 	answered,
 	api,
 	check,
@@ -39,17 +41,15 @@ await localRunner('google-only', {
 	echo: undefined,
 	model: 'google/thread-model',
 })
-const id = (await api('POST', '/api/threads', { title: 'memory without the small models' })).json.id
+const id = await createThread('memory without the small models')
 await api('POST', `/api/threads/${id}/memory`, { on: true })
-await api('POST', `/api/threads/${id}/entries`, {
-	body: 'hi',
-	to: { runner: 'google-only', model: 'google/thread-model', thinkingLevel: 'high' },
+await postEntry(id, 'hi', {
+	runner: 'google-only',
+	model: 'google/thread-model',
+	thinkingLevel: 'high',
 })
 await answered(id)
-await api('POST', `/api/threads/${id}/entries`, {
-	body: 'Keep the orchard gate locked. '.repeat(40),
-	to: null,
-})
+await postEntry(id, 'Keep the orchard gate locked. '.repeat(40), null)
 await api('GET', `/api/threads/${id}/memory`)
 const written = await until(async () =>
 	(await linesOf(id)).find(

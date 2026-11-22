@@ -1,6 +1,19 @@
 /** A browser's socket names the lists that changed, so it fetches only those again: an agent's work moves threads and runners, never bots, and a thread names the list it's in */
 import WebSocket from 'ws'
-import { answered, api, base, check, done, kill, runner, server, sleep, until } from './lib.js'
+import {
+	createThread,
+	postEntry,
+	answered,
+	api,
+	base,
+	check,
+	done,
+	kill,
+	runner,
+	server,
+	sleep,
+	until,
+} from './lib.js'
 
 await server({ MODULES: '+bots' })
 const laptop = await runner('laptop')
@@ -11,10 +24,8 @@ socket.onmessage = ({ data }) => heard.push(JSON.parse(String(data)))
 await new Promise((resolve) => (socket.onopen = resolve))
 const named = (list) => heard.some((message) => message.changed?.includes(list))
 
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'lists' })
-await api('POST', `/api/threads/${id}/entries`, { body: 'hi', to: 'echo/one@laptop' })
+const id = await createThread('lists')
+await postEntry(id, 'hi', 'echo/one@laptop')
 await answered(id)
 await sleep(300)
 check(
@@ -28,7 +39,7 @@ check(
 	JSON.stringify(heard),
 )
 heard.length = 0
-await api('POST', `/api/threads/${id}/entries`, { body: 'again', to: 'echo/one@laptop' })
+await postEntry(id, 'again', 'echo/one@laptop')
 await answered(id, 2)
 await sleep(300)
 check(
@@ -46,7 +57,7 @@ check(
 )
 await sleep(300)
 heard.length = 0
-await api('POST', `/api/threads/${id}/entries`, { body: 'still here', to: null })
+await postEntry(id, 'still here', null)
 check(
 	Boolean(await until(async () => named('archived'))) && !named('threads'),
 	'a message in an archived thread names the archived list, not the open one',
@@ -77,7 +88,7 @@ check(
 
 // A run waiting on the offline laptop: its start and its end are each their own change
 heard.length = 0
-await api('POST', `/api/threads/${id}/entries`, { body: 'are you there?', to: 'echo/one@laptop' })
+await postEntry(id, 'are you there?', 'echo/one@laptop')
 check(
 	Boolean(await until(async () => named('threads') && named('runners'))),
 	'a run starting names the thread list and the runner list',

@@ -8,6 +8,8 @@ import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import {
+	createThread,
+	postEntry,
 	answered,
 	api,
 	base,
@@ -36,13 +38,11 @@ await scriptedRunner('laptop', (request) => {
 		? call('wake', { on: on[1], note: on[3], ...(on[2] ? { raw: true } : {}) })
 		: say(`read: ${text(last)}`)
 })
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'deploys' })
+const id = await createThread('deploys')
 const answers = async () => (await view(id)).entries.filter((entry) => entry.data.answer)
 const woken = async () => (await view(id)).entries.filter((entry) => entry.data.wake)
 const hookFor = async (body) => {
-	await api('POST', `/api/threads/${id}/entries`, { body, to: 'echo/echo@laptop' })
+	await postEntry(id, body, 'echo/echo@laptop')
 	const set = (await answered(id, (await answers()).length + 1)).entries.findLast(
 		(entry) => entry.data.answer,
 	).data.body

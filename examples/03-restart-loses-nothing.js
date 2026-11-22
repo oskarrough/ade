@@ -2,6 +2,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import {
+	createThread,
+	postEntry,
 	answered,
 	answers,
 	api,
@@ -25,18 +27,13 @@ import {
 let srv = await server()
 let laptop = await runner('laptop')
 
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'test' })
-await api('POST', `/api/threads/${id}/entries`, {
-	body: 'hello',
-	to: { runner: 'laptop', model: 'echo/echo' },
-})
+const id = await createThread('test')
+await postEntry(id, 'hello', { runner: 'laptop', model: 'echo/echo' })
 await answered(id)
 
 laptop.kill()
 await until(() => api('GET', '/api/runners').then((r) => r.json.every((x) => !x.online)))
-await api('POST', `/api/threads/${id}/entries`, { body: 'while away' }, 'ben')
+await postEntry(id, 'while away', undefined, 'ben')
 const inputs = async () =>
 	(await conversationOf(await view(id), 'echo/echo@laptop')).entries
 		.filter((e) => e.kind === 'ade.delivery')
@@ -90,33 +87,22 @@ check(
 	'a runner offers the models enabled in pi, unresolved',
 	JSON.stringify(offered),
 )
-const {
-	json: { id: gone },
-} = await api('POST', '/api/threads', { title: 'away' })
-await api('POST', `/api/threads/${gone}/entries`, {
-	body: 'hi',
-	to: { runner: 'away', model: 'echo/echo' },
-})
+const gone = await createThread('away')
+await postEntry(gone, 'hi', { runner: 'away', model: 'echo/echo' })
 await answered(gone)
 await api('POST', `/api/threads/${gone}/read`, {})
 away.kill()
 await until(() =>
 	api('GET', '/api/runners').then((r) => r.json.some((x) => x.name === 'away' && !x.online)),
 )
-const unknown = await api('POST', `/api/threads/${gone}/entries`, {
-	body: 'anyone?',
-	to: { runner: 'away', model: 'other' },
-})
+const unknown = await postEntry(gone, 'anyone?', { runner: 'away', model: 'other' })
 check(
 	unknown.status === 400 && /offline/.test(unknown.json.error),
 	"an offline runner can't resolve a model it hasn't run",
 	JSON.stringify(unknown),
 )
 // An agent is written with its model's own name, so that name finds a model the runner has run, even offline
-const known = await api('POST', `/api/threads/${gone}/entries`, {
-	body: 'anyone?',
-	to: 'echo@away',
-})
+const known = await postEntry(gone, 'anyone?', 'echo@away')
 check(
 	known.status === 201 && known.json.to?.join() === 'echo:off@away',
 	'an offline runner knows a model it has run by its own name, as an agent is written',

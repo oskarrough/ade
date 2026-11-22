@@ -3,8 +3,9 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import {
+	createThread,
+	postEntry,
 	answered,
-	api,
 	check,
 	dir,
 	done,
@@ -44,8 +45,8 @@ await scriptedRunner('here', (request) => {
 })
 const there = await runner('there', { dir: elsewhere })
 
-const id = (await api('POST', '/api/threads', { title: 'hands' })).json.id
-await api('POST', `/api/threads/${id}/entries`, { body: 'where are you', to: 'echo/echo@here' })
+const id = await createThread('hands')
+await postEntry(id, 'where are you', 'echo/echo@here')
 const answer = (thread, count) =>
 	thread?.entries.filter((entry) => entry.data.answer)[count - 1]?.data.body ?? ''
 const first = answer(await answered(id), 1)
@@ -55,7 +56,7 @@ check(
 	first,
 )
 
-await api('POST', `/api/threads/${id}/entries`, { body: 'hang', to: 'echo/echo@here' })
+await postEntry(id, 'hang', 'echo/echo@here')
 await until(async () => existsSync(started))
 await kill(there, 'SIGKILL')
 const second = answer(await answered(id, 2), 2)

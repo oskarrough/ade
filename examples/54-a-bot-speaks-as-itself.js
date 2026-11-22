@@ -1,6 +1,8 @@
 /** A bot that posts from one thread into another she's in speaks there as itself, and its message is marked as an agent's, as its answers
  * are: it never counts as a person, and agents read it as an agent's */
 import {
+	createThread,
+	postEntry,
 	answered,
 	api,
 	call,
@@ -16,7 +18,7 @@ import {
 
 await server({ MODULES: '+bots' })
 // She joins a room by being asked there, then speaks into it from another
-const other = (await api('POST', '/api/threads', { title: 'other room' })).json.id
+const other = await createThread('other room')
 await scriptedRunner('laptop', (request) => {
 	const last = request.messages.findLast((message) => message.role !== 'system')
 	if (last.role === 'toolResult') return say(`tool: ${text(last)}`)
@@ -25,10 +27,10 @@ await scriptedRunner('laptop', (request) => {
 	return say('ok')
 })
 await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@laptop' })
-await api('POST', `/api/threads/${other}/entries`, { body: 'hi', to: 'ada' })
+await postEntry(other, 'hi', 'ada')
 await answered(other)
-const room = (await api('POST', '/api/threads', { title: 'room' })).json.id
-await api('POST', `/api/threads/${room}/entries`, { body: 'speak up', to: 'ada' })
+const room = await createThread('room')
+await postEntry(room, 'speak up', 'ada')
 await answered(room)
 const said = (
 	await until(async () =>

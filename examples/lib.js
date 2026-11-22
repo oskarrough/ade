@@ -176,6 +176,9 @@ export async function api(method, route, body, as = undefined) {
 	})
 	return { status: res.status, json: await res.json() }
 }
+export const createThread = async (title) => (await api('POST', '/api/threads', { title })).json.id
+export const postEntry = (id, body, to = undefined, as = undefined) =>
+	api('POST', `/api/threads/${id}/entries`, { body, to }, as)
 export const view = async (id) => (await api('GET', `/api/threads/${id}`)).json
 /** An agent's own conversation, found by its name or by `provider/id@runner`, whatever it thinks */
 export const conversationOf = async (thread, name) =>
@@ -239,6 +242,18 @@ export const online = (name, ms) =>
 				response.json.some((runner) => runner.name === name && runner.online),
 			),
 		ms,
+	)
+
+/** Wait until a runner is inside a tool, before steering or stopping its answer. */
+export const executing = (name = undefined) =>
+	until(
+		async () =>
+			(await api('GET', '/api/runners')).json.some(
+				(runner) =>
+					(!name || runner.name === name) && runner.calls.some((call) => call.what === 'exec'),
+			),
+		8000,
+		10,
 	)
 
 export const answered = (id, count = 1, ms) =>

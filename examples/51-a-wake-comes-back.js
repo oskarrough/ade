@@ -6,6 +6,8 @@ import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import WebSocket from 'ws'
 import {
+	createThread,
+	postEntry,
 	base,
 	answered,
 	answers,
@@ -38,11 +40,8 @@ await scriptedRunner('laptop', (request) => {
 		? call('bash', { command: `until [ -e ${work[1]} ]; do sleep 0.05; done` })
 		: say(`got: ${text(last)}`)
 })
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'ci' })
-const postIn = (thread, body) =>
-	api('POST', `/api/threads/${thread}/entries`, { body, to: 'echo/echo@laptop' })
+const id = await createThread('ci')
+const postIn = (thread, body) => postEntry(thread, body, 'echo/echo@laptop')
 const post = (body) => postIn(id, body)
 const wakesIn = async (thread) => (await api('GET', `/api/threads/${thread}/wake`)).json
 const wakes = () => wakesIn(id)
@@ -99,9 +98,8 @@ check(
 )
 
 // A review that opens once its fix lands
-const thread = async (title) => (await api('POST', '/api/threads', { title })).json.id
-const fix = await thread('fix')
-const review = await thread('review')
+const fix = await createThread('fix')
+const review = await createThread('review')
 await postIn(fix, 'work fix-done')
 await until(async () => (await view(fix)).status === 'working')
 await postIn(review, `wake after ${fix} review the fix`)
@@ -139,7 +137,7 @@ check(
 )
 
 // A thread that's archived still ends its work, and the wake after it hears that
-const shelved = await thread('shelved')
+const shelved = await createThread('shelved')
 await api('POST', `/api/threads/${shelved}/archive`, { archived: true })
 await postIn(shelved, 'work shelved-done')
 await until(async () => (await view(shelved)).status === 'working')

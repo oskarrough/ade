@@ -5,8 +5,9 @@ import {
 	fauxToolCall,
 } from '@earendil-works/pi-ai/providers/faux'
 import {
+	createThread,
+	postEntry,
 	answered,
-	api,
 	base,
 	conversationOf,
 	check,
@@ -36,9 +37,7 @@ const bot = await scriptedRunner(
 				),
 	{ tokensPerSecond: 200 },
 )
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'live' })
+const id = await createThread('live')
 
 /** Every message the socket hears for the thread, in order: `{entries}`, or an agent's `{agent, live}` and `{agent, entries}` */
 function watch(thread) {
@@ -70,10 +69,7 @@ check(
 )
 const {
 	json: { entry },
-} = await api('POST', `/api/threads/${id}/entries`, {
-	body: 'work',
-	to: { runner: 'bot', model: 'echo/echo' },
-})
+} = await postEntry(id, 'work', { runner: 'bot', model: 'echo/echo' })
 check(
 	Boolean(await until(async () => lives(first.heard).length, 8000, 20)),
 	'an agent the thread asks is followed from then on',
@@ -158,7 +154,7 @@ check(
 )
 
 const from = first.heard.length
-await api('POST', `/api/threads/${id}/entries`, { body: 'again' })
+await postEntry(id, 'again')
 await answered(id, 2)
 await until(async () => {
 	const last = lives(first.heard.slice(from)).at(-1)
@@ -177,9 +173,7 @@ check(
 
 /** A burst bigger than Pi's window still arrives whole, in order, each message once */
 const burst = Array.from({ length: 250 }, (_, i) => `note ${i}`)
-await Promise.all(
-	burst.map((body) => api('POST', `/api/threads/${id}/entries`, { body, to: null })),
-)
+await Promise.all(burst.map((body) => postEntry(id, body, null)))
 const notes = await until(async () => {
 	const got = said(first.heard).filter((b) => b.startsWith('note '))
 	return got.length >= burst.length && got

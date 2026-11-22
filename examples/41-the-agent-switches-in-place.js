@@ -4,6 +4,8 @@ import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import {
+	createThread,
+	postEntry,
 	answered,
 	answers,
 	api,
@@ -49,7 +51,7 @@ await localRunner('laptop', {
 	echo: script,
 	model: 'echo/one',
 })
-const id = (await api('POST', '/api/threads', { title: 'switch' })).json.id
+const id = await createThread('switch')
 const post = (body, to, who) =>
 	api('POST', `/api/threads/${id}/entries`, { body, ...(to === undefined ? {} : { to }) }, who)
 const deliveries = async (v) =>
@@ -130,7 +132,7 @@ check(
 )
 
 const f = (await api('POST', `/api/threads/${id}/fork`, { at: answers(v).at(-1).id })).json.id
-await api('POST', `/api/threads/${f}/entries`, { body: 'in the fork' })
+await postEntry(f, 'in the fork')
 const fv = await answered(f, answers(v).length + 1)
 const forked = await conversationOf(fv, 'echo/two@laptop')
 check(
@@ -151,9 +153,9 @@ const route = (runner) => (request) => {
 }
 await scriptedRunner('desk', route('desk'))
 await scriptedRunner('vps', route('vps'))
-const moving = (await api('POST', '/api/threads', { title: 'move' })).json.id
+const moving = await createThread('move')
 const askThere = async (body, to, n) => {
-	await api('POST', `/api/threads/${moving}/entries`, { body, to })
+	await postEntry(moving, body, to)
 	const v = await answered(moving, n)
 	const own = await conversationOf(v, v.agents[0].name)
 	return {

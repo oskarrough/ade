@@ -1,5 +1,7 @@
 /** MODULES=+bots: a bot is one name in many threads */
 import {
+	createThread,
+	postEntry,
 	answered,
 	answers,
 	api,
@@ -39,14 +41,12 @@ const route = (runner) => (request) => {
 }
 await scriptedRunner('laptop', route('laptop'))
 await scriptedRunner('desk', route('desk'))
-const thread = async (title) => (await api('POST', '/api/threads', { title })).json.id
-const post = (id, body, to) => api('POST', `/api/threads/${id}/entries`, { body, to })
 const bots = async () => (await api('GET', '/api/bots')).json
 
 const made = await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@laptop' })
 const home = made.json.home
 const homeRow = (await api('GET', '/api/threads')).json.find((t) => t.id === home)
-await post(home, 'who are you?', 'ada')
+await postEntry(home, 'who are you?', 'ada')
 let v = await answered(home)
 check(
 	made.status === 201 &&
@@ -65,7 +65,7 @@ const blank = await api('POST', '/api/bots', {
 	to: 'echo/echo@laptop',
 	instructions: '',
 })
-await post(blank.json.home, 'hi', 'blank')
+await postEntry(blank.json.home, 'hi', 'blank')
 await answered(blank.json.home)
 check(
 	blank.json.instructions === '' && prompt.laptop.includes("You're new"),
@@ -73,7 +73,7 @@ check(
 	JSON.stringify([blank.json, prompt.laptop]),
 )
 
-await post(home, 'be a pirate', 'ada')
+await postEntry(home, 'be a pirate', 'ada')
 v = await answered(home, 2)
 const ownAt = (await api('GET', `/api/threads/${home}`)).json.agents[0].conversation
 const rewrote = (await api('GET', `/api/conversations/${ownAt}`)).json.entries.find(
@@ -91,8 +91,8 @@ check(
 	JSON.stringify(await bots()),
 )
 
-const shed = await thread('shed')
-await post(shed, 'build it?', 'ada')
+const shed = await createThread('shed')
+await postEntry(shed, 'build it?', 'ada')
 v = await answered(shed)
 const ada = v.agents.find((a) => a.name === 'ada')
 const answeredAway = answers(v)[0]?.data.createdAt
@@ -111,7 +111,7 @@ check(
 	JSON.stringify(await bots()),
 )
 
-await post(shed, 'be a pirate', 'ada')
+await postEntry(shed, 'be a pirate', 'ada')
 v = await answered(shed, 2)
 check(
 	/Only a bot can, in its home thread/.test(answers(v)[1]?.data.body),
@@ -119,12 +119,12 @@ check(
 	answers(v)[1]?.data.body,
 )
 
-const desk = await thread('desk work')
-await post(desk, 'and here?', 'ada=echo/echo@desk')
+const desk = await createThread('desk work')
+await postEntry(desk, 'and here?', 'ada=echo/echo@desk')
 v = await answered(desk)
 await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@desk' })
-const yard = await thread('yard')
-await post(yard, 'hi', 'ada')
+const yard = await createThread('yard')
+await postEntry(yard, 'hi', 'ada')
 const y = await answered(yard)
 check(
 	v.agents.find((a) => a.name === 'ada')?.to.runner === 'desk' &&
@@ -135,7 +135,7 @@ check(
 	JSON.stringify([v.agents, y.agents]),
 )
 
-await post(home, 'make wren', 'ada')
+await postEntry(home, 'make wren', 'ada')
 await answered(home, 3)
 const wren = (await bots()).find((b) => b.name === 'wren')
 const runnerName = await api('POST', '/api/bots', { name: 'desk', to: 'echo/echo@desk' })
@@ -150,7 +150,7 @@ check(
 	JSON.stringify([await bots(), runnerName.json, nameless.json]),
 )
 
-await post(home, 'ask wren', 'ada')
+await postEntry(home, 'ask wren', 'ada')
 await answered(home, 5)
 const side = (await api('GET', '/api/threads')).json.find((t) => t.parent === home)
 check(
@@ -172,7 +172,7 @@ check(
 
 // In her home, the composer asks her with her settings: a new runner there moves her, in place, and she is told
 const atHome = (await api('GET', `/api/threads/${home}`)).json.agents[0]
-await post(home, 'where are you now?', { runner: 'desk', model: 'echo/echo', name: 'ada' })
+await postEntry(home, 'where are you now?', { runner: 'desk', model: 'echo/echo', name: 'ada' })
 v = await answered(home, 6)
 const own = (await api('GET', `/api/conversations/${atHome.conversation}`)).json.entries
 const told = text(own.filter((e) => e.kind === 'ade.delivery').at(-1)?.model[0])
@@ -187,10 +187,10 @@ check(
 	JSON.stringify([atHome, v.agents, told]),
 )
 
-await post(home, 'nudge wren', 'ada')
+await postEntry(home, 'nudge wren', 'ada')
 await answered(home, 7)
 // Wren's reply can land before or with the next message; wait for the answer to that one
-const anyone = (await post(home, 'ask anyone', 'ada')).json.entry
+const anyone = (await postEntry(home, 'ask anyone', 'ada')).json.entry
 await until(async () => answers(await view(home)).some((a) => a.data.re?.includes(anyone)))
 await quiet()
 v = await view(home)
@@ -217,7 +217,7 @@ check(
 )
 
 const gone = await api('DELETE', '/api/bots/ada')
-await post(shed, 'still there?', 'ada')
+await postEntry(shed, 'still there?', 'ada')
 v = await answered(shed, 3)
 check(
 	gone.status === 200 &&
@@ -230,7 +230,7 @@ check(
 )
 
 // A thread's own agent works beside its bots, and reads them as agents
-await post(shed, 'what did ada say?', 'echo/echo@desk')
+await postEntry(shed, 'what did ada say?', 'echo/echo@desk')
 v = await answered(shed, 4)
 const plain = v.agents.find((a) => !a.to.name)
 const handed = (await api('GET', `/api/conversations/${plain?.conversation}`)).json.entries
@@ -243,7 +243,7 @@ check(
 	"a thread holds one agent and any bots; the agent reads a bot's words marked as an agent's",
 	JSON.stringify([v.agents, handed]),
 )
-const nameless2 = await post(shed, 'hi', 'rex=echo/echo@desk')
+const nameless2 = await postEntry(shed, 'hi', 'rex=echo/echo@desk')
 check(
 	nameless2.status === 400 && /only bots have names/.test(nameless2.json.error),
 	'a name that is no bot is refused',
@@ -261,10 +261,10 @@ const wrenBefore = (await bots()).find((b) => b.name === 'wren')
 const sideAgent = (await api('GET', `/api/threads/${side.id}`)).json.agents[0]
 const renamed = await api('POST', '/api/bots', { name: 'wren', rename: 'robin' })
 const robin = (await bots()).find((b) => b.name === 'robin')
-await post(side.id, 'still you?', 'robin')
+await postEntry(side.id, 'still you?', 'robin')
 v = await answered(side.id, 2)
 const titled = await api('POST', `/api/threads/${robin?.home}/title`, { title: 'somewhere' })
-const oldName = await post(side.id, 'hi', 'wren')
+const oldName = await postEntry(side.id, 'hi', 'wren')
 check(
 	renamed.status === 201 &&
 		!(await bots()).some((b) => b.name === 'wren') &&

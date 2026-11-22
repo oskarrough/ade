@@ -2,7 +2,21 @@
 import { execFile } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { promisify } from 'node:util'
-import { api, base, check, dir, done, owner, repo, runner, server, until, view } from './lib.js'
+import {
+	createThread,
+	postEntry,
+	api,
+	base,
+	check,
+	dir,
+	done,
+	owner,
+	repo,
+	runner,
+	server,
+	until,
+	view,
+} from './lib.js'
 
 const output = (...args) =>
 	promisify(execFile)(process.execPath, ['cli.js', '--server', base, ...args], {
@@ -134,10 +148,9 @@ check(
 )
 
 // Far behind 210 newer messages, the ask that wait prints after is still found
-const busy = (await api('POST', '/api/threads', { title: 'busy' })).json.id
+const busy = await createThread('busy')
 await cli('post', '--thread', String(busy), '--to', 'echo/echo@laptop', 'the old ask')
-for (let k = 0; k < 210; k++)
-	await api('POST', `/api/threads/${busy}/entries`, { body: `note ${k}`, to: null })
+for (let k = 0; k < 210; k++) await postEntry(busy, `note ${k}`, null)
 const behind = await cli('wait', String(busy))
 check(
 	!/→[^\n]*\nthe old ask/.test(behind) &&
@@ -218,7 +231,7 @@ check(
 	),
 	'laptop goes offline',
 )
-const stopped = (await api('POST', '/api/threads', { title: 'stop a CLI delivery' })).json.id
+const stopped = await createThread('stop a CLI delivery')
 const pending = cli(
 	'post',
 	'--thread',

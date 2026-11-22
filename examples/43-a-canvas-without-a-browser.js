@@ -1,12 +1,10 @@
 /** Agents draw on a thread's canvas through the server, with no browser open, and the drawing outlives a restart */
-import { api, check, done, kill, owner, server } from './lib.js'
+import { createThread, api, check, done, kill, owner, server } from './lib.js'
 
 const env = { MODULES: '+canvas' }
 let srv = await server(env)
 
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'sketch' })
+const id = await createThread('sketch')
 const canvas = `/api/threads/${id}/canvas`
 
 const drawn = await api('POST', canvas, {

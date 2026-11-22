@@ -1,5 +1,7 @@
 /** Forking at any entry, before an agent's first answer included */
 import {
+	createThread,
+	postEntry,
 	answered,
 	answers,
 	api,
@@ -23,12 +25,10 @@ let srv = await server()
 let laptop = await runner('laptop')
 const echo = { runner: 'laptop', model: 'echo/echo' }
 
-const {
-	json: { id: a },
-} = await api('POST', '/api/threads', { title: 'source' })
-await api('POST', `/api/threads/${a}/entries`, { body: 'hello', to: echo })
+const a = await createThread('source')
+await postEntry(a, 'hello', echo)
 await answered(a)
-await api('POST', `/api/threads/${a}/entries`, { body: 'second' }, 'ana')
+await postEntry(a, 'second', undefined, 'ana')
 const source = await answered(a, 2)
 const firstAnswer = answers(source)[0]
 
@@ -75,7 +75,7 @@ check(
 	'fork is in the thread list',
 )
 
-await api('POST', `/api/threads/${f}/entries`, { body: 'other way' }, 'ben')
+await postEntry(f, 'other way', undefined, 'ben')
 fv = await answered(f, 2)
 const ben = fv?.entries.find((e) => e.data.author === person('ben'))
 check(
@@ -114,7 +114,7 @@ check(
 
 laptop.kill()
 await until(() => api('GET', '/api/runners').then((r) => r.json.every((x) => !x.online)))
-await api('POST', `/api/threads/${a}/entries`, { body: 'while away' }, 'cy')
+await postEntry(a, 'while away', undefined, 'cy')
 await until(async () => (await view(a)).status === 'blocked')
 const busy = await view(a)
 const f3 = (await api('POST', `/api/threads/${a}/fork`, { at: busy.entries.at(-1).id })).json.id
@@ -136,13 +136,8 @@ const bot = await scriptedRunner(
 		),
 	{ tokensPerSecond: 200 },
 )
-const q = (await api('POST', '/api/threads', { title: 'first question' })).json.id
-const ask = (
-	await api('POST', `/api/threads/${q}/entries`, {
-		body: 'try this',
-		to: { runner: 'bot', model: 'echo/echo' },
-	})
-).json.entry
+const q = await createThread('first question')
+const ask = (await postEntry(q, 'try this', { runner: 'bot', model: 'echo/echo' })).json.entry
 await until(async () =>
 	(await api('GET', '/api/runners')).json.some((r) => r.calls.some((c) => c.op === 'stream')),
 )
@@ -174,7 +169,7 @@ check(
 	'the fork is left alone',
 	brief(f3after),
 )
-await api('POST', `/api/threads/${f2}/entries`, { body: '@echo/echo@laptop again' }, 'di')
+await postEntry(f2, '@echo/echo@laptop again', undefined, 'di')
 const f2after = await answered(f2, 3)
 check(
 	Boolean(f2after?.entries.find((e) => e.data.author === person('di'))?.data.to),

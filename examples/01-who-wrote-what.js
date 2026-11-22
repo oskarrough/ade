@@ -2,6 +2,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import {
+	createThread,
+	postEntry,
 	answered,
 	answers,
 	api,
@@ -19,11 +21,9 @@ import {
 await server()
 await runner('laptop')
 
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'test' })
+const id = await createThread('test')
 const echo = { runner: 'laptop', model: 'echo/echo' }
-const posted = await api('POST', `/api/threads/${id}/entries`, { body: 'hello', to: echo })
+const posted = await postEntry(id, 'hello', echo)
 check(
 	posted.status === 201 && posted.json.entry > 0,
 	'posting returns its entry',
@@ -80,7 +80,7 @@ check(
 	"the agent's conversation is no thread",
 )
 
-await api('POST', `/api/threads/${id}/entries`, { body: 'me too' }, 'ana')
+await postEntry(id, 'me too', undefined, 'ana')
 const v2 = await answered(id, 2)
 const ana = v2?.entries.find((e) => e.data.author === person('ana'))
 check(
@@ -96,12 +96,7 @@ check(
 )
 
 // Cy names the model as pi would let him, by its id with a thinking level
-await api(
-	'POST',
-	`/api/threads/${id}/entries`,
-	{ body: 'think hard', to: { runner: 'laptop', model: 'echo:high' } },
-	'cy',
-)
+await postEntry(id, 'think hard', { runner: 'laptop', model: 'echo:high' }, 'cy')
 const v3 = await answered(id, 3)
 const cy = v3?.entries.find((e) => e.data.author === person('cy'))
 check(
@@ -123,10 +118,8 @@ check(
 	"a runner's default model is pi's, named once",
 	JSON.stringify(desk?.model),
 )
-const {
-	json: { id: id2 },
-} = await api('POST', '/api/threads', { title: 'default' })
-await api('POST', `/api/threads/${id2}/entries`, { body: 'hi', to: { runner: 'desk' } }, 'dee')
+const id2 = await createThread('default')
+await postEntry(id2, 'hi', { runner: 'desk' }, 'dee')
 const v4 = await answered(id2)
 check(
 	answers(v4 ?? { entries: [] })[0]?.data.author === 'echo:off@desk',

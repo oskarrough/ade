@@ -3,6 +3,7 @@
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import {
+	createThread,
 	answered,
 	api,
 	check,
@@ -103,7 +104,7 @@ check(
 	(await view(id)).agents.some((agent) => agent.name === 'Ada'),
 	'and she is in the thread from then on',
 )
-const bots = (await api('POST', '/api/threads', { title: 'bots only' })).json.id
+const bots = await createThread('bots only')
 await post(bots, 'hello', ['Jeroen', 'Ada'])
 await answered(bots, 2)
 await post(bots, 'chooser unknown')
@@ -113,7 +114,7 @@ check(
 	'a bot-only group reports a failed pick without asking the last bot',
 	JSON.stringify(failed),
 )
-const solo = (await api('POST', '/api/threads', { title: 'solo' })).json.id
+const solo = await createThread('solo')
 await post(solo, 'hello', 'Jeroen')
 await answered(solo)
 const before = choosing

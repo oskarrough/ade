@@ -2,8 +2,9 @@
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import {
+	createThread,
+	postEntry,
 	answered,
-	api,
 	check,
 	conversationOf,
 	dir,
@@ -35,12 +36,9 @@ writeFileSync(
 )
 const srv = await server({ MODULES: module })
 await scriptedRunner('bot', () => say('answered'))
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'durable failure' })
+const id = await createThread('durable failure')
 const exited = new Promise((resolve) => srv.once('exit', resolve))
-for (const body of ['first', 'second'])
-	await api('POST', `/api/threads/${id}/entries`, { body, to: 'echo/echo@bot' })
+for (const body of ['first', 'second']) await postEntry(id, body, 'echo/echo@bot')
 await exited
 await server({ MODULES: 'talk' })
 check(Boolean(await answered(id)), 'the next accepted delivery resumes after the crash')

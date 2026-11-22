@@ -4,6 +4,8 @@ import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import WebSocket from 'ws'
 import {
+	createThread,
+	postEntry,
 	answered,
 	api,
 	base,
@@ -62,11 +64,9 @@ async function compaction(
 		{ model: { contextWindow } },
 	)
 	const agent = { runner, model: 'echo/echo' }
-	const {
-		json: { id },
-	} = await api('POST', '/api/threads', { title: runner })
+	const id = await createThread(runner)
 	await api('POST', `/api/threads/${id}/memory`, { on: true })
-	const post = (body, to = null) => api('POST', `/api/threads/${id}/entries`, { body, to })
+	const post = (body, to = null) => postEntry(id, body, to)
 	let position = 0
 	// Every ninth filler is long, so the cut needs written lines as well as merges
 	const longFiller = (at) => at % 9 === 4
@@ -200,19 +200,10 @@ await scriptedRunner(
 	},
 	{ model: { contextWindow: 1000000 } },
 )
-const {
-	json: { id: busy },
-} = await api('POST', '/api/threads', { title: 'early' })
+const busy = await createThread('early')
 await api('POST', `/api/threads/${busy}/memory`, { on: true })
-for (let k = 0; k < LONGS; k++)
-	await api('POST', `/api/threads/${busy}/entries`, {
-		body: `early ${k} ${'q'.repeat(2000)}`,
-		to: null,
-	})
-await api('POST', `/api/threads/${busy}/entries`, {
-	body: 'go',
-	to: { runner: 'early', model: 'echo/echo' },
-})
+for (let k = 0; k < LONGS; k++) await postEntry(busy, `early ${k} ${'q'.repeat(2000)}`, null)
+await postEntry(busy, 'go', { runner: 'early', model: 'echo/echo' })
 const answer = await answered(busy, 1, 20000)
 const agentEntries = (await conversationOf(answer, 'echo/echo@early')).entries
 const used = agentEntries.flatMap((entry) => entry.model ?? []).findLast((message) => message.usage)

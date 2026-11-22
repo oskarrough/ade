@@ -2,6 +2,8 @@
 import { cpSync, mkdirSync, readFileSync, readdirSync, appendFileSync, symlinkSync } from 'node:fs'
 import path from 'node:path'
 import {
+	postEntry,
+	createThread,
 	answered,
 	api,
 	base,
@@ -28,10 +30,7 @@ const installed = path.join(HOME, '.local', 'share', 'ade', 'runner')
 const runnerOf = async (name) =>
 	(await api('GET', '/api/runners')).json.find((r) => r.name === name)
 const ask = async (id, n) => {
-	await api('POST', `/api/threads/${id}/entries`, {
-		body: `hello ${n}`,
-		to: { runner: 'fresh', model: 'echo/echo' },
-	})
+	await postEntry(id, `hello ${n}`, { runner: 'fresh', model: 'echo/echo' })
 	return (await answered(id, n, 20000))?.entries.at(-1).data.body ?? ''
 }
 
@@ -54,9 +53,7 @@ check(
 	),
 	'and keeps its key in ~/.config/ade, for starts without curl',
 )
-const {
-	json: { id },
-} = await api('POST', '/api/threads', { title: 'installed' })
+const id = await createThread('installed')
 check((await ask(id, 1)).includes('echo@fresh heard'), 'an agent on it answers')
 
 /** A deploy: the server again, from a copy whose runner differs by one line */

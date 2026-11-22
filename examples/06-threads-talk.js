@@ -1,5 +1,7 @@
 /** Threads talking: an agent's `post` and `threads` tools */
 import {
+	createThread,
+	postEntry,
 	answers,
 	api,
 	brief,
@@ -43,10 +45,8 @@ const bot = await scriptedRunner('bot', (request) => {
 })
 const to = { runner: 'bot', model: 'echo/echo' }
 
-const {
-	json: { id: parent },
-} = await api('POST', '/api/threads', { title: 'parent' })
-await api('POST', `/api/threads/${parent}/entries`, { body: 'please delegate this', to })
+const parent = await createThread('parent')
+await postEntry(parent, 'please delegate this', to)
 
 /** Kill the server the moment the child appears, so the tool call or the child's answer replays */
 const child = await until(
@@ -121,7 +121,7 @@ const results = async () =>
 		.filter((e) => e.kind === 'pi.tool-result')
 		.map((e) => text(e.model[0]))
 const idle = () => until(async () => (await view(parent)).status !== 'working')
-await api('POST', `/api/threads/${parent}/entries`, { body: 'list threads' })
+await postEntry(parent, 'list threads')
 const listed = await until(async () => (await results()).find((t) => t.includes('(yours)')))
 check(
 	Boolean(listed) && listed.includes(`#${child.id} sum, child of #${parent}`),
@@ -129,7 +129,7 @@ check(
 	listed,
 )
 await idle()
-await api('POST', `/api/threads/${parent}/entries`, { body: `read child ${child.id}` })
+await postEntry(parent, `read child ${child.id}`)
 const read = await until(async () => (await results()).find((t) => t.includes('compute 2+2')))
 check(
 	Boolean(read) &&
@@ -141,7 +141,7 @@ check(
 await idle()
 
 // Posting to its own thread is refused, as a tool error the model sees
-await api('POST', `/api/threads/${parent}/entries`, { body: `post to own thread ${parent}` })
+await postEntry(parent, `post to own thread ${parent}`)
 check(
 	Boolean(await until(async () => (await results()).find((t) => t.includes('your own thread')))),
 	'posting to its own thread is refused',
@@ -152,7 +152,7 @@ await idle()
 const {
 	json: { id: human },
 } = await api('POST', '/api/threads', { title: 'by hand', parent })
-await api('POST', `/api/threads/${human}/entries`, { body: 'hello there', to })
+await postEntry(human, 'hello there', to)
 check(
 	Boolean(await until(async () => (await view(human)).entries.find((e) => e.data.answer))),
 	'a human in a child gets the answer there',
@@ -165,7 +165,7 @@ check(
 
 /** A note that asks nobody, then a restart */
 const settledParent = await view(parent)
-await api('POST', `/api/threads/${parent}/entries`, { body: 'just a note', to: null })
+await postEntry(parent, 'just a note', null)
 await kill(srv, 'SIGKILL')
 srv = await server()
 // Once the runner is back, an old reply asking again would be a live delivery
@@ -179,10 +179,8 @@ check(
 )
 
 /** Answering a post with the post tool is the answer */
-const {
-	json: { id: asker },
-} = await api('POST', '/api/threads', { title: 'asker' })
-await api('POST', `/api/threads/${asker}/entries`, { body: 'delegate by post', to })
+const asker = await createThread('asker')
+await postEntry(asker, 'delegate by post', to)
 const byPost = await until(async () => {
 	const v = await view(asker)
 	return v.entries.some((e) => e.data.body === 'by post: 5') && v.status !== 'working' ? v : null
@@ -197,7 +195,7 @@ check(
 
 /** Once answered, the next post to that thread is news, not a second answer */
 const byPostThread = (await api('GET', '/api/threads')).json.find((t) => t.parent === asker).id
-await api('POST', `/api/threads/${byPostThread}/entries`, { body: `post again to ${asker}` })
+await postEntry(byPostThread, `post again to ${asker}`)
 const news = await until(
 	async () => (await view(asker)).entries.find((e) => e.data.body === 'more news'),
 	10000,
