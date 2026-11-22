@@ -213,7 +213,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
                          (`.model-picker.jump`, centred by placePopover with no button) with one field over every thread, archived ones
                          too, bots, actions (New thread, New bot through thread-list.js creatingBot, Inbox, the list foot's Settings,
                          Runners and Wakes pressed, Usage) and with search on the first message hits (search.js marked, showMessage);
-                         empty, the threads this browser opened last (`ade.recent`); sections ordered by how well their best row fits
+                         empty, the threads this browser opened last (`ade.recent`); sections ordered by how well their best row fits, a bot then an action winning a tie
   usage.js               Usage, the house's usage in the threads' place (server.js usageOpen/openUsage; system.js), opened by
                          UsageToggle at the list's foot: the total, Mix (the token kinds as one bar), Days (a bar a day, cost or
                          tokens), threads with their share, bots, models; ThreadUsage, a thread's in its details (thread-details.js)

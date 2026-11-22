@@ -51,13 +51,16 @@ const nearMatch = (snippet) => {
 	const space = from.indexOf(' ')
 	return `…${space >= 0 && space < 12 ? from.slice(space + 1) : from}`
 }
-/** How well a name fits what's typed: 0 it starts with it, 1 a word of it does, 2 it's somewhere */
+/** How well a name fits what's typed: 0 it is it, 1 it starts with it, 2 a word of it does, 3 it's somewhere */
 const fit = (text, name) => {
 	const typed = text.toLowerCase()
 	const words = name.toLowerCase()
-	if (words.startsWith(typed)) return 0
-	return words.split(/[^\p{L}\p{N}]+/u).some((word) => word.startsWith(typed)) ? 1 : 2
+	if (words === typed) return 0
+	if (words.startsWith(typed)) return 1
+	return words.split(/[^\p{L}\p{N}]+/u).some((word) => word.startsWith(typed)) ? 2 : 3
 }
+/** Who wins a tie between sections: a bot, then an action, then threads; there are few of the first two, and their names are what you'd type */
+const TIE = { Bots: 0.5, Actions: 0.25 }
 const idOf = (key) => `jump-${key.replace(/[^\w-]+/g, '-')}`
 /** An open popover that Jump opening would close: any but a manual one, like the @ list */
 const OTHER_OPEN = '[popover]:not([popover="manual"], .jump):popover-open'
@@ -176,10 +179,8 @@ export function Jump() {
 		}
 		const text = search()
 		const shown = hits().for === text ? hits().rows : []
-		// An action wins a tie: there are few, and their names are what you'd type
 		const best = (section) =>
-			Math.min(...section.options.map((option) => option.fit ?? 3)) -
-			(section.title === 'Actions' ? 0.5 : 0)
+			Math.min(...section.options.map((option) => option.fit ?? 4)) - (TIE[section.title] ?? 0)
 		return [
 			{ title: 'Threads', options: found() },
 			{
@@ -194,13 +195,15 @@ export function Jump() {
 						note: 'bot',
 						fit: fit(text, bot.name),
 						run: () => openThread(bot.home),
-					})),
+					}))
+					.sort((a, b) => a.fit - b.fit),
 			},
 			{
 				title: 'Actions',
 				options: actions()
 					.filter((action) => matches(text, action.label))
-					.map((action) => ({ ...action, fit: fit(text, action.label) })),
+					.map((action) => ({ ...action, fit: fit(text, action.label) }))
+					.sort((a, b) => a.fit - b.fit),
 			},
 			{
 				title: 'Messages',
