@@ -7,13 +7,7 @@ export const Dot = (props) => html`
 		title=${() => props.title}
 		class=${() => [
 			'dot',
-			{
-				on: props.state === 'on',
-				working: props.state === 'working',
-				blocked: props.state === 'blocked',
-				done: props.state === 'done',
-				error: props.state === 'error',
-			},
+			['on', 'working', 'blocked', 'done', 'error'].includes(props.state) ? props.state : '',
 		]}
 	></span>
 `
