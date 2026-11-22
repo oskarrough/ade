@@ -6,7 +6,55 @@ import { createRoot, createSignal } from 'solid-js'
 import { report } from './notice.js'
 
 const mygo = /** @type {any} */ (window).mygo
-if (mygo) document.documentElement.dataset.desktop = ''
+if (mygo) {
+	document.documentElement.dataset.desktop = ''
+	clearOfControls()
+}
+
+/**
+ * The window's own buttons sit over the top right of the page. Whichever pane reaches under them, the last one or, once
+ * the panes scroll sideways, the one at the window's edge, gets `--under-controls`: how far it reaches in, which its
+ * header keeps clear of.
+ */
+function clearOfControls() {
+	let queued = false
+	const measure = () => {
+		queued = false
+		const root = document.documentElement
+		const inset =
+			Number.parseFloat(getComputedStyle(root).getPropertyValue('--mygo-titlebar-inset-right')) || 0
+		const edge = root.clientWidth - inset
+		const panes = /** @type {NodeListOf<HTMLElement>} */ (
+			document.querySelectorAll('.threads > :is(.thread, .side)')
+		)
+		for (const pane of panes) {
+			const { left, right } = pane.getBoundingClientRect()
+			const under = Math.min(Math.max(right - edge, 0), right - left)
+			pane.style.setProperty('--under-controls', `${Math.round(under)}px`)
+		}
+	}
+	const queue = () => {
+		if (queued) return
+		queued = true
+		requestAnimationFrame(measure)
+	}
+	// Panes open, close and get dragged wider; the window resizes, goes full screen and scrolls the panes sideways
+	const sizes = new ResizeObserver(queue)
+	const panesChanged = (record) =>
+		record.target.matches?.('.threads') ||
+		[...record.addedNodes].some(
+			(node) => node.matches?.('.threads') || node.querySelector?.('.threads'),
+		)
+	new MutationObserver((records) => {
+		if (!records.some(panesChanged)) return
+		for (const pane of document.querySelectorAll('.threads > :is(.thread, .side)'))
+			sizes.observe(pane)
+		queue()
+	}).observe(document, { childList: true, subtree: true })
+	addEventListener('resize', queue)
+	addEventListener('scroll', queue, true)
+	mygo.on('mygo:title-bar', queue)
+}
 
 /**
  * Shows `items`, `{label, run}`, `null` for a separator, or `false`/`undefined` (omitted), as the window's menu at the

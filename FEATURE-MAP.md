@@ -138,7 +138,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   icons.js               Icon, the stroke icons
   title.js               defaultTitle
   settings.js            server settings, one row per module
-  desktop.js             nativeMenu, right-click menus in arbe desktop
+  desktop.js             nativeMenu, right-click menus in arbe desktop; clearOfControls, pane headers clear of the window buttons
   system.js, wires.js    the live system diagram and its wires
   tutorial.js            walkthrough buttons
   tutorial-shed.js       loadShed
