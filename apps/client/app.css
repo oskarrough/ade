@@ -679,6 +679,11 @@ agent-memory {
 						}
 					}
 
+					/* A wake's note and what an outside event brought, as they came */
+					.whole > p {
+						white-space: pre-wrap;
+					}
+
 					.whole > .answer {
 						margin-top: var(--space-2);
 					}
@@ -852,11 +857,6 @@ agent-memory {
 		font-size: var(--text-small);
 		line-height: var(--baseline);
 		padding: 0 0 var(--space-3);
-
-		/* An outside event a hook wake brought, as it came */
-		&.outside {
-			white-space: pre-wrap;
-		}
 	}
 
 	> ul > li > .links:not(:first-child) {

@@ -74,7 +74,7 @@ import { messageDiagrams } from './mermaid.js'
 import { sideOf, toggleSide } from './side.js'
 import { heardActivity } from './director.js'
 import { CanvasRow } from './canvas.js'
-import { heardWake, WakeSet, WokeLine } from './wake.js'
+import { heardWake, WakeSet, Woke } from './wake.js'
 
 /** A folded summary's text, without the literal <summary> wrapper tags some memories still carry */
 const stripSummaryTag = (text) =>
@@ -439,8 +439,9 @@ export function Thread(props) {
 				const agentRow = Boolean(run || (row.entry && !byPerson(row.entry)))
 				const prior = solo && agentRow ? answering : last
 				if (speaker && (speaker !== prior || row.to)) row.name = speaker
-				// A crossed row shows the other thread, so nobody here spoke last; whoever speaks next is named
-				if (row.voice === 'sent' || row.voice === 'received') {
+				// A crossed row shows the other thread and a wake is its own quiet line, so nobody here spoke last; whoever
+				// speaks next is named
+				if (['sent', 'received', 'woke'].includes(row.voice)) {
 					last = answering = undefined
 					continue
 				}
@@ -877,6 +878,9 @@ export function Thread(props) {
 										thread=${() => props.id}
 									/>
 								<//>
+								<${Match} when=${() => row().voice === 'woke'}>
+									<${Woke} data=${() => row().entry.data} />
+								<//>
 								<${Match} when=${() => row().wake}>
 									<${WakeSet} step=${() => row().wake} agent=${() => row().agent} />
 								<//>
@@ -913,7 +917,7 @@ export function Thread(props) {
  * What a row says about who, to whom and from where, in flat fields so an unchanged row compares equal:
  * `voice`, mine (your bubble), said (here, by someone else), stopped (a Stop's line), sent or received (crossed
  * threads); for those, the far side as `otherAuthor`, `otherThread` and `otherLabel`; a message's `forks`, `picked`,
- * `woke`, `clamp` and `failed`. Ask rows and questions asked here are sent and received rows too.
+ * `clamp` and `failed`; `woke` is a wake's own note. Ask rows and questions asked here are sent and received rows too.
  */
 function describe(row, forks) {
 	if (row.ask) {
@@ -943,18 +947,19 @@ function describe(row, forks) {
 		? 'sent'
 		: from
 			? 'received'
-			: data.stopped
-				? 'stopped'
-				: data.author === me()
-					? 'mine'
-					: 'said'
+			: data.wake
+				? 'woke'
+				: data.stopped
+					? 'stopped'
+					: data.author === me()
+						? 'mine'
+						: 'said'
 	return {
 		voice,
 		...(from && farSide(from.data.author, from.data.from)),
 		forks: forks.get(`${row.thread ?? row.home} ${row.entry.id}`),
 		clamp: byPerson(row.entry) || data.author === me(),
 		failed: Boolean(data.error),
-		woke: Boolean(data.wake),
 		...(data.picked && { picked: data.picked, pickedNobody: !data.to?.length }),
 	}
 }
@@ -1040,7 +1045,6 @@ function Message(props) {
 					>${() => row().picked}
 				</div>
 			<//>
-			<${WokeLine} woke=${() => row().woke} data=${() => data()} />
 			<${For} each=${() => row().forks ?? []}
 				>${(fork) => html`
 					<div class="links">

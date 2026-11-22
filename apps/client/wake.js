@@ -208,23 +208,26 @@ export function WakeSet(props) {
 	`
 }
 
-/** Under a message a wake posted */
-export const WokeLine = (props) => html`
-	<${Show} when=${() => props.woke}>
-		<div class="links" title="An agent's own note, back at the time it set">
-			⏰ its
-			wake${() => (props.data.event ? `, with what came from ${props.data.event.from}, outside ade:` : '')}
+/** A wake's note, back in the thread: one quiet folded line of its own, never part of the message above; opened,
+ * the whole note and what an outside event brought */
+export const Woke = (props) => html`
+	<${PlainStep} said=${() => `⏰ ${firstLine(props.data.body)}`}>
+		<div class="whole">
+			<p>${() => props.data.body}</p>
+			<${Show} when=${() => props.data.event}>
+				<p class="outside">
+					${() =>
+						[
+							`from ${props.data.event.from}, outside ade:`,
+							...Object.entries(props.data.event.facts ?? {}).map(
+								([name, value]) => `${name}: ${value}`,
+							),
+							...(props.data.event.said === undefined ? [] : [props.data.event.said]),
+						].join(NEWLINE)}
+				</p>
+			<//>
 		</div>
-		<${Show} when=${() => props.data.event}>
-			<div class="links outside">
-				${() =>
-					[
-						...Object.entries(props.data.event.facts ?? {}).map(
-							([name, value]) => `${name}: ${value}`,
-						),
-						...(props.data.event.said === undefined ? [] : [props.data.event.said]),
-					].join('\n')}
-			</div>
-		<//>
 	<//>
 `
+const NEWLINE = String.fromCharCode(10)
+const firstLine = (text) => (text ?? '').split(/\r?\n/)[0]
