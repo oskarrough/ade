@@ -15,20 +15,34 @@ import { defineExtension } from '@earendil-works/pi-durable'
 
 export const on = true
 
-export function server({ runners, known, reach }) {
+export function server({ runners, known, reach, agentOf, folder }) {
+	const read = (runner, cwd, conversationId, signal) =>
+		runners.call(
+			runner,
+			{ op: 'context', dir: cwd },
+			{ signal, key: `conversation ${conversationId}` },
+		)
 	const section = {
 		key: 'project',
 		tag: false,
 		render: async ({ env, conversationId }, context) => {
-			const runner = env?.id?.replace(/^runner:/, '')
+			let runner = env?.id?.replace(/^runner:/, '')
 			if (!runner) return undefined
-			const found = await runners.call(
-				runner,
-				{ op: 'context', dir: env.cwd },
-				{ signal: context.abortSignal, key: `conversation ${conversationId}` },
-			)
-			const folder = `<cwd>\n${env.cwd}\n</cwd>`
-			return found ? `${found}\n\n${folder}` : folder
+			let cwd = env.cwd
+			let found
+			try {
+				found = await read(runner, cwd, conversationId, context.abortSignal)
+			} catch (error) {
+				// Its agent moved off this runner while it was offline: the project where it runs now, so the turn
+				// that goes on there keeps its instructions
+				const to = error.moved && (await agentOf(conversationId))
+				if (!to || to.runner === runner) throw error
+				runner = to.runner
+				cwd = folder((await known())[runner], to)
+				found = await read(runner, cwd, conversationId, context.abortSignal)
+			}
+			const shown = `<cwd>\n${cwd}\n</cwd>`
+			return found ? `${found}\n\n${shown}` : shown
 		},
 	}
 	async function serve(threadId, query, body, by) {

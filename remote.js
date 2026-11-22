@@ -226,8 +226,11 @@ export function createRunners({ onChange }) {
 		return true
 	}
 
+	/** Marked `moved`, so a caller can ask where the agent runs now instead */
 	const left = (name) =>
-		new Error(`runner ${name}: connection lost while offline, and its agent moved`)
+		Object.assign(new Error(`runner ${name}: connection lost while offline, and its agent moved`), {
+			moved: true,
+		})
 	return {
 		call,
 		online,
