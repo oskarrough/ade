@@ -1,5 +1,12 @@
 import WebSocket from 'ws'
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+	appendFileSync,
+	chmodSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	writeFileSync,
+} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
@@ -31,7 +38,7 @@ const { values: args } = parseArgs({
 		owner: { type: 'string', default: '' },
 		'read-only': { type: 'boolean', default: false },
 		allow: { type: 'string', multiple: true, default: [] },
-		key: { type: 'string', default: process.env.ADE_KEY },
+		key: { type: 'string' },
 		'key-file': { type: 'string' },
 		help: { type: 'boolean', short: 'h' },
 	},
@@ -50,7 +57,7 @@ if (args.help) {
                     login on the server's machine, a friend by their tailnet login
   --allow name      also take work from this person or @runner; repeat for more
   --read-only       refuse writes and commands
-  --key key         runner key (ADE_KEY, else the one saved for its name)
+  --key key         runner key (else the one saved for its name, then ADE_KEY)
   --key-file file   read the saved key here instead of ~/.config/ade/key.<name>
   -h, --help        print these options`)
 	process.exit(0)
@@ -63,16 +70,19 @@ const name =
 	args.name ||
 	path.basename(dir).replace(/[^\w.-]+/g, '-') ||
 	os.hostname().replace(/[^\w.-]+/g, '-')
-/** The `ade runner` that starts this one again, with its flags, `more` in place of those it names */
+/** A word as a shell reads it back: quoted when it holds anything but plain characters */
+const quoted = (word) =>
+	/^[\w@%+=:,./~-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`
+/** The `ade runner` that starts this one again, with its flags but never its key, `more` in place of those it names */
 const again = (...more) => {
 	const kept = []
 	const flags = process.argv.slice(2)
 	for (let index = 0; index < flags.length; index++) {
 		const [flag, value] = flags[index].split('=')
-		if (!more.includes(flag)) kept.push(flags[index])
+		if (![...more, '--key'].includes(flag)) kept.push(flags[index])
 		else if (value === undefined) index++
 	}
-	return ['ade runner', ...kept, ...more].join(' ')
+	return ['ade runner', ...[...kept, ...more].map(quoted)].join(' ')
 }
 const stop = (message) => {
 	console.log(message)
@@ -80,20 +90,45 @@ const stop = (message) => {
 }
 const config = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'ade')
 const keyFile = args['key-file'] || path.join(config, `key.${name}`)
-/** A key given by hand is kept for its name once it connects, so next time `ade runner` alone does */
-const given = Boolean(args.key)
-if (!args.key) {
-	try {
-		args.key = readFileSync(keyFile, 'utf8').trim()
-	} catch {
-		args.key = ''
-	}
-}
 const lent = Boolean(process.env.ADE_LENT)
+const inherited = process.env.ADE_KEY
+// Agents' commands inherit this process's environment: they get neither the key nor the mark of the server's own runner
+delete process.env.ADE_KEY
+delete process.env.ADE_LENT
+/** A saved key, with the folder it was saved for; the connect-runner script saves the key alone */
+const saved = (() => {
+	try {
+		const text = readFileSync(keyFile, 'utf8').trim()
+		return text.startsWith('{') ? JSON.parse(text) : { key: text }
+	} catch {
+		return undefined
+	}
+})()
+/**
+ * The keys to try, in turn: one given by flag or file alone; else the one saved for this name, then ADE_KEY, which an
+ * agent's shell inherits from its own runner. The server's own runner has only the key the server gave it.
+ */
+const keys = lent
+	? [inherited]
+	: args.key
+		? [args.key]
+		: args['key-file']
+			? [saved?.key]
+			: [saved?.key, inherited]
+const tried = keys.filter(Boolean)
+args.key = tried.shift() ?? ''
+// A name taken from the folder belongs to the folder its key was saved in; another folder by that name is another runner
+if (!args.name && saved?.dir && saved.dir !== dir && args.key === saved.key)
+	stop(
+		`${name} is the runner for ${saved.dir}. Give this folder its own name:\n  ${again('--name', `${name}-2`)}`,
+	)
 /** Its terminal's lines, kept beside the server's store; the server's own runner prints into the server's log */
 const logFile = path.join(dataDir(), `runner.${name}.log`)
 if (!lent) {
 	mkdirSync(dataDir(), { recursive: true })
+	// Only its owner reads it: it can hold what agents ran and printed
+	appendFileSync(logFile, '', { mode: 0o600 })
+	chmodSync(logFile, 0o600)
 	for (const method of /** @type {const} */ (['log', 'error'])) {
 		const print = console[method]
 		console[method] = (...parts) => {
@@ -133,10 +168,11 @@ async function mint() {
 	args.key = (await res.json()).key
 	save()
 }
+/** The key that got in, kept for its name and folder, so next time `ade runner` alone does */
 const save = () => {
 	if (lent || args['key-file']) return
 	mkdirSync(config, { recursive: true })
-	writeFileSync(keyFile, args.key, { mode: 0o600 })
+	writeFileSync(keyFile, JSON.stringify({ key: args.key, dir }), { mode: 0o600 })
 }
 
 /** pi's own models and logins, as pi reads them, with the providers its extensions add, such as claude-code */
@@ -296,7 +332,7 @@ async function connect() {
 	const from = args.owner ? [args.owner, ...args.allow].join(', ') : ''
 	let shown = false
 	const online = () => {
-		if (given) save()
+		save()
 		// The server's own runner: the server already printed its row
 		if (lent) return
 		if (shown) return console.log(`${name} back online`)
@@ -320,8 +356,12 @@ async function connect() {
 		runner.stopAll()
 		for (const module of modules) module.disconnected?.()
 		if (code === 4001) {
-			// A key saved for a store that's gone: on the server's machine it makes a new one, once
-			if (!shown && !given && !lent && !remade) {
+			// A key turned away before it ever got in: the next one, then on the server's machine a new one, once
+			if (!shown && !lent && tried.length) {
+				args.key = tried.shift()
+				return connect()
+			}
+			if (!shown && !lent && !remade) {
 				remade = true
 				return mint().then(connect)
 			}
