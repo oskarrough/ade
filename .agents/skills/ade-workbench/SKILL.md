@@ -33,7 +33,7 @@ What a message to `echo/try@bot` makes it do:
 
 Only the model is scripted; skills, AGENTS.md and modules load as usual. To catch an agent mid-run, send `slow` to `echo/try@bot` (a named bot answers before its tool runs) and act while the tool shows as running.
 
-A change to how transcript rows, sidebar dots or reply labels render gets checked in more than one plain thread: a solo worker thread, a bot home with an unread child, a group of two people and two bots, a thread with cross-thread asks and a worker report, and one with a scheduled task above its composer.
+A change to how transcript rows, sidebar dots or reply labels render gets checked in more than one plain thread: a solo worker thread, a bot home with an unread child, a group of two people and two bots, a thread with cross-thread asks and a worker report, and one with a scheduled task above its composer. New UI that shows a list (cards, sidebars, pickers) gets its screenshot taken against a copy of Oskar's real data, not try.js's handful of threads — see "Real data" below; a bot card that listed hundreds of threads looked fine on try.js and wasn't.
 
 ## The CLI
 
