@@ -33,14 +33,31 @@
 	font-display: swap;
 }
 
+/* Inter, the variable build from rsms.me/inter, under the SIL Open Font License (fonts/LICENSE-Inter.txt). */
+@font-face {
+	font-family: 'Inter Variable';
+	src: url('/fonts/InterVariable.woff2') format('woff2');
+	font-weight: 100 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Inter Variable';
+	src: url('/fonts/InterVariable-Italic.woff2') format('woff2');
+	font-weight: 100 900;
+	font-style: italic;
+	font-display: swap;
+}
+
 /* Light or dark is the browser's: every grey is ink mixed into the page. */
 :root {
 	/* How wide a thread's messages and composer run; Jump takes it too */
 	--chat-width: 50rem;
 	color-scheme: light dark;
-	--font-text: 'iA Writer Quattro S', system-ui, sans-serif;
-	--font-ui: 'iA Writer Quattro S', system-ui, sans-serif;
-	--font-mono: ui-monospace, monospace;
+	--font-text: 'Inter Variable', system-ui, sans-serif;
+	--font-ui: 'Inter Variable', system-ui, sans-serif;
+	--font-mono: 'iA Writer Quattro S', ui-monospace, monospace;
 	--ink: CanvasText;
 	--mute: color-mix(in srgb, CanvasText 58%, Canvas);
 	--line: color-mix(in srgb, CanvasText 14%, Canvas);
