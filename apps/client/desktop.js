@@ -2,10 +2,12 @@
  * Right-click menus in arbe desktop (apps/desktop): the system's own menu, whose items run the page's own actions. In a
  * browser there's no `window.mygo`, so the right-click stays the browser's.
  */
-import { createRoot, createSignal } from 'solid-js'
+import { createSignal } from 'solid-js'
 import { report } from './notice.js'
 
 const mygo = /** @type {any} */ (window).mygo
+/** The panes side by side, threads and their side columns */
+const PANES = '.threads > :is(.thread, .side)'
 if (mygo) {
 	document.documentElement.dataset.desktop = ''
 	clearOfControls()
@@ -24,9 +26,7 @@ function clearOfControls() {
 		const inset =
 			Number.parseFloat(getComputedStyle(root).getPropertyValue('--mygo-titlebar-inset-right')) || 0
 		const edge = root.clientWidth - inset
-		const panes = /** @type {NodeListOf<HTMLElement>} */ (
-			document.querySelectorAll('.threads > :is(.thread, .side)')
-		)
+		const panes = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(PANES))
 		for (const pane of panes) {
 			const { left, right } = pane.getBoundingClientRect()
 			const under = Math.min(Math.max(right - edge, 0), right - left)
@@ -47,8 +47,7 @@ function clearOfControls() {
 		)
 	new MutationObserver((records) => {
 		if (!records.some(panesChanged)) return
-		for (const pane of document.querySelectorAll('.threads > :is(.thread, .side)'))
-			sizes.observe(pane)
+		for (const pane of document.querySelectorAll(PANES)) sizes.observe(pane)
 		queue()
 	}).observe(document, { childList: true, subtree: true })
 	addEventListener('resize', queue)
@@ -96,8 +95,6 @@ export const selectedIn = (element) => {
 export const copyText = (text) => navigator.clipboard.writeText(text)
 
 /** The desktop app's version, asked once; empty in a browser, or in an app too old to say */
-export const [desktopVersion] = createRoot(() => {
-	const [version, setVersion] = createSignal('')
-	mygo?.call('Desktop.Version').then(setVersion, () => {})
-	return [version]
-})
+const [desktopVersion, setDesktopVersion] = createSignal('')
+mygo?.call('Desktop.Version').then(setDesktopVersion, () => {})
+export { desktopVersion }
