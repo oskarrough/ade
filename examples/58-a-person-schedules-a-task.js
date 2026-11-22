@@ -1,6 +1,6 @@
 /**
  * MODULES=+schedule: a person schedules a task. Daily at 09:00 runs at 09:00 on the wall clock of the zone they chose,
- * pause takes its next run away and resume gives it back; a task in a thread arrives there as their own message, and
+ * pause takes its next run away and resume gives it back; an edit changes what it says and when, keeping its runs; a task in a thread arrives there as their own message, and
  * one for a new thread each run opens a child of the task's own thread, asking the model they picked. Run now runs one
  * at once; a timed run due while the last run's thread still works is skipped, and the list says so.
  */
@@ -43,9 +43,7 @@ const clockIn = (ms) =>
 const made = await api('POST', '/api/schedule', {
 	instructions: 'write the brief',
 	thread: id,
-	repeat: 'daily',
-	hour: 9,
-	minute: 0,
+	times: ['09:00'],
 	timeZone: ZONE,
 })
 const listed = async () =>
@@ -53,7 +51,8 @@ const listed = async () =>
 const daily = await until(listed)
 check(
 	made.json.thread === id &&
-		daily.schedule.repeat === 'daily' &&
+		daily.schedule.times.join() === '09:00' &&
+		daily.schedule.days === undefined &&
 		clockIn(daily.at) === '09:00' &&
 		daily.at > Date.now() &&
 		daily.at - Date.now() <= 86_400_000 &&
@@ -82,7 +81,7 @@ check(
 )
 
 await api('POST', '/api/schedule', { run: daily.id })
-const ranNow = await until(async () => (await listed())?.last)
+const ranNow = await until(async () => (await listed())?.runs.at(-1))
 const message = ranNow && (await view(id)).entries.find((entry) => entry.id === ranNow.entry)
 check(
 	message?.data.body === 'write the brief' &&
@@ -93,6 +92,31 @@ check(
 	JSON.stringify({ ranNow, message }),
 )
 await answered(id, 2)
+
+// Weekdays at 09:00 and 17:30, in its own words now: the same task, its runs kept, its next run on the new clock
+const weekday = (ms) =>
+	new Date(ms).toLocaleDateString('en-GB', { timeZone: ZONE, weekday: 'short' })
+const edited = await api('POST', '/api/schedule', {
+	edit: daily.id,
+	instructions: 'write the short brief',
+	times: ['17:30', '09:00'],
+	days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+	timeZone: ZONE,
+})
+const changed = await until(async () => {
+	const task = await listed()
+	return task?.instructions === 'write the short brief' && task
+})
+check(
+	edited.json.edited === daily.id &&
+		changed.schedule.times.join() === '09:00,17:30' &&
+		changed.schedule.days.join() === '1,2,3,4,5' &&
+		['09:00', '17:30'].includes(clockIn(changed.at)) &&
+		!['Sat', 'Sun'].includes(weekday(changed.at)) &&
+		changed.runs.at(-1)?.entry === ranNow.entry,
+	'an edit changes its instructions and its clock in place, and keeps its runs',
+	JSON.stringify({ edited: edited.json, changed }),
+)
 
 await api('POST', '/api/schedule', { instructions: 'check the deploy', thread: id, in: '1s' })
 const run = await until(async () =>
@@ -129,7 +153,7 @@ const skipped = await until(async () => {
 	const task = (await api('GET', `/api/threads/${overlap}/schedule`)).json.find(
 		(one) => one.id === soon.id,
 	)
-	return task?.last?.skipped && task
+	return task?.runs.at(-1)?.skipped && task
 })
 check(
 	Boolean(skipped) && skipped.at > Date.now(),

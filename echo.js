@@ -100,17 +100,16 @@ export const tryEcho = (request) => {
 		text(latest).includes('/hooks/')
 	)
 		return say(text(latest))
-	// "schedule daily 09:00 <instructions>" schedules by the clock; "schedule 5m …" or "schedule every 1m …" after a while
+	// "schedule mon,tue 09:00,17:30 <instructions>" (or daily) schedules by the clock; "schedule 5m …" or "schedule every 1m …" after a while
 	const clocked =
 		latest.role === 'user' &&
-		/(?:^|<message from="[^"]*">\n)schedule (hourly|daily|weekdays|weekly) (\d{1,2}:\d{2}) (.+?)(?:\n<\/message>)?$/s.exec(
+		/(?:^|<message from="[^"]*">\n)schedule (daily|[a-z,]+) (\d{1,2}:\d{2}(?:,\d{1,2}:\d{2})*) (.+?)(?:\n<\/message>)?$/s.exec(
 			text(latest),
 		)
 	if (clocked)
 		return call('schedule', {
-			repeat: clocked[1],
-			hour: Number(clocked[2].split(':')[0]),
-			minute: Number(clocked[2].split(':')[1]),
+			times: clocked[2].split(','),
+			...(clocked[1] === 'daily' ? {} : { days: clocked[1].split(',') }),
 			instructions: clocked[3],
 		})
 	const timed =

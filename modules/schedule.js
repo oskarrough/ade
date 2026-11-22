@@ -9,15 +9,16 @@
  *
  * Each is an `ade.scheduled-task` task owned by its thread in the background: a stored sleep, so it survives a restart
  * and the thread's Stop, and holds no process. Its schedule is `{at}` once, `{at, every}` every so often from its first
- * run, `{repeat, hour, minute, dayOfWeek?, timeZone}` by the wall clock (hourly at its minute, daily, weekdays or weekly
- * at its hour and minute, so a clock change keeps it at 7:30), `{after}` a thread, or `{on}` an event: Temporal's
- * names, none of its weight. One that came due while the server was down runs once on start; a repeating one skips the
- * runs it missed. A timed run due while the previous run's thread still works is skipped, and recorded as `last` with
- * why: the runners that run waits for, offline, or the run before still working.
+ * run, `{times, days?, timeZone}` at clock times on chosen weekdays by the wall clock (so a clock change keeps it at
+ * 7:30), `{after}` a thread, or `{on}` an event: Temporal's shapes, none of its weight; client clock.js works them out.
+ * One that came due while the server was down runs once on start; a repeating one skips the runs it missed. A timed run
+ * due while the previous run's thread still works is skipped, and kept among its `runs` with why: the runners that run
+ * waits for, offline, or the run before still working.
  *
- * Pause (with an optional note), resume and run now are Control signals it sleeps on beside its time, one key each
- * (`control-N`): paused, it sleeps on the next key only; resumed, it sleeps until its next run from now; run now posts
- * once, outside its schedule. A webhook task, paused, refuses events.
+ * Pause (with an optional note), resume, run now and edit are Control signals it sleeps on beside its time, one key
+ * each (`control-N`): paused, it sleeps on the next key only; resumed, it sleeps until its next run from now; run now
+ * posts once, outside its schedule; an edit's instructions, schedule and model live in its checkpoint from then on
+ * (current). A webhook task, paused, refuses events.
  *
  * A task `after` thread N sleeps on Ended. When the server hears a thread's work end (`ended`), and once on start,
  * settle signals each such task whose thread has no work left (core.busy); one set while N is already idle runs at once.
@@ -25,10 +26,11 @@
  * instructions as `event`, which the agent reads as outside data. Every change tells the pages on its thread
  * (`schedule` activity) and every page (`schedule` changed). Archiving a thread cancels its tasks.
  */
-import { num, obj, opt, str, bool } from '@earendil-works/pi-schema'
+import { arr, bool, num, obj, opt, str, unknown } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
 import { background, finished, writtenTo } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
+import { clockTime, DAYS, instant, lastRun, nextRun, span } from '../apps/client/clock.js'
 import { EVENTS, Hooked, issue } from './hooks.js'
 
 export const on = false
@@ -36,8 +38,6 @@ export const on = false
 const UNITS = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
 /** The shortest repeat, so a routine can't fill a thread */
 const EVERY = 60_000
-export const REPEATS = ['hourly', 'daily', 'weekdays', 'weekly']
-const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 /** The server's own time zone, which an agent's clock times are in */
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -55,103 +55,58 @@ export function duration(text, name) {
 }
 
 /**
- * When a task runs: `{at}` once, `{at, every}`, `{repeat, hour, minute, dayOfWeek?, timeZone}` by the clock, `{after}`
- * or `{on}`
- * @typedef {{ at?: number, every?: number, repeat?: string, hour?: number, minute?: number, dayOfWeek?: number, timeZone?: string, after?: number, on?: string }} Schedule
+ * When a task runs: `{at}` once, `{at, every}` every so often from its first run, `{times, days?, timeZone}` at clock
+ * times on chosen weekdays, `{after}` or `{on}`
+ * @typedef {{ at?: number, every?: number, times?: string[], days?: number[], timeZone?: string, after?: number, on?: string }} Schedule
  */
-
-/**
- * What a wall clock in `timeZone` reads at `ms`
- * @returns {{ year: number, month: number, day: number, hour: number, minute: number, second: number }}
- */
-function wall(ms, timeZone) {
-	const parts = Object.fromEntries(
-		new Intl.DateTimeFormat('en-US', {
-			timeZone,
-			hourCycle: 'h23',
-			year: 'numeric',
-			month: 'numeric',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: 'numeric',
-			second: 'numeric',
-		})
-			.formatToParts(ms)
-			.map((part) => [part.type, Number(part.value)]),
-	)
-	return /** @type {any} */ ({ ...parts, month: parts.month - 1 })
-}
-
-/** The moment a wall clock in `timeZone` reads that date and time; in a spring-forward gap, the moment after it */
-function instant(year, month, day, hour, minute, timeZone) {
-	const guess = Date.UTC(year, month, day, hour, minute)
-	const offset = (ms) => {
-		const at = wall(ms, timeZone)
-		return Date.UTC(at.year, at.month, at.day, at.hour, at.minute, at.second) - ms + (ms % 1000)
-	}
-	return guess - offset(guess - offset(guess))
-}
-
-/**
- * A clock schedule's first run after `after`
- * @param {Schedule} schedule
- */
-export function nextRun({ repeat, hour = 0, minute, dayOfWeek, timeZone }, after) {
-	const now = wall(after, timeZone)
-	if (repeat === 'hourly')
-		for (let hours = 0; hours <= 25; hours++) {
-			const run = instant(now.year, now.month, now.day, now.hour + hours, minute, timeZone)
-			if (run > after) return run
-		}
-	for (let days = 0; days <= 8; days++) {
-		const date = new Date(Date.UTC(now.year, now.month, now.day + days))
-		const weekday = date.getUTCDay()
-		if (repeat === 'weekdays' && (weekday === 0 || weekday === 6)) continue
-		if (repeat === 'weekly' && weekday !== dayOfWeek) continue
-		const run = instant(
-			date.getUTCFullYear(),
-			date.getUTCMonth(),
-			date.getUTCDate(),
-			hour,
-			minute,
-			timeZone,
-		)
-		if (run > after) return run
-	}
-	throw new Error(`No run for ${repeat} at ${hour}:${minute}`)
-}
-
-/** A clock schedule's last run before `before` */
-function lastRun(schedule, before) {
-	const back = { hourly: 2, daily: 50, weekdays: 100, weekly: 200 }[schedule.repeat] * UNITS.h
-	let run = nextRun(schedule, before - back)
-	let last = run
-	while (run < before) [last, run] = [run, nextRun(schedule, run)]
-	return last
-}
 
 /** A timed schedule's next run after the one at `at`, from `now`, skipping those missed; none for a one-off */
 function following(schedule, at, now) {
-	if (schedule.repeat) return nextRun(schedule, now)
+	if (schedule.times) return nextRun(schedule, now)
 	if (!schedule.every) return undefined
 	return at + Math.max(1, Math.ceil((now - at) / schedule.every)) * schedule.every
 }
 
-/** A whole number from `low` to `high`, named `name` */
-function whole(value, name, low, high) {
-	const number = Number(value)
-	if (value === '' || !Number.isInteger(number) || number < low || number > high)
-		throw new Error(`${name} is a whole number from ${low} to ${high}`)
-	return number
+/** Weekdays, `mon` or 1, Sunday 0, in week order */
+function weekdays(days) {
+	const list = Array.isArray(days)
+		? days
+		: String(days)
+				.split(/[\s,]+/)
+				.filter(Boolean)
+	const index = list.map((day) =>
+		/^\d$/.test(String(day)) ? Number(day) : DAYS.indexOf(String(day).slice(0, 3).toLowerCase()),
+	)
+	if (!index.length || index.some((day) => day < 0 || day > 6))
+		throw new Error('days is a list of mon … sun')
+	return [...new Set(index)].sort()
 }
 
-/** A weekday, `mon` or 1 → 1, Sunday 0 */
-function weekday(day) {
-	const index = /^\d$/.test(String(day))
-		? Number(day)
-		: DAYS.indexOf(String(day).slice(0, 3).toLowerCase())
-	if (index < 0 || index > 6) throw new Error('dayOfWeek is mon … sun, or 0 (Sunday) to 6')
-	return index
+/** Clock times, `09:00`, sorted, each once */
+function clockTimes(times) {
+	const list = Array.isArray(times)
+		? times
+		: String(times)
+				.split(/[\s,]+/)
+				.filter(Boolean)
+	const read = list.map(clockTime)
+	if (!list.length || list.length > 24 || read.some((time) => !time))
+		throw new Error('times is a list of clock times like 09:00 and 17:30, at most 24')
+	const two = (number) => String(number).padStart(2, '0')
+	return [...new Set(read.map(([hour, minute]) => `${two(hour)}:${two(minute)}`))].sort()
+}
+
+/** A moment: milliseconds, an ISO time with its offset, or `2026-11-24T09:00` on the clock in `timeZone` */
+function moment(value, timeZone) {
+	if (typeof value === 'number' && Number.isFinite(value)) return value
+	const local = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})$/.exec(String(value).trim())
+	if (local) {
+		const [, year, month, day, hour, minute] = local.map(Number)
+		return instant(year, month - 1, day, hour, minute, timeZone)
+	}
+	const ms = Date.parse(String(value))
+	if (Number.isNaN(ms)) throw new Error('at is a date and time like 2026-11-24T09:00')
+	return ms
 }
 
 /** A time zone Intl knows */
@@ -164,58 +119,58 @@ function zone(timeZone) {
 	}
 }
 
+/** What a request says about when: the fields scheduleOf reads */
+const WHEN = ['in', 'at', 'every', 'times', 'days', 'after', 'on']
+
 /**
- * A schedule from what a person or an agent asked: `repeat` once, hourly, daily, weekdays or weekly at `hour` and
- * `minute` (and `dayOfWeek`) in `timeZone`; `in` and `every` durations; `after` a thread; `on` an event
+ * A schedule from what a person or an agent asked: `in` or `at` once; `every` from `at`, or after `in` or `every`;
+ * `times` on `days` (every day if left out) in `timeZone`; `after` a thread; `on` an event
  */
 /** @returns {Promise<Schedule>} */
 async function scheduleOf(asked, { core, hooks, threadId, now = Date.now() }) {
-	const { repeat = undefined, every = undefined, after = undefined } = asked
-	const timed = asked.hour !== undefined || asked.minute !== undefined
+	const given = WHEN.filter((name) => asked[name] !== undefined)
+	const only = (allowed, message) => {
+		if (given.some((name) => !allowed.includes(name))) throw new Error(message)
+	}
 	if (asked.on !== undefined) {
 		if (!hooks) throw new Error('A task on an event needs hooks on')
 		if (!(asked.on in EVENTS)) throw new Error('on is push, ci or hook')
-		if (repeat !== undefined || timed || every !== undefined || asked.in !== undefined)
-			throw new Error('on runs on events, at no time: leave the time out')
+		only(['on'], 'on runs on events, at no time: leave the time out')
 		return { on: asked.on }
 	}
-	if (after !== undefined) {
-		if (asked.in !== undefined || every !== undefined || timed)
-			throw new Error('after runs once, at no time: leave the time out')
-		if (after === threadId) throw new Error('after is another thread')
-		if (!(await core.thread(after))) throw new Error(`No thread ${after}`)
-		return { after }
+	if (asked.after !== undefined) {
+		only(['after'], 'after runs once, at no time: leave the time out')
+		if (asked.after === threadId) throw new Error('after is another thread')
+		if (!(await core.thread(asked.after))) throw new Error(`No thread ${asked.after}`)
+		return { after: asked.after }
 	}
-	if (timed || (repeat !== undefined && repeat !== 'once')) {
-		if (asked.in !== undefined || every !== undefined)
-			throw new Error('hour and minute are a clock time: leave in and every out')
-		if (repeat !== undefined && repeat !== 'once' && !REPEATS.includes(repeat))
-			throw new Error(`repeat is once, ${REPEATS.join(', ')}`)
-		const clock = {
-			repeat: repeat === undefined || repeat === 'once' ? 'daily' : repeat,
-			...(repeat === 'hourly' ? {} : { hour: whole(asked.hour, 'hour', 0, 23) }),
-			minute: whole(asked.minute ?? 0, 'minute', 0, 59),
-			timeZone: zone(asked.timeZone ?? ZONE),
+	const timeZone = zone(asked.timeZone ?? ZONE)
+	if (asked.times !== undefined || asked.days !== undefined) {
+		only(['times', 'days'], 'times are clock times: leave in, at and every out')
+		if (asked.times === undefined) throw new Error('days need times, like 09:00')
+		const days = asked.days === undefined ? undefined : weekdays(asked.days)
+		return {
+			times: clockTimes(asked.times),
+			...(days && days.length < 7 ? { days } : {}),
+			timeZone,
 		}
-		// Once is at its clock time's next coming
-		if (repeat === undefined || repeat === 'once') return { at: nextRun(clock, now) }
-		if (clock.repeat !== 'weekly') return clock
-		// Left out, its day is the one its time comes round next
-		const first = wall(nextRun({ ...clock, repeat: 'daily' }, now), clock.timeZone)
-		const dayOfWeek =
-			asked.dayOfWeek === undefined
-				? new Date(Date.UTC(first.year, first.month, first.day)).getUTCDay()
-				: weekday(asked.dayOfWeek)
-		return { ...clock, dayOfWeek }
 	}
-	const gap = every === undefined ? undefined : duration(every, 'every')
-	if (gap !== undefined && gap < EVERY) throw new Error('every is at least 1m')
-	if (asked.in === undefined && gap === undefined)
-		throw new Error('give in, every, hour and minute (with repeat), after, or on')
-	return {
-		at: now + (asked.in === undefined ? gap : duration(asked.in, 'in')),
-		...(gap ? { every: gap } : {}),
+	if (asked.in !== undefined && asked.at !== undefined) throw new Error('give in or at, not both')
+	const at = asked.at === undefined ? undefined : moment(asked.at, timeZone)
+	if (asked.every !== undefined) {
+		const every = duration(asked.every, 'every')
+		if (every < EVERY) throw new Error('every is at least 1m')
+		return {
+			at: at ?? now + (asked.in === undefined ? every : duration(asked.in, 'in')),
+			every,
+		}
 	}
+	if (at !== undefined) {
+		if (at <= now) throw new Error('at is in the past')
+		return { at }
+	}
+	if (asked.in === undefined) throw new Error('give in, at, every, times, after, or on')
+	return { at: now + duration(asked.in, 'in') }
 }
 
 const Ended = defineSignal({ name: 'ade.thread-ended', version: 1, schema: obj({}) })
@@ -223,8 +178,29 @@ const Ended = defineSignal({ name: 'ade.thread-ended', version: 1, schema: obj({
 const Control = defineSignal({
 	name: 'ade.scheduled-task-control',
 	version: 1,
-	schema: obj({ paused: opt(bool()), note: opt(str()), run: opt(bool()), runner: opt(str()) }),
+	schema: obj({
+		paused: opt(bool()),
+		note: opt(str()),
+		run: opt(bool()),
+		runner: opt(str()),
+		edit: opt(unknown()),
+	}),
 })
+
+/** How many past runs a task keeps */
+const RUNS = 5
+
+/** What a task does now: what it was set to, with what edits changed since */
+const current = (input, checkpoint) => ({
+	...input,
+	...(checkpoint?.schedule ? { schedule: checkpoint.schedule } : {}),
+	...(checkpoint?.instructions ? { instructions: checkpoint.instructions } : {}),
+	...(input.to !== undefined && checkpoint?.to ? { to: checkpoint.to } : {}),
+})
+
+/** Its first run from `now`: by the clock or every so often, the next one due; once, its time */
+const firstRun = (schedule, now) =>
+	schedule.times || schedule.every ? nextRun(schedule, now) : schedule.at
 
 /** What a task sleeps on at `checkpoint`: its next run's time, its next event or Ended, and its next Control key */
 const asleep = (schedule, checkpoint) => ({
@@ -257,24 +233,25 @@ export function server(core) {
 
 	/**
 	 * The thread's scheduled tasks, or the whole house's, the soonest first, then the paused and those waiting on a thread
-	 * or an event: `{id, thread, schedule, at?, from?, paused?, note?, last?, instructions, by, agent?, bot?, to?}`. `at` is
-	 * its next run, `from` where the wait for it began: the run before, or when a one-off was set. `last` is its last run,
-	 * `{at, thread, entry}`, or `{at, skipped}`, why it was skipped; `note` why it's paused.
+	 * or an event: `{id, thread, schedule, at?, from?, paused?, note?, runs, instructions, by, agent?, bot?, to?}`. `at` is
+	 * its next run, `from` where the wait for it began: the run before, or when a one-off was set. `runs` are its last
+	 * few, oldest first, each `{at, thread, entry}` or `{at, skipped}`, why it was skipped; `note` why it's paused.
 	 */
 	async function pending(threadId) {
 		return (await sleeping(threadId))
-			.map(({ id, conversationId, input, state, startedAt }) => {
+			.map(({ id, conversationId, input: set, state, startedAt }) => {
 				const { checkpoint } = /** @type {any} */ (state)
+				const input = current(set, checkpoint)
 				const at = checkpoint.paused ? undefined : checkpoint.at
 				const { schedule } = input
 				const from =
 					at === undefined
 						? undefined
-						: schedule.repeat
+						: schedule.times
 							? lastRun(schedule, at)
 							: schedule.every
 								? at - schedule.every
-								: startedAt
+								: (checkpoint.since ?? startedAt)
 				return {
 					id,
 					thread: conversationId,
@@ -282,12 +259,12 @@ export function server(core) {
 					...(at === undefined ? {} : { at, from }),
 					...(checkpoint.paused ? { paused: true } : {}),
 					...(checkpoint.paused && checkpoint.note ? { note: checkpoint.note } : {}),
-					...(checkpoint.last ? { last: checkpoint.last } : {}),
+					runs: checkpoint.runs ?? [],
 					instructions: input.instructions,
 					by: input.by,
 					...(input.conversation === undefined ? {} : { agent: input.by }),
 					...(input.bot === undefined ? {} : { bot: input.bot }),
-					...(input.to === undefined ? {} : { to: checkpoint.to ?? input.to }),
+					...(input.to === undefined ? {} : { to: input.to }),
 				}
 			})
 			.sort(
@@ -299,14 +276,15 @@ export function server(core) {
 	/** Runs each task after `threadId`, or after any thread, whose thread has no work left; `duplicate` is fine */
 	async function settle(threadId) {
 		// A task just set may not sleep yet; Pi keeps a signal that comes first
+		const afterOf = (record) =>
+			current(record.input, /** @type {any} */ (record.state).checkpoint).schedule.after
 		const waiting = [...(await sleeping()), ...(await sleeping(undefined, 'pending'))].filter(
 			(record) =>
-				record.input.schedule.after !== undefined &&
-				(threadId === undefined || record.input.schedule.after === threadId),
+				afterOf(record) !== undefined && (threadId === undefined || afterOf(record) === threadId),
 		)
 		const idle = new Map()
 		for (const record of waiting) {
-			const after = record.input.schedule.after
+			const after = afterOf(record)
 			if (!idle.has(after)) idle.set(after, !(await core.busy(after)))
 			if (idle.get(after)) await core.signal(record.id, Ended, 'ended', {})
 		}
@@ -351,13 +329,13 @@ export function server(core) {
 		if (record.state.status === 'terminal' || record.abortRequested)
 			throw Object.assign(new Error(`Scheduled task ${id} has ended`), { status: 409 })
 		if (word.runner) {
-			const to = checkpoint?.to ?? record.input.to
+			const to = current(record.input, checkpoint).to
 			if (!to)
 				throw new Error('Only a task that starts a new thread each run runs on a runner of its own')
 			// Its model there, as the picker would move it: refused if that runner doesn't have it
 			await core.address({ ...to, runner: word.runner })
 		}
-		if (word.run || word.runner || Boolean(checkpoint?.paused) !== word.paused) {
+		if (word.run || word.runner || word.edit || Boolean(checkpoint?.paused) !== word.paused) {
 			let sent = await core.signal(id, Control, `control-${checkpoint?.c ?? 0}`, word)
 			// Its key expired as its time came: once that run sleeps again, on the next key
 			for (let tries = 0; sent === 'closed' && tries < 100; tries++) {
@@ -375,20 +353,22 @@ export function server(core) {
 		}
 		return word.run
 			? { ran: id }
-			: word.runner
-				? { moved: id, runner: word.runner }
-				: word.paused
-					? { paused: id }
-					: { resumed: id }
+			: word.edit
+				? { edited: id }
+				: word.runner
+					? { moved: id, runner: word.runner }
+					: word.paused
+						? { paused: id }
+						: { resumed: id }
 	}
 
 	/**
 	 * Whom a run asks and how, worked out before its commit: the agent that set it, as itself; a bot, in her home; a
 	 * person's message in their thread, as they'd send it; or a new thread's agent
 	 */
-	async function recipients(threadId, input, signal, to = undefined) {
+	async function recipients(threadId, input, signal) {
 		if (input.conversation !== undefined) return {}
-		if (input.to !== undefined) return { to: [await core.address(to ?? input.to, false, signal)] }
+		if (input.to !== undefined) return { to: [await core.address(input.to, false, signal)] }
 		if (input.bot !== undefined) {
 			const name = (await core.homes())[threadId]
 			return name ? { to: [await core.whom(threadId, name, false, signal)] } : null
@@ -456,52 +436,55 @@ export function server(core) {
 							phase: 'fire',
 							c: 0,
 							n: 0,
-							...(input.schedule.repeat
-								? { at: nextRun(input.schedule, rt.now()) }
-								: input.schedule.at === undefined
-									? {}
-									: { at: input.schedule.at }),
+							at: firstRun(input.schedule, rt.now()),
+							runs: input.runs ?? [],
 						}),
 					ctx,
 				),
-			fire: async ({ id, conversationId: threadId, input, state }, rt, ctx) => {
+			fire: async ({ id, conversationId: threadId, input: set, state }, rt, ctx) => {
 				const checkpoint = { .../** @type {any} */ (state).checkpoint }
+				const input = current(set, checkpoint)
 				const { schedule } = input
-				/** Posts one run and sleeps on as `next` says, with where it landed as `last`; none left to ask, it ends */
+				const runs = checkpoint.runs ?? []
+				const ran = (run) => [...runs, run].slice(-RUNS)
+				/** Posts one run and sleeps on as `next` says, given its runs with this one; none left to ask, it ends */
 				const post = async (heard, next) => {
-					const asked = await recipients(threadId, input, rt.signal, checkpoint.to).catch(
-						(error) => {
-							rt.report(error)
-							return null
-						},
-					)
+					const asked = await recipients(threadId, input, rt.signal).catch((error) => {
+						rt.report(error)
+						return null
+					})
 					return rt.commit(async (tx) => {
 						const event =
 							heard && 'value' in heard ? JSON.parse(JSON.stringify(heard.value)) : undefined
 						const landed = await run(tx, { id, threadId, input, asked, event })
 						if (!landed) return finished()
-						const last = { at: rt.now(), ...landed }
-						return next(last)
+						return next(ran({ at: rt.now(), ...landed }))
 					}, ctx)
 				}
 				const told = await rt.readSignal(Control, `control-${checkpoint.c}`, ctx)
 				// Woken by its time, its Control key expired; the next sleep takes a fresh one
 				if (told && 'expired' in told) checkpoint.c += 1
 				if (told && 'value' in told) {
-					const word = /** @type {any} */ (told.value)
+					const word = /** @type {any} */ (JSON.parse(JSON.stringify(told.value)))
 					const moved = { ...checkpoint, c: checkpoint.c + 1 }
 					// Run now posts once and keeps its schedule
-					if (word.run) return post(undefined, (last) => asleep(schedule, { ...moved, last }))
+					if (word.run) return post(undefined, (runs) => asleep(schedule, { ...moved, runs }))
 					// Its runs ask another runner from now on, its model there
 					if (word.runner)
 						return rt.commit(
-							() =>
-								asleep(schedule, {
-									...moved,
-									to: { ...(checkpoint.to ?? input.to), runner: word.runner },
-								}),
+							() => asleep(schedule, { ...moved, to: { ...input.to, runner: word.runner } }),
 							ctx,
 						)
+					// Edited, it does what it says now; a new schedule starts its wait over from now
+					if (word.edit) {
+						const edited = { ...moved, ...word.edit }
+						if (word.edit.schedule)
+							Object.assign(edited, {
+								at: firstRun(word.edit.schedule, rt.now()),
+								since: rt.now(),
+							})
+						return rt.commit(() => asleep(edited.schedule ?? schedule, edited), ctx)
+					}
 					const next = { ...moved, paused: word.paused, note: word.paused ? word.note : undefined }
 					// Resumed, a one-off overdue runs now; a repeating one at its next run from now
 					if (!word.paused && checkpoint.at !== undefined)
@@ -516,24 +499,25 @@ export function server(core) {
 					const heard = await rt.readSignal(Hooked, `event-${checkpoint.n}`, ctx)
 					if (!(heard && 'value' in heard))
 						return rt.commit(() => asleep(schedule, checkpoint), ctx)
-					return post(heard, (last) =>
-						asleep(schedule, { ...checkpoint, n: checkpoint.n + 1, last }),
+					return post(heard, (runs) =>
+						asleep(schedule, { ...checkpoint, n: checkpoint.n + 1, runs }),
 					)
 				}
 				const at =
 					checkpoint.at === undefined ? undefined : following(schedule, checkpoint.at, rt.now())
-				const then = (last) =>
+				const then = (runs) =>
 					at === undefined
 						? finished('completed', { fired: true })
-						: asleep(schedule, { ...checkpoint, at, last })
+						: asleep(schedule, { ...checkpoint, at, runs })
 				// Its last run's thread still working, a timed run is skipped, as Temporal's default overlap does
-				if (checkpoint.at !== undefined && checkpoint.last?.thread !== undefined)
-					if (await core.busy(checkpoint.last.thread)) {
-						const offline = await core.waitingFor(checkpoint.last.thread)
+				const last = runs.at(-1)
+				if (checkpoint.at !== undefined && last?.thread !== undefined)
+					if (await core.busy(last.thread)) {
+						const offline = await core.waitingFor(last.thread)
 						const skipped = offline.length
 							? `${offline.join(' and ')} offline`
 							: 'the run before still working'
-						return rt.commit(() => then({ at: rt.now(), skipped }), ctx)
+						return rt.commit(() => then(ran({ at: rt.now(), skipped })), ctx)
 					}
 				return post(undefined, then)
 			},
@@ -558,35 +542,38 @@ export function server(core) {
 			? `on ${EVENTS[schedule.on]}`
 			: schedule.after !== undefined
 				? `after thread ${schedule.after}`
-				: schedule.repeat
-					? `${schedule.repeat}${schedule.repeat === 'weekly' ? ` on ${DAYS[schedule.dayOfWeek]}` : ''} at ${schedule.repeat === 'hourly' ? '' : String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')} ${schedule.timeZone}`
-					: `at ${new Date(schedule.at).toISOString()}${schedule.every ? ', repeating' : ''}`
+				: schedule.times
+					? `${schedule.days ? schedule.days.map((day) => DAYS[day]).join(', ') : 'daily'} at ${schedule.times.join(' and ')} ${schedule.timeZone}`
+					: schedule.every
+						? `every ${span(schedule.every)} from ${new Date(schedule.at).toISOString()}`
+						: `at ${new Date(schedule.at).toISOString()}`
 
 	const schedule = defineTool({
 		name: 'schedule',
-		description: `Come back to this thread later: your instructions arrive here as a message to you after \`in\`, again every \`every\`, by the clock with \`repeat\`, \`hour\` and \`minute\` (${ZONE}), or once thread \`after\` has finished its work${hooks ? ', or on each outside event `on` names until you cancel it' : ''}. Returns at once. Or cancel one by its id.`,
+		description: `Come back to this thread later: your instructions arrive here as a message to you after \`in\` or \`at\` a date and time, every \`every\` (from \`at\` if given), at clock \`times\` on \`days\` (${ZONE}), or once thread \`after\` has finished its work${hooks ? ', or on each outside event `on` names until you cancel it' : ''}. Returns at once. Or cancel one by its id.`,
 		parameters: obj({
 			instructions: opt(
 				str({ description: "What to do when it runs, written so you'll know without context" }),
 			),
-			in: opt(str({ description: 'How long until it first runs: 90s, 5m, 1h30m, 2d' })),
-			every: opt(str({ description: 'Run again this often, at least 1m; `in` defaults to it' })),
-			repeat: opt(
+			in: opt(str({ description: 'How long until it runs once: 90s, 5m, 1h30m, 2d' })),
+			at: opt(
+				str({
+					description: `A date and time, like 2026-11-24T09:00 on the clock in ${ZONE}: once then, or with every its first run`,
+				}),
+			),
+			every: opt(
 				str({
 					description:
-						'By the clock instead: hourly, daily, weekdays or weekly, at `hour` and `minute`; it keeps to the clock across its changes',
+						'Run again this often, at least 1m; first after `in`, at `at`, or after one `every`',
 				}),
 			),
-			hour: opt(
-				num({
-					description: `0 to 23, on the clock in ${ZONE}; with minute and no repeat, once at its next coming`,
+			times: opt(
+				arr(str(), {
+					description: `Clock times in ${ZONE}, like ["09:00", "17:30"]; it keeps to the clock across its changes`,
 				}),
 			),
-			minute: opt(num({ description: '0 to 59; hourly runs at this minute' })),
-			dayOfWeek: opt(
-				str({
-					description: 'For weekly: mon … sun; the day its time comes round next if left out',
-				}),
+			days: opt(
+				arr(str(), { description: 'With times: the weekdays, mon … sun; every day if left out' }),
 			),
 			after: opt(
 				num({
@@ -658,47 +645,124 @@ export function server(core) {
 	})
 
 	/**
-	 * A person's new task: `{instructions, bot | thread | to, repeat, hour, minute, dayOfWeek?, timeZone, key?}`. `to`, a model at
-	 * a runner, runs each time in a new thread under one made for the task.
+	 * Where a person's task runs, from `bot`, `thread` or `to`: its thread, unless it starts one, and what its input says
+	 * about it
 	 */
-	async function create(body, user) {
-		const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : ''
-		if (!instructions) throw new Error('instructions is required')
+	async function placed(body) {
 		const places = ['bot', 'thread', 'to'].filter((place) => body[place] !== undefined)
 		if (places.length !== 1)
 			throw new Error('A task runs in one of: a bot, a thread, or `to` a new thread each run')
-		const asked = {
-			...body,
-			...(body.repeat === 'webhook' ? { repeat: undefined, on: body.on ?? 'hook' } : {}),
-		}
-		let threadId
-		const input = { by: user, instructions }
 		if (body.bot !== undefined) {
 			const homes = await core.homes()
-			threadId = Number(Object.keys(homes).find((home) => homes[home] === body.bot))
+			const threadId = Number(Object.keys(homes).find((home) => homes[home] === body.bot))
 			if (!threadId) throw new Error(`No bot ${body.bot}`)
-			input.bot = body.bot
-		} else if (body.thread !== undefined) {
-			threadId = Number(body.thread)
+			return { threadId, input: { bot: body.bot } }
+		}
+		if (body.thread !== undefined) {
+			const threadId = Number(body.thread)
 			await core.conversation(threadId)
-		} else input.to = await core.address(body.to)
-		input.schedule = await scheduleOf(asked, { core, hooks, threadId })
-		if (threadId === undefined)
-			threadId = await core.commit((tx) =>
-				core.startThread(tx, `Scheduled: ${defaultTitle(instructions)}`, null),
-			)
-		const key = typeof body.key === 'string' && body.key ? body.key.slice(0, 100) : undefined
-		const id = await make(key && `schedule ${user}/${key}`, threadId, input)
+			return { threadId, input: {} }
+		}
+		return { threadId: undefined, input: { to: await core.address(body.to) } }
+	}
+
+	/** Makes a task where `where` says, starting a thread for one that starts a new one each run */
+	async function makeIn(where, input, key) {
+		const threadId =
+			where.threadId ??
+			(await core.commit((tx) =>
+				core.startThread(tx, `Scheduled: ${defaultTitle(input.instructions)}`, null),
+			))
+		const id = await make(key, threadId, { ...input, ...where.input })
 		return { id, thread: threadId }
 	}
 
+	/** Instructions from a request, trimmed; required */
+	const instructionsOf = (body) => {
+		const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : ''
+		if (!instructions) throw new Error('instructions is required')
+		return instructions
+	}
+
 	/**
-	 * A thread's tasks, or without one every task in the house. POST `{cancel}`, `{pause, note?}`, `{resume}` or `{run}`
-	 * takes a task's id; a POST with `instructions` makes one (create).
+	 * A person's new task: `{instructions, bot | thread | to, in | at | every | times | after | on, …, key?}`. `to`, a
+	 * model at a runner, runs each time in a new thread under one made for the task.
+	 */
+	async function create(body, user) {
+		const instructions = instructionsOf(body)
+		const where = await placed(body)
+		const schedule = await scheduleOf(body, { core, hooks, threadId: where.threadId })
+		const key = typeof body.key === 'string' && body.key ? body.key.slice(0, 100) : undefined
+		return makeIn(where, { by: user, instructions, schedule }, key && `schedule ${user}/${key}`)
+	}
+
+	/**
+	 * Changes a task's instructions, when it runs or where, keeping its runs: `{edited}`. In place, unless it moves to
+	 * another thread or starts or stops listening for events: then a new task takes its place, `{edited, id, thread}`.
+	 */
+	async function edit(threadId, id, body, user) {
+		const record = await find(threadId, id)
+		const { checkpoint } = /** @type {any} */ (record.state)
+		if (record.state.status === 'terminal' || record.abortRequested)
+			throw Object.assign(new Error(`Scheduled task ${id} has ended`), { status: 409 })
+		const was = current(record.input, checkpoint)
+		const instructions = body.instructions === undefined ? undefined : instructionsOf(body)
+		const schedule = WHEN.some((name) => body[name] !== undefined)
+			? await scheduleOf(body, { core, hooks, threadId: record.conversationId })
+			: undefined
+		const places = ['bot', 'thread', 'to'].filter((place) => body[place] !== undefined)
+		if (places.length && was.conversation !== undefined)
+			throw new Error("An agent's task runs in its own thread")
+		const staying =
+			!places.length ||
+			(body.bot !== undefined && body.bot === was.bot) ||
+			(body.to !== undefined && was.to !== undefined) ||
+			(body.thread !== undefined &&
+				was.bot === undefined &&
+				was.to === undefined &&
+				Number(body.thread) === record.conversationId)
+		const listens = (schedule ?? was.schedule).on !== undefined
+		if (staying && listens === (was.schedule.on !== undefined)) {
+			const to =
+				body.to !== undefined && was.to !== undefined ? await core.address(body.to) : undefined
+			const edited = await control(threadId, id, {
+				edit: {
+					...(instructions ? { instructions } : {}),
+					...(schedule ? { schedule } : {}),
+					...(to ? { to } : {}),
+				},
+			})
+			if (schedule?.after !== undefined) settling(schedule.after)
+			return edited
+		}
+		const where = places.length
+			? await placed(body)
+			: {
+					threadId: record.conversationId,
+					input: was.bot ? { bot: was.bot } : was.to ? { to: was.to } : {},
+				}
+		const made = await makeIn(where, {
+			by: was.by,
+			...(was.conversation === undefined ? {} : { conversation: was.conversation }),
+			instructions: instructions ?? was.instructions,
+			schedule: schedule ?? was.schedule,
+			runs: checkpoint?.runs ?? [],
+		})
+		await cancel(undefined, id)
+		return { edited: id, ...made }
+	}
+
+	/**
+	 * A thread's tasks, or without one every task in the house. POST `{cancel}`, `{pause, note?}`, `{resume}`, `{run}` or
+	 * `{edit, …}` takes a task's id; a POST with `instructions` and no id makes one (create).
 	 */
 	async function serve(threadId, _query, body, user) {
 		if (threadId !== undefined) await core.conversation(threadId)
 		if (body === undefined) return pending(threadId)
+		if (body.edit !== undefined) {
+			if (!Number.isInteger(body.edit)) throw new Error("edit is the task's id")
+			return edit(threadId, body.edit, body, user)
+		}
 		if (body.instructions !== undefined) {
 			if (threadId !== undefined) body = { ...body, thread: threadId }
 			return create(body, user)
@@ -720,7 +784,7 @@ export function server(core) {
 				})
 			}
 		throw new Error(
-			'POST cancel, pause, resume or run with a task id, move with one and a runner, or instructions for a new task',
+			'POST cancel, pause, resume, run or edit with a task id, move with one and a runner, or instructions for a new task',
 		)
 	}
 

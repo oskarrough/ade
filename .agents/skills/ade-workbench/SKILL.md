@@ -28,7 +28,7 @@ What a message to `echo/try@bot` makes it do:
 
 - `slow` runs a 5-second tool; `post` asks another thread (`post to 12` follows up in thread 12), and `slow post` carries `slow` over; `think <text>` is a turn that only thinks; `fail` fails the run; `sleep 0.5` delays it.
 - `ask <question>` calls `ask_person` (`+inbox`, one-person threads only); `search <words>` calls `search` (`+search`).
-- `schedule 5m …`, `schedule every 1h …`, `schedule daily 09:00 …` (also hourly, weekdays, weekly) set tasks (`+schedule`); `schedule on hook …` answers with its `/hooks/<id>` path (`+schedule,+hooks`); `GET /api/threads/N/hooks?task=<id>` gives its secret.
+- `schedule 5m …`, `schedule every 1h …`, `schedule daily 09:00 …` and `schedule mon,fri 09:00,17:30 …` set tasks (`+schedule`); `schedule on hook …` answers with its `/hooks/<id>` path (`+schedule,+hooks`); `GET /api/threads/N/hooks?task=<id>` gives its secret.
 - `bot <instructions>` and `bot append <line>`, in a bot's home.
 
 Only the model is scripted; skills, AGENTS.md and modules load as usual. To catch an agent mid-run, send `slow` to `echo/try@bot` (a named bot answers before its tool runs) and act while the tool shows as running.

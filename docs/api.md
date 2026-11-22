@@ -162,15 +162,22 @@ With `schedule` on:
 
 ```
 GET    /api/schedule                    every scheduled task in the house, soonest first, then the paused and those waiting on a thread or an event:
-                                          [{id, thread, schedule, at?, from?, paused?, note?, last?, instructions, by, agent?, bot?, to?}]
+                                          [{id, thread, schedule, at?, from?, paused?, note?, runs, instructions, by, agent?, bot?, to?}]
 GET    /api/threads/:id/schedule        the thread's, the same rows
-POST   /api/schedule {instructions, bot | thread | to, repeat, hour?, minute?, dayOfWeek?, timeZone?, key?}
+POST   /api/schedule {instructions, bot | thread | to, in | at | every | times | after | on, …, key?}
                                         a person's new task: {id, thread}. It runs in `bot`'s home, in `thread` as your own message there,
                                           or with `to` (`{runner, model, thinkingLevel?}`) in a new thread each run, under one made for the task.
-                                          `repeat` is once, hourly, daily, weekdays, weekly or webhook (with hooks on), at `hour` and `minute`
-                                          on `timeZone`'s clock (hourly takes only the minute), `dayOfWeek` 0 (Sunday) to 6 for weekly, as
-                                          Temporal's Schedules name them; `in` and `every` durations work too
+                                          When, in Temporal's shapes: `in` (a duration, 90s, 5m, 1h30m, 2d) or `at` (milliseconds, an ISO time,
+                                          or `2026-11-24T09:00` on `timeZone`'s clock) once; `every` (a duration, at least 1m) from `at`, or
+                                          after `in` or one `every`; `times` (`["09:00", "17:30"]`) on `days` (`["mon", "fri"]` or 0 (Sunday)
+                                          to 6; every day if left out) on `timeZone`'s clock, the server's if left out; `after` a thread;
+                                          `on` an event, with hooks on
 POST   /api/threads/:id/schedule {instructions, …}  the same, running in that thread
+POST   /api/schedule {edit, instructions?, <when>?, bot | thread | to?}
+                                        changes a task by its id: what's given replaces what it had, a new when starting its wait over
+                                          from now. In place, keeping its id and runs: {edited}; moved to another thread, or starting or
+                                          stopping listening for events, a new task takes its place with its runs: {edited, id, thread}.
+                                          An agent's task stays in its thread
 POST   /api/schedule {cancel}           cancels a task by its id: {cancelled}, or {fired} if a one-off ran first, {ended} if it had ended otherwise
 POST   /api/schedule {pause, note?} | {resume}  pauses one by its id, with a note why, or resumes it: {paused} or {resumed};
                                           it sleeps that way a moment later
@@ -178,7 +185,7 @@ POST   /api/schedule {run}              runs it once now, outside its schedule: 
 POST   /api/schedule {move, runner}     a task that starts a new thread each run asks that runner from now on, its model there: {moved, runner}
 ```
 
-The same POSTs under `/api/threads/:id/schedule` refuse a task from another thread. `schedule` is `{at}` once, `{at, every}` every so often from its first run, `{repeat, hour, minute, dayOfWeek?, timeZone}` by the clock, `{after}` or `{on}`. `at` is its next run and `from` where the wait for it began, the run before or when a one-off was set; a paused task has neither, and `note` says why. `last` is its last run, `{at, thread, entry}`, the message it posted, or `{at, skipped}`: a timed run that comes due while its last run's thread still works is skipped, Temporal's default overlap, and `skipped` says why, as `vps offline` when that run waits for an offline runner, else `the run before still working`. A run missed while the server was down runs once on start. `agent` is the agent that set it, `bot` the bot whose home it runs in, `to` the model a new thread each run asks.
+The same POSTs under `/api/threads/:id/schedule` refuse a task from another thread. `schedule` is `{at}` once, `{at, every}` every so often from its first run, `{times, days?, timeZone}` at clock times on those weekdays (every day without `days`), `{after}` or `{on}`. `at` is its next run and `from` where the wait for it began, the run before or when a one-off was set; a paused task has neither, and `note` says why. `runs` are its last five, oldest first, each `{at, thread, entry}`, the message it posted, or `{at, skipped}`: a timed run that comes due while its last run's thread still works is skipped, Temporal's default overlap, and `skipped` says why, as `vps offline` when that run waits for an offline runner, else `the run before still working`. A run missed while the server was down runs once on start. `agent` is the agent that set it, `bot` the bot whose home it runs in, `to` the model a new thread each run asks.
 
 A run posts `{author, body: instructions, scheduledTask: id, to}`: an agent's goes to that agent, asking itself; a person's is theirs, asking the bot, or whom the thread would ask, or the new thread's agent. Subscribe to `schedule` or `schedule/<id>` on the `/ws` feed to hear tasks added, paused, run or cancelled live.
 
