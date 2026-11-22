@@ -618,7 +618,7 @@ export function Composer(props) {
 						onClose=${(_event) => recall.hidePopover()}
 						detailTitle="Memory’s lines"
 						open=${() => lines()}
-						onBack=${() => setLines(false)}
+						onBack=${(_event) => setLines(false)}
 						detail=${html`<${Show} when=${() => lines()}><${Memory} /><//>`}
 					>
 						<${Compaction} />
