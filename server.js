@@ -2855,12 +2855,18 @@ const core = {
 	/** Delivers a signal to a sleeping task: Pi's `delivered`, `duplicate`, `closed` or `not_found` */
 	signal: (taskId, kind, key, value) => harness.signal(taskId, kind, key, value, context),
 	/**
-	 * Tells each page watching a thread what a module is doing there, as it happens; nothing is kept. An event is
-	 * `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), others are the module's own.
+	 * Tells `activity/<thread>` what a module is doing there, as it happens; the newest 200 are kept in memory only. An
+	 * event is `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), whose end
+	 * replaces its start; others are the module's own.
 	 */
 	activity: (threadId, event) => {
-		const sent = JSON.stringify({ thread: threadId, activity: { at: Date.now(), ...event } })
-		for (const socket of clients) if (socket.thread === threadId) socket.send(sent)
+		const events = activities.get(threadId) ?? new Map()
+		activities.set(threadId, events)
+		const n = ++activitySeq
+		const key = event.kind === 'call' ? `call ${event.call}` : String(n)
+		events.set(key, { key, n: events.get(key)?.n ?? n, at: Date.now(), ...event })
+		if (events.size > 200) events.delete(events.keys().next().value)
+		feed.touch(`activity/${threadId}`)
 	},
 	seenBy,
 	commit,
@@ -3478,6 +3484,14 @@ feed.define('draft/', {
 		change.type === 'document' &&
 		change.record.kind === 'ade.draft' &&
 		change.record.key === draftOf(param, state.viewer),
+})
+
+/** What modules did in each thread lately, for `activity/<id>` */
+const activities = new Map()
+let activitySeq = 0
+feed.define('activity/', {
+	keyOf: (row) => row.key,
+	all: (_viewer, param) => [...(activities.get(Number(param))?.values() ?? [])],
 })
 
 feed.define('server', {

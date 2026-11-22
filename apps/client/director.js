@@ -1,38 +1,20 @@
 /**
  * A group thread's director, live, as a column beside it: each message as it arrives, the quiet it waits for, the
- * model call while it runs, a pick dropped for a newer message, and the pick with its reason. The server keeps none
- * of it; this page hears it while the thread is open, and forgets it on reload.
+ * model call while it runs, a pick dropped for a newer message, and the pick with its reason. The server keeps the
+ * newest 200 in memory, oldest first, a model call's end in its start's place, and forgets them when it restarts.
  */
 import html from '@solidjs/html'
-import { createStore, For, Show, untrack } from 'solid-js'
+import { createMemo, For, Show, untrack } from 'solid-js'
 import { openSide, PageTabs } from './side.js'
 import { Panes } from './panes.js'
 import { Dot } from './dot.js'
-
-/** How many events a thread keeps on this page */
-const KEEP = 200
-
-/** Each thread's events, oldest first; a model call's end replaces its start */
-const [activity, setActivity] = createStore({})
-
-export function heardActivity(thread, event) {
-	if (event.purpose !== 'director') return
-	setActivity((all) => {
-		const list = (all[thread] ??= [])
-		const running =
-			event.kind === 'call'
-				? list.findIndex((one) => one.kind === 'call' && one.call === event.call)
-				: -1
-		if (running >= 0) list[running] = event
-		else list.push(event)
-		if (list.length > KEEP) list.splice(0, list.length - KEEP)
-	})
-}
+import { feedView } from './server.js'
 
 export function Director(props) {
 	// One thread for this column's whole life
 	const id = untrack(() => props.id)
-	const events = () => activity[id] ?? []
+	const activity = feedView(() => `activity/${id}`, { sort: (left, right) => left.n - right.n })
+	const events = createMemo(() => activity().filter((event) => event.purpose === 'director'))
 	/** What a message said, from the event that brought it */
 	const bodyOf = (entry) =>
 		events().find((one) => one.kind === 'message' && one.entry === entry)?.body
@@ -46,8 +28,7 @@ export function Director(props) {
 				<${Show}
 					when=${() => events().length}
 					fallback=${html`<p class="mute">
-						Nothing yet. While this thread is open, each message shows here as the director routes
-						it.
+						Nothing yet. Each message shows here as the director routes it.
 					</p>`}
 				>
 					<ul class="rows">

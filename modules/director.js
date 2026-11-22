@@ -10,7 +10,7 @@
  * else's message gets a pick of its own. A pick waits `director.burst` seconds of quiet, then holds while anyone in the
  * thread is typing (a heartbeat lasts 6 s, a hold at most 20 s, sending or clearing ends it), then one model call
  * picks one candidate or nobody, with a confidence: TypeSafe's Jev when TYPESAFE_API_KEY is set, else the chooser
- * model. Each page watching the thread hears all of it as `activity`, kept nowhere.
+ * model. Pages hear all of it on `activity/<id>`, kept in memory only.
  *
  * The chooser is `director.model` in ade.json, `provider/model:thinking`, optionally @runner (else the thread's), with
  * DIRECTOR_MODEL winning over it. Left empty, it's Haiku or Luna with thinking off when the thread agent's runner lists

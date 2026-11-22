@@ -137,7 +137,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   canvas/tldraw.js       the one place tldraw's version is named
   recap.js               Recap tab: topicsOf, Topic, Page
   side.js                the side column: pagesOf, sideOf, openSide, toggleSide, PageTabs
-  director.js            Director tab: heardActivity, said
+  director.js            Director tab: `activity/<id>` feed, said
   agent-memory.js        memory popover and compaction view
   icons.js               Icon, the stroke icons
   title.js               defaultTitle

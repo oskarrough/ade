@@ -71,7 +71,6 @@ import { imageUrl } from './images.js'
 import { markdown } from './markdown.js'
 import { messageDiagrams } from './mermaid.js'
 import { sideOf, toggleSide } from './side.js'
-import { heardActivity } from './director.js'
 import { CanvasRow } from './canvas.js'
 import { ScheduledRun, ScheduledTaskSet } from './schedule.js'
 
@@ -529,7 +528,6 @@ export function Thread(props) {
 				(message) => {
 					if (message.thread !== id) return
 					if (message.older && message.done) finishTurns()
-					if (message.activity) heardActivity(id, message.activity)
 					if (message.agent && message.entries) {
 						heard(message.agent, message.entries, {
 							whole: !message.older && !heardFrom.has(message.agent),
