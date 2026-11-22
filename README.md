@@ -32,6 +32,8 @@ Agents start in the folder you run it from. Add shortcuts with `--dir ~/sites --
 
 To let agents work on another machine, click "Add runner" (or run `npx github:oskarrough/ade key laptop`) for the command to run there; keep it private, it holds a key.
 
+On the server's own machine, `ade runner` in a folder lends that folder too, as a runner named after it; it makes its own key.
+
 An agent works on its own runner, but can run a command on any runner that accepts its commands: `runners` lists the house's runners, and `bash` takes a `runner` to run it there, in that runner's folder. Its conversation stays put; a command whose runner drops mid-call reports it may have run.
 
 There are no accounts. The server knows who you are by how you came in. On its own machine, at the address it prints, you're its owner, signing as `owner` in ade.json or else your login there. To let in your other devices and friends, point `tailscale serve` at the second port it prints, the one marked `serve`: everyone who comes through it is their tailnet login, and nobody gets in without one. Everyone in a thread sees who wrote each message, and who pressed Stop. List your own login in ade.json's `ownerLogins` (`["you@github"]`) and you're the owner on every device. Don't point Serve, a tunnel or a proxy at the first port; it turns away anything that came through one. That's it.

@@ -221,7 +221,7 @@ function RunnerItem(props) {
 export function ConnectRunner(props) {
 	const [name, setName] = createSignal(props.name ?? '')
 	const [error, setError] = createSignal('')
-	const [copied, setCopied] = createSignal(false)
+	const [copied, setCopied] = createSignal('')
 	// A new key for an online runner cuts it off, so the button asks first, in its own words.
 	const [cutting, setCutting] = createSignal(false)
 	const existing = () => runners.find((runner) => runner.name === name().trim())
@@ -230,7 +230,7 @@ export function ConnectRunner(props) {
 			setError('')
 			setMinted(await api('/api/runners', { name: name().trim() }))
 			setName('')
-			setCopied(false)
+			setCopied('')
 		},
 		{ onError: (failure) => setError(failure.message) },
 	)
@@ -240,10 +240,10 @@ export function ConnectRunner(props) {
 		setCutting(false)
 		add()
 	}
-	const copy = () =>
+	const copy = (which) =>
 		navigator.clipboard
-			.writeText(minted().connect)
-			.then(() => setCopied(true))
+			.writeText(minted()[which])
+			.then(() => setCopied(which))
 			.catch(report)
 	return html`
 		<div class="connect-runner">
@@ -288,10 +288,18 @@ export function ConnectRunner(props) {
 			<//>
 			<${Show} when=${() => error()}><p class="bad">${() => error()}</p><//>
 			<${Show} when=${minted}>
+				<p class="mute">On that machine, in the folder agents should start in:</p>
+				<div class="command">
+					<pre>${() => minted().ade}</pre>
+					<button type="button" class="small" onClick=${(_e) => copy('ade')}>
+						${() => (copied() === 'ade' ? 'Copied' : 'Copy')}
+					</button>
+				</div>
+				<p class="mute">Without ade installed there:</p>
 				<div class="command">
 					<pre>${() => minted().connect}</pre>
-					<button type="button" class="small" onClick=${copy}>
-						${() => (copied() ? 'Copied' : 'Copy')}
+					<button type="button" class="small" onClick=${(_e) => copy('connect')}>
+						${() => (copied() === 'connect' ? 'Copied' : 'Copy')}
 					</button>
 				</div>
 				<${Show}

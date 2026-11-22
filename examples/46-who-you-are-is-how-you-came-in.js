@@ -241,15 +241,16 @@ const dial = (name, key) =>
 		})
 		socket.onclose = ({ code, reason }) => resolve({ code, reason })
 	})
-const nokey = await runner('stray', { env: { ADE_KEY: '' }, wait: false })
+// Through Serve, as a stranger: on the server's own machine it would make its own key
+const nokey = await runner('stray', {
+	args: ['--server', `http://127.0.0.1:${servePort}`],
+	env: { ADE_KEY: '' },
+	wait: false,
+})
 const out = []
 nokey.stdout.on('data', (d) => out.push(String(d)))
 check((await exited(nokey)) === 1, 'a runner without a key is turned away, and stops')
-check(
-	out.join('').includes('node cli.js key stray'),
-	'and is told how to get one',
-	JSON.stringify(out),
-)
+check(out.join('').includes('ade key stray'), 'and is told how to get one', JSON.stringify(out))
 const thief = await dial('laptop', 'air_guessed')
 check(thief.code === 4001, 'a wrong key is turned away', JSON.stringify(thief))
 check(await runnerOnline('laptop'), 'and the real laptop stays online: nobody can take its name')

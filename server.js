@@ -2484,7 +2484,7 @@ async function handleRequest(req, res, serve = false) {
 
 /** Finds bun or Node, then hands over to the updater, which keeps the runner up to date with this server */
 const runnerScript = (server) => `#!/bin/sh
-# Connects this machine to the ade server at ${server}, with a key from \`node cli.js key laptop\` there:
+# Connects a machine without ade to the ade server at ${server}, with a key from \`ade key laptop\` there:
 #   curl -fsSL ${server}/connect-runner | ADE_KEY=air_… sh -s -- --dir ~/code [--name laptop] [--read-only] [--no-update]
 set -e
 if command -v bun >/dev/null 2>&1; then run=bun; elif command -v node >/dev/null 2>&1; then run=node; else
@@ -2504,7 +2504,7 @@ if [ -n "$ADE_KEY" ]; then
   mkdir -p "$config"
   keyfile="$config/key.$name"
   (umask 077 && printf %s "$ADE_KEY" > "$keyfile")
-  set -- "$@" --key-file "$keyfile"
+  set -- "$@" --name "$name" --key-file "$keyfile"
 fi
 curl -fsSL "${server}/runner/updater.js" -o "$data/runner-updater.js"
 printf "Next time, without curl: %s '%s' '%s'" "$run" "$data/runner-updater.js" '${server}'
@@ -2957,6 +2957,7 @@ async function mintKey(name, server) {
 	return {
 		name,
 		key,
+		ade: `ADE_KEY=${key} ade runner --server ${server} --name ${name}`,
 		connect: `curl -fsSL ${server}/connect-runner | ADE_KEY=${key} sh -s -- --name ${name} --dir .`,
 	}
 }
@@ -3037,8 +3038,8 @@ async function upgrade(req, raw, head, serve = false) {
 		return socket.close(
 			4001,
 			given
-				? `${name}'s key is wrong or was revoked; on the server: node cli.js key ${name}`
-				: `${name} needs a key; on the server: node cli.js key ${name}`,
+				? `${name}'s key is wrong or was revoked. On the server's machine run\n  ade key ${name}\nthen run the line it prints here.`
+				: `${name} needs a key. On the server's machine run\n  ade key ${name}\nthen run the line it prints here.`,
 		)
 	}
 	runners.register(connection)

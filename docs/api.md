@@ -35,7 +35,7 @@ GET    /api/server                     modules, settings, `me`, who the server t
 GET    /api/changes?since=<commit>     {commits}: the subjects of the commits since that one, newest first
 POST   /api/me                         with the owner key as a bearer: keeps it as this browser's cookie
 GET    /api/runners
-POST   /api/runners {name}             a key, and the command that connects it
+POST   /api/runners {name}             a key, and the commands that connect it: `ade` with ade, `connect` without
 DELETE /api/runners/:name
 GET    /api/runners/:name/available    every model pi is logged in for there; `offers` are its scoped ones
 GET    /api/threads                    each thread's row; its `parent`, or `conversation.parent` for a fork, places it in a family
@@ -158,31 +158,31 @@ GET    /api/export   {files}, every thread's files, archived ones included, as a
 Each JSON file holds a thread's entries exactly as `GET /api/threads/:id` returns them. Its Markdown file is for a
 person: the title, who wrote in it, then each message as "**author** · time" with the body; a `$ cmd` message's
 shell result folds into one line. Both read without ade installed, and the route reaches a server anywhere, not
-only its own machine; `node cli.js export <dir>` fetches it and writes the files.
+only its own machine; `ade export <dir>` fetches it and writes the files.
 
 The routes are in `server.js`, the runner protocol in [remote.js](../remote.js).
 
 The CLI is the same API from a terminal:
 
 ```sh
-node cli.js post "hello" --to sonnet@laptop    # prints the answer as it lands
-node cli.js threads
-node cli.js read 3
-node cli.js wait 3                             # waits for its agents, then prints the answers
-node cli.js stop 3
-node cli.js export ~/backup                    # with export on: every thread as Markdown and JSON
+ade post "hello" --to sonnet@laptop    # prints the answer as it lands
+ade threads
+ade read 3
+ade wait 3                             # waits for its agents, then prints the answers
+ade stop 3
+ade export ~/backup                    # with export on: every thread as Markdown and JSON
 ```
 
-It writes as whoever the server takes it for: on the server's machine, the owner, an agent's shell there included. Against a server elsewhere (`--server` or `ADE_SERVER`), set `ADE_OWNER_KEY` to write as the owner; through a Serve address you're your tailnet login without it. `node cli.js link`, on the server's machine, prints a link that brings a browser in as the owner.
+It writes as whoever the server takes it for: on the server's machine, the owner, an agent's shell there included. Against a server elsewhere (`--server` or `ADE_SERVER`), set `ADE_OWNER_KEY` to write as the owner; through a Serve address you're your tailnet login without it. `ade link`, on the server's machine, prints a link that brings a browser in as the owner.
 
 A new thread prints `thread N` on stdout, followed by any answers; progress and errors go to stderr. To capture just its id without waiting:
 
 ```sh
-thread=$(node cli.js post "hello" --to sonnet@laptop --no-wait)
-node cli.js wait "${thread#thread }"
+thread=$(ade post "hello" --to sonnet@laptop --no-wait)
+ade wait "${thread#thread }"
 ```
 
-`node cli.js --help` has the rest.
+`ade --help` has the rest.
 
 ## Server settings
 

@@ -57,7 +57,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   mintKey, revoke, upgrade          runner keys and the runner's socket; a module's own thread socket (its `connect`)
   saveSettings, restart, connectSelf   settings (POST /api/settings, the owner only), restart, the server lending its own machine, under the name it first got
 echo.js                  echo/try scripted model responses: file tools, slow commands, posts, `ask` questions, `wake` calls, `search`, bots, director and recap
-runner.js                a runner: offers its models and folder shortcuts, connects, runs agents in any folder on its machine
+runner.js                a runner: offers its models and folder shortcuts, connects, runs agents in any folder on its machine; ready (server up, name free, its own key on the server's machine), again (the `ade runner` line every hint prints)
 runner-updater.js        what `curl <server>/connect-runner | sh` starts (it saves the key in ~/.config/ade/key.<name>); keeps the runner up to date
 remote.js                the runner protocol, both ends: createRunners (server), serveRunner (runner),
                          runnerProvider (a model over the wire), remoteEnv (tools in the runner's folder)

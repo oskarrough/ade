@@ -1,5 +1,5 @@
 import WebSocket from 'ws'
-import { readdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
@@ -11,7 +11,7 @@ import {
 	resolveModelScopeWithDiagnostics,
 	SettingsManager,
 } from '@earendil-works/pi-coding-agent'
-import { load } from './modules.js'
+import { dataDir, load } from './modules.js'
 import { runnerBundle, serveRunner } from './remote.js'
 
 // Prefer the installed pi's default; an internal path change must not stop the runner.
@@ -25,7 +25,7 @@ const { values: args } = parseArgs({
 			type: 'string',
 			default: process.env.ADE_SERVER || 'http://localhost:3000',
 		},
-		name: { type: 'string', default: os.hostname() },
+		name: { type: 'string' },
 		dir: { type: 'string', multiple: true, default: [process.cwd()] },
 		'discover-dirs': { type: 'boolean', default: false },
 		owner: { type: 'string', default: '' },
@@ -37,33 +37,107 @@ const { values: args } = parseArgs({
 	},
 })
 if (args.help) {
-	console.log(`node runner.js [options]
+	console.log(`ade runner [options]
+
+  On the server's machine, \`ade runner\` alone connects this folder, named after it.
+  Elsewhere, \`ade key <name>\` on the server's machine prints the line to run here.
 
   --server url      server to dial (ADE_SERVER or http://localhost:3000)
-  --name name       runner's name (this machine's hostname)
+  --name name       runner's name, how threads address it (this folder's name)
   --dir folder      folder threads start in (current folder); repeat to suggest more
   --discover-dirs   offer git and jj checkouts beneath the folders
   --owner login     take work only from this person and those allowed: the owner by their
                     login on the server's machine, a friend by their tailnet login
   --allow name      also take work from this person or @runner; repeat for more
   --read-only       refuse writes and commands
-  --key key         runner key (ADE_KEY or the saved key)
-  --key-file file   read the saved key here instead of ~/.config/ade/key
+  --key key         runner key (ADE_KEY, else the one saved for its name)
+  --key-file file   read the saved key here instead of ~/.config/ade/key.<name>
   -h, --help        print these options`)
 	process.exit(0)
-}
-if (!args.key) {
-	const config = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
-	try {
-		args.key = readFileSync(args['key-file'] || path.join(config, 'ade', 'key'), 'utf8').trim()
-	} catch {
-		args.key = ''
-	}
 }
 const roots = [...new Set(args.dir.map((dir) => path.resolve(dir)))]
 const dir = roots[0]
 const server = new URL(args.server).origin
-const name = args.name
+/** Named after its folder, as a runner's name is a word: anything else becomes a dash */
+const name =
+	args.name ||
+	path.basename(dir).replace(/[^\w.-]+/g, '-') ||
+	os.hostname().replace(/[^\w.-]+/g, '-')
+/** The `ade runner` that starts this one again, with its flags, `more` in place of those it names */
+const again = (...more) => {
+	const kept = []
+	const flags = process.argv.slice(2)
+	for (let index = 0; index < flags.length; index++) {
+		const [flag, value] = flags[index].split('=')
+		if (!more.includes(flag)) kept.push(flags[index])
+		else if (value === undefined) index++
+	}
+	return ['ade runner', ...kept, ...more].join(' ')
+}
+const stop = (message) => {
+	console.log(message)
+	process.exit(1)
+}
+const config = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'ade')
+const keyFile = args['key-file'] || path.join(config, `key.${name}`)
+/** A key given by hand is kept for its name once it connects, so next time `ade runner` alone does */
+const given = Boolean(args.key)
+if (!args.key) {
+	try {
+		args.key = readFileSync(keyFile, 'utf8').trim()
+	} catch {
+		args.key = ''
+	}
+}
+const lent = Boolean(process.env.ADE_LENT)
+/** Its terminal's lines, kept beside the server's store; the server's own runner prints into the server's log */
+const logFile = path.join(dataDir(), `runner.${name}.log`)
+if (!lent) {
+	mkdirSync(dataDir(), { recursive: true })
+	for (const method of /** @type {const} */ (['log', 'error'])) {
+		const print = console[method]
+		console[method] = (...parts) => {
+			print(...parts)
+			appendFileSync(logFile, `${new Date().toISOString()} ${parts.join(' ')}\n`)
+		}
+	}
+}
+
+/** Before it dials: the server answers, nobody else holds the name, and on the server's machine it makes its own key */
+async function ready() {
+	const list = await fetch(`${server}/api/runners`)
+		.then(async (res) => ({ ok: res.ok, json: await res.json().catch(() => []) }))
+		.catch(() =>
+			stop(
+				`No ade server answers at ${server}. Start one with \`ade\`, or name yours:\n  ${again('--server', 'http://<host>:3000')}`,
+			),
+		)
+	const holder = list.ok && list.json.find((runner) => runner.name === name && runner.online)
+	if (holder)
+		stop(
+			`A runner named ${name} is already online${holder.dir ? `, in ${holder.dir}` : ''}. Give this one its own name:\n  ${again('--name', `${name}-2`)}`,
+		)
+	if (!args.key) await mint()
+}
+/** A key of its own, which only the server's owner gets: on the server's machine that's whoever runs this */
+async function mint() {
+	const res = await fetch(`${server}/api/runners`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ name }),
+	}).catch(() => undefined)
+	if (!res?.ok)
+		stop(
+			`${name} needs a key, and only the server's owner can make one. On the server's machine run\n  ade key ${name}\nthen run the line it prints here.`,
+		)
+	args.key = (await res.json()).key
+	save()
+}
+const save = () => {
+	if (lent || args['key-file']) return
+	mkdirSync(config, { recursive: true })
+	writeFileSync(keyFile, args.key, { mode: 0o600 })
+}
 
 /** pi's own models and logins, as pi reads them, with the providers its extensions add, such as claude-code */
 const { modelRuntime: models, diagnostics } = await createAgentSessionServices({ cwd: dir })
@@ -219,21 +293,39 @@ async function connect() {
 				? update()
 				: modules.find((module) => module.name === message.op)?.told?.(message),
 	})
-	const from = args.owner ? `, to ${[args.owner, ...args.allow].join(', ')}` : ''
-	const online = () =>
+	const from = args.owner ? [args.owner, ...args.allow].join(', ') : ''
+	let shown = false
+	const online = () => {
+		if (given) save()
 		// The server's own runner: the server already printed its row
-		process.env.ADE_LENT ||
+		if (lent) return
+		if (shown) return console.log(`${name} back online`)
+		shown = true
+		const home = (file) =>
+			file.startsWith(os.homedir()) ? `~${file.slice(os.homedir().length)}` : file
 		console.log(
-			`${name} online at ${server}, offering pi's logins and ${roots.join(', ')}${args['read-only'] ? ' to read only' : ''}${from}`,
+			[
+				`${name} is online${args['read-only'] ? ', read-only' : ''}`,
+				`  server  ${server}`,
+				...roots.map((root, index) => `  ${index ? '      ' : 'folder'}  ${home(root)}`),
+				...(from ? [`  works for  ${from}`] : []),
+				`  log     ${home(logFile)}`,
+				'Ctrl+C to stop',
+			].join('\n'),
 		)
+	}
 	socket.onmessage = ({ data }) =>
 		JSON.parse(String(data)).op === 'ready' ? online() : runner.receive(data)
 	socket.onclose = ({ code, reason }) => {
 		runner.stopAll()
 		for (const module of modules) module.disconnected?.()
 		if (code === 4001) {
-			console.log(reason)
-			process.exit(1)
+			// A key saved for a store that's gone: on the server's machine it makes a new one, once
+			if (!shown && !given && !lent && !remade) {
+				remade = true
+				return mint().then(connect)
+			}
+			stop(String(reason))
 		}
 		console.log(`disconnected from ${server}; retrying…`)
 		setTimeout(connect, 2000)
@@ -242,13 +334,18 @@ async function connect() {
 }
 
 let warned = false
+let remade = false
 function update() {
 	if (process.env.ADE_LAUNCHER === '1') {
 		console.log(`${name}: the server runs a newer runner; updating…`)
 		process.exit(75)
 	}
-	if (!warned) console.log(`${name}: the server runs a newer runner; restart this one to update`)
+	if (!warned)
+		console.log(
+			`${name}: the server runs a newer runner; to update, Ctrl+C and run again:\n  ${again()}`,
+		)
 	warned = true
 }
 
+await ready()
 connect()

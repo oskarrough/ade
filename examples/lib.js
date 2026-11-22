@@ -147,7 +147,7 @@ export async function runner(name, { args = [], env = {}, wait = true, dir: fold
 			let output = ''
 			const ready = (chunk) => {
 				output += chunk
-				if (!output.includes(`${name} online at`)) return
+				if (!output.includes(`${name} is online`)) return
 				child.stdout.off('data', ready)
 				child.off('exit', exited)
 				resolve(undefined)

@@ -9,7 +9,7 @@ import path from 'node:path'
 import WebSocket from 'ws'
 import { dataDir } from './modules.js'
 
-const usage = `node cli.js [--server url] <command>
+const usage = `ade [--server url] <command>
 
   You write as whoever the server takes you for: the owner on its own machine, your login through
   tailscale serve, or the owner anywhere with ADE_OWNER_KEY set to the key \`link\` shows.
@@ -28,7 +28,8 @@ const usage = `node cli.js [--server url] <command>
   read <thread>    a thread's messages, or its --last N, or those --after id
   wait <thread>    wait until its agents are done, then print the answers to the latest ask, or all --after id
   runners          every runner holding a key, online or not, and its models
-  key <runner>     a new key for a runner, replacing its old one, and the line that connects it
+  key <name>       a new key for the runner of that name, replacing its old one, and the line that
+                   connects it; the name is yours to pick, and threads address that machine by it
   revoke <runner>  take its key away: it goes offline and leaves the list
   stop <thread>    stop its agents and commands
   link             on the server's machine: a link that brings a browser in as the owner
@@ -232,9 +233,14 @@ const commands = {
 		}
 	},
 	async key() {
-		const { key, connect } = await api('POST', '/api/runners', { name: rest[0] })
+		const name = rest[0]
+		if (!name)
+			throw new Error(
+				'ade key <name>: name the runner, as threads will address it, like\n  ade key laptop',
+			)
+		const { key, ade, connect } = await api('POST', '/api/runners', { name })
 		console.log(
-			`ADE_KEY=${key}\n\nOn the runner's machine:\n  ${connect}\nor from a clone:\n  ADE_KEY=${key} node runner.js --server ${flags.server} --name ${rest[0]} --dir .`,
+			`A key for the runner ${name}; any runner already using that name is cut off until it gets this one.\n\nOn the runner's machine, in the folder agents should start in:\n  ${ade}\nwithout ade installed there:\n  ${connect}\nOn this machine, \`ade runner --name ${name}\` alone does it.\n\nADE_KEY=${key}`,
 		)
 	},
 	async revoke() {
