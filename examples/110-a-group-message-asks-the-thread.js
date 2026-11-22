@@ -47,7 +47,7 @@ const post = (id, body, to) =>
 const message = async (id, body) =>
 	(await view(id)).entries.findLast((entry) => entry.data.body === body)?.data
 await api('POST', '/api/bots', { name: 'Jeroen', to: 'echo/echo@laptop' })
-await api('POST', '/api/bots', { name: 'Ada', to: 'echo/echo@laptop' })
+await api('POST', '/api/bots', { name: 'Bot1', to: 'echo/echo@laptop' })
 check(
 	(await api('GET', '/api/server')).json.settings.director.picks === true,
 	'group picks are on without a configured chooser',
@@ -93,19 +93,19 @@ for (const failure of ['unknown', 'error', 'timeout']) {
 }
 // Typing a bot's name that isn't in the thread yet, without picking it from the list, invites it all the same
 const picks = choosing
-await post(id, '@Ada can you join?')
+await post(id, '@Bot1 can you join?')
 await answered(id, 11)
 check(
-	choosing === picks && (await message(id, '@Ada can you join?'))?.to?.join() === 'Ada',
+	choosing === picks && (await message(id, '@Bot1 can you join?'))?.to?.join() === 'Bot1',
 	'a typed @mention of a bot not yet here asks it, with no pick',
-	JSON.stringify(await message(id, '@Ada can you join?')),
+	JSON.stringify(await message(id, '@Bot1 can you join?')),
 )
 check(
-	(await view(id)).agents.some((agent) => agent.name === 'Ada'),
+	(await view(id)).agents.some((agent) => agent.name === 'Bot1'),
 	'and she is in the thread from then on',
 )
 const bots = await createThread('bots only')
-await post(bots, 'hello', ['Jeroen', 'Ada'])
+await post(bots, 'hello', ['Jeroen', 'Bot1'])
 await answered(bots, 2)
 await post(bots, 'chooser unknown')
 const failed = await message(bots, 'chooser unknown')

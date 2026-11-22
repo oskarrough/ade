@@ -75,7 +75,11 @@ check(
 )
 
 heard.length = 0
-await api('POST', '/api/bots', { name: 'ada', to: 'echo/one@laptop', instructions: 'You are ada.' })
+await api('POST', '/api/bots', {
+	name: 'bot1',
+	to: 'echo/one@laptop',
+	instructions: 'You are bot1.',
+})
 check(Boolean(await until(async () => named('bots'))), 'a new bot names the bot list')
 
 heard.length = 0

@@ -40,9 +40,9 @@ await postEntry(shelved, 'wrapping up', echo)
 await answered(shelved)
 await api('POST', `/api/threads/${shelved}/archive`, { archived: true })
 
-await api('POST', '/api/bots', { name: 'ada', to: echo })
-const home = (await api('GET', '/api/bots')).json.find((bot) => bot.name === 'ada').home
-await postEntry(home, 'who are you?', 'ada')
+await api('POST', '/api/bots', { name: 'bot1', to: echo })
+const home = (await api('GET', '/api/bots')).json.find((bot) => bot.name === 'bot1').home
+await postEntry(home, 'who are you?', 'bot1')
 await answered(home)
 
 const ran = await createThread('a run')
@@ -86,7 +86,7 @@ check(
 )
 
 check(
-	files[named(home, '.md')].startsWith('# ada\n'),
+	files[named(home, '.md')].startsWith('# bot1\n'),
 	"a bot's home exports under the bot's name",
 	named(home, '.md'),
 )

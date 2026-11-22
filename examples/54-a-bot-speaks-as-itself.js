@@ -26,11 +26,11 @@ await scriptedRunner('laptop', (request) => {
 		return call('post', { thread: other, body: 'hello, other room', to: 'nobody' })
 	return say('ok')
 })
-await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@laptop' })
-await postEntry(other, 'hi', 'ada')
+await api('POST', '/api/bots', { name: 'bot1', to: 'echo/echo@laptop' })
+await postEntry(other, 'hi', 'bot1')
 await answered(other)
 const room = await createThread('room')
-await postEntry(room, 'speak up', 'ada')
+await postEntry(room, 'speak up', 'bot1')
 await answered(room)
 const said = (
 	await until(async () =>
@@ -38,13 +38,13 @@ const said = (
 	)
 )?.data
 check(
-	said?.author === 'ada' && said.posted === true,
+	said?.author === 'bot1' && said.posted === true,
 	"a bot's post in a thread it's in is marked as hers",
 	JSON.stringify(said),
 )
 const thread = await view(other)
 check(
-	!thread.people.includes('ada'),
+	!thread.people.includes('bot1'),
 	'and she is not one of its people',
 	JSON.stringify(thread.people),
 )

@@ -10,9 +10,9 @@ const say = (text) => fauxAssistantMessage([fauxText(text)])
 const call = (name, args) =>
 	fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: 'toolUse' })
 export const personas = {
-	ada: 'a careful reviewer',
-	bram: 'a blunt engineer',
-	cleo: 'a curious designer',
+	bot1: 'a careful reviewer',
+	bot2: 'a blunt engineer',
+	bot3: 'a curious designer',
 }
 /** A bot's reply: its name and persona, how many messages it was just handed, and the newest of them */
 const bots = (request) => {
@@ -159,7 +159,7 @@ export const tryEcho = (request) => {
 				? { thread: Number(asked.match(/post to (\d+)/)[1]) }
 				: { title: 'side question' }),
 			body: `${asked.includes('slow') ? 'slow: ' : ''}what did you find?`,
-			// "post ada" asks the bot ada instead
+			// "post bot1" asks the bot bot1 instead
 			to: Object.keys(personas).find((name) => asked.includes(name)) ?? 'echo/try@bot',
 		})
 	return say(

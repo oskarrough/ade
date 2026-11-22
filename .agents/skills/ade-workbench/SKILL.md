@@ -9,7 +9,7 @@ AGENTS.md has the rules (what to test, what's off limits on :3000). This is the 
 
 ## A scratch server: try.js
 
-`node scripts/try.js &` starts a scratch server in a second with bots and director on, three bots (ada, bram, cleo) that answer at once with their name, persona, how many messages they were handed and the newest, a real `runner.js` in the caller's current folder with the scripted model `echo/try@bot`, and one answered thread. Start it from `.work/<your-name>/`, since it writes files like `notes.md` into whatever folder it's started from. It prints its address, its Serve port, for example "serve http://127.0.0.1:NNNN (people come in by Tailscale-User-Login)", the `export ADE_SERVER=…` for the CLI, and the `kill` that stops it.
+`node scripts/try.js &` starts a scratch server in a second with bots and director on, three bots (bot1, bot2, bot3) that answer at once with their name, persona, how many messages they were handed and the newest, a real `runner.js` in the caller's current folder with the scripted model `echo/try@bot`, and one answered thread. Start it from `.work/<your-name>/`, since it writes files like `notes.md` into whatever folder it's started from. It prints its address, its Serve port, for example "serve http://127.0.0.1:NNNN (people come in by Tailscale-User-Login)", the `export ADE_SERVER=…` for the CLI, and the `kill` that stops it.
 
 `MODULES=+web-search node scripts/try.js` turns on more modules, as +/- changes layered on top of its own list. try.js locks module switches through `MODULES`, so the settings panel's Save count can only be exercised through memory's compact-at field there.
 
@@ -36,7 +36,7 @@ A change touching how transcript rows, sidebar dots or reply labels render has s
 
 ### The CLI
 
-Each step is one command: `node cli.js post --to ada --to bram "hi"` starts a thread and prints the answers; `post --thread N "@cleo …"` writes and waits; `post --thread N --no-wait …` then `wait N` waits for the answers; `read N --after id` shows what's new; `threads` lists them. Sending to a bot by name invites it.
+Each step is one command: `node cli.js post --to bot1 --to bot2 "hi"` starts a thread and prints the answers; `post --thread N "@bot3 …"` writes and waits; `post --thread N --no-wait …` then `wait N` waits for the answers; `read N --after id` shows what's new; `threads` lists them. Sending to a bot by name invites it.
 
 ## In the browser: agent-browser
 

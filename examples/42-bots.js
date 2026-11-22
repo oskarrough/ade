@@ -44,19 +44,19 @@ await scriptedRunner('laptop', route('laptop'))
 await scriptedRunner('desk', route('desk'))
 const bots = async () => (await api('GET', '/api/bots')).json
 
-const made = await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@laptop' })
+const made = await api('POST', '/api/bots', { name: 'bot1', to: 'echo/echo@laptop' })
 const home = made.json.home
 const homeRow = (await api('GET', '/api/threads')).json.find((t) => t.id === home)
-await postEntry(home, 'who are you?', 'ada')
+await postEntry(home, 'who are you?', 'bot1')
 let v = await answered(home)
 check(
 	made.status === 201 &&
-		homeRow?.title === 'ada' &&
+		homeRow?.title === 'bot1' &&
 		homeRow.tools === null &&
-		v.agents.map((a) => a.name).join() === 'ada' &&
+		v.agents.map((a) => a.name).join() === 'bot1' &&
 		made.json.instructions === '' &&
 		prompt.laptop.includes(voiceInPrompt),
-	'one call makes ada and her home, with every tool; she starts with no instructions of her own but reads the shared voice until she writes them',
+	'one call makes bot1 and her home, with every tool; she starts with no instructions of her own but reads the shared voice until she writes them',
 	JSON.stringify([made.json, homeRow, prompt.laptop]),
 )
 
@@ -74,7 +74,7 @@ check(
 	JSON.stringify([blank.json, prompt.laptop]),
 )
 
-await postEntry(home, 'be a pirate', 'ada')
+await postEntry(home, 'be a pirate', 'bot1')
 v = await answered(home, 2)
 const ownAt = (await api('GET', `/api/threads/${home}`)).json.agents[0].conversation
 const rewrote = (await api('GET', `/api/conversations/${ownAt}`)).json.entries.find(
@@ -85,42 +85,42 @@ check(
 	'rewriting herself, her bot call keeps what she was before, so a thread can show old against new',
 	JSON.stringify(rewrote),
 )
-await postEntry(home, 'learn arr', 'ada')
+await postEntry(home, 'learn arr', 'bot1')
 v = await answered(home, 3)
 check(
-	(await bots()).find((b) => b.name === 'ada')?.instructions === 'Answer like a pirate.\nSay arr.',
+	(await bots()).find((b) => b.name === 'bot1')?.instructions === 'Answer like a pirate.\nSay arr.',
 	'a lesson goes on the end of her instructions as one line, without resending them',
 	JSON.stringify(await bots()),
 )
 const atHomeAlready = answers(v).at(-1).data.createdAt
 check(
-	(await bots()).find((b) => b.name === 'ada')?.answeredAt === atHomeAlready,
+	(await bots()).find((b) => b.name === 'bot1')?.answeredAt === atHomeAlready,
 	'answeredAt follows her latest answer so far, at home',
 	JSON.stringify(await bots()),
 )
 
 const shed = await createThread('shed')
-await postEntry(shed, 'build it?', 'ada')
+await postEntry(shed, 'build it?', 'bot1')
 v = await answered(shed)
-const ada = v.agents.find((a) => a.name === 'ada')
+const bot1 = v.agents.find((a) => a.name === 'bot1')
 const answeredAway = answers(v)[0]?.data.createdAt
 check(
-	(await bots()).find((b) => b.name === 'ada')?.instructions ===
+	(await bots()).find((b) => b.name === 'bot1')?.instructions ===
 		'Answer like a pirate.\nSay arr.' &&
-		ada?.to.runner === 'laptop' &&
-		answers(v)[0]?.data.author === 'ada' &&
+		bot1?.to.runner === 'laptop' &&
+		answers(v)[0]?.data.author === 'bot1' &&
 		prompt.laptop.includes(String.raw`Answer like a pirate.\nSay arr.`) &&
-		prompt.laptop.includes(`${home} \\"ada\\" (home)`),
+		prompt.laptop.includes(`${home} \\"bot1\\" (home)`),
 	'at home she writes her own instructions; asked elsewhere, she joins with them and knows her home',
-	JSON.stringify([await bots(), ada, prompt.laptop]),
+	JSON.stringify([await bots(), bot1, prompt.laptop]),
 )
 check(
-	(await bots()).find((b) => b.name === 'ada')?.answeredAt === answeredAway,
+	(await bots()).find((b) => b.name === 'bot1')?.answeredAt === answeredAway,
 	'answeredAt follows her latest answer anywhere, not only her home',
 	JSON.stringify(await bots()),
 )
 
-await postEntry(shed, 'be a pirate', 'ada')
+await postEntry(shed, 'be a pirate', 'bot1')
 v = await answered(shed, 2)
 check(
 	/Only a bot can, in its home thread/.test(answers(v)[1]?.data.body),
@@ -129,22 +129,22 @@ check(
 )
 
 const desk = await createThread('desk work')
-await postEntry(desk, 'and here?', 'ada=echo/echo@desk')
+await postEntry(desk, 'and here?', 'bot1=echo/echo@desk')
 v = await answered(desk)
-await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@desk' })
+await api('POST', '/api/bots', { name: 'bot1', to: 'echo/echo@desk' })
 const yard = await createThread('yard')
-await postEntry(yard, 'hi', 'ada')
+await postEntry(yard, 'hi', 'bot1')
 const y = await answered(yard)
 check(
-	v.agents.find((a) => a.name === 'ada')?.to.runner === 'desk' &&
-		y.agents.find((a) => a.name === 'ada')?.to.runner === 'desk' &&
-		(await api('GET', `/api/threads/${shed}`)).json.agents.find((a) => a.name === 'ada')?.to
+	v.agents.find((a) => a.name === 'bot1')?.to.runner === 'desk' &&
+		y.agents.find((a) => a.name === 'bot1')?.to.runner === 'desk' &&
+		(await api('GET', `/api/threads/${shed}`)).json.agents.find((a) => a.name === 'bot1')?.to
 			.runner === 'laptop',
-	'ada=model@runner gives one thread another model; a new model counts in the threads she joins next',
+	'bot1=model@runner gives one thread another model; a new model counts in the threads she joins next',
 	JSON.stringify([v.agents, y.agents]),
 )
 
-await postEntry(home, 'make wren', 'ada')
+await postEntry(home, 'make wren', 'bot1')
 await answered(home, 3)
 const wren = (await bots()).find((b) => b.name === 'wren')
 const runnerName = await api('POST', '/api/bots', { name: 'desk', to: 'echo/echo@desk' })
@@ -159,7 +159,7 @@ check(
 	JSON.stringify([await bots(), runnerName.json, nameless.json]),
 )
 
-await postEntry(home, 'ask wren', 'ada')
+await postEntry(home, 'ask wren', 'bot1')
 await answered(home, 5)
 const side = (await api('GET', '/api/threads')).json.find((t) => t.parent === home)
 check(
@@ -172,7 +172,7 @@ check(
 const [askedWren] = (await api('GET', `/api/threads/${wren.home}/bots?asked=${side.id}`)).json
 check(
 	askedWren?.thread === side.id &&
-		askedWren.question?.data.author === 'ada' &&
+		askedWren.question?.data.author === 'bot1' &&
 		askedWren.answer?.data.author === 'wren' &&
 		askedWren.answer.data.re.includes(askedWren.question.id),
 	"a bot's home reads the threads that asked her in one request: each one's question and her answer",
@@ -181,7 +181,7 @@ check(
 
 // In her home, the composer asks her with her settings: a new runner there moves her, in place, and she is told
 const atHome = (await api('GET', `/api/threads/${home}`)).json.agents[0]
-await postEntry(home, 'where are you now?', { runner: 'desk', model: 'echo/echo', name: 'ada' })
+await postEntry(home, 'where are you now?', { runner: 'desk', model: 'echo/echo', name: 'bot1' })
 v = await answered(home, 6)
 const own = (await api('GET', `/api/conversations/${atHome.conversation}`)).json.entries
 const told = text(own.filter((e) => e.kind === 'ade.delivery').at(-1)?.model[0])
@@ -190,16 +190,16 @@ check(
 		v.agents.length === 1 &&
 		v.agents[0].conversation === atHome.conversation &&
 		v.agents[0].to.runner === 'desk' &&
-		answers(v).at(-1).data.author === 'ada' &&
+		answers(v).at(-1).data.author === 'bot1' &&
 		told.startsWith('[You now run as echo/echo on desk,'),
 	'asked as another model, a bot switches in place like any agent, keeps her name and is told',
 	JSON.stringify([atHome, v.agents, told]),
 )
 
-await postEntry(home, 'nudge wren', 'ada')
+await postEntry(home, 'nudge wren', 'bot1')
 await answered(home, 7)
 // Wren's reply can land before or with the next message; wait for the answer to that one
-const anyone = (await postEntry(home, 'ask anyone', 'ada')).json.entry
+const anyone = (await postEntry(home, 'ask anyone', 'bot1')).json.entry
 await until(async () => answers(await view(home)).some((a) => a.data.re?.includes(anyone)))
 await quiet()
 v = await view(home)
@@ -219,36 +219,36 @@ check(
 const hide = await api('POST', `/api/threads/${home}/archive`, { archived: true })
 check(
 	hide.status === 400 &&
-		/ada's home/.test(hide.json.error) &&
+		/bot1's home/.test(hide.json.error) &&
 		(await api('GET', '/api/threads')).json.some((t) => t.id === home && !t.archived),
-	"ada's home can't be archived while she's a bot",
+	"bot1's home can't be archived while she's a bot",
 	JSON.stringify(hide.json),
 )
 
-const gone = await api('DELETE', '/api/bots/ada')
-await postEntry(shed, 'still there?', 'ada')
+const gone = await api('DELETE', '/api/bots/bot1')
+await postEntry(shed, 'still there?', 'bot1')
 v = await answered(shed, 3)
 check(
 	gone.status === 200 &&
-		!(await bots()).some((b) => b.name === 'ada') &&
+		!(await bots()).some((b) => b.name === 'bot1') &&
 		(await api('GET', '/api/threads')).json.some((t) => t.id === home && !t.archived) &&
-		answers(v)[2]?.data.author === 'ada' &&
+		answers(v)[2]?.data.author === 'bot1' &&
 		JSON.parse(prompt.laptop).at(-1).sections?.bot === null,
-	'forgetting ada keeps every thread: her agents stay, without her instructions',
+	'forgetting bot1 keeps every thread: her agents stay, without her instructions',
 	JSON.stringify([gone.json, answers(v)[2]?.data, prompt.laptop]),
 )
 
 // A thread's own agent works beside its bots, and reads them as agents
-await postEntry(shed, 'what did ada say?', 'echo/echo@desk')
+await postEntry(shed, 'what did bot1 say?', 'echo/echo@desk')
 v = await answered(shed, 4)
 const plain = v.agents.find((a) => !a.to.name)
 const handed = (await api('GET', `/api/conversations/${plain?.conversation}`)).json.entries
 	?.filter((e) => e.kind === 'ade.delivery')
 	.map((e) => text(e.model[0]))
 check(
-	v.agents.map((a) => a.name).join() === 'ada,echo@desk' &&
+	v.agents.map((a) => a.name).join() === 'bot1,echo@desk' &&
 		answers(v).at(-1).data.author === 'echo@desk' &&
-		handed?.[0].includes('\n\n<message from="ada" agent>\nlaptop: build it?\n</message>'),
+		handed?.[0].includes('\n\n<message from="bot1" agent>\nlaptop: build it?\n</message>'),
 	"a thread holds one agent and any bots; the agent reads a bot's words marked as an agent's",
 	JSON.stringify([v.agents, handed]),
 )

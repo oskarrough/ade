@@ -79,19 +79,21 @@ check(
 )
 
 // An answer from the inbox goes to the agent that asked: the item names its conversation
-await api('POST', '/api/bots', { name: 'ada', to: 'echo/echo@laptop' })
+await api('POST', '/api/bots', { name: 'bot1', to: 'echo/echo@laptop' })
 const room = await createThread('room')
-await postEntry(room, 'ask: tabs or spaces?', 'ada')
+await postEntry(room, 'ask: tabs or spaces?', 'bot1')
 items = await until(async () =>
 	((list) => list.some((item) => item.thread === room) && list)(await inbox()),
 )
-const ada = (await api('GET', `/api/threads/${room}`)).json.agents.find((one) => one.name === 'ada')
-check(
-	items.find((item) => item.thread === room)?.asker === ada?.conversation,
-	'a question names the conversation of the agent that asked it, whom an answer goes to',
-	JSON.stringify([items, ada]),
+const bot1 = (await api('GET', `/api/threads/${room}`)).json.agents.find(
+	(one) => one.name === 'bot1',
 )
-await postEntry(room, 'tabs', 'ada')
+check(
+	items.find((item) => item.thread === room)?.asker === bot1?.conversation,
+	'a question names the conversation of the agent that asked it, whom an answer goes to',
+	JSON.stringify([items, bot1]),
+)
+await postEntry(room, 'tabs', 'bot1')
 await answered(room, 2)
 
 // A late dismissal of an older question leaves the newer one alone
