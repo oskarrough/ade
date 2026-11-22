@@ -1544,7 +1544,7 @@ async function faulted({ task, reason }) {
 
 // ── Read views: threads, lists, people ────────────────────────────────────
 
-/** A thread's own status, or when idle, `done` or `error` for an answer its reader hasn't read; with no reader, anyone's read counts */
+/** A thread's own status, or when idle, `done` or `error` for an answer its reader hasn't read in a thread they wrote in; with no reader, anyone's read counts */
 async function status(id, row, busy, reader) {
 	if (await openQuestion?.(id, row)) return 'blocked'
 	const { reads } = row
@@ -1559,8 +1559,8 @@ async function status(id, row, busy, reader) {
 			return entry.data.error || entry.data.shell?.error ? 'error' : 'done'
 	}
 	const found = (await back(id, KIND, said)) ?? 'idle'
-	// A failure is the reader's only where they wrote; in a thread agents keep among themselves, its asker got it
-	return found === 'error' && !(await concerns(id, reader)) ? 'idle' : found
+	// An answer or failure is the reader's only where they wrote; in a thread agents keep among themselves, its asker got it
+	return found !== 'idle' && !(await concerns(id, reader)) ? 'idle' : found
 }
 /** Whether a thread's failures and answers are `reader`'s to read: they wrote there; with no reader, any person did. The sidebar's dots and the inbox both ask this. */
 async function concerns(id, reader) {

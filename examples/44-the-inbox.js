@@ -258,7 +258,7 @@ check(
 )
 startSocket.close()
 
-// A failure in a thread you never wrote in is its asker's: no red dot for you, on the thread or on its bot, and no inbox item
+// A failure or answer in a thread you never wrote in is its asker's: no red or blue dot for you, on the thread or on its bot, and no inbox item
 await api('POST', '/api/bots', { name: 'wren', to: 'echo/echo@laptop' })
 const wrenHome = (await api('GET', '/api/bots')).json.find((bot) => bot.name === 'wren').home
 const child = (await api('POST', '/api/threads', { title: 'wren asked', parent: wrenHome })).json.id
@@ -278,5 +278,21 @@ check(
 		idaRow?.status === 'error',
 	'a failure where you never wrote shows red only to who did: not on your thread row, its bot or your inbox',
 	JSON.stringify([childRow.status, wren.status, idaRow?.status]),
+)
+
+const chat = (await api('POST', '/api/threads', { title: 'wren chatted', parent: wrenHome })).json
+	.id
+await postEntry(chat, 'say hi', 'echo/echo@laptop', 'ida')
+await until(
+	async () => !(await view(chat)).busy && (await view(chat)).entries.some((e) => e.data.answer),
+)
+const chatRow = (await api('GET', '/api/threads')).json.find((row) => row.id === chat)
+const idaChat = (await api('GET', '/api/threads', undefined, 'ida')).json.find(
+	(row) => row.id === chat,
+)
+check(
+	chatRow.status === 'idle' && idaChat?.status === 'done',
+	'an answer where you never wrote shows blue only to who did',
+	JSON.stringify([chatRow.status, idaChat?.status]),
 )
 done()
