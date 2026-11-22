@@ -1007,6 +1007,7 @@ agent-memory {
 				min-height: var(--field);
 				max-height: min(12rem, 40dvh);
 				overflow-y: auto;
+				overscroll-behavior-y: contain;
 				resize: none;
 			}
 		}
