@@ -11,7 +11,7 @@ import {
 	snapshot,
 	untrack,
 } from 'solid-js'
-import { api, connected, server, setChat } from './server.js'
+import { api, connected, openUsage, server, setChat } from './server.js'
 import { ModelPicker } from './model-picker.js'
 import { Panes } from './panes.js'
 import { agentTo, formatAgent, writtenTo } from './agent.js'
@@ -218,6 +218,29 @@ export function Settings() {
 						onStarted=${() => panel.hidePopover()}
 				/><//>`}
 			>
+				<${Show} when=${() => server().modules.includes('usage')}>
+					<ul class="rows">
+						<li
+							role="button"
+							tabindex="0"
+							onClick=${() => {
+								panel.hidePopover()
+								openUsage()
+							}}
+							onKeyDown=${(event) => {
+								if (event.key !== 'Enter') return
+								panel.hidePopover()
+								openUsage()
+							}}
+						>
+							<div>
+								<b>Usage</b>
+								<small>Tokens and cost across the house.</small>
+							</div>
+							<${Icon} name="next" />
+						</li>
+					</ul>
+				<//>
 				<ul class="rows modules">
 					<${For} each=${all}
 						>${(module) => html`

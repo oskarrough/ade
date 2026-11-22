@@ -1683,23 +1683,45 @@ button.foot-toggle {
 		flex: 0 1 auto;
 	}
 
+	/* Plain text beside the label, the same mute colour, like Archived's count in the thread list. */
 	.count {
-		min-width: var(--space-4);
-		padding: 0 var(--space-1);
-		border-radius: var(--radius-small);
-		background: var(--line);
-		color: var(--ink);
-		text-align: center;
 		font-variant-numeric: tabular-nums;
 	}
 
 	&.update-toggle {
 		margin-inline-start: auto;
+
+		/* A pale band crosses the word now and then, then waits; parked off to the side, it reads as plain mute text. */
+		> span:first-child {
+			background: linear-gradient(100deg, var(--mute) 45%, var(--ink) 50%, var(--mute) 55%);
+			background-size: 250% 100%;
+			background-position: 250% 0;
+			background-clip: text;
+			-webkit-background-clip: text;
+			color: transparent;
+		}
+
+		@media (prefers-reduced-motion: no-preference) {
+			> span:first-child {
+				animation: shimmer 6s ease-in-out infinite;
+			}
+		}
 	}
 
 	&.settings-toggle {
 		width: var(--small-button);
 		padding: 0;
+	}
+}
+
+@keyframes shimmer {
+	0%,
+	85% {
+		background-position: 250% 0;
+	}
+
+	100% {
+		background-position: -150% 0;
 	}
 }
 

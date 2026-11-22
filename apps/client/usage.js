@@ -1,19 +1,10 @@
 /**
  * Usage: the tokens agents spent and their cost at list price. The house's as a page in the threads' place, opened from
- * the list's foot: its totals, what the tokens were, each day, then threads, bots and models. A thread's in its details.
+ * settings: its totals, what the tokens were, each day, then threads, bots and models. A thread's in its details.
  */
 import html from '@solidjs/html'
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
-import {
-	api,
-	connected,
-	current,
-	openThread,
-	openUsage,
-	threadOf,
-	titleOf,
-	usageOpen,
-} from './server.js'
+import { api, connected, current, openThread, threadOf, titleOf } from './server.js'
 import { shortLabel } from './agent.js'
 import { Icon } from './icons.js'
 import { report } from './notice.js'
@@ -283,19 +274,6 @@ export function Usage() {
 		</article>
 	`
 }
-
-/** The list's foot opens the house's usage, or goes back to the thread */
-export const UsageToggle = () => html`
-	<button
-		class="ghost small foot-toggle usage-toggle"
-		type="button"
-		aria-pressed=${() => String(usageOpen())}
-		title="Tokens and cost across the house"
-		onClick=${(_event) => (usageOpen() ? openThread(current()) : openUsage())}
-	>
-		<span>Usage</span>
-	</button>
-`
 
 /** A thread's usage in its details: its total, the token mix and a row per agent and model, fetched again when its work starts or ends */
 export function ThreadUsage(props) {
