@@ -58,8 +58,8 @@
 	--font-text: 'Inter Variable', system-ui, sans-serif;
 	--font-ui: 'Inter Variable', system-ui, sans-serif;
 	--font-mono: 'iA Writer Quattro S', ui-monospace, monospace;
-	/* Inter's single-storey a and round quotes and commas; Quattro has neither and ignores them. A font shorthand resets them, so each one sets them again. */
-	--font-features: 'cv11', 'ss03';
+	/* Inter's round quotes and commas; Quattro has neither and ignores it. A font shorthand resets it, so each one sets it again. */
+	--font-features: 'ss03';
 	--ink: CanvasText;
 	--mute: color-mix(in srgb, CanvasText 58%, Canvas);
 	--line: color-mix(in srgb, CanvasText 14%, Canvas);
