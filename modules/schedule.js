@@ -743,17 +743,29 @@ export function server(core) {
 		)
 	}
 
+	core.feed.define('schedule', {
+		keyOf: (task) => task.id,
+		all: () => pending(undefined),
+		match: (change) => {
+			if (change.type === 'task') return change.value.kind === ScheduledTask.definition.name
+			if (change.type === 'document') return change.record.kind === 'ade.thread'
+			return false
+		},
+	})
+	core.feed.define('schedule/', {
+		keyOf: (task) => task.id,
+		all: (_viewer, param) => pending(Number(param)),
+		match: (change, param) =>
+			change.type === 'task' &&
+			change.value.kind === ScheduledTask.definition.name &&
+			change.value.conversationId === Number(param),
+	})
+
 	return {
 		serve,
 		archiving,
 		start: () => settling(),
 		ended: settling,
-		/** A task set, asleep again, run, paused or cancelled: the pages on its thread fetch its tasks again, every page the list */
-		taskChanged: ({ kind, conversationId }) => {
-			if (kind !== ScheduledTask.definition.name) return
-			core.activity(conversationId, { purpose: 'schedule', kind: 'changed' })
-			core.notify(['schedule'])
-		},
 		extension: defineExtension({
 			name: 'ade.schedule',
 			tools: [schedule],

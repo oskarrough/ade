@@ -74,7 +74,7 @@ import { messageDiagrams } from './mermaid.js'
 import { sideOf, toggleSide } from './side.js'
 import { heardActivity } from './director.js'
 import { CanvasRow } from './canvas.js'
-import { heardSchedule, ScheduledRun, ScheduledTaskSet } from './schedule.js'
+import { ScheduledRun, ScheduledTaskSet } from './schedule.js'
 
 /** A folded summary's text, without the literal <summary> wrapper tags some memories still carry */
 const stripSummaryTag = (text) =>
@@ -577,10 +577,7 @@ export function Thread(props) {
 						if (!snapshot) markRead(id)
 					}
 					if ('draft' in message || message.sent) heardDraft(id, message)
-					if (message.activity) {
-						heardActivity(id, message.activity)
-						heardSchedule(id, message.activity)
-					}
+					if (message.activity) heardActivity(id, message.activity)
 					if (message.people)
 						setPeople((all) => {
 							all[id] = message.people

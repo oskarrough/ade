@@ -75,8 +75,6 @@ export function watch(receive, opened = (_socket) => {}, closed = () => {}) {
 
 /** Page lifetime; components own the messages of just the threads on screen. */
 const [connected, setConnected] = createSignal(false)
-/** How often the socket said the house's scheduled tasks changed; their list fetches again on it */
-export const [scheduleChanged, setScheduleChanged] = createSignal(0)
 export { connected }
 export const [newThreadTools, setNewThreadTools] = createSignal(null)
 /** The last key this page made, {name, connect}: the key is shown once, so it outlives the form that asked */
@@ -471,7 +469,6 @@ export const {
 		server: reloadServer,
 		threads: reloadThreads,
 		archived: reloadArchivedThreads,
-		schedule: () => setScheduleChanged((count) => count + 1),
 	}
 	/** Every remaining unmigrated list, once the socket is open */
 	const reload = () => {
@@ -561,6 +558,21 @@ export const {
 		write,
 	}
 })
+
+/** Subscribe to a dynamic view while `nameOf()` returns a view name; releases when it changes or disposes */
+export function feedView(nameOf, options) {
+	const [active, setActive] = createSignal(/** @type {any} */ (null))
+	createEffect(nameOf, (name) => {
+		if (!name) {
+			setActive(null)
+			return
+		}
+		const sub = subscribeView(name, options)
+		setActive(sub)
+		return () => sub.release()
+	})
+	return createMemo(() => active()?.rows() ?? [])
+}
 
 /** `first`, its first message, `{body, to, images, steer, key}`, comes in the same step; under the new-thread draft's key, it empties that draft */
 export async function createThread(title, first = {}) {

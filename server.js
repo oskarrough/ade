@@ -3226,7 +3226,6 @@ function notify(lists) {
 		for (const module of modules) module.changed?.(changed)
 	}, 100)
 }
-const taskChanged = modules.flatMap((module) => module.taskChanged ?? [])
 const entryStored = modules.flatMap((module) => module.entryStored ?? [])
 const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
@@ -3236,8 +3235,7 @@ harness.observeCommits({
 		const ended = new Set()
 		notify(listsOf(publication, ended))
 		for (const change of publication.changes)
-			if (change.type === 'task') for (const hook of taskChanged) hook(change.value)
-			else if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
+			if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
 			else if (change.type === 'document' && change.kind === 'change')
 				for (const hook of documentStored) hook(change)
 		for (const threadId of ended)

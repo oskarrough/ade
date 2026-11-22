@@ -161,26 +161,35 @@ check(
 	JSON.stringify((await view(review)).entries.at(-1)?.data),
 )
 
-// A page watching the thread hears a task cancelled elsewhere
+// A page subscribed to the thread's schedule feed hears a task added and cancelled elsewhere
 await answered(review, 5)
 const heard = []
 const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
 socket.onmessage = ({ data }) => heard.push(JSON.parse(String(data)))
 await new Promise((resolve) => (socket.onopen = resolve))
-socket.send(JSON.stringify({ watch: review }))
+socket.send(JSON.stringify({ sub: `schedule/${review}` }))
+await until(async () =>
+	heard.some((message) => message.view === `schedule/${review}` && message.reset),
+)
 await postIn(review, 'schedule 1h later still')
 const later = await until(async () => (await tasksIn(review))[0])
+await until(async () =>
+	heard.some(
+		(message) =>
+			message.view === `schedule/${review}` && message.put?.some((item) => item.key === later.id),
+	),
+)
 heard.length = 0
 await api('POST', `/api/threads/${review}/schedule`, { cancel: later.id })
 check(
 	Boolean(
 		await until(async () =>
 			heard.some(
-				(message) => message.thread === review && message.activity?.purpose === 'schedule',
+				(message) => message.view === `schedule/${review}` && message.del?.includes(later.id),
 			),
 		),
 	),
-	'cancelling a task tells the pages watching its thread',
+	'cancelling a task deletes it on the thread schedule feed',
 	JSON.stringify(heard.slice(0, 5)),
 )
 socket.close()

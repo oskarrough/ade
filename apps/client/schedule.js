@@ -4,27 +4,16 @@
  * schedule call leaves in the chat, and a run's own line.
  */
 import html from '@solidjs/html'
-import {
-	createDeferred,
-	createEffect,
-	createSignal,
-	createStore,
-	createUniqueId,
-	Errored,
-	For,
-	Loading,
-	Show,
-} from 'solid-js'
+import { createEffect, createSignal, createUniqueId, For, Show } from 'solid-js'
 import { Icon } from './icons.js'
 import {
 	api,
 	bots,
-	connected,
+	feedView,
 	homeBot,
 	hrefOf,
 	openThread,
 	runners,
-	scheduleChanged,
 	server,
 	threadRows,
 	titleOf,
@@ -131,14 +120,8 @@ function Ring(props) {
 	`
 }
 
-/** Each thread's count of task changes heard on its socket, which its strip fetches again on */
-const [heard, setHeard] = createStore({})
-export function heardSchedule(thread, event) {
-	if (event.purpose === 'schedule')
-		setHeard((all) => {
-			all[thread] = (all[thread] ?? 0) + 1
-		})
-}
+const taskSort = (left, right) =>
+	(left.at ?? Infinity) - (right.at ?? Infinity) || (left.id ?? 0) - (right.id ?? 0)
 
 /** When a past run was: 08:00 today, else its weekday too */
 const whenWas = (at) => {
@@ -303,11 +286,7 @@ export function ScheduledTaskList() {
 	const id = createUniqueId()
 	const [open, setOpen] = createSignal(false)
 	const [form, setForm] = createSignal(null)
-	const tasks = createDeferred((previous) => {
-		if (!open()) return undefined
-		void scheduleChanged()
-		return connected() ? api('/api/schedule') : (previous ?? [])
-	})
+	const tasks = feedView(() => (open() ? 'schedule' : null), { sort: taskSort })
 	/** A row opens its thread */
 	const go = (task) => {
 		panel.hidePopover()
@@ -372,51 +351,43 @@ export function ScheduledTaskList() {
 				onClose=${(_event) => panel.hidePopover()}
 			>
 				<${Show} when=${open}>
-					<${Errored}
-						fallback=${(error) => html`<p class="mute" role="alert">${() => error().message}</p>`}
-					>
-						<${Loading} fallback=${html`<p class="mute">Reading scheduled tasks…</p>`}>
-							<ul class="rows">
-								<${For} each=${tasks} keyed=${(task) => task.id}
-									>${(task) => html`
-										<li
-											role="button"
-											tabindex="0"
-											class=${() => ({ paused: task().paused })}
-											title=${() => `${whenOf(task())}: ${task().instructions}`}
-											onClick=${(_e) => go(task())}
-											onKeyDown=${(event) =>
-												event.key === 'Enter' && event.target === event.currentTarget && go(task())}
-										>
-											<${Show} when=${() => task().from ?? `none ${task().paused}`} keyed
-												>${() => html`<${Ring} task=${() => task()} />`}<//
-											>
-											<div>
-												<b>${() => placeOf(task())}</b>
-												<small
-													>${() =>
-														task().paused
-															? `P${whenOf(task()).slice(1)}`
-															: `Next ${whenOf(task())}`}</small
-												>
-												<${LastRun} task=${() => task()} onOpen=${() => panel.hidePopover()} />
-												<${OfflineRunner} task=${() => task()} />
-												<small class="said"
-													>${() => `${shortLabel(task().by)}: ${task().instructions}`}</small
-												>
-											</div>
-											<div class="controls">
-												<${Controls} task=${() => task()} path="/api/schedule" />
-											</div>
-										</li>
-									`}<//
+					<ul class="rows">
+						<${For} each=${tasks} keyed=${(task) => task.id}
+							>${(task) => html`
+								<li
+									role="button"
+									tabindex="0"
+									class=${() => ({ paused: task().paused })}
+									title=${() => `${whenOf(task())}: ${task().instructions}`}
+									onClick=${(_e) => go(task())}
+									onKeyDown=${(event) =>
+										event.key === 'Enter' && event.target === event.currentTarget && go(task())}
 								>
-							</ul>
-							<${Show} when=${() => tasks()?.length === 0}
-								><p class="mute">Nothing scheduled.</p><//
-							>
-						<//>
-					<//>
+									<${Show} when=${() => task().from ?? `none ${task().paused}`} keyed
+										>${() => html`<${Ring} task=${() => task()} />`}<//
+									>
+									<div>
+										<b>${() => placeOf(task())}</b>
+										<small
+											>${() =>
+												task().paused
+													? `P${whenOf(task()).slice(1)}`
+													: `Next ${whenOf(task())}`}</small
+										>
+										<${LastRun} task=${() => task()} onOpen=${() => panel.hidePopover()} />
+										<${OfflineRunner} task=${() => task()} />
+										<small class="said"
+											>${() => `${shortLabel(task().by)}: ${task().instructions}`}</small
+										>
+									</div>
+									<div class="controls">
+										<${Controls} task=${() => task()} path="/api/schedule" />
+									</div>
+								</li>
+							`}<//
+						>
+					</ul>
+					<${Show} when=${() => tasks().length === 0}><p class="mute">Nothing scheduled.</p><//>
 				<//>
 			<//>
 		</div>
@@ -595,50 +566,46 @@ function TaskForm(props) {
 	`
 }
 
-/** The thread's scheduled tasks above its composer, fetched when it opens, when the socket (re)connects, and on each change */
+/** The thread's scheduled tasks above its composer, streamed over the schedule/<id> feed */
 export function ScheduledTasks(props) {
-	const tasks = createDeferred((previous) => {
-		const thread = props.thread
-		void heard[thread]
-		return connected() ? api(`/api/threads/${thread}/schedule`).catch(() => []) : (previous ?? [])
+	const tasks = feedView(() => (props.thread ? `schedule/${props.thread}` : null), {
+		sort: taskSort,
 	})
 	return html`
-		<${Loading}>
-			<${For} each=${tasks} keyed=${(task) => task.id}
-				>${(task) => {
-					const [open, setOpen] = createSignal(false)
-					/** Opened, a webhook task shows the owner where its hook is and its secret; anyone else, nothing */
-					const [hook, setHook] = createSignal('')
-					const toggle = () => {
-						const opening = !open()
-						setOpen(opening)
-						if (opening && task().schedule.on !== undefined && !hook())
-							api(`/api/threads/${props.thread}/hooks?task=${task().id}`).then(
-								(found) => setHook(`, ${found.path}, secret ${found.secret}`),
-								() => {},
-							)
-					}
-					return html`
-						<p class=${() => ({ notice: true, open: open(), paused: task().paused })} role="status">
-							<${Show} when=${() => task().from ?? `none ${task().paused}`} keyed
-								>${() => html`<${Ring} task=${() => task()} />`}<//
-							>
-							<span
-								class="line"
-								title=${() => `${shortLabel(task().by)}, ${whenOf(task())}: ${task().instructions}`}
-								onClick=${(_e) => toggle()}
-								>${() =>
-									`Scheduled${task().paused ? ',' : ''} ${whenOf(task())}: ${task().instructions}${open() ? hook() : ''}`}</span
-							>
-							<${Controls}
-								task=${() => task()}
-								path=${() => `/api/threads/${props.thread}/schedule`}
-							/>
-						</p>
-					`
-				}}<//
-			>
-		<//>
+		<${For} each=${tasks} keyed=${(task) => task.id}
+			>${(task) => {
+				const [open, setOpen] = createSignal(false)
+				/** Opened, a webhook task shows the owner where its hook is and its secret; anyone else, nothing */
+				const [hook, setHook] = createSignal('')
+				const toggle = () => {
+					const opening = !open()
+					setOpen(opening)
+					if (opening && task().schedule.on !== undefined && !hook())
+						api(`/api/threads/${props.thread}/hooks?task=${task().id}`).then(
+							(found) => setHook(`, ${found.path}, secret ${found.secret}`),
+							() => {},
+						)
+				}
+				return html`
+					<p class=${() => ({ notice: true, open: open(), paused: task().paused })} role="status">
+						<${Show} when=${() => task().from ?? `none ${task().paused}`} keyed
+							>${() => html`<${Ring} task=${() => task()} />`}<//
+						>
+						<span
+							class="line"
+							title=${() => `${shortLabel(task().by)}, ${whenOf(task())}: ${task().instructions}`}
+							onClick=${(_e) => toggle()}
+							>${() =>
+								`Scheduled${task().paused ? ',' : ''} ${whenOf(task())}: ${task().instructions}${open() ? hook() : ''}`}</span
+						>
+						<${Controls}
+							task=${() => task()}
+							path=${() => `/api/threads/${props.thread}/schedule`}
+						/>
+					</p>
+				`
+			}}<//
+		>
 	`
 }
 
