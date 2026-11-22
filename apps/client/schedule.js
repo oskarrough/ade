@@ -406,7 +406,7 @@ export function ScheduledTaskList() {
 				title="Scheduled tasks"
 				actions=${html`<button
 					type="button"
-					class="ghost small"
+					class="small"
 					onClick=${(_event) => setForm({ thread: undefined })}
 				>
 					New task
