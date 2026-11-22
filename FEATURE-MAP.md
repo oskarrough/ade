@@ -122,7 +122,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   bot.js                 BotSettings, ForgetBot, new bot, botThreads, botMenu, BotCard
   thread-list.js         ThreadList, family rows, Inbox toggle, Update (reload, or restart and reload), creatingBot, threadMenu,
                          ThreadCard (a row's hover card), GetApp (the desktop download)
-  hover-card.js          HoverCard, cards: the card beside a row on hover, anchored, fine pointers only
+  hover-card.js          HoverCard, HoverFrame, cards: one card frame that glides beside the hovered row, fine pointers only
   schedule.js            ScheduledTaskList, TaskRow, ThreadTasks, OfflineRunner, TaskForm (its timeline), openTaskForm,
                          ScheduledTasks, Ring, LastRun, Controls, ScheduledTaskSet, ScheduledRun
   clock.js               when a scheduled task runs, shared with the server: nextRun, runsAfter, lastRun, wall, instant

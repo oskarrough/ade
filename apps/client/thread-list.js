@@ -37,7 +37,7 @@ import { openTaskForm, ScheduledTaskList } from './schedule.js'
 import { Settings } from './settings.js'
 import { BotItem, NewBot } from './bot.js'
 import { SearchField } from './search.js'
-import { cards, HoverCard } from './hover-card.js'
+import { cards, HoverCard, HoverFrame } from './hover-card.js'
 
 /** Whether New bot's name field shows at the top of the bots; jump.js opens it too */
 export const [creatingBot, setCreatingBot] = createSignal(false)
@@ -61,6 +61,7 @@ export function ThreadList() {
 		)
 	return html`
 		<nav class="thread-list" aria-label="Threads">
+			<${HoverFrame} />
 			<${Show}
 				when=${() => !archivedPage()}
 				fallback=${html`<${ArchivedPage} onBack=${(_e) => setArchivedPage(false)} />`}

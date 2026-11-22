@@ -2953,6 +2953,14 @@ body.resizing {
 			> .rows > li {
 				padding: 0;
 
+				&.all > a.row {
+					color: var(--mute);
+
+					> .dot {
+						visibility: hidden;
+					}
+				}
+
 				> a.row {
 					display: flex;
 					align-items: center;

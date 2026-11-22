@@ -275,22 +275,33 @@ export function NewBot(props) {
 }
 
 /** A bot's open threads, working ones first, each a link */
+/** A thread that needs a look: running, waiting on you, failed, or answered and unread by you */
+const LIVE = ['working', 'blocked', 'error', 'done']
+const SHOWN = 5
+
+/** A bot's open threads, and the live ones among them, working first */
 const botCardThreads = (bot) => {
 	const { own, elsewhere } = botThreads(bot)
 	const open = [...own, ...elsewhere].filter((thread) => thread && !thread.archived)
-	return [
-		...open.filter((thread) => thread.status === 'working'),
-		...open.filter((thread) => thread.status !== 'working'),
-	]
+	const live = open.filter((thread) => LIVE.includes(thread.status))
+	return {
+		count: open.length,
+		live: [
+			...live.filter((thread) => thread.status === 'working'),
+			...live.filter((thread) => thread.status !== 'working'),
+		].slice(0, SHOWN),
+	}
 }
 
-const BotCard = (props) => html`
-	<${Show} when=${() => props.bot.instructions}>
-		<small class="about">${() => props.bot.instructions.split('\n')[0]}</small>
-	<//>
-	<${Show} when=${() => botCardThreads(props.bot).length}>
+/** The bot's instructions, its live threads, and a line to all of them in its home */
+function BotCard(props) {
+	const threads = () => botCardThreads(props.bot)
+	return html`
+		<${Show} when=${() => props.bot.instructions}>
+			<small class="about">${() => props.bot.instructions.split('\n')[0]}</small>
+		<//>
 		<ul class="rows">
-			<${For} each=${() => botCardThreads(props.bot)}>
+			<${For} each=${() => threads().live}>
 				${(thread) =>
 					html`<li>
 						<a
@@ -304,6 +315,17 @@ const BotCard = (props) => html`
 						</a>
 					</li>`}
 			<//>
+			<li class="all">
+				<a
+					class="row"
+					href=${() => hrefOf(props.bot.home)}
+					onClick=${(event) => followThread(event, props.bot.home)}
+				>
+					<${Dot} />
+					<span>All threads</span>
+					<small>${() => threads().count}</small>
+				</a>
+			</li>
 		</ul>
-	<//>
-`
+	`
+}
