@@ -212,6 +212,7 @@ export function WakeSet(props) {
 	return html`
 		<${PlainStep}
 			said=${() => `⏰ ${shortLabel(props.agent.name)} ${when()}${note() ? `: ${note()}` : ''}`}
+			label=${() => `⏰ ${shortLabel(props.agent.name)} ${when()}`}
 		>
 			<${Show} when=${note}
 				><div class="whole"><p>${note}</p></div><//
@@ -223,7 +224,11 @@ export function WakeSet(props) {
 /** A wake's note, back in the thread: one quiet folded line of its own, never part of the message above; opened,
  * the whole note and what an outside event brought */
 export const Woke = (props) => html`
-	<${PlainStep} said=${() => `⏰ ${firstLine(props.data.body)}`} entry=${() => props.entry}>
+	<${PlainStep}
+		said=${() => `⏰ ${firstLine(props.data.body)}`}
+		label="⏰ wake"
+		entry=${() => props.entry}
+	>
 		<div class="whole">
 			<p>${() => props.data.body}</p>
 			<${Show} when=${() => props.data.event}>

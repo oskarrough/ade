@@ -114,11 +114,10 @@ export function Thread(props) {
 		return at
 	})
 	/**
-	 * What every row's who-said-it-to-whom reads, worked out once per thread: whether this is a bot's home, the people
-	 * other than you who wrote here, whether it's a group (another person, or more than one agent or bot), and
-	 * `soloAgent`, one agent and only you, where a name shows only when the agent changes.
+	 * What every row's who-said-it-to-whom reads, worked out once per thread: the people other than you who wrote here, whether it's a group (another person, or more than one agent or bot), and
+	 * `soloAgent`, one agent and only you, a bot's home too, where the answerer is never named: only a switch to
+	 * another model says so.
 	 */
-	const isBotHome = createMemo(() => Boolean(homeBot(props.id)))
 	const otherPeople = createMemo(
 		() =>
 			new Set(
@@ -128,7 +127,7 @@ export function Thread(props) {
 			),
 	)
 	const isGroup = createMemo(() => otherPeople().size > 0 || (thread()?.agents ?? []).length > 1)
-	const soloAgent = createMemo(() => !isBotHome() && !isGroup())
+	const soloAgent = createMemo(() => !isGroup())
 	/** Each message's position in the thread, from 0, as memory and the recap count them */
 	const positions = createMemo(() => new Map(messages().map((entry, at) => [entry.id, at])))
 	/** In a bot's home, the threads others asked it in: it's their one agent, and they started outside its family. A room has more than one. */
@@ -431,13 +430,13 @@ export function Thread(props) {
 			const solo = soloAgent()
 			let last, answering
 			for (const row of rows) {
-				if (row.break) last = answering = undefined
+				if (row.break) last = solo ? undefined : (answering = undefined)
 				Object.assign(row, describe(row, forks()))
 				const data = row.entry?.data
 				const run = row.turn || row.live
 				const speaker = run ? row.agent?.name : row.voice === 'said' ? data.author : undefined
 				const agentRow = Boolean(run || (row.entry && !byPerson(row.entry)))
-				const prior = solo && agentRow ? answering : last
+				const prior = solo && agentRow ? (answering ?? speaker) : last
 				if (speaker && (speaker !== prior || row.to)) row.name = speaker
 				// A crossed row shows the other thread and a wake is its own quiet line, so nobody here spoke last; whoever
 				// speaks next is named, unless they're the thread's only agent going on

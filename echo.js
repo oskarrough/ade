@@ -63,6 +63,17 @@ export const tryEcho = (request) => {
 		return call('bot', { append: text(latest).slice(11) })
 	if (latest.role === 'user' && text(latest).startsWith('bot '))
 		return call('bot', { instructions: text(latest).slice(4) })
+	// "think <text>" thinks it, then answers in a word: a turn that is only a thought
+	if (latest.role === 'user' && /(?:^|\n)think /.test(text(latest)))
+		return fauxAssistantMessage([
+			fauxThinking(
+				text(latest)
+					.split(/(?:^|\n)think /)
+					.pop()
+					.replace(/\n<\/message>$/, ''),
+			),
+			fauxText('Thought about it.'),
+		])
 	// "fail" makes the run fail, as a model error would
 	if (latest.role === 'user' && text(latest).trim() === 'fail')
 		return fauxAssistantMessage([], {

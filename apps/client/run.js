@@ -48,6 +48,8 @@ export function Turn(props) {
 			.join(', ')
 	}
 	const said = () => messageText(live()?.message)
+	/** A closed turn of one step opens straight to what that step holds, with no row naming it again */
+	const single = () => (!props.live && steps().length === 1 ? steps()[0] : null)
 	return html`
 		<li class=${() => ({ turn: true, live: !!props.live, same: !props.name })}>
 			<${Show} when=${() => props.name}><${Name} author=${() => props.name} /><//>
@@ -55,7 +57,10 @@ export function Turn(props) {
 				<summary>
 					<small><span class="now">${line}</span></small>
 				</summary>
-				<${Show} when=${open}>
+				<${Show} when=${() => open() && single()}>
+					<${Whole} step=${single} />
+				<//>
+				<${Show} when=${() => open() && !single()}>
 					<ol
 						class="steps"
 						style=${() => `--label: ${Math.max(...steps().map((step) => (step.name ?? step.label ?? '').length))}ch`}
@@ -131,19 +136,24 @@ function Call(props) {
 						>${() => (props.step.name ? JSON.stringify(props.step.args) : (props.step.in ?? props.step.text ?? ''))}</span
 					>
 				</summary>
-				<${Show} when=${open}>
-					<div class="whole">
-						<${Show} when=${() => props.step.name || props.step.text}>
-							<pre>
-${() => (props.step.name ? JSON.stringify(props.step.args, null, 2) : props.step.text)}</pre>
-						<//>
-						<${Show} when=${() => result()?.text}><pre>${() => result().text}</pre><//>
-					</div>
-				<//>
+				<${Show} when=${open}><${Whole} step=${() => props.step} /><//>
 			</details>
 		</li>
 	`
 }
+
+/** What an opened step holds, one fold in: a call's input and result as code, a thought or note as plain grey text */
+const Whole = (props) => html`
+	<div class="whole">
+		<${Show}
+			when=${() => props.step.name}
+			fallback=${html`<p>${() => props.step.text ?? props.step.said}</p>`}
+		>
+			<pre>${() => JSON.stringify(props.step.args, null, 2)}</pre>
+			<${Show} when=${() => props.step.result?.text}><pre>${() => props.step.result.text}</pre><//>
+		<//>
+	</div>
+`
 
 /** The messages an opened handed step lights where they are in the thread */
 const [lit, setLit] = createSignal(null)
@@ -517,7 +527,10 @@ export const PlainStep = (props) => html`
 		<ol class="steps">
 			<li class="call changed plain">
 				<details onToggle=${(event) => props.onToggle?.(event)}>
-					<summary><span class="in">${() => props.said}</span></summary>
+					<summary>
+						<span class="in">${() => props.said}</span
+						><span class="label">${() => props.label ?? props.said}</span>
+					</summary>
 					${() => props.children}
 				</details>
 			</li>

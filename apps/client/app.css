@@ -392,6 +392,8 @@ agent-memory {
 /* A thread: a column with its name on top and the composer at the foot, the messages scrolling between them, fading out under both. */
 .thread {
 	--fade-bottom: calc(3 * var(--baseline));
+	/* Two left edges: the text edge for everything at thread level, and one fold in for whatever an open fold holds */
+	--fold: 1rem;
 	position: relative;
 	z-index: 1;
 	display: flex;
@@ -605,7 +607,7 @@ agent-memory {
 				list-style: none;
 				tab-size: 2;
 				margin: var(--space-2) 0 0;
-				padding: 0 0 0 var(--space-1);
+				padding: 0 0 0 var(--fold);
 				font-size: var(--text-small);
 				line-height: var(--text-small-line);
 
@@ -627,7 +629,7 @@ agent-memory {
 					&::before {
 						content: '•';
 						flex: none;
-						width: 1rem;
+						width: var(--fold);
 					}
 
 					.tool {
@@ -678,8 +680,12 @@ agent-memory {
 						display: none;
 					}
 
-					/* The bot-instructions sentence is the row's only text, so it stays up while the diff below it is open. */
-					&.plain > details[open] > summary .in {
+					/* A plain row's sentence gives way to its short label when open, so the text isn't shown twice */
+					&.plain > details > summary .label {
+						display: none;
+					}
+
+					&.plain > details[open] > summary .label {
 						display: unset;
 					}
 
@@ -701,7 +707,7 @@ agent-memory {
 					/* A wake's note and what an outside event brought, as they came */
 					/* Opened, the whole message starts where its first line was, in the same grey, so nothing moves */
 					> details > .whole {
-						padding-left: 1rem;
+						padding-left: var(--fold);
 						color: var(--mute);
 
 						> .body {
@@ -798,9 +804,9 @@ agent-memory {
 					content: '✎';
 				}
 
-				/* The bot-instructions change reads as one plain sentence: no icon of its own, just the step's bullet. */
+				/* A plain row (a wake, a bot's change) is one sentence on the text edge, its own ⏰ or words its mark */
 				> li.changed.plain > details > summary::before {
-					content: '';
+					display: none;
 				}
 
 				/* Old against new as one run of words: removed struck through in a quiet red, added in a quiet green, the same in
@@ -841,7 +847,7 @@ agent-memory {
 				}
 
 				.whole {
-					padding-left: var(--space-5);
+					padding-left: var(--fold);
 
 					pre {
 						margin: var(--space-1) 0 0;
@@ -864,10 +870,28 @@ agent-memory {
 				}
 			}
 
-			/* A bot's self-rewrite and a canvas batch are their own row, but read as a step: the same bullet, the same label
-			   indent as an open run's. */
-			&.elsewhere > .steps:has(> li.changed) {
-				padding-left: var(--space-1);
+			/* A run of one step opens straight to what it holds, one fold in: a thought as plain grey text, a call as code */
+			&.turn > details > .whole {
+				margin-top: var(--space-1);
+				padding-left: var(--fold);
+				color: var(--mute);
+				font-size: var(--text-small);
+				line-height: var(--text-small-line);
+				background: none;
+
+				> p {
+					margin: 0;
+					white-space: pre-wrap;
+				}
+
+				pre {
+					margin: var(--space-1) 0 0;
+					font-size: inherit;
+					white-space: pre-wrap;
+					overflow-wrap: anywhere;
+					max-height: 20rem;
+					overflow-y: auto;
+				}
 			}
 
 			/* A quick snapshot shows nothing; a slow one says so. */
