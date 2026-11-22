@@ -177,8 +177,6 @@ function Update() {
 	<//>`
 }
 
-/** Set once the first desktop release with these stable names is out (desktop-v0.1.6) */
-const RELEASED = false
 const LATEST = 'https://github.com/oskarrough/ade/releases/latest/download/'
 const HIDE_APP = 'ade.hideGetApp'
 /** The app for this computer: an installer, a disk image, or on Linux the line that installs it where it updates itself */
@@ -195,7 +193,7 @@ const app = (() => {
 function GetApp() {
 	const [hidden, setHidden] = createSignal(localStorage.getItem(HIDE_APP) === '1')
 	const [copied, setCopied] = createSignal(false)
-	const shown = () => RELEASED && app && cards && !(/** @type {any} */ (window).mygo) && !hidden()
+	const shown = () => app && cards && !(/** @type {any} */ (window).mygo) && !hidden()
 	return html`<${Show} when=${shown}>
 		<div class="get-app">
 			<button type="button" class="ghost small">
