@@ -19,6 +19,7 @@ import {
 	openInbox,
 	openThread,
 	searchFor,
+	reloadThreads,
 	server,
 	threadOf,
 	threadRows,
@@ -205,6 +206,13 @@ const threadMenu = (id, archived) => [
 		},
 	},
 	{ label: 'Copy link', run: () => copyText(new URL(hrefOf(id), location.href).href) },
+	// The details' Regenerate: the model writes a new title, over one set by hand too
+	server().modules.includes('auto-title') && !homeBot(id)
+		? {
+				label: 'Regenerate title',
+				run: () => api(`/api/threads/${id}/auto-title`, {}).then(() => reloadThreads()),
+			}
+		: null,
 	...(homeBot(id)
 		? []
 		: [
