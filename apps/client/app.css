@@ -230,6 +230,11 @@ agent-memory {
 	overflow-x: auto;
 }
 
+.threads,
+.thread-list {
+	--header-height: 3rem;
+}
+
 .thread-list {
 	position: relative;
 	z-index: 1;
@@ -238,7 +243,7 @@ agent-memory {
 	align-self: stretch;
 	min-height: 0;
 	/* The same inset as the composer's own margins, so its foot row floats the same distance off the bottom edge */
-	padding: var(--space-2);
+	padding: 0 var(--space-2) var(--space-2);
 	border-right: 1px solid var(--line);
 	overflow-y: auto;
 	font-size: var(--text-ui);
@@ -268,8 +273,10 @@ agent-memory {
 
 /* Search, New thread and New bot on one row above both lists: the field takes what's left, the two sit compact at its end; the first one's icon where a row's dot sits. */
 .thread-list > ul.top-row {
+	min-height: var(--header-height);
 	flex: none;
 	display: flex;
+	align-items: center;
 	overflow: visible;
 
 	> li {
@@ -280,14 +287,14 @@ agent-memory {
 		flex: 1;
 	}
 
-	&:has(> li.search) > li:not(.search) > .row {
-		gap: var(--space-1);
-		padding-inline: var(--space-1);
+	> li.new:not(.search) > .row {
+		gap: 0;
 	}
 }
 
 /* The inbox on its own row: muted while nothing waits, in full ink on a soft tint while something does. */
 .thread-list > ul.inbox-row {
+	margin-top: var(--space-2);
 	flex: none;
 	overflow: visible;
 
@@ -498,6 +505,7 @@ agent-memory {
 		/* Keep the scrollbar at the edge, with messages aligned to the composer; never closer than a gutter with room for a folded row's dot and for the composer's box, which reaches out past them. */
 		padding-inline: max(var(--space-5), calc((100% - var(--chat-width)) / 2));
 		overflow-y: auto;
+		scrollbar-gutter: stable both-edges;
 		font-size: var(--text);
 		line-height: var(--text-line);
 
@@ -2265,10 +2273,6 @@ body.resizing {
 		visibility: hidden;
 	}
 
-	.thread-list > ul.inbox-row {
-		flex: none;
-		margin-top: var(--space-2);
-	}
 
 	.list-foot {
 		box-sizing: content-box;
@@ -2313,6 +2317,10 @@ body.resizing {
 		border-right: 0;
 	}
 
+	.panes .pane > header {
+		min-height: var(--header-height);
+	}
+
 	.panes,
 	.pane {
 		height: 100%;
@@ -2344,6 +2352,8 @@ body.resizing {
 		> p {
 			margin: 0;
 			padding: var(--space-2) var(--space-4);
+			font-size: var(--text-small);
+			line-height: var(--text-small-line);
 		}
 	}
 
