@@ -1067,7 +1067,7 @@ function Message(props) {
  * A long message folded to its first lines, fading out over a Show more; only when it really runs past them, measured as it
  * lays out. Each starts folded, and stays as you leave it while it's on screen.
  */
-function Clamp(props) {
+export function Clamp(props) {
 	const [open, setOpen] = createSignal(false)
 	const [long, setLong] = createSignal(false)
 	let box, sizes, fold

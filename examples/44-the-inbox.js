@@ -1,4 +1,4 @@
-/** MODULES=+inbox: the questions agents ask wait in one inbox until you answer or dismiss them */
+/** MODULES=+inbox: what needs you waits in one inbox: questions agents ask, then failed runs and unread answers where you wrote */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import WebSocket from 'ws'
@@ -17,17 +17,23 @@ import {
 	text,
 	until,
 	repo,
+	view,
 } from './lib.js'
+import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux'
 
 await server({ MODULES: '+inbox,+bots' })
 await scriptedRunner('laptop', (request) => {
 	const last = request.messages.findLast((m) => m.role !== 'system')
 	if (last.role === 'toolResult') return say('asked')
+	if (/fail please\s*$/.test(text(last)))
+		return fauxAssistantMessage([], { stopReason: 'error', errorMessage: 'boom' })
 	const asked = text(last).match(/ask: ([^\n]*)\s*$/)?.[1]
 	return asked ? call('ask_person', { body: asked }) : say(`got: ${text(last)}`)
 })
 const post = (id, body) => postEntry(id, body, 'echo/echo@laptop')
-const inbox = async () => (await api('GET', '/api/inbox')).json
+/** Questions only: what this example checks first */
+const inbox = async () =>
+	(await api('GET', '/api/inbox')).json.filter((item) => item.kind === 'question')
 const asks = (items) =>
 	items.map((item) => `${item.thread}: ${item.question.data.body}`).join(' | ')
 
@@ -137,10 +143,58 @@ const waited = await promisify(execFile)(
 	['cli.js', '--server', base, 'wait', String(slow)],
 	{ cwd: repo },
 )
-const view = (await api('GET', `/api/threads/${slow}`)).json
+const slowView = (await api('GET', `/api/threads/${slow}`)).json
 check(
-	!view.busy && view.entries.some((entry) => entry.data.shell?.stdout?.includes('slept')),
+	!slowView.busy && slowView.entries.some((entry) => entry.data.shell?.stdout?.includes('slept')),
 	'with a question open, wait returns once the command ends',
-	`${waited.stdout} ${JSON.stringify(view.entries.at(-1)?.data)}`,
+	`${waited.stdout} ${JSON.stringify(slowView.entries.at(-1)?.data)}`,
 )
+
+// After the questions, what else needs you: a failed run, then an answer you haven't read, only where you wrote
+const everything = async () => (await api('GET', '/api/inbox')).json
+const kinds = (items, ids) =>
+	items
+		.filter((item) => ids.includes(item.thread))
+		.map((item) => `${item.kind} ${item.thread}`)
+		.join(' | ')
+const answeredHere = await createThread('answered')
+const failedHere = await createThread('failed')
+const askedHere = await createThread('asked')
+await post(answeredHere, 'hello')
+await answered(answeredHere)
+await post(failedHere, 'fail please')
+await until(async () => (await view(failedHere)).status === 'error')
+await post(askedHere, 'ask: one more?')
+const ids = [answeredHere, failedHere, askedHere]
+const want = `question ${askedHere} | failed ${failedHere} | answered ${answeredHere}`
+let all = await until(async () => ((list) => kinds(list, ids) === want && list)(await everything()))
+check(
+	Boolean(all),
+	'the inbox lists questions first, then a failed run, then an unread answer',
+	JSON.stringify(kinds(await everything(), ids)),
+)
+const friendThread = await createThread('agents among themselves')
+await postEntry(friendThread, 'hi', 'echo/echo@laptop', 'ida')
+await answered(friendThread)
+check(
+	!(await everything()).some((item) => item.thread === friendThread),
+	"a thread you never wrote in isn't yours to read",
+	JSON.stringify(await everything()),
+)
+const heardRead = []
+const readSocket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
+readSocket.onmessage = ({ data }) => heardRead.push(JSON.parse(String(data)))
+await new Promise((resolve) => (readSocket.onopen = resolve))
+await api('POST', `/api/threads/${answeredHere}/read`, {})
+await api('POST', `/api/threads/${failedHere}/read`, {})
+all = await until(async () =>
+	((list) => kinds(list, ids) === `question ${askedHere}` && list)(await everything()),
+)
+await until(async () => heardRead.some((message) => message.changed?.includes('inbox')))
+check(
+	Boolean(all) && heardRead.some((message) => message.changed?.includes('inbox')),
+	'reading a thread clears its failure or answer, and the socket names the inbox',
+	JSON.stringify([kinds(await everything(), ids), heardRead]),
+)
+readSocket.close()
 done()

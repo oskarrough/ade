@@ -2516,7 +2516,11 @@ const workIn = new Map()
 const agentThreads = new Map()
 const place = (id, value) => {
 	const before = placed.get(id)
-	const now = { hidden: Boolean(value.hidden), dismissed: value.dismissed ?? null }
+	const now = {
+		hidden: Boolean(value.hidden),
+		dismissed: value.dismissed ?? null,
+		reads: JSON.stringify(value.reads ?? {}),
+	}
 	placed.set(id, now)
 	for (const { conversation } of Object.values(value.agents ?? {}))
 		agentThreads.set(conversation, id)
@@ -2587,7 +2591,12 @@ function listsOf({ changes }, ended) {
 			const moved = before.hidden !== now.hidden
 			return [
 				...(moved ? ['threads', 'archived'] : listOf(change.conversationId)),
-				...(moved || before.dismissed !== now.dismissed ? ['inbox'] : []),
+				// With the inbox on, a read clears what it listed as unread
+				...(moved ||
+				before.dismissed !== now.dismissed ||
+				(openQuestion && before.reads !== now.reads)
+					? ['inbox']
+					: []),
 			]
 		}
 		if (kind === AgentDoc.definition.kind)
@@ -2626,6 +2635,8 @@ harness.observeCommits({
 	advance: (publication) => {
 		const ended = new Set()
 		notify(listsOf(publication, ended))
+		// Work that ended may have left an answer or a failure to read, which the inbox lists
+		if (ended.size && openQuestion) notify(['inbox'])
 		for (const change of publication.changes)
 			if (change.type === 'task') for (const hook of taskChanged) hook(change.value)
 			else if (change.type === 'entry') for (const hook of entryStored) hook(change.value)

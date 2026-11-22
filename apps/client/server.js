@@ -312,10 +312,20 @@ export const {
 	}
 	const botList = removable('bots', 'name', 'bots')
 	const runnerList = removable('runners', 'name')
-	/** The open questions agents asked, newest first, one per thread */
-	const inboxList = removable('inbox', 'thread', 'inbox', (item) => item.question.id)
-	const dismiss = (thread, question) =>
-		inboxList.remove(question, () => api(`/api/threads/${thread}/inbox`, { dismiss: question }))
+	/** What needs you, one entry per thread: open questions, then failures, then unread answers */
+	const inboxList = removable(
+		'inbox',
+		'thread',
+		'inbox',
+		(item) => item.question?.id ?? item.message.id,
+	)
+	/** A question is hidden for everyone until its thread asks again; a failure or an answer is marked read, for you */
+	const dismiss = (item) =>
+		inboxList.remove(item.question?.id ?? item.message.id, () =>
+			item.question
+				? api(`/api/threads/${item.thread}/inbox`, { dismiss: item.question.id })
+				: api(`/api/threads/${item.thread}/read`, {}),
+		)
 	/** Changes to a thread's row (archived, title) that the server hasn't confirmed; both lists show them over every fetch until it does */
 	const pending = new Map()
 	let fetchedThreads = cached('threads', [])

@@ -2181,6 +2181,10 @@ body.resizing {
 		padding-bottom: var(--space-5);
 		border-bottom: 1px solid var(--line);
 
+		> small > .dot {
+			margin-right: var(--space-2);
+		}
+
 		> .recap-line {
 			margin: 0 0 var(--space-2);
 			font-size: var(--text-small);

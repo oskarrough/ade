@@ -39,7 +39,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   anyRunner, mayRun                 `bash` with an optional `runner`, and the `runners` tool listing whom an agent may run commands on
   harnessSettings, provide          Pi's settings, worked out once per change of models (provide, a runner's models as Pi's provider)
   listsOf, placed, listOf, recheck  which lists a commit moves: a thread's own list; the inbox when a thread's open question
-                                    comes or goes (recheck, over openQuestion) or is dismissed
+                                    comes or goes (recheck, over openQuestion) or is dismissed, someone reads a thread, or work ends
   forkThread, seenBy                forks
   compact, compactingAt             compaction now, or early
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
@@ -98,7 +98,8 @@ modules/
                          label on the stored shapes: apply, created, updated, sizes guessed); who drew it (`meta.by`, the session's user, stamped by
                          authorizeRecord and onCommittedChanges, except a shape that only grew to fit its label: grew);
                          serve (GET shapes, POST actions/look), connect; off by default
-  inbox.js               `ask_person` posts an explicitly marked question; openQuestion reads the latest relevant message via server.js latestMessage: the question, unless a person has replied, used by server.js status and core.openQuestion; every thread's open question, newest first (questions, over openQuestion), serve (GET /api/inbox,
+  inbox.js               `ask_person` posts an explicitly marked question; openQuestion reads the latest relevant message via server.js latestMessage: the question, unless a person has replied, used by server.js status and core.openQuestion; every thread's open question, newest first (questions, over openQuestion), then for the reader the threads they wrote in that
+                         the list's status dots `error` or `done` (unread, over core.threadList and core.authors), serve (GET /api/inbox,
                          POST a dismissal, kept as the Thread doc's `dismissed`); off by default
   wake.js                `wake`: an agent's note posted back to it later (Wake, a background stored sleep owned by the thread, `every`
                          sleeps again), or once thread `after` has no work left (Ended signal; settle, run on start and on the
@@ -192,7 +193,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   inbox.js               Inbox, in the threads' place while open (server.js inboxOpen/openInbox; system.js): a `.thread.inbox` column whose
                          rows (Question) hold the thread link, who asked and when, the recap's newest open line (RecapLine, recap.js topicsOf),
                          the question (thread.js Body) and composer.js `Composer` with `inbox`, which sends without opening the thread; Dismiss
-                         (server.js dismiss, the `inbox` list store)
+                         (server.js dismiss, the `inbox` list store); after them Unread rows, a failed run or an unread answer with its dot
+                         and message (thread.js Clamp, Body), whose Dismiss marks the thread read
   thread-details.js      DetailsPage, the side column's Details tab: title, people, family, tools and the memory switch for a thread;
                          a bot's threads open over them, with back
   pi-sessions.js         the "Import pi session" page settings' pi-sessions row opens (PiSessionList), and in thread details where one came from (PiSource)

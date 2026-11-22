@@ -1,7 +1,10 @@
 /**
- * The inbox: every open question agents asked with `ask_person`, shared by everyone on the server, newest first, in the threads' place. Each shows its
- * thread, who asked, when, the thread's recap line, and the question as the thread shows it; you answer under it with
- * the thread's own composer, open the thread, or dismiss it until that thread asks again.
+ * The inbox: what needs you, in the threads' place. First every open question agents asked with `ask_person`, shared by
+ * everyone on the server, newest first; then, in threads you wrote in, runs that failed and answers you haven't read, as
+ * the sidebar's dots mark them, which opening the thread clears. A question shows its thread, who asked, when, the
+ * thread's recap line, and the question as the thread shows it; you answer under it with the thread's own composer, open
+ * the thread, or dismiss it until that thread asks again. A failure or an answer shows what was said; dismissing it marks
+ * the thread read, for you alone.
  */
 import html from '@solidjs/html'
 import { createMemo, For, Loading, onSettled, refresh, Show, untrack } from 'solid-js'
@@ -18,7 +21,7 @@ import {
 	threadOf,
 	titleOf,
 } from './server.js'
-import { Body, links } from './thread.js'
+import { Body, Clamp, links } from './thread.js'
 import { authorLabel } from './agent.js'
 import { Composer } from './composer.js'
 import { topicsOf } from './recap.js'
@@ -26,13 +29,18 @@ import { inline } from './markdown.js'
 import { Notice, report } from './notice.js'
 import { Stamp } from './time.js'
 import { Icon } from './icons.js'
+import { Dot } from './dot.js'
 
 export function Inbox() {
 	return html`
 		<article class="thread current inbox" aria-label="Inbox">
 			<header>
 				<h2 class="title">
-					<button type="button" class="ghost thread-name" title="Open questions agents asked">
+					<button
+						type="button"
+						class="ghost thread-name"
+						title="What needs you: questions, failures, unread answers"
+					>
 						<span>${() => (inbox.length ? `Inbox ${inbox.length}` : 'Inbox')}</span>
 					</button>
 				</h2>
@@ -49,10 +57,13 @@ export function Inbox() {
 			<ul>
 				<li class="room"><${Notice} /></li>
 				<${For} each=${() => inbox} keyed=${(item) => item.thread}>
-					${(item) => html`<${Question} item=${() => item()} />`}
+					${(item) =>
+						item().question
+							? html`<${Question} item=${() => item()} />`
+							: html`<${Unread} item=${() => item()} />`}
 				<//>
 				<${Show} when=${() => !inbox.length}>
-					<li class="mute">No open questions</li>
+					<li class="mute">Nothing needs you</li>
 				<//>
 			</ul>
 		</article>
@@ -92,7 +103,45 @@ function Question(props) {
 					type="button"
 					class="ghost small"
 					title="Hide this question until the thread asks again"
-					onClick=${() => dismiss(thread, props.item.question.id).catch(report)}
+					onClick=${() => dismiss(props.item).catch(report)}
+				>
+					Dismiss
+				</button>
+			</div>
+		</li>
+	`
+}
+
+/** A failed run or an answer you haven't read, in a thread you wrote in: its dot, thread, who, when, and what it said; opening the thread clears it */
+function Unread(props) {
+	const thread = untrack(() => props.item.thread)
+	const data = () => props.item.message.data
+	const failed = () => props.item.kind === 'failed'
+	return html`
+		<li class="question" data-thread=${thread}>
+			<small>
+				<${Dot} state=${() => (failed() ? 'error' : 'done')} />
+				<a
+					class="thread-link"
+					href=${hrefOf(thread)}
+					onClick=${(event) => followThread(event, thread)}
+					>${() => titleOf(thread)}</a
+				>
+				${', '}<span title=${() => data().author} style=${() => colorOf(data().author)}
+					>${() => authorLabel(data().author)}</span
+				>${() => (failed() ? ' failed, ' : ' answered, ')}<${Stamp}
+					time=${() => data().createdAt && Date.parse(data().createdAt)}
+				/>
+			</small>
+			<${Clamp}><${Body} data=${() => data()} /><//>
+			<div class="links">
+				<a href=${hrefOf(thread)} onClick=${(event) => followThread(event, thread)}>Open thread</a>
+				${', '}
+				<button
+					type="button"
+					class="ghost small"
+					title="Mark it read"
+					onClick=${() => dismiss(props.item).catch(report)}
 				>
 					Dismiss
 				</button>

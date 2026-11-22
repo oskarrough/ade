@@ -3,9 +3,13 @@
  * goes on with its own work. A newer question replaces the older one. Every open question also lists in one inbox,
  * answered from there. Off by default; MODULES=+inbox turns it on.
  *
- * `GET /api/inbox` answers the open questions, newest first: `[{thread, question, asker}]`, `question` being the thread's
- * `ask_person` message as the thread holds it and `asker` the conversation of the agent that asked, whom an answer goes to. A question stays until a person writes in its thread, the same rule that
- * keeps the thread blocked. `POST /api/threads/:id/inbox {dismiss: <message id>}` hides that question without
+ * `GET /api/inbox` answers what needs you, most pressing first. Open questions, newest first:
+ * `{thread, kind: 'question', question, asker}`, `question` being the thread's `ask_person` message as the thread holds
+ * it and `asker` the conversation of the agent that asked, whom an answer goes to. A question stays until a person writes
+ * in its thread, the same rule that keeps the thread blocked; everyone sees it. Then, for you alone and only in threads you
+ * wrote in, the ones the sidebar dots as failed or unread, newest first: `{thread, kind: 'failed' | 'answered', message}`,
+ * the message behind it. Those leave once you read the thread (`POST /api/threads/:id/read`), which is also how to
+ * dismiss one. `POST /api/threads/:id/inbox {dismiss: <message id>}` hides that question without
  * answering, if it's still the open one (else it answers `{dismissed: null}`); the thread's next question shows again. The dismissal is kept on the thread, so every device agrees.
  */
 import { obj, str } from '@earendil-works/pi-schema'
@@ -59,17 +63,48 @@ export function server(core) {
 				if (!question || question.id === row.dismissed) return undefined
 				/** The conversation of the agent that asked, whom an answer from the inbox goes to */
 				const asker = row.agents[keyOf(question.data.author)]?.conversation ?? null
-				return { thread, question, asker }
+				return { thread, kind: 'question', question, asker }
 			}),
 		)
-		const time = ({ question }) => question.data.createdAt ?? ''
-		return found.filter(Boolean).sort((a, b) => (time(a) < time(b) ? 1 : -1))
+		return found.filter(Boolean).sort(newest)
 	}
 
-	async function serve(threadId, _query, body) {
+	/**
+	 * What else needs `reader`, as the sidebar's dots say it: a thread whose last run failed (`error`) or whose answer
+	 * they haven't read (`done`), but only where they wrote; a thread agents keep among themselves never comes. Each
+	 * carries the message behind it, and leaves once they read the thread.
+	 */
+	async function unread(reader) {
+		if (!reader) return []
+		const found = await Promise.all(
+			(await core.threadList(reader)).map(async (row) => {
+				if (!['done', 'error'].includes(row.status)) return undefined
+				if (!(await core.authors(row.id)).includes(reader)) return undefined
+				const message = await core.latestMessage(row.id, ({ data }) =>
+					Boolean(data.answer || data.error || data.shell),
+				)
+				if (!message) return undefined
+				const failed = Boolean(message.data.error || message.data.shell?.error)
+				// Your own `$ cmd` that ran fine is nothing to read
+				if (!failed && !message.data.answer) return undefined
+				return { thread: row.id, kind: failed ? 'failed' : 'answered', message }
+			}),
+		)
+		const items = found.filter(Boolean).sort(newest)
+		return [
+			...items.filter((item) => item.kind === 'failed'),
+			...items.filter((item) => item.kind === 'answered'),
+		]
+	}
+	const newest = (a, b) => (time(a) < time(b) ? 1 : -1)
+	const time = (item) => (item.question ?? item.message).data.createdAt ?? ''
+
+	async function serve(threadId, _query, body, reader) {
 		if (threadId === undefined) {
 			if (body !== undefined) throw new Error('Dismiss a question in its thread')
-			return questions()
+			const asked = await questions()
+			const waiting = new Set(asked.map((item) => item.thread))
+			return [...asked, ...(await unread(reader)).filter((item) => !waiting.has(item.thread))]
 		}
 		if (!Number.isInteger(body?.dismiss)) throw new Error('dismiss is the question message id')
 		await core.conversation(threadId)

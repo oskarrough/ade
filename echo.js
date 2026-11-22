@@ -61,6 +61,12 @@ export const tryEcho = (request) => {
 	const latest = request.messages.at(-1)
 	if (latest.role === 'user' && text(latest).startsWith('bot '))
 		return call('bot', { instructions: text(latest).slice(4) })
+	// "fail" makes the run fail, as a model error would
+	if (latest.role === 'user' && text(latest).trim() === 'fail')
+		return fauxAssistantMessage([], {
+			stopReason: 'error',
+			errorMessage: 'the model failed, on purpose',
+		})
 	// "ask <question>" asks the person, with inbox on
 	if (latest.role === 'user' && text(latest).startsWith('ask '))
 		return call('ask_person', { body: text(latest).slice(4) })
