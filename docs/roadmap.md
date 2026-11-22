@@ -44,7 +44,7 @@ Inviting someone shows every runner in the house and whose machine each one is. 
 
 Later, once a second person's machine is in the house: when someone new joins, that machine's owner gets a note with one click to take their machine out.
 
-The director, the part that picks who answers, becomes one director made from arbe's and ade's, which works well in arbe.
+The director, the part that picks who answers, is now one director made from arbe's and ade's: the typed pick, the typing hold, per-thread Pause and oldest-first all landed.
 
 ### 3. Not me
 
