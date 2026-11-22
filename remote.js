@@ -132,6 +132,12 @@ export function createRunners({ onChange }) {
 	const connections = new Map()
 	const waiting = new Map()
 	const calls = new Map()
+	/**
+	 * Calls held until their runner comes online, by whose they are (`key`, an agent's model session or conversation):
+	 * `{runner, release}`; and `moved`, the runner each key's agent left while it was offline, which its calls no longer wait for
+	 */
+	const parked = new Map()
+	const moved = new Map()
 	let next = 0
 	const current = (name) => {
 		const connection = connections.get(name)
@@ -157,9 +163,23 @@ export function createRunners({ onChange }) {
 	}
 
 	/** `message` can be a function of what the connection holds, made as it is sent */
-	async function call(name, message, { signal = undefined, onMessage = undefined }) {
+	async function call(
+		name,
+		message,
+		{ signal = undefined, onMessage = undefined, key = undefined },
+	) {
 		signal?.throwIfAborted()
-		await online(name, signal)
+		if (key && !current(name)) {
+			if (moved.get(key) === name) throw left(name)
+			const held = new AbortController()
+			const release = () => held.abort(left(name))
+			parked.set(key, { runner: name, release })
+			try {
+				await online(name, signal ? AbortSignal.any([signal, held.signal]) : held.signal)
+			} finally {
+				if (parked.get(key)?.release === release) parked.delete(key)
+			}
+		} else await online(name, signal)
 		signal?.throwIfAborted()
 		const id = ++next
 		if (typeof message === 'function') message = message(current(name).held)
@@ -206,11 +226,24 @@ export function createRunners({ onChange }) {
 		return true
 	}
 
+	const left = (name) =>
+		new Error(`runner ${name}: connection lost while offline, and its agent moved`)
 	return {
 		call,
 		online,
 		isOnline: (name) => Boolean(current(name)),
 		tell: (name, message) => current(name)?.send(message),
+		/** The runner a key's call waits for, while it waits */
+		parkedOn: (key) => parked.get(key)?.runner,
+		/**
+		 * Its agent left `name` while it was offline: the key's calls stop waiting for it, with an error Pi retries, and
+		 * the retry asks the runner the agent is on now; `name` undefined, it came back to one, which its calls wait for again
+		 */
+		moved(key, name) {
+			if (name === undefined) return void moved.delete(key)
+			moved.set(key, name)
+			if (parked.get(key)?.runner === name) parked.get(key).release()
+		},
 		working: (name) =>
 			[...calls.values()]
 				.filter((call) => call.runner === name)
@@ -311,6 +344,7 @@ export function runnerProvider(runners, name, resolved = {}) {
 		runners
 			.call(name, send, {
 				signal,
+				key: rest.sessionId,
 				/** The runner sends the growing message only now and then; deltas in between reuse the last */
 				onMessage: ({ event }) => {
 					if (event.partial) partial = event.partial

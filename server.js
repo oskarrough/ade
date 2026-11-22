@@ -28,6 +28,7 @@ import {
 	defineTool,
 	Harness,
 	InboxDoc,
+	ProviderDoc,
 } from '@earendil-works/pi-durable'
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node'
@@ -1001,17 +1002,36 @@ async function work() {
 				if (!runsOnRunner(task.kind)) return { thread: task.conversationId, status: 'working' }
 				const shell = task.kind === Shell.definition.name
 				const to = shell ? task.input.to : await agentOf(task.input.agent)
+				// A model call waits on the runner it was sent to, which may not be the one the agent has moved to
+				const parked = shell
+					? undefined
+					: (await keysOf(task.input.agent)).map(runners.parkedOn).find(Boolean)
+				const on = parked ?? to?.runner
 				return {
 					thread: task.conversationId,
 					...(!shell && {
 						conversation: task.input.agent,
 						row: to && (to.name ?? `${to.model}@${to.runner}`),
 					}),
-					runner: to?.runner,
-					status: to && runners.isOnline(to.runner) ? 'working' : 'blocked',
+					runner: on,
+					status: on && runners.isOnline(on) ? 'working' : 'blocked',
 				}
 			}),
 	)
+}
+/**
+ * Whose an agent's calls to a runner are: its model session, which its model calls carry, and its conversation, which
+ * its prompt's calls carry. The session never changes, so it's kept once read.
+ */
+const sessions = new Map()
+async function keysOf(conversation, tx = undefined) {
+	if (!sessions.has(conversation)) {
+		const session = tx
+			? (await tx.doc(ProviderDoc, conversation)).sessionId
+			: (await harness.snapshot(ProviderDoc, conversation, context))?.sessionId
+		if (session) sessions.set(conversation, String(session))
+	}
+	return [sessions.get(conversation), `conversation ${conversation}`].filter(Boolean)
 }
 /** An agent answering or a `$ cmd`: work on a runner */
 const runsOnRunner = (kind) => kind === Deliver.definition.name || kind === Shell.definition.name
@@ -1322,10 +1342,20 @@ async function reconfigure(tx, recipient, to) {
 	const remodelled = moved || now.model?.modelId !== model.modelId
 	const thinks = to.thinkingLevel && now.thinkingLevel !== to.thinkingLevel
 	if (!remodelled && !thinks) return
+	const left = now.model?.provider?.match(/^runner:(.+)$/)?.[1]
+	const keys = left && left !== to.runner && (await keysOf(recipient.conversation, tx))
 	await configure(tx, recipient.conversation, {
 		...(remodelled ? { model, cwd } : {}),
 		...(thinks ? { thinkingLevel: to.thinkingLevel } : {}),
 	})
+	// A turn waiting for the runner it leaves, offline, retries where the agent runs now
+	if (keys)
+		afterCommit(tx, () => {
+			for (const key of keys) {
+				runners.moved(key, undefined)
+				if (!runners.isOnline(left)) runners.moved(key, left)
+			}
+		})
 	if (remodelled)
 		recipient.note = `[You now run as ${to.model}${to.thinkingLevel ? `:${to.thinkingLevel}` : ''} on ${to.runner}, in ${cwd}.${moved ? ' Files and paths from before may not be here; check them before you trust them.' : ''}]`
 }

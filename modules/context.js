@@ -19,13 +19,13 @@ export function server({ runners, known, reach }) {
 	const section = {
 		key: 'project',
 		tag: false,
-		render: async ({ env }, context) => {
+		render: async ({ env, conversationId }, context) => {
 			const runner = env?.id?.replace(/^runner:/, '')
 			if (!runner) return undefined
 			const found = await runners.call(
 				runner,
 				{ op: 'context', dir: env.cwd },
-				{ signal: context.abortSignal },
+				{ signal: context.abortSignal, key: `conversation ${conversationId}` },
 			)
 			const folder = `<cwd>\n${env.cwd}\n</cwd>`
 			return found ? `${found}\n\n${folder}` : folder
