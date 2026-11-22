@@ -1,6 +1,6 @@
 /** What you're writing lives on the server, per thread and person: it follows you to another device, Send turns it into
  * the message once, and nothing brings it back after: not a reload, a late save or a resend. A fork keeps your pick.
- * A thread you haven't started has one too, which creating the thread takes along. */
+ * A thread you haven't started has one too, and sending it makes the thread and its message in one step. */
 import WebSocket from 'ws'
 import {
 	answered,
@@ -125,14 +125,27 @@ check(
 	'the draft for a new thread saves and reads back, and your other pages hear it',
 	JSON.stringify(next),
 )
-// Creating the thread under its key takes the draft along, so a reload before the message goes finds it there
-const made = (await api('POST', '/api/threads', { title: 'started', key: 'new-1' })).json.id
+// Sending it makes the thread and its first message in one step, under the draft's key: no thread is ever left without it
+const threadCount = async () => (await api('GET', '/api/threads')).json.length
+const before = await threadCount()
+const started = await api('POST', '/api/threads', {
+	title: 'started',
+	key: 'new-1',
+	body: 'start something',
+	to,
+})
+const made = started.json.id
 check(
-	(await draftOf(made))?.text === 'start something' &&
+	started.status === 201 &&
+		(await view(made)).entries
+			.filter((entry) => entry.data.author === owner)
+			.map((entry) => entry.data.body)
+			.join() === 'start something' &&
+		(await draftOf(made)) === null &&
 		JSON.stringify((await api('GET', '/api/draft')).json.draft) ===
 			JSON.stringify({ key: '', text: '', images: [], pick }),
-	'creating the thread under its key moves the draft into it; the new-thread draft keeps only its pick',
-	JSON.stringify([await draftOf(made), (await api('GET', '/api/draft')).json]),
+	'a new thread and its first message land together; the new-thread draft keeps only its pick',
+	JSON.stringify([started.json, await draftOf(made), (await api('GET', '/api/draft')).json]),
 )
 await until(async () =>
 	heard.some((message) => message.thread === 'new' && message.sent === 'new-1'),
@@ -143,10 +156,20 @@ check(
 	'a late save under that key brings nothing back to the new-thread box',
 	JSON.stringify(stale.json),
 )
-await api('POST', `/api/threads/${made}/entries`, { body: 'start something', to, key: 'new-1' })
+const retried = await api('POST', '/api/threads', {
+	title: 'started',
+	key: 'new-1',
+	body: 'start something',
+	to,
+})
+await answered(made)
 check(
-	(await draftOf(made)) === null,
-	'and its message, sent under the same key, empties it in the thread',
+	retried.json.id === made &&
+		retried.json.entry === started.json.entry &&
+		(await threadCount()) === before + 1 &&
+		(await view(made)).entries.filter((entry) => entry.data.author === owner).length === 1,
+	'sending it again makes no second thread and no second message',
+	JSON.stringify([started.json, retried.json]),
 )
 
 socket.close()

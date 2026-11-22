@@ -18,7 +18,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
                                     the key its message posts with; postEntry empties it in the send's commit; a save under a sent
                                     key does nothing; their pages watching the thread hear it (socket.person, socket.thread); forkThread copies the pick;
                                     NEW, the draft for a thread not started yet (/api/draft, every page of theirs hears it), which
-                                    createThread under its key moves into the thread (spentUnder: a create's key, not a post's)
+                                    createThread under its key empties (spentUnder: a create's key, not a post's)
+  createThread, written, mayAsk     a thread, and with a body its first message, in one commit; written and mayAsk, what postEntry shares
   withdraw, WITHDRAWAL              a message taken back by its author before any agent read it: out of `unseen` and the
                                     agents' inboxes in one commit, a withdrawal entry routed reads as `withdrawn`;
                                     modules' `withdrawn(tx, thread, message)` hook (memory rewrites its line)

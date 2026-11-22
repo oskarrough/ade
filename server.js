@@ -1751,9 +1751,7 @@ async function postEntry(id, author, input) {
 	const saved = await receipt(requestId, `post ${id}`)
 	if (saved) return withPick(id, saved.result)
 	await conversation(id)
-	const images = imageList(input.images)
-	const body = images ? (input.body ?? '').trim() : field(input.body, 'body')
-	const command = !images && body.match(/^\$\s+([\s\S]+)/)?.[1]
+	const { images, body, command } = written(input)
 	const { to, picked, direct, solo } = await recipients(
 		id,
 		{ author, body },
@@ -1762,10 +1760,7 @@ async function postEntry(id, author, input) {
 			explicit: 'to' in input ? () => addresses(input.to, Boolean(command), id) : undefined,
 		},
 	)
-	if (command && !to.length) throw new Error('Pick a runner to run the command on')
-	if (command) await reach(to, author, await known())
-	if (!command && to.filter((to) => !to.name).length > 1)
-		throw new Error('A thread has one agent: ask one model here, plus any bots')
+	await mayAsk(to, author, command)
 	const result = await once(requestId, `post ${id}`, async (tx) => {
 		// The draft this message was written in goes with its send, so a reload or another device never brings it back
 		const draft = requestId && (await tx.doc(Draft, draftOf(id, author), null))
@@ -1791,6 +1786,20 @@ async function postEntry(id, author, input) {
 		return result
 	})
 	return withPick(id, result)
+}
+
+/** A message as it was sent: its images, its body, and the command a body starting `$ ` runs */
+function written(input) {
+	const images = imageList(input.images)
+	const body = images ? (input.body ?? '').trim() : field(input.body, 'body')
+	return { images, body, command: !images && body.match(/^\$\s+([\s\S]+)/)?.[1] }
+}
+/** Whether a message may ask whom it asks: a command one runner, which takes work from its author; a thread one agent */
+async function mayAsk(to, author, command) {
+	if (command && !to.length) throw new Error('Pick a runner to run the command on')
+	if (command) reach(to, author, await known())
+	if (!command && to.filter((to) => !to.name).length > 1)
+		throw new Error('A thread has one agent: ask one model here, plus any bots')
 }
 
 /** A person's draft in a thread, or `new`, the one for a thread they haven't started yet */
@@ -1961,24 +1970,61 @@ async function startThread(tx, title, parent, tools = null) {
 }
 
 /**
- * A thread created under the key of its creator's new-thread draft takes that draft with it, still under that key, so
- * posting its message empties it there; the new-thread draft keeps only its pick, for the next one.
+ * A thread, and with a `body` its first message, in one commit: never a thread without the message it was made for.
+ * The message asks whom `to` names and the bots it @mentions; a body starting `$ ` runs that command. Made under the
+ * key of its author's new-thread draft, the same commit empties that draft but for its pick, kept for the next one.
  */
-async function createThread({ title, parent = null, tools = null, key }, person = undefined) {
+async function createThread(
+	{ title, parent = null, tools = null, key, ...first },
+	person = undefined,
+) {
 	if (parent !== null) await conversation((parent = Number(parent)))
 	title = field(title, 'title')
 	tools = toolList(tools)
-	return once(scopedKey('create thread', key), 'create thread', async (tx) => {
-		const fresh = key !== undefined && person && (await tx.doc(Draft, draftOf(NEW, person), null))
+	const requestId = scopedKey('create thread', key)
+	if ('body' in first || 'images' in first) {
+		const saved = await receipt(requestId, 'create thread')
+		if (saved) return saved.result
+	}
+	const message = ('body' in first || 'images' in first) && person && written(first)
+	const to = message
+		? [
+				...(await addresses(first.to ?? null, Boolean(message.command), undefined)),
+				...(message.command
+					? []
+					: await Promise.all(
+							mentioned(message.body, (await botNames?.()) ?? []).map((name) =>
+								whom(undefined, name),
+							),
+						)),
+			].filter(
+				(one, at, all) => !one.name || all.findIndex((other) => other.name === one.name) === at,
+			)
+		: []
+	if (message) await mayAsk(to, person, message.command)
+	return once(requestId, 'create thread', async (tx) => {
+		const draft = message && key !== undefined && (await tx.doc(Draft, draftOf(NEW, person), null))
 		const id = await startThread(tx, title, parent, tools)
-		if (fresh && fresh.key === key) {
-			const { text, images, pick } = JSON.parse(JSON.stringify(fresh))
-			Object.assign(await tx.doc(Draft, draftOf(id, person), null), { key, text, images, pick })
-			// What's left is the pick, under no key yet: the next thread gets its own
-			Object.assign(fresh, { key: '', text: '', images: [] })
+		if (!message) return { id }
+		const { images, body, command } = message
+		const result = command
+			? (await tx.createTask(
+					Shell,
+					{ author: person, command, to: to[0] },
+					{ ...own, conversationId: id },
+				),
+				{ command, to: to[0] })
+			: await post(
+					tx,
+					id,
+					{ author: person, body, ...(images ? { images } : {}), ...(to.length ? { to } : {}) },
+					{ empty: true, steer: first.steer === true },
+				)
+		if (draft && draft.key === key) {
+			Object.assign(draft, { key: '', text: '', images: [] })
 			afterCommit(tx, () => tellDraft(NEW, person, { sent: key }))
 		}
-		return { id }
+		return { id, ...result }
 	})
 }
 
