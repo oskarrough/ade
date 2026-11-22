@@ -52,7 +52,7 @@ const route = (request) => {
 			'\nThat is all.',
 	)
 }
-const long = (tag) => `${tag} ${'y'.repeat(2000 - tag.length - 1)}`
+const long = (tag) => `${tag} ${'word '.repeat(400)}`.slice(0, 2000)
 const has = (lines, l, i) => lines.some((x) => x.l === l && x.i === i)
 const post = (id, body) => postEntry(id, body, null)
 const open = (id) => api('GET', `/api/threads/${id}/memory`)

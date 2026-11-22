@@ -202,7 +202,7 @@ await scriptedRunner(
 		const first = text(request.messages.find((message) => message.role === 'user'))
 		if (!first.includes('<input>')) return say('ok')
 		early.push(first)
-		const line = `L ${'x'.repeat(298)}`
+		const line = `L ${'early '.repeat(50)}`
 		if (first.includes('without numbering')) return say(line)
 		const input = first.slice(first.lastIndexOf('<input>'))
 		return say([...input.matchAll(/^(\d+)\| /gm)].map((item) => `${item[1]}| ${line}`).join('\n'))

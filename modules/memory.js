@@ -65,20 +65,35 @@ const cut = (text) => {
 	const boundary = head.search(/\s+\S*$/)
 	return boundary > 0 ? head.slice(0, boundary) : head
 }
-/**
- * Whether a written line stands for its source rather than answering the writer's request: most of its words come from
- * the source, and it doesn't speak to the requester ("I can't…", "paste the messages") unless the source does too
- */
 const words = (text) => new Set(text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu))
-const ASIDE =
-	/\b(?:I can['’]t|I cannot|I'm not (?:able|sure)|I don't have|What would you like|could you (?:tell|send|paste)|please (?:re)?send|paste (?:the|them))\b/i
-const plain = (text) => text.replace(/’/g, "'").toLowerCase()
-function faithful(line, source) {
-	const own = [...words(line)],
-		from = words(source)
-	if (own.length && own.filter((word) => from.has(word)).length < 0.35 * own.length) return false
-	const aside = line.match(ASIDE)?.[0]
-	return !aside || plain(source).includes(plain(aside))
+/**
+ * How a writer that answers its request instead of writing the line gives itself away: it opens by talking to the
+ * requester ("I can't…", "Your message…") or with a label ("Merged line 12+2:"), or it names the request's parts or a
+ * placeholder anywhere ("the <input> block", "Conversation Title Pending")
+ */
+const OPENING =
+	/^(?:\d+\|\s*)?(?:I\b|I'm\b|Your\b|Looks like|Understood, but|Sorry|Please\b|Could you|What would|Did you|This (?:is a|message)|The (?:user's|`?<)|Input text|Merged\b|\d+ merged|Lines? \d|\d+\+\d+)/i
+const ANYWHERE = /<\/?(?:input|chat)>|\b(?:input|chat)` block|title pending|not summarized yet/gi
+const asides = (text) => {
+	const plain = text.replace(/’/g, "'")
+	return [...(plain.match(OPENING) ?? []), ...(plain.match(ANYWHERE) ?? [])].map((aside) =>
+		aside.toLowerCase(),
+	)
+}
+/** What a line is checked against: its source's words, and the asides it holds itself */
+const sourceOf = (text) => ({ words: words(text), asides: new Set(asides(text)) })
+/**
+ * The one rule every line passes before memory keeps it, as it's written and as it's read back: within LINE bytes
+ * (cut at a word if over), at least a third of its words from its source, and no aside to the requester the source
+ * doesn't hold too. A line that fails is never kept: it counts as not written yet, and zoom opens what it stood for.
+ */
+function checked(text, source) {
+	const line = (text ?? '').replace(/(^|\s)\d+\+\d+\|/g, '$1').trim()
+	if (!line) return undefined
+	const fit = bytes(line) <= LINE ? line : cut(line)
+	const own = [...words(fit)]
+	if (own.filter((word) => source.words.has(word)).length < 0.35 * own.length) return undefined
+	return asides(fit).every((aside) => source.asides.has(aside)) ? fit : undefined
 }
 const NOT_YET = '(not summarized yet: zoom it)'
 const unwritten = (l, i) => ({ l, i, text: NOT_YET })
@@ -152,8 +167,8 @@ export function server(core) {
 	}
 
 	/**
-	 * Short sources need no model. Trim oversized replies; missing items and replies that aren't a line of their source
-	 * get one more attempt, then the source cut to size.
+	 * Short sources need no model. A missing item or a reply that isn't `checked` gets one more attempt, then stays
+	 * undefined: not written, never stored as content.
 	 */
 	async function writeLines(items, chat, threadId, signal) {
 		const result = items.map(({ source }) => (bytes(source) <= LINE ? source : undefined))
@@ -193,18 +208,13 @@ export function server(core) {
 				}
 			const again = []
 			for (const index of pending) {
-				const line = answers
-					.get(index)
-					?.replace(/(^|\s)\d+\+\d+\|/g, '$1')
-					.trim()
-				if (!line || duplicates.has(index) || !faithful(line, items[index].source))
-					again.push(index)
-				else result[index] = bytes(line) <= LINE ? line : cut(line)
+				const line =
+					!duplicates.has(index) && checked(answers.get(index), sourceOf(items[index].source))
+				if (line) result[index] = line
+				else again.push(index)
 			}
 			pending = again
 		}
-		// A stubborn item must not discard its good siblings or leave the tree permanently unwritten.
-		for (const index of pending) result[index] = cut(items[index].source)
 		return result
 	}
 
@@ -268,16 +278,18 @@ export function server(core) {
 	}
 
 	/**
-	 * A fill's next batch, oldest first: up to BATCH lines of one level whose halves are written. `leaves` writes only
-	 * message lines below `upTo`; `cut` writes what the cut over `upTo` messages within `budget` bytes shows.
+	 * A fill's next batch, oldest first: up to BATCH lines of one level whose halves are written, leaving out the ones
+	 * this fill already `failed` to write. `leaves` writes only message lines below `upTo`; `cut` writes what the cut over
+	 * `upTo` messages within `budget` bytes shows.
 	 */
-	function due({ ids, have }, { fill, upTo, budget }) {
+	function due({ ids, have }, { fill, upTo, budget }, failed = []) {
 		const T = Math.min(upTo, ids.length)
 		const wanted =
 			fill === 'cut'
 				? needed(have, T, budget)
 				: Array.from({ length: T }, (_, i) => ({ l: 0, i })).filter(({ i }) => !have.has(key(0, i)))
 		const ready = wanted
+			.filter(({ l, i }) => !failed.includes(key(l, i)))
 			.filter(({ l, i }) => !l || (have.has(key(l - 1, 2 * i)) && have.has(key(l - 1, 2 * i + 1))))
 			.sort((a, b) => (a.i + 1) * 2 ** a.l - (b.i + 1) * 2 ** b.l || a.l - b.l)
 		return ready.filter((line) => line.l === ready[0]?.l).slice(0, BATCH)
@@ -354,7 +366,10 @@ export function server(core) {
 					rt,
 					async () => {
 						const index = await indexOf(core, threadId)
-						const batch = remembers(await core.thread(threadId)) ? due(index, input) : []
+						const { round, failed = [] } = /** @type {{round: number, failed?: string[]}} */ (
+							state.checkpoint
+						)
+						const batch = remembers(await core.thread(threadId)) ? due(index, input, failed) : []
 						if (!batch.length) return rt.commit(() => finished(), ctx)
 						const { ids, have, withdrawn } = index
 						const messages = await core.commit(async (tx) => {
@@ -379,11 +394,16 @@ export function server(core) {
 						const texts = await writeLines(items, chat, threadId, rt.signal)
 						if (!texts) return rt.commit(() => finished(), ctx)
 						const now = await indexOf(core, threadId)
+						// A line that failed waits for the next fill, so this one doesn't ask for it again and again
+						const missed = items.filter((_, offset) => !texts[offset]).map(({ l, i }) => key(l, i))
 						return rt.commit(async (tx) => {
 							for (const [offset, { l, i }] of items.entries())
-								if (!now.have.has(key(l, i))) await append(tx, threadId, l, i, texts[offset])
-							const { round } = /** @type {{round: number}} */ (state.checkpoint)
-							return { status: 'running', checkpoint: { phase: 'fill', round: round + 1 } }
+								if (texts[offset] && !now.have.has(key(l, i)))
+									await append(tx, threadId, l, i, texts[offset])
+							return {
+								status: 'running',
+								checkpoint: { phase: 'fill', round: round + 1, failed: [...failed, ...missed] },
+							}
 						}, ctx)
 					},
 					input.fill === 'cut',
@@ -648,8 +668,10 @@ export async function indexOf(core, threadId) {
 			have: new Map(),
 			long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
 			withdrawn: new Set(inherited?.withdrawn),
-			/** Merges that didn't stand for their halves, by `l:i`, until a line written again replaces them */
+			/** Lines that failed `checked`, by `l:i`, until one written again passes */
 			rejected: new Set(),
+			/** What each long message's line is checked against, until it has one */
+			sources: new Map(inherited ? [...inherited.sources].filter(([at]) => at < ids.length) : []),
 			newest: 0,
 			revision: 0,
 			/** A fork's parent, and the parent's revision its lines were last copied at */
@@ -687,18 +709,28 @@ export async function indexOf(core, threadId) {
 		)
 		for (const entry of page.items) {
 			if (entry.kind === 'ade.message' && !index.positions.has(entry.id)) {
-				if (bytes(kept(entry)) > LINE) index.long.add(index.ids.length)
+				const text = kept(entry)
+				if (bytes(text) > LINE) {
+					index.long.add(index.ids.length)
+					index.sources.set(index.ids.length, sourceOf(text))
+				}
 				index.positions.set(entry.id, index.ids.length)
 				index.ids.push(entry.id)
 			}
-			if (entry.kind === 'ade.withdrawal') index.withdrawn.add(entry.data.message)
-			// A line written again replaces the one before. A merge that doesn't stand for its halves, or stands on one that
-			// didn't, counts as unwritten, so it is written again when next needed.
+			// A withdrawn message's line is written again from what's left, and checked against that
+			if (entry.kind === 'ade.withdrawal') {
+				index.withdrawn.add(entry.data.message)
+				index.sources.delete(index.positions.get(entry.data.message))
+			}
+			// A line written again replaces the one before. One that fails `checked`, or merges one that did, counts as
+			// unwritten, so it is written again when next needed.
 			if (entry.kind === KIND) {
 				const at = key(entry.data.l, entry.data.i)
-				if (!entry.data.l || merged(index, entry.data)) {
-					index.have.set(at, entry.data)
+				const text = read(index, entry.data)
+				if (text !== undefined) {
+					index.have.set(at, { ...entry.data, text, size: bytes(text) })
 					index.rejected.delete(at)
+					if (!entry.data.l) index.sources.delete(entry.data.i)
 					index.revision++
 				} else index.rejected.add(at)
 			}
@@ -783,12 +815,17 @@ export function memory(lines, T, budget, from = 0) {
 	return [...here.values()].sort((a, b) => a.i * 2 ** a.l - b.i * 2 ** b.l)
 }
 
-/** A recorded merge may come without its halves; a written one is checked against them */
-function merged({ have, rejected }, { l, i, text }) {
+/**
+ * A stored line as memory keeps it, or undefined when it fails `checked`. A short message's line is the message itself,
+ * and a recorded merge may come without its halves: those are only cut to size.
+ */
+function read({ have, rejected, sources }, { l, i, text }) {
+	if (!l) return sources.has(i) ? checked(text, sources.get(i)) : checked(text, sourceOf(text))
 	const at = [key(l - 1, 2 * i), key(l - 1, 2 * i + 1)]
-	if (at.some((half) => rejected.has(half))) return false
+	if (at.some((half) => rejected.has(half))) return undefined
 	const halves = at.map((half) => have.get(half))
-	return !halves.every(Boolean) || faithful(text, halves.map((half) => half.text).join(' '))
+	const source = halves.every(Boolean) ? halves.map((half) => half.text).join(' ') : text
+	return checked(text, sourceOf(source))
 }
 
 function page(text, id, at, n = 1) {

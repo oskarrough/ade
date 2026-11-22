@@ -55,7 +55,7 @@ modules/
   talk.js                `post` and `threads` tools; resolveThread, reply, member
   auto-title.js          AutoTitle, sanitizeThreadTitle; serve
   memory.js              memory lines (Line task), `zoom`, writerOf, demand, beforeCompact, inTurn, writeLines,
-                         indexOf, faithful, remembers, turn, view, opened, views, layOut, render, rendered
+                         indexOf, checked, remembers, turn, view, opened, views, layOut, render, rendered
   bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, renameIn), askedHome,
                          answeredAt, posted, homesOf, DEFAULT_VOICE, voice, section, bot-threads, volatility, withoutProject
   context.js             AGENTS.md, skills and cwd from the runner; expand, skillCommand
