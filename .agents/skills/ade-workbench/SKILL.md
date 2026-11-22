@@ -13,7 +13,7 @@ AGENTS.md has the rules (what to test, what's off limits on :3000). This is the 
 
 `MODULES=+web-search node scripts/try.js` turns on more modules, as +/- changes layered on top of its own list. try.js locks module switches through `MODULES`, so the settings panel's Save count can only be exercised through memory's compact-at field there.
 
-Before backgrounding a server, `cd` into your workspace first; start it and capture `$!` in the same shell, with absolute log and pid paths. A shell started from a server's runner inherits that server's ade environment, like `SERVE_PORT` and `MODULES`: unset them before starting a scratch server (`env -u SERVE_PORT -u MODULES …`), or it takes the real one's ports and modules. Examples drop them already.
+Before backgrounding a server, `cd` into your workspace first; start it and capture `$!` in the same shell, with absolute log and pid paths. To take a runner offline mid-work, kill its node process (`pgrep -f "^node [^ ]*runner.js --server <url> --name <name> "`), not the shell you backgrounded it from: when `$!` is a wrapper shell, killing it leaves the runner up, and the work you meant to strand just finishes. A shell started from a server's runner inherits that server's ade environment, like `SERVE_PORT` and `MODULES`: unset them before starting a scratch server (`env -u SERVE_PORT -u MODULES …`), or it takes the real one's ports and modules. Examples drop them already.
 
 ### The scripted bot's commands
 
