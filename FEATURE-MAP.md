@@ -86,7 +86,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   client.html            the walkthrough and the app's page; the promises every change serves
   client.js              root: the chat, or the live system around it
   server.js              the server as the client sees it: api, write, watch, in-memory feed store (`subscribeView`, `viewStore`, `feedView`, `feedItem`, `openThreadFeed`, `caughtUp`),
-                         actions (`archiveThread`, `renameThread`, `dismiss`, `forgetBot`, `revokeRunner`), threadOf, familyOf, current, openThread, fork, earlier, loadEarlier, sending, me
+                         actions (`archiveThread`, `renameThread`, `dismiss`, `forgetBot`, `revokeRunner`), threadOf, familyOf, current, page, openThread, fork, earlier, loadEarlier, sending, me
   thread.js              one thread on screen
     Thread               `thread/<id>` feed (shaped messages, people, earlier) + `/ws` (`watch`) for turns/live/drafts; follow, onScreen, shownFrom, nearTop, hold
     rows                 server-shaped messages laid out with agent turns, lasting calls, cuts and memory lines
@@ -177,7 +177,7 @@ Where a feature lives:
 - Forks: server.js forkThread, client server.js fork, thread.js Message.
 - `$ cmd`: server.js Shell, printed, shells.
 - Status dots and questions: server.js status/busiest/concerns (a failure is red only to who wrote in the thread, as the inbox lists it), dot.js, modules/inbox.js openQuestion.
-- Inbox: modules/inbox.js, client inbox.js, server.js inbox/dismiss/inboxOpen, thread-list.js.
+- Inbox: modules/inbox.js, client inbox.js, server.js inbox/dismiss/page, thread-list.js.
 - Pi session files: modules/pi-sessions.js, remote.js serveRunner and RUNNER_FILES, cli.js `import`.
 - Scheduled tasks: modules/schedule.js, modules/hooks.js, util.js said, client schedule.js, time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, settings.js.

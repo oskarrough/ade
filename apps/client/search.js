@@ -27,19 +27,21 @@ import {
 	openBeside,
 	openSearch,
 	openThread,
-	searchFor,
+	page,
 } from './server.js'
 import { authorLabel } from './agent.js'
 import { Stamp } from './time.js'
 import { Icon } from './icons.js'
 import { reveal } from './thread.js'
 
+const searchQuery = () => (page().kind === 'search' ? page().query : null)
+
 /** The sidebar's field: results follow as you type, Enter shows them on a phone, Escape or emptying it closes them */
 export function SearchField() {
-	const [draft, setDraft] = createSignal(untrack(searchFor) ?? '')
+	const [draft, setDraft] = createSignal(untrack(searchQuery) ?? '')
 	let timer
 	// Closed from anywhere else, it empties
-	createEffect(searchFor, (text) => {
+	createEffect(searchQuery, (text) => {
 		if (text !== null) return
 		clearTimeout(timer)
 		setDraft('')
@@ -48,7 +50,7 @@ export function SearchField() {
 	const close = () => {
 		clearTimeout(timer)
 		setDraft('')
-		if (latest(searchFor) !== null) openThread(current())
+		if (latest(searchQuery) !== null) openThread(current())
 	}
 	const typed = (text) => {
 		setDraft(text)
@@ -57,7 +59,7 @@ export function SearchField() {
 		timer = setTimeout(() => openSearch(text), 150)
 	}
 	return html`
-		<li class=${() => ['new', 'search', { current: searchFor() !== null }]}>
+		<li class=${() => ['new', 'search', { current: searchQuery() !== null }]}>
 			<form
 				class="row"
 				role="search"
@@ -91,7 +93,7 @@ export function SearchField() {
 /** The results, in the threads' place */
 export function Search() {
 	const results = createMemo(() => {
-		const text = searchFor()
+		const text = searchQuery()
 		return text ? api(`/api/search?q=${encodeURIComponent(text)}`) : []
 	})
 	return html`
@@ -103,7 +105,7 @@ export function Search() {
 						class="ghost thread-name"
 						title="Every thread's messages, best match first"
 					>
-						<span>${() => `Search: ${searchFor() ?? ''}`}</span>
+						<span>${() => `Search: ${searchQuery() ?? ''}`}</span>
 					</button>
 				</h2>
 				<button

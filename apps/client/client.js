@@ -9,11 +9,9 @@ import {
 	current,
 	drawer,
 	homeBot,
-	inboxOpen,
-	usageOpen,
 	inbox,
+	page,
 	params,
-	searchFor,
 	server,
 	setChat,
 	titleOf,
@@ -109,29 +107,17 @@ function Client() {
 						type="button"
 						aria-pressed=${() => String(sideOf(current())?.key === 'details')}
 						style=${() => colorOf(homeBot(current())?.name ?? '')}
-						onClick=${() =>
-							inboxOpen() ||
-							searchFor() !== null ||
-							usageOpen() ||
-							toggleSide(current(), 'details')}
+						onClick=${() => page().kind === 'threads' && toggleSide(current(), 'details')}
 					>
-						<${Dot}
-							state=${() =>
-								inboxOpen() || searchFor() !== null || usageOpen()
-									? ''
-									: threadOf(current())?.status}
-						/>
+						<${Dot} state=${() => (page().kind === 'threads' ? threadOf(current())?.status : '')} />
 						<span
-							>${() =>
-								inboxOpen()
-									? `Inbox${inbox.length ? ` ${inbox.length}` : ''}`
-									: searchFor() !== null
-										? `Search: ${searchFor()}`
-										: usageOpen()
-											? 'Usage'
-											: current()
-												? titleOf(current())
-												: 'New thread'}</span
+							>${() => {
+								const here = page()
+								if (here.kind === 'inbox') return `Inbox${inbox.length ? ` ${inbox.length}` : ''}`
+								if (here.kind === 'search') return `Search: ${here.query}`
+								if (here.kind === 'usage') return 'Usage'
+								return current() ? titleOf(current()) : 'New thread'
+							}}</span
 						>
 					</button>
 					<${Show} when=${() => server().modules.includes('jump')}>

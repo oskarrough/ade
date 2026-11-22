@@ -1,18 +1,7 @@
 /** The client, server, threads and runners, with the routes between them. */
 import html from '@solidjs/html'
 import { createMemo, For, onSettled, Show } from 'solid-js'
-import {
-	columns,
-	connected,
-	current,
-	inboxOpen,
-	runners,
-	searchFor,
-	usageOpen,
-	server,
-	threadOf,
-	url,
-} from './server.js'
+import { columns, connected, current, page, runners, server, threadOf, url } from './server.js'
 import { Inbox } from './inbox.js'
 import { Search } from './search.js'
 import { rowOf } from './agent.js'
@@ -33,8 +22,10 @@ import { Usage } from './usage.js'
 const SIDE_PAGES = { canvas: Canvas, director: Director, recap: Recap }
 
 export function System() {
-	const searching = () => searchFor() !== null && server().modules.includes('search')
-	const showingUsage = () => usageOpen() && server().modules.includes('usage')
+	const activePage = () => {
+		const here = page()
+		return here.kind !== 'threads' && server().modules.includes(here.kind) ? here.kind : 'threads'
+	}
 	const shown = createMemo(() => columns().map(threadOf).filter(Boolean))
 	const agents = createMemo(() =>
 		shown().flatMap((thread) => thread.agents.map((agent) => ({ ...agent, thread: thread.id }))),
@@ -106,20 +97,16 @@ export function System() {
 					<${ThreadList} />
 					<${ListEdge} />
 					<div class="threads">
-						<${Show} when=${() => inboxOpen() && server().modules.includes('inbox')}>
+						<${Show} when=${() => activePage() === 'inbox'}>
 							<${Inbox} />
 						<//>
-						<${Show} when=${searching}>
+						<${Show} when=${() => activePage() === 'search'}>
 							<${Search} />
 						<//>
-						<${Show} when=${showingUsage}>
+						<${Show} when=${() => activePage() === 'usage'}>
 							<${Usage} />
 						<//>
-						<${For}
-							each=${() =>
-								(inboxOpen() && server().modules.includes('inbox')) || searching() || showingUsage()
-									? []
-									: columns()}
+						<${For} each=${() => (activePage() === 'threads' ? columns() : [])}
 							>${(id) => html`
 								<${Thread} id=${() => id} />
 								<${Show} when=${() => sideOf(id)}>

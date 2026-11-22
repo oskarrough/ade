@@ -162,57 +162,36 @@ export function sending(thread, data) {
 const [current, setCurrent] = createSignal(Number(params.get('thread')) || null)
 export { current }
 
-/** Whether the inbox takes the threads' place; opening a thread leaves it */
-const [inboxOpen, setInboxOpen] = createSignal(params.has('inbox'))
-export { inboxOpen }
-export function openInbox() {
-	setInboxOpen(true)
-	setSearchFor(null)
-	setUsageOpen(false)
-	drawer(null)
-	const next = new URL(location.href)
-	next.searchParams.delete('search')
-	next.searchParams.delete('usage')
-	next.searchParams.set('inbox', '')
-	history.replaceState(null, '', next)
+/** What takes the threads' place: threads, inbox, usage, or search results. */
+const PAGE_PARAMS = ['inbox', 'search', 'usage']
+const initialPage = () => {
+	if (params.has('inbox')) return { kind: 'inbox' }
+	if (params.get('search')) return { kind: 'search', query: params.get('search') }
+	if (params.has('usage')) return { kind: 'usage' }
+	return { kind: 'threads' }
+}
+const [page, setPage] = createSignal(initialPage())
+export { page }
+
+function showPage(next, { closeDrawer = true } = {}) {
+	setPage(next)
+	if (closeDrawer) drawer(null)
+	const address = new URL(location.href)
+	for (const key of PAGE_PARAMS) address.searchParams.delete(key)
+	if (next.kind === 'search') address.searchParams.set('search', next.query)
+	else if (next.kind !== 'threads') address.searchParams.set(next.kind, '')
+	history.replaceState(null, '', address)
 }
 
-/** What search results in the threads' place are for, or null while they're closed; opening a thread or the inbox closes them */
-const [searchFor, setSearchFor] = createSignal(params.get('search') || null)
-export { searchFor }
-export function openSearch(text) {
-	setInboxOpen(false)
-	setUsageOpen(false)
-	setSearchFor(text)
-	const next = new URL(location.href)
-	next.searchParams.delete('inbox')
-	next.searchParams.delete('usage')
-	next.searchParams.set('search', text)
-	history.replaceState(null, '', next)
-}
-
-/** Whether the house's usage takes the threads' place; opening a thread, the inbox or search leaves it */
-const [usageOpen, setUsageOpen] = createSignal(params.has('usage'))
-export { usageOpen }
-export function openUsage() {
-	setUsageOpen(true)
-	setInboxOpen(false)
-	setSearchFor(null)
-	drawer(null)
-	const next = new URL(location.href)
-	next.searchParams.delete('inbox')
-	next.searchParams.delete('search')
-	next.searchParams.set('usage', '')
-	history.replaceState(null, '', next)
-}
+export const openInbox = () => showPage({ kind: 'inbox' })
+export const openSearch = (query) => showPage({ kind: 'search', query }, { closeDrawer: false })
+export const openUsage = () => showPage({ kind: 'usage' })
 
 export function openThread(id) {
 	// Moving into a column on screen keeps every column where it is; going anywhere else leaves those opened beside
 	const shown = untrack(columns)
 	setBeside(shown.includes(id) && shown.length > 1 ? shown : [])
-	setInboxOpen(false)
-	setSearchFor(null)
-	setUsageOpen(false)
+	setPage({ kind: 'threads' })
 	setCurrent(id)
 	drawer(null)
 	history.replaceState(null, '', hrefOf(id))
@@ -233,8 +212,7 @@ export function followThread(event, id) {
 /** A thread's address: what a real link needs, so it can also be opened in a new tab or copied */
 export function hrefOf(id) {
 	const next = new URL(location.href)
-	next.searchParams.delete('inbox')
-	next.searchParams.delete('search')
+	for (const key of PAGE_PARAMS) next.searchParams.delete(key)
 	if (id) next.searchParams.set('thread', id)
 	else next.searchParams.delete('thread')
 	return next.pathname + next.search
@@ -575,8 +553,7 @@ export const {
 	const openBeside = (id) => {
 		if (!untrack(current)) return openThread(id)
 		// From the inbox, search or usage, back to the threads, with this one beside
-		if (untrack(inboxOpen) || untrack(searchFor) !== null || untrack(usageOpen))
-			openThread(untrack(current))
+		if (untrack(page).kind !== 'threads') openThread(untrack(current))
 		if (untrack(family).includes(id)) setOpen((ids) => new Set([...ids, id]))
 		else setBeside((ids) => (ids.includes(id) ? ids : [...ids, id]))
 	}

@@ -14,11 +14,10 @@ import {
 	homeBot,
 	hrefOf,
 	inbox,
-	inboxOpen,
 	api,
 	openInbox,
 	openThread,
-	searchFor,
+	page,
 	server,
 	threadOf,
 	threadRows,
@@ -66,7 +65,7 @@ export function ThreadList() {
 					<${NewRow}
 						label="Thread"
 						title="New thread"
-						current=${() => !current() && !inboxOpen() && searchFor() === null}
+						current=${() => page().kind === 'threads' && !current()}
 						onPick=${(_e) => openThread(null)}
 					/>
 					<${Show} when=${() => server().modules.includes('bots')}>
@@ -75,16 +74,18 @@ export function ThreadList() {
 				</ul>
 				<${Show} when=${() => server().modules.includes('inbox')}>
 					<ul class="inbox-row">
-						<li class=${() => ['new', { current: inboxOpen(), waiting: inbox.length > 0 }]}>
+						<li
+							class=${() => ['new', { current: page().kind === 'inbox', waiting: inbox.length > 0 }]}
+						>
 							<button
 								type="button"
 								class="row"
 								title="Show what needs your attention"
-								aria-pressed=${() => String(inboxOpen())}
+								aria-pressed=${() => String(page().kind === 'inbox')}
 								aria-label=${() => (inbox.length ? `Inbox, ${inbox.length}` : 'Inbox')}
 								onClick=${(_e) => {
 									setArchivedPage(false)
-									if (inboxOpen()) openThread(current())
+									if (page().kind === 'inbox') openThread(current())
 									else openInbox()
 								}}
 							>
