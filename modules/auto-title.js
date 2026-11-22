@@ -113,7 +113,7 @@ export function server(core) {
 								timestamp: Date.now(),
 							},
 						],
-						rt.signal,
+						{ signal: rt.signal, thread: threadId, purpose: 'titles' },
 					)
 					const title = sanitizeThreadTitle(messageText(reply))
 					if (!title) throw new Error('model returned no usable title')

@@ -75,7 +75,7 @@ export function server(core) {
 	 * tokens}`, `choice` a candidate's name or undefined for nobody. TypeSafe's Jev chooses when the server has
 	 * TYPESAFE_API_KEY, else the chooser model fills the same choice. Throws when it can't choose.
 	 */
-	async function decide({ said, fresh, candidates }, to, signal) {
+	async function decide({ thread, said, fresh, candidates }, to, signal) {
 		const names = candidates.map((candidate) => candidate.name)
 		const known = (choice) =>
 			typeof choice === 'string'
@@ -166,7 +166,7 @@ export function server(core) {
 				{ role: 'system', content: RULES, timestamp: Date.now() },
 				{ role: 'user', content: ask, timestamp: Date.now() },
 			],
-			signal,
+			{ signal, thread, purpose: 'director' },
 		)
 		const tokens = reply.usage?.totalTokens
 		let answer
@@ -257,7 +257,7 @@ export function server(core) {
 		try {
 			if (!process.env.TYPESAFE_API_KEY) await core.runners.online(chooser.runner, signal)
 			decided = await decide(
-				{ said, fresh, candidates },
+				{ thread: threadId, said, fresh, candidates },
 				process.env.TYPESAFE_API_KEY ? undefined : await core.address(chooser, false, signal),
 				signal,
 			)

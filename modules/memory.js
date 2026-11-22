@@ -173,7 +173,12 @@ export function server(core) {
 				{ role: 'system', content: WRITER, timestamp: Date.now() },
 				{ role: 'user', content: task, timestamp: Date.now() },
 			]
-			const reply = await complete(core, to, messages, signal, RETRY)
+			const reply = await complete(core, to, messages, {
+				signal,
+				retry: RETRY,
+				thread: threadId,
+				purpose: 'memory',
+			})
 			const answers = new Map(),
 				duplicates = new Set()
 			if (pending.length === 1) answers.set(pending[0], messageText(reply).trim())

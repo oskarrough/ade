@@ -1,6 +1,6 @@
 /**
  * Usage: the tokens agents spent and their cost at list price. The house's as a page in the threads' place, opened from
- * settings: its totals, what the tokens were, each day, then threads, bots and models. A thread's in its details.
+ * settings: its totals, what the tokens were, each day, then threads, who spent it and models. A thread's in its details.
  */
 import html from '@solidjs/html'
 import {
@@ -145,6 +145,17 @@ const Days = (props) => {
 	`
 }
 
+/** Who or what spent it: a bot, the threads' own agents, or what modules and compaction did for them */
+const BY = {
+	agent: "Threads' own agents",
+	titles: 'Titles',
+	memory: 'Memory',
+	director: 'Director',
+	recap: 'Recap',
+	compaction: 'Compaction',
+}
+const byName = (by) => BY[by] ?? shortLabel(by)
+
 /** One row per model, with whose it was where several agents share the list */
 const ModelRows = (props) => html`
 	<${For} each=${() => props.models}
@@ -154,7 +165,7 @@ const ModelRows = (props) => html`
 					<b>${() => row.model}</b>
 					<small
 						>${() =>
-							[props.agents ? shortLabel(row.agent) : row.provider, calls(row)].join(', ')}</small
+							[props.agents ? byName(row.agent) : row.provider, calls(row)].join(', ')}</small
 					>
 					<small>${() => `${tokens(row)}, ${cost(row)}`}</small>
 				</div>
@@ -163,7 +174,7 @@ const ModelRows = (props) => html`
 	>
 `
 
-/** The house's usage in the threads' place: totals, the token mix, each day, then threads, bots and models */
+/** The house's usage in the threads' place: totals, the token mix, each day, then threads, who spent it and models */
 export function Usage() {
 	const [range, setRange] = createSignal('fortnight')
 	const [measure, setMeasure] = createSignal('cost')
@@ -260,15 +271,13 @@ export function Usage() {
 										</ul>
 									</li>
 									<li>
-										<h3>Bots</h3>
+										<h3>Spent by</h3>
 										<ul class="rows usage">
-											<${For} each=${found.bots}
+											<${For} each=${found.by}
 												>${(row) => html`
 													<li>
 														<div>
-															<b
-																>${() => (row.bot === 'agent' ? "Threads' own agents" : row.bot)}</b
-															>
+															<b>${() => byName(row.by)}</b>
 															<small
 																>${() =>
 																	`${percent(row.cost, found.total.cost)}, ${cost(row)}, ${calls(row)}`}</small

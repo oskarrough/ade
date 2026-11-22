@@ -152,7 +152,12 @@ export function server(core) {
 		]
 		let page
 		for (let attempt = 0; attempt < 2; attempt++) {
-			const reply = await complete(core, to, messages, signal, RETRY)
+			const reply = await complete(core, to, messages, {
+				signal,
+				retry: RETRY,
+				thread: threadId,
+				purpose: 'recap',
+			})
 			page = tidy(
 				messageText(reply)
 					.replace(/^```(?:markdown|md)?\n([\s\S]*)\n```$/, '$1')

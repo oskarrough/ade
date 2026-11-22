@@ -182,7 +182,11 @@ export function mentioned(body, names) {
 	]
 }
 
-export async function complete(core, to, messages, signal, retry = undefined) {
+/**
+ * A module's own model call, on the agent's runner: `retry` is Pi's retry policy, and what it spent goes to
+ * `core.spent` as `purpose` in `thread`, failed or not, which the usage module records
+ */
+export async function complete(core, to, messages, { signal, retry = undefined, thread, purpose }) {
 	const model = core.models.getModel(`runner:${to.runner}`, to.model)
 	const call = () =>
 		core.models.completeSimple(
@@ -194,6 +198,7 @@ export async function complete(core, to, messages, signal, retry = undefined) {
 			},
 		)
 	const reply = await (retry ? retryAssistantCall(call, retry, signal) : call())
+	if (reply.usage) await core.spent(thread, purpose, reply)
 	if (reply.stopReason === 'error' || reply.stopReason === 'aborted')
 		throw new Error(reply.errorMessage ?? reply.stopReason)
 	return reply

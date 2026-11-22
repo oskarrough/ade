@@ -24,6 +24,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
                                     modules' `ended(threadId)`; every task change, modules' `taskChanged(record)`; every stored entry,
                                     modules' `entryStored(entry)`
   core.conversations                every conversation's record, threads and the agents' they own
+  core.snapshot, core.spent         a doc's stored value without a commit; what a module's own model call spent (modules' `spent`)
+  documentStored                    every stored document change, to modules' `documentStored(change)`
   core.task, core.tasks             a task's record, or every task matching a Pi TaskQuery (wake lists a thread's sleeping ones)
   core.signal                       a signal to a sleeping task (wake's Ended)
   reconfigure, newAgent, setUp      an agent switching model/thinking/runner/folder in place, or starting
@@ -63,7 +65,7 @@ remote.js                the runner protocol, both ends: createRunners (server),
                          runnerProvider (a model over the wire), remoteEnv (tools in the runner's folder)
 cli.js                   the API from a terminal; the owner key as a bearer off localhost (ADE_OWNER_KEY); `link`, the owner's browser link
 util.js                  helpers server and modules share: personName (`~login`, `@` as `+`), agentTo, writtenTo, smallModel (Haiku/Luna if the runner lists it, else the agent's own), mentioned, keyOf, speaker, said, written, byAgent,
-                         finished (task result), background (thread-owned task), collect and firstIn (every item of a paged scan, or the first match), complete (module model calls, optional Pi retries)
+                         finished (task result), background (thread-owned task), collect and firstIn (every item of a paged scan, or the first match), complete (module model calls, optional Pi retries, what each spent to core.spent)
 modules.js               builtIn (each module's own `on` default), dataDir ($XDG_DATA_HOME/ade, default ~/.local/share/ade), ade.json ($XDG_CONFIG_HOME/ade, default ~/.config/ade), MODULES, and loading each module's server/runner half
 modules/
   talk.js                `post` and `threads` tools; resolveThread accepts ids as numbers or digit strings, or exact, unambiguous titles; post defaults missing titles from the body; reply sends answers back to the parent thread that asked; a bot in the
@@ -134,11 +136,13 @@ modules/
                          (matchOf: words quoted, the last a prefix; best first, snippets), serve (GET /api/search?q=), the `search` tool;
                          off by default
   jump.js                Cmd-K's switch alone: no server half beyond being listed, the client does the rest; off by default
-  usage.js               tokens and list-price cost from each agent's stored turns (pi.assistant usage), in an in-memory SQLite table
-                         read once on the first request (build, a fork's own entries only), then kept by entryStored; billed where a
-                         runner meters the provider (core.known's metered/free) or the provider reported it; serve: house (total,
-                         models, days from the asker's midnight, threads, bots by agent key across threads) and thread (a row per
-                         agent and model); off by default
+  usage.js               tokens and list-price cost, in an in-memory SQLite table (spend) read once on the first request (build, a
+                         fork's own entries only): agents' turns (pi.assistant usage, kept by entryStored); compaction, what a
+                         conversation's pi.usage ledger holds beyond its turns (settle, live by documentStored); modules' own calls
+                         (spent, which util's complete calls through core.spent), kept per thread in the ade.usage doc by hour,
+                         purpose and model; billed where a runner meters the provider or the provider reported it; serve: house
+                         (total, models, days from the asker's midnight, threads, `by`) and thread (a row per agent or purpose and
+                         model); off by default
   pi-sessions.js         conversations as pi session files: server follows each agent's conversation (push, sync, changed) and sends
                          new entries; writePiSession, the runner's `pi-session` op (remote.js serveRunner), maps them to pi's entries.
                          The other way: bring (what pi hands its model from a session, into a new thread: newAgent, setUp, post), serve

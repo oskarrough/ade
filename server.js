@@ -2044,6 +2044,13 @@ const core = {
 	entries,
 	messages,
 	latestMessage,
+	/** A document's value as stored, read without a commit */
+	snapshot: (doc, id) => harness.snapshot(doc, id, context),
+	/** What a module's own model call spent, for the usage module to record; without it, nothing */
+	spent: async (thread, purpose, reply) => {
+		for (const hook of spentHooks)
+			await hook(thread, purpose, reply).catch((error) => console.error(error))
+	},
 	/** With inbox on, a thread's open `ask_person` message, else undefined; inside a commit, before its writes, with its `tx` */
 	openQuestion: (id, row, tx) => openQuestion?.(id, row, tx),
 	lastAsked,
@@ -2137,6 +2144,7 @@ const botNames = hook('botNames')
 const homesOf = hook('homesOf')
 const expand = hook('expand')
 const openQuestion = hook('openQuestion')
+const spentHooks = modules.flatMap((module) => module.spent ?? [])
 compactAt = hook('compactAt')
 /** An outside service's POST to /hooks/:id, on a listener of its own; none without a module that takes it */
 const webhook = hook('webhook')
@@ -2674,6 +2682,7 @@ function notify(lists) {
 }
 const taskChanged = modules.flatMap((module) => module.taskChanged ?? [])
 const entryStored = modules.flatMap((module) => module.entryStored ?? [])
+const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
 harness.observeCommits({
 	advance: (publication) => {
@@ -2682,6 +2691,8 @@ harness.observeCommits({
 		for (const change of publication.changes)
 			if (change.type === 'task') for (const hook of taskChanged) hook(change.value)
 			else if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
+			else if (change.type === 'document' && change.kind === 'change')
+				for (const hook of documentStored) hook(change)
 		for (const threadId of ended)
 			busy(threadId)
 				.then(async (working) => {
