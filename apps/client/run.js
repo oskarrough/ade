@@ -10,7 +10,7 @@ import {
 	onSettled,
 	Show,
 } from 'solid-js'
-import { entries, homeBot, threadOf, titleOf } from './server.js'
+import { entries, threadOf, titleOf } from './server.js'
 import { Cross, MessageMarkdown, Name } from './thread.js'
 import { doing, messageText, touched } from './agent.js'
 
@@ -94,36 +94,25 @@ export function Turn(props) {
  * answer as a received one when it comes.
  */
 export function Exchange(props) {
-	const asked = () => askedThread(props.step)
-	const who = () =>
-		props.answer?.data.author ??
-		homeBot(asked())?.name ??
-		threadOf(asked())?.agents?.[0]?.name ??
-		props.step.args.to ??
-		''
+	const row = () => props.row
 	const took = () => {
-		const start = props.step.result?.time
-		const end = props.back
+		const start = row().ask.result?.time
+		const end = row().back
 		return start && end && end - start >= 1000 ? seconds(end - start) : ''
 	}
-	const working = () => !props.answer && threadOf(asked())?.status === 'working'
+	const working = () => !row().answer && threadOf(row().otherThread)?.status === 'working'
 
 	return html`
 		<li
-			class=${() => ({ exchange: true, live: working(), handed: litIn(props.thread, props.answer?.id) })}
+			class=${() => ({ exchange: true, live: working(), handed: litIn(props.thread, row().answer?.id) })}
 		>
 			<ol class="steps">
-				<${Cross}
-					sent=${true}
-					author=${who}
-					thread=${asked}
-					data=${() => ({ ...props.step.args, author: props.agent?.name })}
-				/>
-				<${Show} when=${() => props.answer}>
+				<${Cross} row=${row} data=${() => ({ ...row().ask.args, author: row().agent?.name })} />
+				<${Show} when=${() => row().answer}>
 					<${Cross}
-						author=${who}
-						thread=${asked}
-						data=${() => props.answer.data}
+						row=${row}
+						sent=${false}
+						data=${() => row().answer.data}
 						title=${() => (took() ? `answered in ${took()}` : undefined)}
 					/>
 				<//>
@@ -241,7 +230,7 @@ function summary(turn) {
 }
 
 /** A post's ask: the thread it went to, or for an answer, the thread it answered */
-const askedThread = (step) => step.result?.details?.thread ?? step.args.thread
+export const askedThread = (step) => step.result?.details?.thread ?? step.args.thread
 const answered = (step) => /^Answered /.test(step.result?.text ?? '')
 
 const seconds = (ms) => {

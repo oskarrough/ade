@@ -89,7 +89,7 @@ export function Search() {
 						class="ghost thread-name"
 						title="Every thread's messages, best match first"
 					>
-						<span>${() => `Search · ${searchFor() ?? ''}`}</span>
+						<span>${() => `Search: ${searchFor() ?? ''}`}</span>
 					</button>
 				</h2>
 				<button
@@ -129,12 +129,12 @@ function Result(props) {
 				<a class="thread-link" href=${() => hrefOf(props.item.thread)} onClick=${open}
 					>${() => props.item.title}</a
 				>
-				${() => (props.item.archived ? ' · archived' : '')} ${' · '}<span
+				${() => (props.item.archived ? ', archived' : '')} ${', '}<span
 					title=${() => props.item.author}
 					style=${() => colorOf(props.item.author)}
 					>${() => authorLabel(props.item.author)}</span
 				>
-				${' · '}<${Stamp}
+				${', '}<${Stamp}
 					time=${() => (props.item.createdAt ? Date.parse(props.item.createdAt) : undefined)}
 				/>
 			</small>

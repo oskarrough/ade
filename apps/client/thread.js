@@ -51,6 +51,7 @@ import {
 import { authorLabel, doing, setDoing, shortLabel } from './agent.js'
 import {
 	answersIn,
+	askedThread,
 	Changed,
 	conversations,
 	cutOf,
@@ -346,6 +347,7 @@ export function Thread(props) {
 				}
 				const answer = got.answer && {
 					key: `asked:${other.id}:${got.answer.id}`,
+					home: props.id,
 					entry: got.answer,
 					thread: other.id,
 					at: got.answer.id,
@@ -390,6 +392,7 @@ export function Thread(props) {
 			}
 			const said = shown.map((entry) => ({
 				key: entry.id,
+				home: props.id,
 				entry,
 				at: entry.id,
 				time: timeOf(entry),
@@ -423,49 +426,20 @@ export function Thread(props) {
 					[run.break, row.break] = [row.break, undefined]
 			}
 			// Who said it, to whom, from where, once for every row; templates show only what this gives them.
-			// `voice`: mine (your bubble), said (here, by someone else), stopped (a Stop's line), sent or received (crossed
-			// threads, with `other` the far side). `name` is the speaker, only where it changed: from the last one that
-			// wasn't yours, or alone with one agent, from the last agent's; a break or a `to` names it again
+			// `name` is the speaker, only where it changed: from the last one that wasn't yours, or alone with one agent,
+			// from the last agent's; a break or a `to` names it again
 			const solo = soloAgent()
 			let last, answering
 			for (const row of rows) {
 				if (row.break) last = answering = undefined
+				Object.assign(row, describe(row, forks()))
 				const data = row.entry?.data
-				if (data) {
-					const here = row.thread ?? props.id
-					const sent = row.sent
-					row.voice = sent
-						? 'sent'
-						: data.from && data.from !== here
-							? 'received'
-							: data.stopped
-								? 'stopped'
-								: data.author === me()
-									? 'mine'
-									: 'said'
-					// Flat fields, so an unchanged row compares equal and keeps its identity
-					if (sent || row.voice === 'received') {
-						row.otherAuthor = (sent ?? row.entry).data.author
-						row.otherThread = (sent ?? row.entry).data.from
-					}
-					row.clamp = byPerson(row.entry) || data.author === me()
-					row.failed = Boolean(data.error)
-					row.woke = Boolean(data.wake)
-					if (data.picked) {
-						row.picked = data.picked
-						row.pickedNobody = !data.to?.length
-					}
-				}
-				const speaker =
-					row.turn || row.live ? row.agent?.name : row.voice === 'said' ? data.author : undefined
-				const agentRow = Boolean(row.turn || row.live || (row.entry && !byPerson(row.entry)))
+				const run = row.turn || row.live
+				const speaker = run ? row.agent?.name : row.voice === 'said' ? data.author : undefined
+				const agentRow = Boolean(run || (row.entry && !byPerson(row.entry)))
 				const prior = solo && agentRow ? answering : last
 				if (speaker && (speaker !== prior || row.to)) row.name = speaker
-				const author = data
-					? !data.from && data.author
-					: row.turn || row.live
-						? row.agent?.name
-						: null
+				const author = data ? !data.from && data.author : run ? row.agent?.name : null
 				if (author !== null && author !== me()) last = author
 				if (author && agentRow) answering = author
 			}
@@ -843,7 +817,6 @@ export function Thread(props) {
 										time=${() => row().time}
 										thread=${() => row().thread ?? props.id}
 										entry=${() => row().entry}
-										forks=${() => forks()}
 										at=${() =>
 											earlier[props.id] || row().thread
 												? undefined
@@ -906,16 +879,10 @@ export function Thread(props) {
 									<${Changed} step=${() => row().changed} agent=${() => row().agent} />
 								<//>
 								<${Match} when=${() => row().asked}>
-									<${Asked} thread=${() => row().asked} question=${() => row().question} />
+									<${Asked} row=${() => row()} />
 								<//>
 								<${Match} when=${() => row().ask}>
-									<${Exchange}
-										thread=${() => props.id}
-										step=${() => row().ask}
-										agent=${() => row().agent}
-										answer=${() => row().answer}
-										back=${() => row().back}
-									/>
+									<${Exchange} thread=${() => props.id} row=${() => row()} />
 								<//>
 								<${Match} when=${() => row().turn || row().live}>
 									<${Turn}
@@ -935,6 +902,65 @@ export function Thread(props) {
 			<${Composer} thread=${() => props.id} />
 		</article>
 	`
+}
+
+/**
+ * What a row says about who, to whom and from where, in flat fields so an unchanged row compares equal:
+ * `voice`, mine (your bubble), said (here, by someone else), stopped (a Stop's line), sent or received (crossed
+ * threads); for those, the far side as `otherAuthor`, `otherThread` and `otherLabel`; a message's `forks`, `picked`,
+ * `woke`, `clamp` and `failed`. Ask rows and questions asked here are sent and received rows too.
+ */
+function describe(row, forks) {
+	if (row.ask) {
+		const thread = askedThread(row.ask)
+		const author =
+			row.answer?.data.author ??
+			homeBot(thread)?.name ??
+			threadOf(thread)?.agents?.[0]?.name ??
+			row.ask.args.to ??
+			''
+		return { voice: 'sent', ...farSide(author, thread) }
+	}
+	if (row.asked) {
+		const author = row.question.data.author
+		return { voice: 'received', ...farSide(author, row.asked, shortLabel(author)) }
+	}
+	const data = row.entry?.data
+	if (!data) return {}
+	const from =
+		row.sent ?? (data.from && data.from !== (row.thread ?? row.home) ? row.entry : undefined)
+	const voice = row.sent
+		? 'sent'
+		: from
+			? 'received'
+			: data.stopped
+				? 'stopped'
+				: data.author === me()
+					? 'mine'
+					: 'said'
+	return {
+		voice,
+		...(from && farSide(from.data.author, from.data.from)),
+		forks: forks.get(`${row.thread ?? row.home} ${row.entry.id}`),
+		clamp: byPerson(row.entry) || data.author === me(),
+		failed: Boolean(data.error),
+		woke: Boolean(data.wake),
+		...(data.picked && { picked: data.picked, pickedNobody: !data.to?.length }),
+	}
+}
+
+/**
+ * The other side of a crossed row: `label` when given, else a bot by its name, a thread's agent by its thread's title,
+ * or its model while the thread has none
+ */
+function farSide(author, thread, label) {
+	const title = threadOf(thread)?.title
+	const bot = bots.some((bot) => bot.name === author)
+	return {
+		otherAuthor: author,
+		otherThread: thread,
+		otherLabel: label ?? (bot || !title ? shortLabel(author) || titleOf(thread) : title),
+	}
 }
 
 /** A person wrote it here: not an agent, a bot, a report from another thread, a wake or a Stop */
@@ -962,7 +988,6 @@ function Message(props) {
 	const data = () => props.entry.data
 	const row = () => props.row
 	const crossed = () => ['sent', 'received'].includes(row().voice)
-	const forks = () => props.forks?.get(`${props.thread} ${props.entry.id}`) ?? []
 	return html`
 		<li
 			data-message=${() => props.at}
@@ -988,12 +1013,7 @@ function Message(props) {
 			>
 				<${Match} when=${crossed}>
 					<ol class="steps">
-						<${Cross}
-							sent=${() => row().voice === 'sent'}
-							author=${() => row().otherAuthor}
-							thread=${() => row().otherThread}
-							data=${() => data()}
-						/>
+						<${Cross} row=${() => row()} data=${() => data()} />
 					</ol>
 				<//>
 				<${Match} when=${() => row().voice === 'stopped'}>
@@ -1011,7 +1031,7 @@ function Message(props) {
 				</div>
 			<//>
 			<${WokeLine} woke=${() => row().woke} data=${() => data()} />
-			<${For} each=${forks}
+			<${For} each=${() => row().forks ?? []}
 				>${(fork) => html`
 					<div class="links">
 						<${ThreadLink} id=${() => fork.id}>${() => `forked → ${fork.title}`}<//>
@@ -1073,38 +1093,31 @@ function Clamp(props) {
 }
 
 /**
- * A message that crossed threads, as a step of a run: → sent or ← received, the other side in its bot's colour, then the
+ * A message that crossed threads, as a step of a run: → sent or ← received, the other side in its colour, then the
  * message's first line, quieter. Every row starts closed; a tap opens it to the whole message in ink, then any answer that
- * came of it, and last a way to the other thread.
- * The other side is `name` when given, else a bot by its name, a thread's agent by its thread's title, or its model while
- * the thread has none.
+ * came of it, and last a way to the other thread. Who and where come from its `row`; `sent` overrides its voice, as an
+ * ask's answer comes back on the ask's own row.
  */
 export function Cross(props) {
-	const bot = () => bots.some((bot) => bot.name === props.author)
-	const title = () => threadOf(props.thread)?.title
-	const label = () =>
-		props.name ?? (bot() || !title() ? shortLabel(props.author) || titleOf(props.thread) : title())
+	const sent = () => props.sent ?? props.row.voice === 'sent'
+	const label = () => props.row.otherLabel
 	return html`
-		<li class=${() => ['call', props.sent ? 'sent' : 'received']}>
+		<li class=${() => ['call', sent() ? 'sent' : 'received']}>
 			<details>
 				<summary
 					title=${() =>
 						props.title ??
-						`${props.sent ? 'to' : 'from'} ${props.author || label()} in thread ${props.thread}`}
+						`${sent() ? 'to' : 'from'} ${props.row.otherAuthor || label()} in thread ${props.row.otherThread}`}
 				>
-					<span class="tool" title=${label} style=${() => colorOf(props.author)}>${label}</span>
+					<span class="tool" title=${label} style=${() => colorOf(props.row.otherAuthor)}
+						>${label}</span
+					>
 					<span class="in">${() => (props.data.body ?? '').replace(/\s+/g, ' ')}</span>
 				</summary>
 				<div class="whole">
 					<${Body} data=${() => props.data} />
 					<${Images} images=${() => props.data.images} />
-					<${Show} when=${() => props.answer}>
-						<div class="answer">
-							<${Body} data=${() => props.answer.data} />
-							<${Images} images=${() => props.answer.data.images} />
-						</div>
-					<//>
-					<div class="open"><${ThreadLink} id=${() => props.thread}>open thread<//></div>
+					<div class="open"><${ThreadLink} id=${() => props.row.otherThread}>open thread<//></div>
 				</div>
 			</details>
 		</li>
@@ -1116,11 +1129,9 @@ const Asked = (props) => html`
 	<li class="elsewhere">
 		<ol class="steps">
 			<${Cross}
-				author=${() => props.question.data.author}
-				name=${() => shortLabel(props.question.data.author)}
-				thread=${() => props.thread}
-				data=${() => props.question.data}
-				title=${() => `${props.question.data.author} asked in thread ${props.thread}`}
+				row=${() => props.row}
+				data=${() => props.row.question.data}
+				title=${() => `${props.row.otherAuthor} asked in thread ${props.row.otherThread}`}
 			/>
 		</ol>
 	</li>
