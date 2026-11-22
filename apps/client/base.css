@@ -173,6 +173,7 @@ h2 {
 }
 
 pre {
+	font-family: var(--font-mono);
 	background: var(--tint);
 	color: var(--ink);
 	border: 1px solid var(--line);
