@@ -2383,33 +2383,13 @@ const routes = /** @type {[string, Function][]} */ ([
 				throw Object.assign(new Error('Only the owner changes settings'), { status: 403 })
 			return saveSettings(await input(req))
 		},
-		'GET /api/runners': async () => {
-			const [all, last] = [await work(), await known()]
-			return Object.keys(await keys()).map((name) => {
-				const { models, offers, ...runner } = last[name] ?? {}
-				const here = all.filter((job) => job.runner === name)
-				/** Its agents' statuses, by row: a bot's name, or `provider/id@runner` whatever its thinking */
-				const agents = {}
-				for (const job of here)
-					if (job.row) agents[job.row] = busiest([agents[job.row], job.status].filter(Boolean))
-				return {
-					name,
-					...runner,
-					...(lent?.name === name && { own: true }),
-					offers: offers ?? [],
-					models: Object.keys(models ?? {}),
-					online: runners.isOnline(name),
-					calls: runners.working(name),
-					status: busiest(here.map((job) => job.status)),
-					agents,
-					busy: new Set(here.filter((job) => job.status === 'working').map((job) => job.thread))
-						.size,
-					outdated: Boolean(runner.version) && runner.version !== bundle.version,
-				}
-			})
+		'GET /api/runners': runnerList,
+		'POST /api/runners': async (req) => {
+			const body = await input(req)
+			return mintKey(String(body.name ?? ''), origin(req), body.key)
 		},
-		'POST /api/runners': async (req) => mintKey(String((await input(req)).name ?? ''), origin(req)),
-		'DELETE /api/runners/:name': (req, name) => revoke(name),
+		'DELETE /api/runners/:name': (req, name, url) =>
+			revoke(name, url.searchParams.get('key') ?? undefined),
 		'GET /api/runners/:name/available': async (req, name) => {
 			if (!runners.isOnline(name)) throw new Error(`${name} is offline`)
 			return runners.call(name, { op: 'available' }, {})
@@ -2631,14 +2611,17 @@ async function handleRequest(req, res, serve = false) {
 		const match = pattern.exec(key)
 		if (!match) continue
 		try {
+			const result = await handle(
+				req,
+				match[1] && (/^\d+$/.test(match[1]) ? Number(match[1]) : decodeURIComponent(match[1])),
+				url,
+			)
 			send(
 				res,
 				req.method === 'POST' ? 201 : 200,
-				await handle(
-					req,
-					match[1] && (/^\d+$/.test(match[1]) ? Number(match[1]) : decodeURIComponent(match[1])),
-					url,
-				),
+				req.method !== 'GET' && result && typeof result === 'object' && !Array.isArray(result)
+					? { ...result, seq: feed.seq() }
+					: result,
 			)
 		} catch (error) {
 			send(res, error.status ?? 400, { error: error.message })
@@ -2679,7 +2662,349 @@ printf '\\n'
 exec "$run" "$data/runner-updater.js" "${server}" "$@"
 `
 
-// ── WebSocket: notify, watch ──────────────────────────────────────────────
+// ── WebSocket: feed, notify, watch ────────────────────────────────────────
+
+/**
+ * One versioned feed per socket: each subscribed view holds its last sent rows and `seq` (Pi Durable's commit seq,
+ * bumped on non-commit `touch`es too). Commits and touches recompute only affected views and send minimal `put`/`del`
+ * envelopes; reconnecting with `after` gets a delta while the view stays cached, else `reset: true`.
+ */
+function createFeed() {
+	let seq = 0
+	/** @type {Map<string, any>} */
+	const specs = new Map()
+	/** @type {Map<string, any>} */
+	const states = new Map()
+	const IDLE_MS = 60_000
+	const MAX_DELETED = 500
+	const MAX_IDLE = 64
+
+	const parse = (view) => {
+		if (specs.has(view)) return { spec: specs.get(view), param: undefined }
+		const slash = view.indexOf('/')
+		if (slash < 0) return null
+		const prefix = view.slice(0, slash + 1)
+		const spec = specs.get(prefix)
+		return spec ? { spec, param: view.slice(slash + 1) } : null
+	}
+
+	const sendFrame = (socket, view, payload, at) => {
+		if (socket.readyState !== 1) return
+		socket.send(payload)
+		socket.sentSeq.set(view, at)
+	}
+
+	const markDirty = (state, keys) => {
+		if (keys === true || !state.spec.row) state.dirty = true
+		else if (state.dirty !== true) {
+			if (!state.dirty) state.dirty = new Set()
+			for (const key of keys) state.dirty.add(key)
+		}
+		state.dirtySeq = seq
+		if (state.subs.size && !state.scheduled && !state.flushing) {
+			state.scheduled = true
+			queueMicrotask(() => {
+				state.scheduled = false
+				if (state.subs.size && state.dirty) void flushState(state)
+			})
+		}
+	}
+
+	const applyDiff = (state, nextRows, partial, targetSeq) => {
+		const put = []
+		const del = []
+		const keyOf = state.spec.keyOf ?? ((row) => row.id)
+		if (partial) {
+			for (const [key, row] of nextRows) {
+				if (row === null || row === undefined) {
+					if (state.rows.delete(key)) {
+						state.deleted.set(key, targetSeq)
+						del.push(key)
+					}
+					continue
+				}
+				const json = JSON.stringify(row)
+				const prev = state.rows.get(key)
+				if (!prev || prev.json !== json) {
+					state.rows.set(key, { seq: targetSeq, json, row })
+					state.deleted.delete(key)
+					put.push({ key, seq: targetSeq, row })
+				}
+			}
+		} else {
+			const seen = new Set()
+			for (const row of nextRows) {
+				const key = keyOf(row)
+				seen.add(key)
+				const json = JSON.stringify(row)
+				const prev = state.rows.get(key)
+				if (!prev || prev.json !== json) {
+					state.rows.set(key, { seq: targetSeq, json, row })
+					state.deleted.delete(key)
+					put.push({ key, seq: targetSeq, row })
+				}
+			}
+			for (const key of state.rows.keys())
+				if (!seen.has(key)) {
+					state.rows.delete(key)
+					state.deleted.set(key, targetSeq)
+					del.push(key)
+				}
+		}
+		if (state.deleted.size > MAX_DELETED) {
+			const drop = state.deleted.size - MAX_DELETED
+			let dropped = 0
+			for (const [key, delSeq] of state.deleted) {
+				state.deleted.delete(key)
+				if (delSeq > state.sinceSeq) state.sinceSeq = delSeq
+				if (++dropped >= drop) break
+			}
+		}
+		if (targetSeq > state.seq) state.seq = targetSeq
+		return { put, del }
+	}
+
+	const flushState = (state) => {
+		if (state.flushing) return state.flushing
+		state.flushing = (async () => {
+			while (state.dirty) {
+				const work = state.dirty
+				const targetSeq = Math.max(state.dirtySeq ?? seq, seq)
+				state.dirty = false
+				let diff
+				if (work === true || !state.spec.row) {
+					const all = await state.spec.all(state.viewer, state.param)
+					diff = applyDiff(state, all, false, targetSeq)
+				} else {
+					const entries = await Promise.all(
+						[...work].map(async (key) => [
+							key,
+							await state.spec.row(key, state.viewer, state.param),
+						]),
+					)
+					diff = applyDiff(state, entries, true, targetSeq)
+				}
+				if ((diff.put.length || diff.del.length) && state.subs.size) {
+					const payload = JSON.stringify({
+						view: state.view,
+						seq: state.seq,
+						put: diff.put,
+						del: diff.del,
+					})
+					for (const socket of state.subs) sendFrame(socket, state.view, payload, state.seq)
+				}
+			}
+		})()
+			.catch((error) => console.error(`feed ${state.view}: ${error.message}`))
+			.finally(() => {
+				state.flushing = null
+			})
+		return state.flushing
+	}
+
+	const armEviction = (state) => {
+		clearTimeout(state.evict)
+		state.evict = setTimeout(() => {
+			if (!state.subs.size) states.delete(state.cacheKey)
+		}, IDLE_MS)
+		state.evict.unref()
+		let idle = 0
+		for (const each of states.values()) if (!each.subs.size) idle++
+		if (idle > MAX_IDLE)
+			for (const [key, each] of states) {
+				if (!each.subs.size && each !== state) {
+					clearTimeout(each.evict)
+					states.delete(key)
+					if (--idle <= MAX_IDLE) break
+				}
+			}
+	}
+
+	const onSocket = (socket, run) =>
+		(socket.feedQueue = (socket.feedQueue ?? Promise.resolve()).then(run).catch(() => {}))
+
+	return {
+		seq: () => seq,
+		define: (name, spec) => specs.set(name, spec),
+		onCommit: (publication) => {
+			seq = Math.max(seq + 1, publication.seq)
+			for (const state of states.values()) {
+				if (!state.ready) continue
+				let matched = false
+				/** @type {Set<any> | null} */
+				let keys = null
+				for (const change of publication.changes) {
+					const hit = state.spec.match?.(change, state.param)
+					if (!hit) continue
+					if (hit === true) {
+						matched = true
+						break
+					}
+					keys ??= new Set()
+					for (const key of hit) keys.add(key)
+				}
+				if (matched) markDirty(state, true)
+				else if (keys?.size) markDirty(state, keys)
+			}
+		},
+		touch: (view, key) => {
+			seq++
+			for (const state of states.values()) {
+				if (!state.ready) continue
+				if (state.view !== view && !state.view.startsWith(`${view}/`)) continue
+				markDirty(state, key === undefined ? true : [key])
+			}
+		},
+		subscribe: (socket, view, after) =>
+			onSocket(socket, async () => {
+				if (typeof view !== 'string' || socket.readyState !== 1) return
+				const parsed = parse(view)
+				if (!parsed) return
+				const { spec, param } = parsed
+				const viewer = spec.perViewer ? socket.viewer : ''
+				const cacheKey = spec.perViewer ? `${view}\0${viewer}` : view
+				let state = states.get(cacheKey)
+				if (!state) {
+					state = {
+						view,
+						cacheKey,
+						spec,
+						param,
+						viewer,
+						seq: 0,
+						sinceSeq: 0,
+						ready: false,
+						rows: new Map(),
+						deleted: new Map(),
+						subs: new Set(),
+						dirty: false,
+						dirtySeq: 0,
+						scheduled: false,
+						flushing: null,
+						evict: null,
+					}
+					states.set(cacheKey, state)
+				}
+				clearTimeout(state.evict)
+				state.evict = null
+				if (!state.ready) {
+					state.flushing ??= (async () => {
+						const at = seq
+						const all = await spec.all(viewer, param)
+						const keyOf = spec.keyOf ?? ((row) => row.id)
+						for (const row of all) {
+							const key = keyOf(row)
+							state.rows.set(key, { seq: at, json: JSON.stringify(row), row })
+						}
+						state.seq = at
+						state.sinceSeq = at
+						state.ready = true
+					})().finally(() => {
+						state.flushing = null
+					})
+					await state.flushing
+				}
+				if (state.dirty || state.flushing) await flushState(state)
+				if (socket.readyState !== 1) {
+					if (!state.subs.size) armEviction(state)
+					return
+				}
+				const delta = typeof after === 'number' && after >= state.sinceSeq && after <= state.seq
+				const frame = delta
+					? {
+							view,
+							seq: state.seq,
+							put: [...state.rows.entries()]
+								.filter(([, entry]) => entry.seq > after)
+								.map(([key, entry]) => ({ key, seq: entry.seq, row: entry.row })),
+							del: [...state.deleted.entries()]
+								.filter(([, delSeq]) => delSeq > after)
+								.map(([key]) => key),
+						}
+					: {
+							view,
+							seq: state.seq,
+							reset: true,
+							put: [...state.rows.entries()].map(([key, entry]) => ({
+								key,
+								seq: entry.seq,
+								row: entry.row,
+							})),
+							del: [],
+						}
+				sendFrame(socket, view, JSON.stringify(frame), state.seq)
+				state.subs.add(socket)
+				socket.subs.set(view, state)
+			}),
+		unsubscribe: (socket, view) =>
+			onSocket(socket, () => {
+				const state = socket.subs?.get(view)
+				if (!state) return
+				state.subs.delete(socket)
+				socket.subs.delete(view)
+				if (!state.subs.size) armEviction(state)
+			}),
+		sync: (socket, view, targetSeq) =>
+			onSocket(socket, async () => {
+				const state = socket.subs?.get(view)
+				if (!state || socket.readyState !== 1) return
+				if ((socket.sentSeq.get(view) ?? -1) >= targetSeq) return
+				if (state.dirty || state.flushing) await flushState(state)
+				if (socket.readyState !== 1) return
+				if ((socket.sentSeq.get(view) ?? -1) < targetSeq) {
+					const at = Math.max(state.seq, seq)
+					sendFrame(socket, view, JSON.stringify({ view, seq: at, put: [], del: [] }), at)
+				}
+			}),
+		disconnect: (socket) => {
+			if (!socket.subs) return
+			for (const state of socket.subs.values()) {
+				state.subs.delete(socket)
+				if (!state.subs.size) armEviction(state)
+			}
+			socket.subs.clear()
+		},
+	}
+}
+
+async function runnerList() {
+	const [all, last] = [await work(), await known()]
+	return Object.keys(await keys()).map((name) => {
+		const { models, offers, ...runner } = last[name] ?? {}
+		const here = all.filter((job) => job.runner === name)
+		/** Its agents' statuses, by row: a bot's name, or `provider/id@runner` whatever its thinking */
+		const agents = {}
+		for (const job of here)
+			if (job.row) agents[job.row] = busiest([agents[job.row], job.status].filter(Boolean))
+		return {
+			name,
+			...runner,
+			...(lent?.name === name && { own: true }),
+			offers: offers ?? [],
+			models: Object.keys(models ?? {}),
+			online: runners.isOnline(name),
+			calls: runners.working(name),
+			status: busiest(here.map((job) => job.status)),
+			agents,
+			busy: new Set(here.filter((job) => job.status === 'working').map((job) => job.thread)).size,
+			outdated: Boolean(runner.version) && runner.version !== bundle.version,
+		}
+	})
+}
+
+const feed = createFeed()
+feed.define('runners', {
+	keyOf: (row) => row.name,
+	all: runnerList,
+	match: (change) => {
+		if (change.type === 'task') return isWork(change.value.kind) && runsOnRunner(change.value.kind)
+		if (change.type === 'document')
+			return ['ade.runners', 'ade.keys', 'ade.lent', AgentDoc.definition.kind].includes(
+				change.record.kind,
+			)
+		return false
+	},
+})
 
 /** A launched runner whose version differs is asked to update once per connection, when it has no calls open, so nothing it's doing is cut off */
 const outdated = new Set()
@@ -2694,11 +3019,9 @@ function nudge() {
 }
 
 /** The lists a browser fetches again when its socket names them; a runner coming or going moves every agent on it */
-const WORK = ['threads', 'archived', 'runners']
+const WORK = ['threads', 'archived']
 const docLists = {
 	'ade.runners': WORK,
-	'ade.keys': ['runners'],
-	'ade.lent': ['runners'],
 	'ade.bots': ['threads', 'archived', 'bots'],
 }
 /** Each thread's place, kept from its doc as it changes: archived or not, and its dismissed question */
@@ -2778,11 +3101,7 @@ function listsOf({ changes }, ended) {
 				ended.add(conversationId)
 				turned = true
 			}
-			return [
-				...listOf(conversationId),
-				...(runsOnRunner(kind) ? ['runners'] : []),
-				...(turned && openQuestion ? ['inbox'] : []),
-			]
+			return [...listOf(conversationId), ...(turned && openQuestion ? ['inbox'] : [])]
 		}
 		if (change.type === 'submission') return []
 		const { kind } = change.record
@@ -2805,7 +3124,6 @@ function listsOf({ changes }, ended) {
 				...(change.type === 'document' && change.conversationId
 					? listOf(change.conversationId)
 					: ['threads', 'archived']),
-				'runners',
 			]
 		return docLists[kind] ?? []
 	})
@@ -2835,6 +3153,7 @@ const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
 harness.observeCommits({
 	advance: (publication) => {
+		feed.onCommit(publication)
 		const ended = new Set()
 		notify(listsOf(publication, ended))
 		for (const change of publication.changes)
@@ -3110,7 +3429,7 @@ const lastDelivery = (handle, first) =>
 // ── Runner keys ───────────────────────────────────────────────────────────
 
 /** A new key for a runner, replacing its old one, whose runner is cut off */
-async function mintKey(name, server) {
+async function mintKey(name, server, requestKey) {
 	if (!/^[\w.-]+$/.test(name))
 		throw new Error('name the runner: letters, digits, dot, dash or underscore')
 	if (process.env.HOST === '0.0.0.0' && loopback(new URL(server).hostname)) {
@@ -3120,30 +3439,36 @@ async function mintKey(name, server) {
 		)?.address
 		if (address) server = server.replace(new URL(server).hostname, address)
 	}
-	const key = `air_${randomBytes(24).toString('base64url')}`
-	await commit(async (tx) => {
-		;(await tx.doc(Keys))[name] = sha256(key)
-	})
+	const result = await once(
+		scopedKey(`runner ${name}`, requestKey),
+		`runner ${name}`,
+		async (tx) => {
+			const key = `air_${randomBytes(24).toString('base64url')}`
+			;(await tx.doc(Keys))[name] = sha256(key)
+			return {
+				name,
+				key,
+				ade: `ADE_KEY=${key} ade runner --server ${server} --name ${name}`,
+				connect: `curl -fsSL ${server}/connect-runner | ADE_KEY=${key} sh -s -- --name ${name} --dir .`,
+			}
+		},
+	)
 	runners.kick(name, 4001, `${name}'s key was replaced`)
-	notify(['runners'])
-	return {
-		name,
-		key,
-		ade: `ADE_KEY=${key} ade runner --server ${server} --name ${name}`,
-		connect: `curl -fsSL ${server}/connect-runner | ADE_KEY=${key} sh -s -- --name ${name} --dir .`,
-	}
+	return result
 }
-async function revoke(name) {
-	const had = await commit(async (tx) => {
-		const all = await tx.doc(Keys)
-		if (!all[name]) return false
-		delete all[name]
-		return true
-	})
-	if (!had) throw Object.assign(new Error(`No runner named ${name}`), { status: 404 })
+async function revoke(name, requestKey) {
+	const result = await once(
+		scopedKey(`revoke ${name}`, requestKey),
+		`revoke ${name}`,
+		async (tx) => {
+			const all = await tx.doc(Keys)
+			if (!all[name]) throw Object.assign(new Error(`No runner named ${name}`), { status: 404 })
+			delete all[name]
+			return { revoked: name }
+		},
+	)
 	runners.kick(name, 4001, `${name} was revoked`)
-	notify(['runners'])
-	return { revoked: name }
+	return result
 }
 
 // ── Upgrade: sockets and runner connections ───────────────────────────────
@@ -3176,9 +3501,11 @@ async function upgrade(req, raw, head, serve = false) {
 		)
 	const close = () => {
 		clients.delete(socket)
+		feed.disconnect(socket)
 		watch(socket, null)
 		if (connection && runners.disconnect(connection)) {
 			say('runner', `${name} offline`)
+			feed.touch('runners')
 			notify(WORK)
 		}
 	}
@@ -3194,10 +3521,16 @@ async function upgrade(req, raw, head, serve = false) {
 			}
 		})
 	if (!name) {
+		socket.viewer = sender
+		socket.subs = new Map()
+		socket.sentSeq = new Map()
 		listen((text) => {
 			const message = JSON.parse(text)
-			if ('earlier' in message) earlier(socket, message.earlier, message.all)
-			else watch(socket, message.watch)
+			if ('sub' in message) feed.subscribe(socket, message.sub, message.after)
+			else if ('unsub' in message) feed.unsubscribe(socket, message.unsub)
+			else if ('sync' in message) feed.sync(socket, message.sync, message.seq)
+			else if ('earlier' in message) earlier(socket, message.earlier, message.all)
+			else if ('watch' in message) watch(socket, message.watch)
 		})
 		socket.person = sender
 		return clients.add(socket)
@@ -3249,11 +3582,12 @@ async function upgrade(req, raw, head, serve = false) {
 	if (!models.getProvider(`runner:${name}`)) provide(name, resolved)
 	listen(runners.receive)
 	runners.connect(connection, (text) => socket.send(text))
+	feed.touch('runners')
 	notify(WORK)
 	socket.send(JSON.stringify({ op: 'ready' }))
 	if (runner.version && runner.version !== bundle.version) {
 		outdated.add(connection)
-		notify(['runners'])
+		feed.touch('runners')
 	}
 	say(
 		'runner',

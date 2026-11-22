@@ -1,7 +1,9 @@
-/** The server, as this client sees it: lists over HTTP, changes over /ws */
+/** The server, as this client sees it: one versioned feed over /ws, one store in memory */
 import {
+	action,
 	createEffect,
 	createMemo,
+	createOptimisticStore,
 	createRoot,
 	createSignal,
 	createStore,
@@ -15,7 +17,7 @@ export const params = new URLSearchParams(location.search)
 /** Just the chat, or the live system around it */
 export const [chat, setChat] = createSignal(!params.has('story'))
 
-/** What a fresh page shows before the server has answered once; everything after comes from cache or the server */
+/** What a fresh page shows before the server has answered once */
 const DEFAULT_SERVER = {
 	modules: [],
 	off: [],
@@ -25,20 +27,6 @@ const DEFAULT_SERVER = {
 		director: {},
 		memory: { model: '', compactAt: null },
 	},
-}
-/** What's on screen survives a reload: read before first paint, written after every answer */
-const cached = (key, fallback) => {
-	try {
-		const found = localStorage.getItem(`ade.${key}`)
-		return found === null ? fallback : JSON.parse(found)
-	} catch {
-		return fallback
-	}
-}
-const cache = (key, value) => {
-	try {
-		localStorage.setItem(`ade.${key}`, JSON.stringify(value))
-	} catch {}
 }
 export const url = params.get('server') || location.origin
 /** A link with the owner's key after `#key=` brings this browser in: the server keeps it as a cookie, and the address drops it */
@@ -239,14 +227,126 @@ export const {
 	changeThread,
 	forgetBot,
 	revokeRunner,
+	subscribeView,
+	viewStore,
+	caughtUp,
+	write,
 } = createRoot(() => {
-	const [server, setServer] = createSignal(cached('server', DEFAULT_SERVER))
-	/** The rows this page last saw, shown the way a fetch's are until one lands */
-	const shownAtStart = listed(cached('threads', []))
-	const [threads, setThreads] = createStore(shownAtStart.open)
-	const [archivedThreads, setArchivedThreads] = createStore([])
+	const [server, setServer] = createSignal(DEFAULT_SERVER)
+	const [threads, setThreads] = createStore(/** @type {any[]} */ ([]))
+	const [archivedThreads, setArchivedThreads] = createStore(/** @type {any[]} */ ([]))
 	/** Both lists as plain rows, set with every fetch: a scan of the whole list reads this one signal instead of every row's fields */
-	const [threadRows, setThreadRows] = createSignal(shownAtStart)
+	const [threadRows, setThreadRows] = createSignal(/** @type {any} */ ({ open: [], archived: [] }))
+
+	// ── One versioned feed, one in-memory store ──
+	let socket = null
+	const sendSocket = (frame) => {
+		if (socket?.readyState === 1) socket.send(JSON.stringify(frame))
+	}
+	/** Active views on this page, keyed by view name: `{ seq, synced, map, rows, setRows, waiters, refs, sort }` */
+	const views = new Map()
+	const orderOf = (view) => {
+		const list = [...view.map.values()]
+		return view.sort ? list.sort(view.sort) : list
+	}
+	const wakeWaiters = (view, force = false) => {
+		if (!view.waiters.length) return
+		view.waiters = view.waiters.filter((waiter) => {
+			if (!force && (!view.synced || (view.seq ?? -1) < waiter.seq)) return true
+			waiter.resolve()
+			return false
+		})
+	}
+	const applyFrame = (frame) => {
+		const view = views.get(frame.view)
+		if (!view) return
+		let changed = false
+		if (frame.reset) {
+			view.map = new Map((frame.put ?? []).map((item) => [item.key, item.row]))
+			view.seq = frame.seq
+			view.synced = true
+			changed = true
+		} else {
+			if (view.seq !== null && frame.seq < view.seq) return
+			if (view.seq === null || frame.seq > view.seq) {
+				for (const item of frame.put ?? []) {
+					view.map.set(item.key, item.row)
+					changed = true
+				}
+				for (const key of frame.del ?? []) {
+					if (view.map.delete(key)) changed = true
+				}
+				view.seq = frame.seq
+			}
+			view.synced = true
+		}
+		if (changed) view.setRows(orderOf(view))
+		wakeWaiters(view, Boolean(frame.reset))
+	}
+	const subscribeView = (name, { sort } = {}) => {
+		let view = views.get(name)
+		if (!view) {
+			const [rows, setRows] = createSignal(/** @type {any[]} */ ([]))
+			view = {
+				name,
+				seq: null,
+				synced: false,
+				map: new Map(),
+				rows,
+				setRows,
+				waiters: [],
+				refs: 0,
+				sort,
+			}
+			views.set(name, view)
+		} else if (sort && !view.sort) {
+			view.sort = sort
+		}
+		if (view.refs++ === 0) sendSocket({ sub: name })
+		return {
+			rows: view.rows,
+			release: () => {
+				if (--view.refs > 0) return
+				views.delete(name)
+				wakeWaiters(view, true)
+				sendSocket({ unsub: name })
+			},
+		}
+	}
+	const viewStore = (name, key, options) => {
+		const { rows } = subscribeView(name, options)
+		return createOptimisticStore(() => rows(), /** @type {any[]} */ ([]), { key })
+	}
+	const caughtUp = (name, seq) => {
+		const view = views.get(name)
+		if (!view) return Promise.resolve()
+		if (view.synced && (view.seq ?? -1) >= seq) return Promise.resolve()
+		sendSocket({ sync: name, seq })
+		return new Promise((resolve) => view.waiters.push({ seq, resolve }))
+	}
+	/** Writes that failed to reach the server, resent on socket reconnect with the same `key` */
+	const inflight = new Map()
+	const write = async (path, body, method = 'POST') => {
+		const key = crypto.randomUUID()
+		const target =
+			body === undefined
+				? `${path}${path.includes('?') ? '&' : '?'}key=${encodeURIComponent(key)}`
+				: path
+		const payload = body === undefined ? undefined : { ...body, key }
+		const attempt = () => api(target, payload, method)
+		try {
+			return await attempt()
+		} catch (error) {
+			if (error.message !== "Can't reach the server") throw error
+			return new Promise((resolve, reject) => {
+				inflight.set(key, () => {
+					inflight.delete(key)
+					attempt().then(resolve, reject)
+				})
+			})
+		}
+	}
+
 	/** The `client` and `commit` of the first answer this page got: what it was loaded with */
 	let loadedWith, loadedAt
 	const reloadServer = () =>
@@ -254,7 +354,6 @@ export const {
 			loadedWith ??= data.client
 			loadedAt ??= data.commit
 			setServer(data)
-			cache('server', data)
 		})
 	/** Whether a reload would bring newer client files or a server that changed since this page loaded */
 	const behind = createMemo(() => {
@@ -277,13 +376,12 @@ export const {
 		},
 	)
 	const answered = {}
-	const reloadList = (path, show, cacheKey = path, enabled = true) => {
+	const reloadList = (path, show, enabled = true) => {
 		const asked = performance.now()
 		return (enabled ? api(`/api/${path}`) : Promise.resolve([])).then((data) => {
 			if (asked < (answered[path] ?? 0)) return
 			answered[path] = asked
 			show(data)
-			if (cacheKey) cache(cacheKey, data)
 		})
 	}
 	/** Shows a change at once, then asks the server; a refusal takes it back and throws, else it holds until the next fetch confirms it */
@@ -306,9 +404,9 @@ export const {
 	const inboxKey = (item) => `${item.kind} ${item.thread}`
 	/** A list keyed by `key`, fetched only while its module is on, minus the rows you removed that the server hasn't confirmed */
 	const removable = (path, key, module, idOf = (row) => row[key]) => {
-		const [rows, setRows] = createStore(cached(path, []))
+		const [rows, setRows] = createStore(/** @type {any} */ ([]))
 		const removing = new Set()
-		let fetched = cached(path, [])
+		let fetched = []
 		const show = () =>
 			setRows(
 				reconcile(
@@ -323,7 +421,6 @@ export const {
 					fetched = data
 					show()
 				},
-				path,
 				!module || server().modules.includes(module),
 			)
 		const remove = (id, request) =>
@@ -336,8 +433,8 @@ export const {
 			)
 		return { rows, reload, remove }
 	}
+	const [runners, setOptimisticRunners] = viewStore('runners', 'name')
 	const botList = removable('bots', 'name', 'bots')
-	const runnerList = removable('runners', 'name')
 	/** What needs you, one entry per thread: open questions, then failures, then unread answers */
 	const inboxList = removable(
 		'inbox',
@@ -354,7 +451,7 @@ export const {
 		)
 	/** Changes to a thread's row (archived, title) that the server hasn't confirmed; both lists show them over every fetch until it does */
 	const pending = new Map()
-	let fetchedThreads = cached('threads', [])
+	let fetchedThreads = []
 	let fetchedArchived = []
 	const showThreads = () => {
 		const fresh = new Set(fetchedThreads.map((row) => row.id))
@@ -373,14 +470,10 @@ export const {
 		})
 	/** Its own fetch; the main list never carries archived threads */
 	const reloadArchivedThreads = () =>
-		reloadList(
-			'threads/archived',
-			(data) => {
-				fetchedArchived = data
-				showThreads()
-			},
-			null,
-		)
+		reloadList('threads/archived', (data) => {
+			fetchedArchived = data
+			showThreads()
+		})
 	const changeThread = (id, change, request) => {
 		const mine = { ...pending.get(id), ...change }
 		return optimistically(
@@ -393,20 +486,20 @@ export const {
 	}
 	const forgetBot = (name) =>
 		botList.remove(name, () => api(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE'))
-	const revokeRunner = (name) =>
-		runnerList.remove(name, () =>
-			api(`/api/runners/${encodeURIComponent(name)}`, undefined, 'DELETE'),
-		)
+	const revokeRunner = action(function* (name) {
+		setOptimisticRunners((rows) => rows.filter((row) => row.name !== name))
+		const { seq } = yield write(`/api/runners/${encodeURIComponent(name)}`, undefined, 'DELETE')
+		yield caughtUp('runners', seq)
+	})
 	const reloads = {
 		server: reloadServer,
 		threads: reloadThreads,
 		archived: reloadArchivedThreads,
-		runners: runnerList.reload,
 		bots: botList.reload,
 		inbox: inboxList.reload,
 		schedule: () => setScheduleChanged((count) => count + 1),
 	}
-	/** Every list, once the socket is open, so no change slips between a fetch and the socket; bots and inbox wait for the modules */
+	/** Every remaining unmigrated list, once the socket is open */
 	const reload = () => {
 		reloadServer().then(() => {
 			botList.reload()
@@ -414,18 +507,29 @@ export const {
 		})
 		reloadThreads()
 		reloadArchivedThreads()
-		runnerList.reload()
 	}
-	/** The socket names the lists that changed; a reconnect may have missed some, so it fetches them all */
-	const changed = (message) => message.changed?.forEach((list) => reloads[list]?.())
+	const receive = (message) => {
+		if (message.view) return applyFrame(message)
+		message.changed?.forEach((list) => reloads[list]?.())
+	}
 	onSettled(() => {
 		watch(
-			changed,
-			() => {
+			receive,
+			(ws) => {
+				socket = ws
 				setConnected(true)
+				for (const [name, view] of views) {
+					view.synced = false
+					sendSocket({ sub: name, ...(view.seq !== null ? { after: view.seq } : {}) })
+				}
+				for (const resend of inflight.values()) resend()
 				reload()
 			},
-			() => setConnected(false),
+			() => {
+				socket = null
+				setConnected(false)
+				for (const view of views.values()) view.synced = false
+			},
 		)
 	})
 	/** Threads by id, rebuilt only when a fetch shows the list; rows change nowhere else, so the store's rows are read untracked */
@@ -461,7 +565,7 @@ export const {
 	return {
 		threads,
 		archivedThreads,
-		runners: runnerList.rows,
+		runners,
 		server,
 		behind,
 		changes,
@@ -479,6 +583,10 @@ export const {
 		changeThread,
 		forgetBot,
 		revokeRunner,
+		subscribeView,
+		viewStore,
+		caughtUp,
+		write,
 	}
 })
 

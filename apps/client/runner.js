@@ -1,7 +1,16 @@
 /** Runners show their agents and choose whom the composer asks. */
 import html from '@solidjs/html'
 import { createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
-import { api, minted, revokeRunner, runners, setMinted, threadOf, threadRows } from './server.js'
+import {
+	api,
+	minted,
+	revokeRunner,
+	runners,
+	setMinted,
+	threadOf,
+	threadRows,
+	write,
+} from './server.js'
 import { rowOf, lastToolCall, modelsOf, thinkingWord } from './agent.js'
 import { choose, configure, recipients, toFor } from './composer.js'
 import { placePopover } from './popover.js'
@@ -227,7 +236,7 @@ export function ConnectRunner(props) {
 	const add = busy(
 		async () => {
 			setError('')
-			setMinted(await api('/api/runners', { name: name().trim() }))
+			setMinted(await write('/api/runners', { name: name().trim() }))
 			setName('')
 			setCopied('')
 		},

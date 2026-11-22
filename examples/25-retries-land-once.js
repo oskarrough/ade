@@ -28,6 +28,8 @@ check(
 )
 const id = made.json.id
 
+const withoutSeq = ({ seq: _, ...rest }) => rest
+
 const said = await api('POST', `/api/threads/${id}/entries`, {
 	body: 'hello',
 	to,
@@ -39,7 +41,7 @@ const resent = await api('POST', `/api/threads/${id}/entries`, {
 	key: 'say-1',
 })
 check(
-	JSON.stringify(resent.json) === JSON.stringify(said.json),
+	JSON.stringify(withoutSeq(resent.json)) === JSON.stringify(withoutSeq(said.json)),
 	'a retried message, by its own key, returns the first result',
 	JSON.stringify([said.json, resent.json]),
 )
@@ -54,7 +56,8 @@ const later = await api('POST', `/api/threads/${id}/entries`, {
 })
 const remade = await api('POST', '/api/threads', { title: 'once', key: 'make-1' })
 check(
-	JSON.stringify(later.json) === JSON.stringify(said.json) && remade.json.id === id,
+	JSON.stringify(withoutSeq(later.json)) === JSON.stringify(withoutSeq(said.json)) &&
+		remade.json.id === id,
 	'a retry after a restart still finds its receipt',
 	JSON.stringify([later.json, remade.json]),
 )

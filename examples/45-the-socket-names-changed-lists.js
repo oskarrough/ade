@@ -28,11 +28,7 @@ const id = await createThread('lists')
 await postEntry(id, 'hi', 'echo/one@laptop')
 await answered(id)
 await sleep(300)
-check(
-	named('threads') && named('runners'),
-	'asking an agent names the thread list and the runner list',
-	JSON.stringify(heard),
-)
+check(named('threads'), 'asking an agent names the thread list', JSON.stringify(heard))
 check(
 	heard.every((message) => message.changed?.length) && !named('bots'),
 	'every list message names what changed, and an agent at work leaves the bot list alone',
@@ -85,8 +81,8 @@ check(Boolean(await until(async () => named('bots'))), 'a new bot names the bot 
 heard.length = 0
 await kill(laptop)
 check(
-	Boolean(await until(async () => named('runners') && named('threads'))),
-	'a runner going offline names the runner list and the thread list, whose agents it blocks',
+	Boolean(await until(async () => named('threads'))),
+	'a runner going offline names the thread list, whose agents it blocks',
 	JSON.stringify(heard),
 )
 
@@ -94,8 +90,8 @@ check(
 heard.length = 0
 await postEntry(id, 'are you there?', 'echo/one@laptop')
 check(
-	Boolean(await until(async () => named('threads') && named('runners'))),
-	'a run starting names the thread list and the runner list',
+	Boolean(await until(async () => named('threads'))),
+	'a run starting names the thread list',
 	JSON.stringify(heard),
 )
 await until(async () => (await api('GET', `/api/threads/${id}`)).json.status === 'blocked')
@@ -103,8 +99,8 @@ await sleep(300)
 heard.length = 0
 await api('POST', `/api/threads/${id}/stop`, {})
 check(
-	Boolean(await until(async () => named('threads') && named('runners'))),
-	'a run ending, here stopped while it waits for its runner, names them again',
+	Boolean(await until(async () => named('threads'))),
+	'a run ending, here stopped while it waits for its runner, names it again',
 	JSON.stringify(heard),
 )
 
