@@ -1,19 +1,7 @@
 /** Memory belongs to one visible thread. Disposing it discards every outstanding read. */
 import html from '@solidjs/html'
-import {
-	affects,
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	Errored,
-	isPending,
-	latest,
-	Loading,
-	refresh,
-	Show,
-} from 'solid-js'
-import { api, connected, current, entries, server, threadOf } from './server.js'
+import { createMemo, createSignal, For, Loading, Show } from 'solid-js'
+import { api, connected, current, entries, feedItem, server, threadOf } from './server.js'
 import { cutOf, newestCut, plural } from './run.js'
 
 /**
@@ -66,37 +54,26 @@ function CompactionOf(props) {
 export function Memory() {
 	const [room, setRoom] = createSignal(30)
 	return html`
-		<${Errored}
-			fallback=${(error, retry) => html`
-				<p class="mute">
-					${() => error().message}
-					<button onClick=${retry}>Retry memory</button>
-				</p>
-			`}
+		<${Show}
+			when=${() => connected()}
+			fallback=${html`<p class="mute">Disconnected from the server.</p>`}
 		>
 			<${Show}
-				when=${() => connected()}
-				fallback=${html`<p class="mute">Disconnected from the server.</p>`}
+				when=${() => server().modules.includes('memory')}
+				fallback=${html`
+					<p class="mute">
+						This server runs without memory. Switch it on in settings beside the runners.
+					</p>
+				`}
 			>
-				<${Show}
-					when=${() => server().modules.includes('memory')}
-					fallback=${html`
-						<p class="mute">
-							This server runs without memory. Switch it on in settings beside the runners.
-						</p>
+				<${Show} when=${() => current()} keyed>
+					${(id) => html`
+						<${ThreadMemory}
+							thread=${id}
+							room=${() => room()}
+							onRoom=${(value) => setRoom(value)}
+						/>
 					`}
-				>
-					<${Show} when=${() => current()} keyed>
-						${(id) => html`
-							<${Loading} fallback=${html`<p class="mute">Reading memory…</p>`}>
-								<${ThreadMemory}
-									thread=${id}
-									room=${() => room()}
-									onRoom=${(value) => setRoom(value)}
-								/>
-							<//>
-						`}
-					<//>
 				<//>
 			<//>
 		<//>
@@ -106,22 +83,7 @@ export function Memory() {
 function ThreadMemory(props) {
 	// The keyed owner fixes the thread until this entire view is disposed.
 	const read = (query) => api(`/api/threads/${props.thread}/memory${query}`)
-	const view = createMemo(() => read(`?room=${props.room}`))
-	/** Read again after 3 s while lines are still being written or after a message lands */
-	createEffect(
-		() => ({
-			writing: view().cut.some((line) => line.text.includes('not summarized yet')),
-			messages: entries[props.thread]?.length ?? 0,
-		}),
-		({ writing, messages }, previous) => {
-			if (!writing && (!previous || messages === previous.messages)) return
-			const timer = setTimeout(() => {
-				affects(view)
-				refresh(view)
-			}, 3000)
-			return () => clearTimeout(timer)
-		},
-	)
+	const view = feedItem(() => `memory/${props.thread}?room=${props.room}`)
 	const Lines = (props) => html`
 		<ul>
 			<${For} each=${() => props.nodes} keyed=${key}>
@@ -175,64 +137,68 @@ function ThreadMemory(props) {
 	let root
 	return html`
 		<div class="memory reads" ref=${(el) => (root = el)}>
-			<${Show} when=${() => isPending(view)}>
-				<p class="mute">Updating memory…</p>
-			<//>
-			<${Show} when=${() => view().total} fallback=${html`<p class="mute">No messages yet.</p>`}>
-				<label class="room"
-					>Room
-					<input
-						type="range"
-						min="0"
-						max="100"
-						aria-label="Memory room"
-						value=${() => latest(() => props.room)}
-						onInput=${(event) => props.onRoom(Number(event.currentTarget.value))}
-					/>
-					<span
-						>${() => {
-							const { budget } = view()
-							return budget < 1024
-								? `${budget} B`
-								: `${(budget / 1024).toFixed(budget < 10240 ? 1 : 0)} KB`
-						}}</span
+			<${Show} when=${view} fallback=${html`<p class="mute">Reading memory…</p>`}
+				>${(found) => html`
+					<${Show}
+						when=${() => found().total}
+						fallback=${html`<p class="mute">No messages yet.</p>`}
 					>
-				</label>
-				<div class="bar">
-					<${For} each=${() => view().cut} keyed=${key}>
-						${(line) => html`
+						<label class="room"
+							>Room
+							<input
+								type="range"
+								min="0"
+								max="100"
+								aria-label="Memory room"
+								value=${() => props.room}
+								onInput=${(event) => props.onRoom(Number(event.currentTarget.value))}
+							/>
 							<span
-								title=${() =>
-									`${key(line())}: ` +
-									(line().n > 1 ? `${line().n} messages in one line` : 'one message')}
-								style=${() => {
-									const n = line().n
-									const shade = 88 - Math.min(1, Math.log2(n) / 5) * 50
-									return `flex-grow:${n};background:hsl(215 60% ${shade}%)`
-								}}
-								onClick=${() => root.querySelector(`[data-at="${key(line())}"]`)?.click()}
-							></span>
-						`}
+								>${() => {
+									const { budget } = found()
+									return budget < 1024
+										? `${budget} B`
+										: `${(budget / 1024).toFixed(budget < 10240 ? 1 : 0)} KB`
+								}}</span
+							>
+						</label>
+						<div class="bar">
+							<${For} each=${() => found().cut} keyed=${key}>
+								${(line) => html`
+									<span
+										title=${() =>
+											`${key(line())}: ` +
+											(line().n > 1 ? `${line().n} messages in one line` : 'one message')}
+										style=${() => {
+											const n = line().n
+											const shade = 88 - Math.min(1, Math.log2(n) / 5) * 50
+											return `flex-grow:${n};background:hsl(215 60% ${shade}%)`
+										}}
+										onClick=${() => root.querySelector(`[data-at="${key(line())}"]`)?.click()}
+									></span>
+								`}
+							<//>
+						</div>
+						<p class="mute">
+							${() => {
+								const { cut, budget, total } = found(),
+									n = cut.length
+								return (
+									`The agent reads the ${n} highlighted line${n === 1 ? '' : 's'}: ` +
+									`${sizeOf(cut).toLocaleString()} of ${budget.toLocaleString()} bytes ` +
+									`for ${total} messages. ` +
+									(n === total
+										? "Room for every message's own line."
+										: n <= 2
+											? 'As squeezed as it gets: it zooms to read more.'
+											: 'Old messages share lines; the latest have one each.')
+								)
+							}}
+						</p>
+						<${Lines} nodes=${() => found().tree} />
 					<//>
-				</div>
-				<p class="mute">
-					${() => {
-						const { cut, budget, total } = view(),
-							n = cut.length
-						return (
-							`The agent reads the ${n} highlighted line${n === 1 ? '' : 's'}: ` +
-							`${sizeOf(cut).toLocaleString()} of ${budget.toLocaleString()} bytes ` +
-							`for ${total} messages. ` +
-							(n === total
-								? "Room for every message's own line."
-								: n <= 2
-									? 'As squeezed as it gets: it zooms to read more.'
-									: 'Old messages share lines; the latest have one each.')
-						)
-					}}
-				</p>
-				<${Lines} nodes=${() => view().tree} />
-			<//>
+				`}<//
+			>
 		</div>
 	`
 }

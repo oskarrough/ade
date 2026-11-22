@@ -403,5 +403,32 @@ export function server(core) {
 		return threadId === undefined ? house(query) : thread(threadId, query)
 	}
 
+	core.feed.define('usage', {
+		keyOf: () => 'usage',
+		all: async (_viewer, _param, query) => [{ key: 'usage', ...(await house(query)) }],
+		match: (change) => {
+			if (change.type === 'entry') return change.value.kind === 'pi.assistant'
+			if (change.type === 'document')
+				return ['pi.usage', 'ade.usage', 'ade.thread'].includes(change.record.kind)
+			return false
+		},
+	})
+	core.feed.define('usage/', {
+		keyOf: () => 'usage',
+		all: async (_viewer, param, query) => [
+			{ key: 'usage', ...(await thread(Number(param), query)) },
+		],
+		match: (change, param) => {
+			const id = Number(param)
+			if (change.type === 'entry') return change.value.kind === 'pi.assistant'
+			if (change.type === 'document')
+				return (
+					change.record.kind === 'pi.usage' ||
+					(change.record.kind === 'ade.usage' && change.conversationId === id)
+				)
+			return false
+		},
+	})
+
 	return { entryStored, documentStored, spent, serve }
 }

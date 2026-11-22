@@ -585,6 +585,25 @@ export function server(core) {
 			)
 	}
 
+	core.feed.define('memory/', {
+		keyOf: () => 'memory',
+		all: async (_viewer, param, query) => {
+			const thread = Number(param)
+			const room = Number(query?.get('room') ?? 30)
+			return [{ key: 'memory', ...(await view(thread, room)) }]
+		},
+		match: (change, param) => {
+			const id = Number(param)
+			if (change.type === 'entry') {
+				const { kind, conversationId } = /** @type {any} */ (change.value)
+				return kind === KIND || (kind === 'ade.message' && conversationId === id)
+			}
+			if (change.type === 'document')
+				return change.record.kind === 'ade.thread' && change.conversationId === id
+			return false
+		},
+	})
+
 	return {
 		extension: defineExtension({
 			name: 'ade.memory',

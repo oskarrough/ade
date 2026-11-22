@@ -7,22 +7,12 @@
  * the thread read, for you alone.
  */
 import html from '@solidjs/html'
+import { For, Show, untrack } from 'solid-js'
 import {
-	affects,
-	createEffect,
-	createMemo,
-	For,
-	isPending,
-	Loading,
-	refresh,
-	Show,
-	untrack,
-} from 'solid-js'
-import {
-	api,
 	colorOf,
 	current,
 	dismiss,
+	feedItem,
 	followThread,
 	hrefOf,
 	inbox,
@@ -107,7 +97,7 @@ function Question(props) {
 				${', '}<${Stamp} time=${() => data().createdAt && Date.parse(data().createdAt)} />
 			</small>
 			<${Show} when=${() => server().modules.includes('recap')}>
-				<${Loading}><${RecapLine} thread=${thread} /><//>
+				<${RecapLine} thread=${thread} />
 			<//>
 			<${Body} data=${() => data()} />
 			<${Composer} thread=${() => thread} inbox asks=${asks} />
@@ -167,29 +157,12 @@ function Unread(props) {
 
 /** Where the thread stands, in one line: the recap's newest open topic, else its newest */
 function RecapLine(props) {
-	// Asked with ?open, as the Recap tab asks: a page behind catches up, and comes again while it's written
-	const page = createMemo(() =>
-		api(`/api/threads/${props.thread}/recap?open`).catch(() => ({ page: '' })),
-	)
-	createEffect(
-		() => page().writing,
-		(writing) => {
-			if (!writing) return
-			const timer = setTimeout(() => {
-				affects(page)
-				refresh(page)
-			}, 3000)
-			return () => clearTimeout(timer)
-		},
-	)
+	const page = feedItem(() => `recap/${props.thread}`)
 	const line = () => {
-		const topics = topicsOf(page().page)
+		const topics = topicsOf(page()?.page ?? '')
 		return (topics.findLast((topic) => !topic.done) ?? topics.at(-1))?.text
 	}
 	return html`
-		<${Show} when=${() => isPending(page)}>
-			<p class="mute">Updating recap…</p>
-		<//>
 		<${Show} when=${line}>
 			<p class="mute recap-line" innerHTML=${() => inline(line(), links)}></p>
 		<//>

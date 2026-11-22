@@ -5,39 +5,21 @@
  * the refresh button's icon turns.
  */
 import html from '@solidjs/html'
-import { createSignal, For, onSettled, Show, untrack } from 'solid-js'
+import { For, Show, untrack } from 'solid-js'
 import { openSide, PageTabs } from './side.js'
 import { Panes } from './panes.js'
 import { Icon } from './icons.js'
 import { Dot } from './dot.js'
-import { api, followThread, loadEarlier, threadOf } from './server.js'
+import { api, feedItem, followThread, loadEarlier, threadOf } from './server.js'
 import { inline } from './markdown.js'
 import { busy, Busy } from './busy.js'
 import { links, reveal } from './thread.js'
 
-/** The last page fetched for each thread, kept outside the component: switching tabs away and back remounts it, and
- * this is what lets it show that page at once instead of a flash of "Reading…". */
-const lastPage = new Map()
-
 export function Recap(props) {
 	// One thread for this column's whole life
 	const id = untrack(() => props.id)
-	const [page, setPage] = createSignal(lastPage.get(id))
-	// Fetched with ?open, so the server knows someone's looking: a page behind catches up, and answers keep it current
-	const load = () =>
-		api(`/api/threads/${id}/recap?open`).then((found) => {
-			lastPage.set(id, found)
-			setPage(found)
-		})
-	onSettled(() => {
-		load()
-		const timer = setInterval(load, 5000)
-		return () => clearInterval(timer)
-	})
-	const rewrite = busy(async () => {
-		await api(`/api/threads/${id}/recap`, {})
-		await load()
-	})
+	const page = feedItem(() => `recap/${id}`)
+	const rewrite = busy(() => api(`/api/threads/${id}/recap`, {}))
 	// Turning while this column asked, or while the recap is rewritten after an answer
 	const state = () => rewrite.state() || (page()?.writing ? 'busy' : '')
 	const writing = () => state() === 'busy'

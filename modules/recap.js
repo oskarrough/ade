@@ -236,7 +236,29 @@ export function server(core) {
 	})
 
 	const looking = new Map()
-	const looked = (threadId) => Date.now() - (looking.get(threadId) ?? 0) < LOOKING
+	const looked = (threadId) =>
+		core.feed.hasSubscribers(`recap/${threadId}`) ||
+		Date.now() - (looking.get(threadId) ?? 0) < LOOKING
+
+	core.feed.define('recap/', {
+		keyOf: () => 'recap',
+		all: async (_viewer, param) => {
+			const threadId = Number(param)
+			await core.conversation(threadId)
+			const page = await read(threadId)
+			if (!page.writing && page.through < (await core.messages(threadId)).length)
+				await core.commit((tx) => ask(tx, threadId))
+			return [{ key: 'recap', ...(await read(threadId)) }]
+		},
+		match: (change, param) => {
+			const id = Number(param)
+			if (change.type === 'document')
+				return change.record.kind === Recap.definition.kind && change.conversationId === id
+			if (change.type === 'task')
+				return change.value.kind === Write.definition.name && change.value.conversationId === id
+			return false
+		},
+	})
 
 	/** A rewrite, or one more round of the one already running; always the task id, so a second caller can join it */
 	async function ask(tx, threadId, { fresh = false } = {}) {

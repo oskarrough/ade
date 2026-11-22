@@ -16,13 +16,23 @@ const heard = []
 const socket = new WebSocket(`${base.replace('http', 'ws')}/ws`)
 socket.onmessage = ({ data }) => heard.push(JSON.parse(String(data)))
 await new Promise((resolve) => (socket.onopen = resolve))
+socket.send(JSON.stringify({ sub: 'server' }))
+await until(async () => heard.some((message) => message.view === 'server' && message.reset))
 
 const file = path.join(repo, 'apps/client', `zz-example-${process.pid}.css`)
 writeFileSync(file, '/* a change to the client */\n')
 try {
+	const updated = await until(async () =>
+		heard.find(
+			(message) =>
+				message.view === 'server' &&
+				!message.reset &&
+				message.put?.some((item) => item.row.client && item.row.client !== before),
+		),
+	)
 	check(
-		Boolean(await until(async () => heard.some((message) => message.changed?.includes('server')))),
-		'changing a client file names `server` on the socket',
+		Boolean(updated),
+		'changing a client file pushes the new client hash on the server feed',
 		JSON.stringify(heard),
 	)
 	const after = (await api('GET', '/api/server')).json.client

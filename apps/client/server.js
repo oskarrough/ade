@@ -242,8 +242,6 @@ export const {
 	caughtUp,
 	write,
 } = createRoot(() => {
-	const [server, setServer] = createSignal(DEFAULT_SERVER)
-
 	// ── One versioned feed, one in-memory store ──
 	let socket = null
 	const sendSocket = (frame) => {
@@ -353,14 +351,16 @@ export const {
 		}
 	}
 
+	const serverSub = subscribeView('server')
 	/** The `client` and `commit` of the first answer this page got: what it was loaded with */
 	let loadedWith, loadedAt
-	const reloadServer = () =>
-		api('/api/server').then((data) => {
-			loadedWith ??= data.client
-			loadedAt ??= data.commit
-			setServer(data)
-		})
+	const server = createMemo(() => {
+		const data = serverSub.rows()[0]
+		if (!data) return DEFAULT_SERVER
+		loadedWith ??= data.client
+		loadedAt ??= data.commit
+		return data
+	})
 	/** Whether a reload would bring newer client files or a server that changed since this page loaded */
 	const behind = createMemo(() => {
 		const now = server().client
@@ -450,16 +450,9 @@ export const {
 		const { seq } = yield write(`/api/runners/${encodeURIComponent(name)}`, undefined, 'DELETE')
 		yield caughtUp('runners', seq)
 	})
-	const reloads = {
-		server: reloadServer,
-	}
-	const reload = () => {
-		reloadServer()
-	}
 	/** Your new-thread draft comes too, as another page of yours changes it, which the composer takes */
 	const receive = (message) => {
 		if (message.view) return applyFrame(message)
-		message.changed?.forEach((list) => reloads[list]?.())
 		if (message.thread === 'new') heardNewDraft(message)
 	}
 	onSettled(() => {
@@ -473,7 +466,6 @@ export const {
 					sendSocket({ sub: name, ...(view.seq !== null ? { after: view.seq } : {}) })
 				}
 				for (const resend of inflight.values()) resend()
-				reload()
 			},
 			() => {
 				socket = null
@@ -587,6 +579,11 @@ export function feedView(nameOf, options) {
 		return () => sub.release()
 	})
 	return createMemo(() => active()?.rows() ?? [])
+}
+/** Subscribe to a single-row dynamic view (`recap/<id>`, `memory/<id>`, `usage/<id>`, `usage`) */
+export function feedItem(nameOf) {
+	const rows = feedView(nameOf)
+	return createMemo(() => rows()[0] ?? null)
 }
 
 /** `first`, its first message, `{body, to, images, steer, key}`, comes in the same step; under the new-thread draft's key, it empties that draft */

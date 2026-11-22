@@ -2248,12 +2248,14 @@ function createFeed() {
 	const MAX_IDLE = 64
 
 	const parse = (view) => {
-		if (specs.has(view)) return { spec: specs.get(view), param: undefined }
-		const slash = view.indexOf('/')
+		const [base, search] = view.split('?', 2)
+		const query = new URLSearchParams(search ?? '')
+		if (specs.has(base)) return { spec: specs.get(base), param: undefined, query }
+		const slash = base.indexOf('/')
 		if (slash < 0) return null
-		const prefix = view.slice(0, slash + 1)
+		const prefix = base.slice(0, slash + 1)
 		const spec = specs.get(prefix)
-		return spec ? { spec, param: view.slice(slash + 1) } : null
+		return spec ? { spec, param: base.slice(slash + 1), query } : null
 	}
 
 	const sendFrame = (socket, view, payload, at) => {
@@ -2341,16 +2343,16 @@ function createFeed() {
 				state.dirty = false
 				let diff
 				if (work === true || (!state.spec.row && !state.spec.rows)) {
-					const all = await state.spec.all(state.viewer, state.param)
+					const all = await state.spec.all(state.viewer, state.param, state.query)
 					diff = applyDiff(state, all, false, targetSeq)
 				} else if (state.spec.rows) {
-					const entries = await state.spec.rows([...work], state.viewer, state.param)
+					const entries = await state.spec.rows([...work], state.viewer, state.param, state.query)
 					diff = applyDiff(state, entries, true, targetSeq)
 				} else {
 					const entries = await Promise.all(
 						[...work].map(async (key) => [
 							key,
-							await state.spec.row(key, state.viewer, state.param),
+							await state.spec.row(key, state.viewer, state.param, state.query),
 						]),
 					)
 					diff = applyDiff(state, entries, true, targetSeq)
@@ -2402,6 +2404,12 @@ function createFeed() {
 	return {
 		seq: () => seq,
 		define: (name, spec) => specs.set(name, spec),
+		hasSubscribers: (view) => {
+			for (const state of states.values())
+				if (state.subs.size && (state.view === view || state.view.startsWith(`${view}?`)))
+					return true
+			return false
+		},
 		onUpdate: (view, fn) => {
 			let set = listeners.get(view)
 			if (!set) listeners.set(view, (set = new Set()))
@@ -2447,7 +2455,7 @@ function createFeed() {
 				if (typeof view !== 'string' || socket.readyState !== 1) return
 				const parsed = parse(view)
 				if (!parsed) return
-				const { spec, param } = parsed
+				const { spec, param, query } = parsed
 				const viewer = spec.perViewer ? socket.viewer : ''
 				const cacheKey = spec.perViewer ? `${view}\0${viewer}` : view
 				let state = states.get(cacheKey)
@@ -2457,6 +2465,7 @@ function createFeed() {
 						cacheKey,
 						spec,
 						param,
+						query,
 						viewer,
 						seq: 0,
 						sinceSeq: 0,
@@ -2477,7 +2486,7 @@ function createFeed() {
 				if (!state.ready) {
 					state.flushing ??= (async () => {
 						const at = seq
-						const all = await spec.all(viewer, param)
+						const all = await spec.all(viewer, param, query)
 						const keyOf = spec.keyOf ?? ((row) => row.id)
 						for (const row of all) {
 							const key = keyOf(row)
@@ -2732,8 +2741,6 @@ const core = {
 	commit,
 	once,
 	receipt,
-	/** Names lists that changed to every page, as the server's own do */
-	notify,
 }
 const defaults = await builtIn()
 /** ade.json, as it started; the page changes it, and a restart takes it up */
@@ -2843,43 +2850,43 @@ async function conversationView(id) {
 	return { ...view, entries: await entries(id) }
 }
 
+async function serverInfo(viewer) {
+	return {
+		port,
+		file,
+		/** What a reload of the page would get; a page loaded with another is behind */
+		client,
+		/** The commit the server's checkout is on, when it runs from one; null for an install */
+		commit: (await git('rev-parse', 'HEAD')) || null,
+		/** Who the server takes the asker to be, for showing; it proves nothing */
+		me: viewer,
+		modules: modules.map((module) => module.name),
+		off: Object.keys(defaults).filter((name) => !modules.some((module) => module.name === name)),
+		about: aboutModules,
+		threads: (await threadIds()).length,
+		runners: Object.keys(await keys()).length,
+		work: await harness.inspect(context),
+		settings: {
+			owner,
+			ownerLogins,
+			memory: {
+				model: settings.config.memory?.model ?? '',
+				compactAt: compactAt ?? null,
+			},
+			...Object.fromEntries(
+				modules.filter((module) => module.settings).map((module) => [module.name, module.settings]),
+			),
+			/** Set in the environment, these win over ade.json */
+			overrides: ['MODULES', 'MEMORY_MODEL', 'DIRECTOR_MODEL'].filter((name) => process.env[name]),
+			restarts: typeof process.execve === 'function',
+		},
+	}
+}
+
 /** @type {[RegExp, Function][]} */
 const routes = /** @type {[string, Function][]} */ ([
 	...Object.entries({
-		'GET /api/server': async (req) => ({
-			port,
-			file,
-			/** What a reload of the page would get; a page loaded with another is behind */
-			client,
-			/** The commit the server's checkout is on, when it runs from one; null for an install */
-			commit: (await git('rev-parse', 'HEAD')) || null,
-			/** Who the server takes the asker to be, for showing; it proves nothing */
-			me: user(req),
-			modules: modules.map((module) => module.name),
-			off: Object.keys(defaults).filter((name) => !modules.some((module) => module.name === name)),
-			about: aboutModules,
-			threads: (await threadIds()).length,
-			runners: Object.keys(await keys()).length,
-			work: await harness.inspect(context),
-			settings: {
-				owner,
-				ownerLogins,
-				memory: {
-					model: settings.config.memory?.model ?? '',
-					compactAt: compactAt ?? null,
-				},
-				...Object.fromEntries(
-					modules
-						.filter((module) => module.settings)
-						.map((module) => [module.name, module.settings]),
-				),
-				/** Set in the environment, these win over ade.json */
-				overrides: ['MODULES', 'MEMORY_MODEL', 'DIRECTOR_MODEL'].filter(
-					(name) => process.env[name],
-				),
-				restarts: typeof process.execve === 'function',
-			},
-		}),
+		'GET /api/server': (req) => serverInfo(user(req)),
 		'POST /api/settings': async (req) => {
 			// Settings name the owner and their logins, so only the owner changes them
 			if (user(req) !== owner)
@@ -3011,7 +3018,7 @@ watchFiles(clientDir, { recursive: true }, () => {
 		const now = await clientVersion()
 		if (now === client) return
 		client = now
-		notify(['server'])
+		feed.touch('server')
 	}, 150)
 }).unref()
 
@@ -3298,23 +3305,15 @@ feed.define('thread/', {
 	},
 })
 
-/** Browsers hear which lists changed, at most every 100 ms (only `server` until it moves to the feed) */
-let flushing
-const changedLists = new Set()
-function notify(lists) {
-	for (const list of lists) changedLists.add(list)
-	flushing ??= setTimeout(() => {
-		flushing = undefined
-		const changed = [...changedLists]
-		changedLists.clear()
-		for (const wake of changes) wake()
-		nudge()
-		if (changed.length) {
-			const sent = JSON.stringify({ changed })
-			for (const socket of clients) socket.send(sent)
-		}
-	}, 100)
-}
+feed.define('server', {
+	perViewer: true,
+	keyOf: () => 'server',
+	all: async (viewer) => [{ key: 'server', ...(await serverInfo(viewer)) }],
+	match: (change) =>
+		(change.type === 'conversation' && !change.value.owner) ||
+		(change.type === 'document' && change.record.kind === 'ade.keys'),
+})
+
 const entryStored = modules.flatMap((module) => module.entryStored ?? [])
 const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
@@ -3339,15 +3338,14 @@ harness.observeCommits({
 					ended.add(conversationId)
 				}
 			}
+			if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
+			else if (change.type === 'document' && change.kind === 'change')
+				for (const hook of documentStored) hook(change)
 		}
 		feed.onCommit(publication)
 		movedFamilies = null
 		for (const wake of changes) wake()
 		nudge()
-		for (const change of publication.changes)
-			if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
-			else if (change.type === 'document' && change.kind === 'change')
-				for (const hook of documentStored) hook(change)
 		for (const threadId of ended)
 			busy(threadId)
 				.then(async (working) => {
