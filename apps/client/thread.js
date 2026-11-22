@@ -1010,7 +1010,7 @@ function Message(props) {
 					>${() => row().picked}
 				</div>
 			<//>
-			<${WokeLine} woke=${() => row().woke} />
+			<${WokeLine} woke=${() => row().woke} data=${() => data()} />
 			<${For} each=${forks}
 				>${(fork) => html`
 					<div class="links">
