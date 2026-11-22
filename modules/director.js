@@ -205,7 +205,10 @@ export function server(core) {
 			.map((id) => all.find((one) => one.id === id)?.data)
 			.filter(Boolean)
 			.map((data) => ({ author: data.author, body: (data.body ?? '').slice(0, SAID) }))
-		const { participants, here } = await agentsOf(threadId, message.author)
+		const { participants, here: everyone } = await agentsOf(threadId, message.author)
+		// Agents whose runner is offline would only wait: it picks among the others, unless none is online
+		const online = everyone.filter((agent) => core.runners.isOnline(agent.runner))
+		const here = online.length ? online : everyone
 		const candidates = await Promise.all(
 			here.map(async (agent) => {
 				if (!agent.name)
