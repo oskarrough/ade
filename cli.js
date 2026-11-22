@@ -115,17 +115,21 @@ function show({ id, data: message }) {
 	)
 }
 
-/** Subscribe to `thread/<id>` on the feed and wait until its row reaches `minSeq` with `busy: false`, calling `onRow` on each update */
-async function waitThread(socket, frames, id, minSeq, onRow = async (_row) => {}) {
+/** Reads `thread/<id>` on the feed until its row reaches `minSeq` with `busy: false`, handing `onFrame` the row and the messages each frame brings */
+async function waitThread(frames, id, minSeq, onFrame = (_row, _messages) => {}) {
 	let row = null
 	for (;;) {
 		const next = await frames.next()
 		if (next.done) throw new Error('Server disconnected while waiting')
 		const frame = JSON.parse(String(next.value[0]))
 		if (frame.view !== `thread/${id}`) continue
-		const updated = frame.put?.find((item) => item.key === 'thread')?.row
-		if (updated) row = updated
-		if (row) await onRow(row)
+		const put = frame.put ?? []
+		row = put.find((item) => item.key === 'thread')?.row ?? row
+		if (row)
+			onFrame(
+				row,
+				put.filter((item) => typeof item.key === 'number').map((item) => item.row),
+			)
 		if (frame.seq >= minSeq && row && !row.busy) return row
 	}
 }
@@ -170,23 +174,24 @@ async function post() {
 		if (flags['no-wait'] || !asked) return
 		let last = posted.entry ?? seen
 		let waiting = ''
-		const flushEntries = async () => {
-			const view = await api('GET', `/api/threads/${id}?after=${last}`)
-			for (const entry of view.entries) {
-				if (entry.id !== posted.entry) show(entry)
-				last = entry.id
-			}
+		/** Each message once, as the feed brings it: a pick re-sends one already shown */
+		const shows = (messages) => {
+			for (const entry of messages.sort((one, other) => one.id - other.id))
+				if (entry.id > last) {
+					show(entry)
+					last = entry.id
+				}
 		}
 		socket.send(JSON.stringify({ sync: `thread/${id}`, seq: posted.seq ?? 0 }))
-		await waitThread(socket, frames, id, posted.seq ?? 0, async (row) => {
+		await waitThread(frames, id, posted.seq ?? 0, (row, messages) => {
 			const blocked = (row.agents ?? [])
 				.filter((agent) => agent.status === 'blocked')
 				.map((agent) => agent.to?.runner)
 			if (blocked.join() !== waiting && (waiting = blocked.join()))
 				console.error(`waiting for ${waiting}, offline…`)
-			await flushEntries()
+			shows(messages)
 		})
-		await flushEntries()
+		shows((await api('GET', `/api/threads/${id}?after=${last}`)).entries)
 	} finally {
 		await frames?.return()
 		socket?.close()
@@ -228,7 +233,7 @@ const commands = {
 		try {
 			await once(socket, 'open')
 			socket.send(JSON.stringify({ sub: `thread/${id}` }))
-			await waitThread(socket, frames, id, 0)
+			await waitThread(frames, id, 0)
 			// What came after the newest message that asked someone
 			const after = flags.after ? Number(flags.after) : await lastAsk(id)
 			;(await api('GET', `/api/threads/${id}?after=${after}`)).entries.forEach(show)
