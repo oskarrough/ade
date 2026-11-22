@@ -594,10 +594,10 @@ export const {
 	}
 })
 
-/** With `key`, the new-thread draft's, the thread takes that draft along */
-export async function createThread(title, key = undefined) {
+/** `first`, its first message, `{body, to, images, steer, key}`, comes in the same step; under the new-thread draft's key, it empties that draft */
+export async function createThread(title, first = {}) {
 	const tools = newThreadTools()
-	const { id } = await api('/api/threads', { title, tools, key })
+	const { id } = await api('/api/threads', { title, tools, ...first })
 	if (latest(newThreadTools) === tools) setNewThreadTools(null)
 	if (!latest(current)) openThread(id)
 	return id

@@ -247,7 +247,7 @@ export function Composer(props) {
 			images = snapshot(draft().images),
 			to = snapshot(whom())
 		// It posts under its draft's key, so it lands once and empties that draft wherever it's open
-		let sent = draft().key || crypto.randomUUID()
+		const sent = draft().key || crypto.randomUUID()
 		// A choice holds for one message, including the invitation that turns a solo thread into a group
 		if (props.thread && !props.inbox) setCompose((store) => void delete store.picks[props.thread])
 		let id = props.thread
@@ -271,31 +271,24 @@ export function Composer(props) {
 		const going = { thread: key, key: sent, text: body }
 		sendingNow.add(going)
 		try {
-			if (!id) {
-				// A new thread is made from its draft, so the draft is saved whole first; the thread takes it along
-				const chosen = pick(null)
-				const whole = () => ({
+			if (id) {
+				if (!/^\$\s/.test(body)) drop = sending(id, { body, ...(images.length && { images }) })
+				await api(`/api/threads/${id}/entries`, {
+					body,
+					...(toDirector ? {} : { to }),
+					steer: true,
+					...(images.length && { images }),
 					key: sent,
-					text: body,
-					images,
-					pick: chosen && !chosen.held ? snapshot(chosen) : null,
-					page,
 				})
-				// A key already spent made a thread before: this is a new one, under a key of its own
-				if ((await api('/api/draft', whole())).sent) {
-					spent.add((sent = going.key = crypto.randomUUID()))
-					await api('/api/draft', whole())
-				}
-				id = going.thread = await createThread(defaultTitle(body), sent)
-			}
-			if (!/^\$\s/.test(body)) drop = sending(id, { body, ...(images.length && { images }) })
-			await api(`/api/threads/${id}/entries`, {
-				body,
-				...(toDirector ? {} : { to }),
-				steer: true,
-				...(images.length && { images }),
-				key: sent,
-			})
+			} else
+				// A new thread and its first message are made in one step, under the draft's key
+				id = going.thread = await createThread(defaultTitle(body), {
+					key: sent,
+					body,
+					to,
+					steer: true,
+					...(images.length && { images }),
+				})
 		} catch (error) {
 			drop?.()
 			spent.delete(sent)

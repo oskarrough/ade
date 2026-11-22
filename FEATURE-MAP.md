@@ -211,9 +211,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     choose, configure, toFor             model picker and runner controls changing that pick
     changeDraftFor, saveLater, save, wasSent, tookDraft, loadDraft, heardDraft   a thread's draft on the server: saved half a
                          second after typing (images and a pick at once, a closing page's with keepalive), taken up on opening
-                         and from the socket unless a save waits here; a new thread's is saved whole, then the thread is made
-                         from it (client server.js createThread's key, onNewDraft); `spent` keys and `sendingNow`, which a
-                         closing page saves back under their keys
+                         and from the socket unless a save waits here; a new thread's Send makes the thread and its message in
+                         one request under its key (client server.js createThread's `first`, onNewDraft); `spent` keys and
+                         `sendingNow`, which a closing page saves back under their keys
     Composer: submit, add, pickRecipients, filled, compactNow   send, images, typed recipients, context meter;
     folderOf, where                                          the folder the next message's agent works in, said on its button
     PickerBot            bots in the picker
