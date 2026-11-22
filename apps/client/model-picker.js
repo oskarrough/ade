@@ -135,11 +135,13 @@ export function ModelPicker(props) {
 /**
  * A runner's name, then its models that match what was typed; nothing when none do.
  * Its scoped models come first; "All models", or a search, reaches every other model pi is logged in for there.
+ * A runner with no scoped models lists them all at once, so a fresh house's picker isn't empty.
  */
 function PickerRunner(runner, props, search) {
 	const to = () => props.getTo(runner)
 	const selected = () => props.selectedRunner === runner.name
-	const [all, setAll] = createSignal(false)
+	const [opened, setAll] = createSignal(false)
+	const all = () => opened() || !modelsOf(runner, props.getTo(runner)).length
 	const [available, setAvailable] = createSignal([])
 	let asked = false
 	createEffect(

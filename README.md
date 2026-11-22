@@ -16,11 +16,13 @@ I run it on my office computer, which is always on, at localhost:3000. That's al
 
 ## Start
 
-Install [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) and log in: `pi`, then `/login` with any provider. Then, in the folder you want agents to work in:
+You need Node 24 or newer and git. Install [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) and log in: `npm i -g @earendil-works/pi-coding-agent`, run `pi`, then `/login` with any provider. Then, in the folder you want agents to work in:
 
 ```sh
 npx github:oskarrough/ade
 ```
+
+To update, stop it and run the same line: npx fetches the newest commit when there is one, and runners on other machines follow the server on their own.
 
 `pnpm dlx` and `bunx` work just as well, or fork/clone the repo and `npm link` (or `pnpm link`) it to get an `ade` command.
 
