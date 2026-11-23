@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8
+
+- On macOS, Cmd+A, C, V, X and Z work again: the menu bar has its Edit menu back, beside House.
+
 ## 0.1.7
 
 - Works with nothing installed (on Windows, nothing but WSL): without ade, the first start fetches it, and Node when there's none, and the waiting page shows how far it got.

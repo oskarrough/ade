@@ -269,10 +269,26 @@ func findLog() {
 }
 
 // houseMenu is the switch and the log. Ticking the switch while nothing
-// answers starts the house at once; to update, the page restarts it.
+// answers starts the house at once; to update, the page restarts it. On macOS
+// it sits among the usual menus, since Edit is what makes Cmd+A, C and V work.
 func houseMenu() *mygo.Menu {
+	house := houseItem()
+	if runtime.GOOS != "darwin" {
+		return mygo.NewMenu([]*mygo.MenuItem{house})
+	}
+	return mygo.NewMenu([]*mygo.MenuItem{
+		{Role: mygo.RoleAppMenu},
+		{Role: mygo.RoleFileMenu},
+		{Role: mygo.RoleEditMenu},
+		{Role: mygo.RoleViewMenu},
+		house,
+		{Role: mygo.RoleWindowMenu},
+	})
+}
+
+func houseItem() *mygo.MenuItem {
 	h := loadHouse()
-	return mygo.NewMenu([]*mygo.MenuItem{{Label: "House", Submenu: []*mygo.MenuItem{
+	return &mygo.MenuItem{Label: "House", Submenu: []*mygo.MenuItem{
 		{
 			Label:   "Start house when it's down",
 			Type:    mygo.MenuItemCheckbox,
@@ -296,5 +312,5 @@ func houseMenu() *mygo.Menu {
 				go mygo.Shell.OpenPath(houseLog)
 			}
 		}},
-	}}})
+	}}
 }
