@@ -115,19 +115,25 @@ const startOf = (schedule) => {
 	return `${daysOf(schedule.days)} at ${listed(schedule.times)}${zone}`
 }
 
-/** How it reads in a line: a one-off by when it comes, anything else by how it repeats */
+/** How it reads in a line: a one-off by when it comes, anything else by how it repeats; and whether a check runs first */
 const shortWhen = (task) =>
-	task.paused
-		? `paused, ${repeatOf(task.schedule)}`
-		: task.schedule.times || task.schedule.every || task.at === undefined
-			? repeatOf(task.schedule)
-			: countdown(task.at)
+	`${
+		task.paused
+			? `paused, ${repeatOf(task.schedule)}`
+			: task.schedule.times || task.schedule.every || task.at === undefined
+				? repeatOf(task.schedule)
+				: countdown(task.at)
+	}${task.check ? ', checks first' : ''}`
 
 /** When it runs next and how it repeats: in 8m, daily at 09:00; paused, why, then how it repeats */
 const whenOf = (task) =>
 	task.paused
 		? `paused${task.note ? ` (${task.note})` : ''}, ${repeatOf(task.schedule)}`
-		: [task.at === undefined ? '' : countdown(task.at), repeatOf(task.schedule)]
+		: [
+				task.at === undefined ? '' : countdown(task.at),
+				repeatOf(task.schedule),
+				task.check ? 'checks first' : '',
+			]
 				.filter(Boolean)
 				.join(', ')
 
@@ -216,15 +222,25 @@ function OfflineRunner(props) {
 	`
 }
 
-/** Its last run: when, opening the message it posted; or that it was skipped, and why */
+/** A run that asked no one, in words: skipped and why, its check quiet, or its check failed and why; else nothing */
+const unasked = (run) =>
+	run.skipped
+		? `skipped at ${whenWas(run.at)}: ${run.skipped}`
+		: run.checked
+			? `checked at ${whenWas(run.at)}, quiet${run.checked > 1 ? ` ${run.checked} times running` : ''}`
+			: run.failed
+				? `check failed at ${whenWas(run.at)}: ${run.failed}`
+				: ''
+
+/** Its last run: when, opening the message it posted; or that it asked no one, and why */
 function LastRun(props) {
 	const last = () => props.task.runs?.at(-1)
 	return html`
 		<${Show} when=${last}>
 			<small>
 				<${Show}
-					when=${() => !last().skipped}
-					fallback=${html`${() => `Last run skipped at ${whenWas(last().at)}: ${last().skipped}`}`}
+					when=${() => !unasked(last())}
+					fallback=${html`${() => `Last run ${unasked(last())}`}`}
 				>
 					<a
 						class="thread-link"
@@ -561,6 +577,9 @@ function TaskForm(props) {
 	let pickButton, pickPanel
 	const task = props.task
 	const hooks = () => server().modules.includes('hooks')
+	const checks = () => server().modules.includes('check') || Boolean(task?.check)
+	/** The quiet or failed run whose check output shows under the timeline */
+	const [shown, setShown] = createSignal(null)
 	const agentTask = task?.agent !== undefined
 	const [place, setPlace] = createSignal(
 		task
@@ -728,6 +747,9 @@ function TaskForm(props) {
 						? { thread: Number(value), recipients: who() }
 						: { to: chosen() }),
 			...when(),
+			...(checks() && (task || fields.get('check'))
+				? { check: String(fields.get('check') ?? '') }
+				: {}),
 		}
 		setSaving(true)
 		try {
@@ -935,16 +957,26 @@ function TaskForm(props) {
 						>${(run) =>
 							run.skipped
 								? html`<s class="ran">${`${runLabel(run.at, zone)} skipped: ${run.skipped}`}</s>`
-								: html`<a
-										class="ran"
-										href=${hrefOf(run.thread)}
-										onClick=${(event) => {
-											event.preventDefault()
-											props.onOpen?.()
-											showMessage(run.thread, run.entry)
-										}}
-										>${runLabel(run.at, zone)}</a
-									>`}<//
+								: run.checked || run.failed
+									? html`<button
+											type="button"
+											class=${{ ran: true, quiet: Boolean(run.checked), failed: Boolean(run.failed) }}
+											aria-pressed=${() => String(shown() === run)}
+											title=${run.failed ? `Its check failed: ${run.failed}` : 'Its check ran and asked no one'}
+											onClick=${(_event) => setShown((was) => (was === run ? null : run))}
+										>
+											${`${runLabel(run.at, zone)} ${run.failed ? 'failed' : `quiet${run.checked > 1 ? ` ×${run.checked}` : ''}`}`}
+										</button>`
+									: html`<a
+											class="ran"
+											href=${hrefOf(run.thread)}
+											onClick=${(event) => {
+												event.preventDefault()
+												props.onOpen?.()
+												showMessage(run.thread, run.entry)
+											}}
+											>${runLabel(run.at, zone)}</a
+										>`}<//
 					>
 					<${Show} when=${() => task?.runs?.length && next().length}
 						><span class="now" aria-label="now">|</span><//
@@ -956,6 +988,32 @@ function TaskForm(props) {
 							>`}<//
 					>
 				</p>
+			<//>
+			<${Show} when=${shown}>
+				<pre class="check-output">
+${() =>
+	[shown().failed, shown().output || 'It printed nothing.'].filter(Boolean).join(NEWLINE)}</pre>
+			<//>
+			<${Show} when=${checks}>
+				<details class="check" open=${Boolean(task?.check)}>
+					<summary>Check first</summary>
+					<textarea
+						class="code"
+						name="check"
+						rows="6"
+						spellcheck="false"
+						aria-label="Check"
+						disabled=${() => place() === 'new' && !agentTask}
+						placeholder="A script that runs before each run, with no model. post(text) asks, done() ends the task, keep(value) is input.state next time; nothing, and the run stays quiet."
+						value=${task?.check ?? ''}
+					></textarea>
+					<small class="mute"
+						>${() =>
+							place() === 'new' && !agentTask
+								? 'A task that starts a new thread each run has no agent to check as.'
+								: 'It runs as the agent the run asks, on its runner, with its tools.'}</small
+					>
+				</details>
 			<//>
 			<h3>Runs in</h3>
 			<${Show}
@@ -1181,8 +1239,8 @@ export function ScheduledTaskSet(props) {
 	`
 }
 
-/** A scheduled task's run, back in the thread: one quiet folded line of its own; opened, the whole instructions and
- * what an outside event brought */
+/** A scheduled task's run, back in the thread: one quiet folded line of its own; opened, the whole instructions, what
+ * an outside event brought and what its check found */
 export const ScheduledRun = (props) => html`
 	<${PlainStep}
 		icon="clock"
@@ -1203,6 +1261,9 @@ export const ScheduledRun = (props) => html`
 							...(props.data.event.said === undefined ? [] : [props.data.event.said]),
 						].join(NEWLINE)}
 				</p>
+			<//>
+			<${Show} when=${() => props.data.checked}>
+				<p class="outside">${() => `its check found:${NEWLINE}${props.data.checked}`}</p>
 			<//>
 		</div>
 	<//>

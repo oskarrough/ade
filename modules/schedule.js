@@ -36,6 +36,12 @@
  *
  * A run, or a run skipped, is a step in its thread's
  * trail; every change tells every page (`schedule` changed). Archiving a thread cancels its tasks.
+ *
+ * With check on, a task may carry a `check` (check.js): when it comes due, run now included, it waits on the check
+ * first, as the agent the run asks, and posts only if the check said `post`, with what it found beside the
+ * instructions (`checked`). A quiet check is a run too, counted toward `count`, kept among its runs (quiet ones in a
+ * row as one) and in the trail; one that fails is kept with why, and STRIKES in a row pause the task with a note.
+ * `done` ends the task after the run.
  */
 import { arr, bool, num, obj, opt, str, unknown } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
@@ -43,6 +49,7 @@ import { background, finished, writtenTo } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
 import { clockTime, DAYS, instant, lastRun, nextRun, span } from '../apps/client/clock.js'
 import { EVENTS, Hooked, issue } from './hooks.js'
+import { CheckRun, MOST, outcomeOf } from './check.js'
 
 export const on = true
 
@@ -276,6 +283,8 @@ const Control = defineSignal({
 
 /** How many past runs a task keeps */
 const RUNS = 5
+/** How many failed checks in a row pause a task */
+const STRIKES = 3
 
 /** What a task does now: what it was set to, with what edits changed since */
 const current = (input, checkpoint) => ({
@@ -284,6 +293,7 @@ const current = (input, checkpoint) => ({
 	...(checkpoint?.instructions ? { instructions: checkpoint.instructions } : {}),
 	...(input.to !== undefined && checkpoint?.to ? { to: checkpoint.to } : {}),
 	...(checkpoint?.recipients !== undefined ? { recipients: checkpoint.recipients } : {}),
+	...(checkpoint?.check !== undefined ? { check: checkpoint.check || undefined } : {}),
 })
 
 /** Its first run from `now`: by the clock or every so often, the next one due; once, its time */
@@ -328,6 +338,7 @@ const endOf = (schedule, ran, at) =>
 
 export function server(core) {
 	const hooks = core.modulesOn.includes('hooks')
+	const checking = core.modulesOn.includes('check')
 	/** Scheduled tasks in one thread or all, `sleeping` or not yet (`pending`); those already cancelled are gone */
 	const sleeping = async (threadId, status = 'sleeping') =>
 		(
@@ -346,7 +357,7 @@ export function server(core) {
 	 * that ends after a `count`, how many it has run; `note` why it's paused.
 	 */
 	async function pending(threadId) {
-		return (await sleeping(threadId))
+		return [...(await sleeping(threadId)), ...(await sleeping(threadId, 'waiting'))]
 			.map(({ id, conversationId, input: set, state, startedAt }) => {
 				const { checkpoint } = /** @type {any} */ (state)
 				const input = current(set, checkpoint)
@@ -375,6 +386,7 @@ export function server(core) {
 					...(input.bot === undefined ? {} : { bot: input.bot }),
 					...(input.to === undefined ? {} : { to: input.to }),
 					...(input.recipients === undefined ? {} : { recipients: input.recipients }),
+					...(input.check ? { check: input.check } : {}),
 				}
 			})
 			.sort(
@@ -475,7 +487,7 @@ export function server(core) {
 				const now = await core.task(id)
 				if (!now || now.state.status === 'terminal' || now.abortRequested) break
 				const c = /** @type {any} */ (now.state).checkpoint?.c
-				if (now.state.status === 'sleeping' && c !== checkpoint?.c)
+				if (['sleeping', 'waiting'].includes(now.state.status) && c !== checkpoint?.c)
 					sent = await core.signal(id, Control, `control-${c}`, word)
 				else await new Promise((resolve) => setTimeout(resolve, 20))
 			}
@@ -519,14 +531,27 @@ export function server(core) {
 		return { to }
 	}
 
+	/**
+	 * The conversation a task's check runs in: the agent the run asks, its first recipient in a thread, or none for a
+	 * task that starts a new thread each run
+	 */
+	async function checker(threadId, input) {
+		if (input.conversation !== undefined) return input.conversation
+		if (input.to !== undefined) return undefined
+		const { agents = {} } = (await core.thread(threadId)) ?? {}
+		const key = input.bot ?? (input.recipients ?? Object.keys(agents))[0]
+		return agents[key]?.conversation
+	}
+
 	/** Posts one run's instructions: where it landed, `{thread, entry}`, or false when there's no one left to ask */
-	async function run(tx, { id, threadId, input, asked, event }) {
+	async function run(tx, { id, threadId, input, asked, event, checked }) {
 		const row = await core.threadIn(tx, threadId)
 		if (row.hidden || !asked) return false
 		const mark = {
 			body: input.instructions,
 			scheduledTask: id,
 			...(event ? { event } : {}),
+			...(checked ? { checked } : {}),
 		}
 		if (input.conversation !== undefined) {
 			const key = Object.keys(row.agents).find(
@@ -566,6 +591,53 @@ export function server(core) {
 		return { thread: threadId, entry }
 	}
 
+	const json = (value) => JSON.parse(JSON.stringify(value))
+	const firstLine = (text) => String(text).split(/\r?\n/)[0].slice(0, 200)
+
+	/**
+	 * What a run of task `id` does once it knows what to: `end` it with a step in the trail; go on as `then` says with
+	 * its runs (`next`: sleep on `{sleep}`, or `{end}` after a one-off); `onward`, unless that run was its last, its
+	 * count used up or its next run past its end time; and `post` one run, with what its check found if it had one,
+	 * ending the task if the check said `{done}`, or when there's no one left to ask
+	 */
+	const steps = ({ id, threadId, input, checkpoint }, rt, ctx) => {
+		const { schedule } = input
+		const end = async (tx, why, result = {}) => {
+			await core.trailed(tx, threadId, undefined, 'ended', { task: id, why })
+			return finished('completed', { ...result, ended: why })
+		}
+		const next = (then, runs) =>
+			then.end ? finished('completed', { fired: true }) : asleep(schedule, { ...then.sleep, runs })
+		const onward = async (tx, state, count) => {
+			if (state.status === 'terminal') return state
+			const why = endOf(schedule, count, state.checkpoint.paused ? undefined : state.checkpoint.at)
+			if (why) return end(tx, why)
+			return { ...state, checkpoint: { ...state.checkpoint, ran: count } }
+		}
+		const post = async (event, then, checked = undefined) => {
+			const asked = await recipients(threadId, input, rt.signal).catch((error) => {
+				rt.report(error)
+				return null
+			})
+			return rt.commit(async (tx) => {
+				const landed = await run(tx, { id, threadId, input, asked, event, checked })
+				if (!landed) {
+					await core.trailed(tx, threadId, undefined, 'skipped', {
+						task: id,
+						why: asked
+							? 'its thread is archived or its agent gone; it ends'
+							: 'it could not work out whom to ask; it ends',
+					})
+					return finished()
+				}
+				if (then.done) return end(tx, 'its check said done', { fired: true })
+				const runs = [...(checkpoint.runs ?? []), { at: rt.now(), ...landed }].slice(-RUNS)
+				return onward(tx, next(then, runs), (checkpoint.ran ?? 0) + 1)
+			}, ctx)
+		}
+		return { end, next, onward, post }
+	}
+
 	/**
 	 * Sleeps until its first run, then posts its instructions each time (run) and sleeps until the next, or ends after a
 	 * one-off. A Control signal pauses it, sleeping on its next key only, or resumes it from now. One `on` events sleeps
@@ -594,58 +666,51 @@ export function server(core) {
 				const { schedule } = input
 				const runs = checkpoint.runs ?? []
 				const ran = (run) => [...runs, run].slice(-RUNS)
-				/** Its end, a step in the trail in the commit `tx`, and why */
-				const end = async (tx, why, result = {}) => {
-					await core.trailed(tx, threadId, undefined, 'ended', {
-						task: id,
-						why,
-					})
-					return finished('completed', { ...result, ended: why })
-				}
-				/**
-				 * Sleeps on as `state` says, `count` runs in, unless that run was its last: its count used up, or its next
-				 * run past its end time
-				 */
-				const onward = async (tx, state, count) => {
-					if (state.status === 'terminal') return state
-					const why = endOf(
-						schedule,
-						count,
-						state.checkpoint.paused ? undefined : state.checkpoint.at,
-					)
-					if (why) return end(tx, why)
-					return { ...state, checkpoint: { ...state.checkpoint, ran: count } }
-				}
-				/** Posts one run and sleeps on as `next` says, given its runs with this one; none left to ask, it ends */
-				const post = async (heard, next) => {
-					const asked = await recipients(threadId, input, rt.signal).catch((error) => {
-						rt.report(error)
-						return null
-					})
+				const { end, onward, post, next } = steps({ id, threadId, input, checkpoint }, rt, ctx)
+				/** One run, going on as `then` says after it; with a check, it waits on that first, and its phase decides */
+				const due = async (heard, then) => {
+					const event = heard && 'value' in heard ? json(heard.value) : undefined
+					if (!(input.check && checking)) return post(event, then)
+					const conversation = await checker(threadId, input)
+					const after = { ...(then.sleep ?? checkpoint), phase: 'checked', then }
+					if (conversation === undefined)
+						return rt.commit(
+							() => ({
+								status: 'running',
+								checkpoint: { ...after, said: { failed: 'it has no agent to check as' } },
+							}),
+							ctx,
+						)
 					return rt.commit(async (tx) => {
-						const event =
-							heard && 'value' in heard ? JSON.parse(JSON.stringify(heard.value)) : undefined
-						const landed = await run(tx, { id, threadId, input, asked, event })
-						if (!landed) {
-							await core.trailed(tx, threadId, undefined, 'skipped', {
-								task: id,
-								why: asked
-									? 'its thread is archived or its agent gone; it ends'
-									: 'it could not work out whom to ask; it ends',
-							})
-							return finished()
+						const task = await tx.createTask(
+							CheckRun,
+							{
+								code: input.check,
+								input: {
+									state: checkpoint.state ?? null,
+									runs: checkpoint.checks ?? 0,
+									now: rt.now(),
+									...(event ? { event } : {}),
+								},
+							},
+							background(conversation),
+						)
+						return {
+							status: 'waiting',
+							on: [task],
+							policy: 'allSettled',
+							checkpoint: { ...after, checking: task, ...(event ? { event } : {}) },
 						}
-						return onward(tx, next(ran({ at: rt.now(), ...landed })), (checkpoint.ran ?? 0) + 1)
 					}, ctx)
 				}
 				const told = await rt.readSignal(Control, `control-${checkpoint.c}`, ctx)
 				// Woken by its time, its Control key expired; the next sleep takes a fresh one
 				if (told && 'expired' in told) checkpoint.c += 1
 				if (told && 'value' in told) {
-					const word = /** @type {any} */ (JSON.parse(JSON.stringify(told.value)))
+					const word = /** @type {any} */ (json(told.value))
 					const moved = { ...checkpoint, c: checkpoint.c + 1 }
-					// Run now posts once and keeps its schedule
-					if (word.run) return post(undefined, (runs) => asleep(schedule, { ...moved, runs }))
+					// Run now runs once and keeps its schedule
+					if (word.run) return due(undefined, { sleep: moved })
 					// Its runs ask another runner from now on, its model there
 					if (word.runner)
 						return rt.commit(
@@ -667,18 +732,19 @@ export function server(core) {
 							})
 						return rt.commit(() => asleep(edited.schedule ?? schedule, edited), ctx)
 					}
-					const next = {
+					const after = {
 						...moved,
 						paused: word.paused,
 						note: word.paused ? word.note : undefined,
+						...(word.paused ? {} : { strikes: 0 }),
 					}
 					// Resumed, a one-off overdue runs now; a repeating one at its next run from now
 					if (!word.paused && checkpoint.at !== undefined)
-						next.at =
+						after.at =
 							checkpoint.at > rt.now()
 								? checkpoint.at
 								: (following(schedule, checkpoint.at, rt.now()) ?? rt.now())
-					return rt.commit(() => asleep(schedule, next), ctx)
+					return rt.commit(() => asleep(schedule, after), ctx)
 				}
 				// Woken by its end time, paused, listening, or with its next run past it, it ends without a run
 				if (
@@ -693,19 +759,14 @@ export function server(core) {
 					const heard = await rt.readSignal(Hooked, `event-${checkpoint.n}`, ctx)
 					if (!(heard && 'value' in heard))
 						return rt.commit(() => asleep(schedule, checkpoint), ctx)
-					return post(heard, (runs) =>
-						asleep(schedule, { ...checkpoint, n: checkpoint.n + 1, runs }),
-					)
+					return due(heard, { sleep: { ...checkpoint, n: checkpoint.n + 1 } })
 				}
 				const at =
 					checkpoint.at === undefined ? undefined : following(schedule, checkpoint.at, rt.now())
-				const then = (runs) =>
-					at === undefined
-						? finished('completed', { fired: true })
-						: asleep(schedule, { ...checkpoint, at, runs })
+				const then = at === undefined ? { end: true } : { sleep: { ...checkpoint, at } }
 				// Its last run's thread still working, a timed run is skipped, as Temporal's default overlap does
-				const last = runs.at(-1)
-				if (checkpoint.at !== undefined && last?.thread !== undefined)
+				const last = runs.findLast((run) => run.thread !== undefined)
+				if (checkpoint.at !== undefined && last !== undefined)
 					if (await core.busy(last.thread)) {
 						const offline = await core.waitingFor(last.thread)
 						const skipped = offline.length
@@ -716,10 +777,78 @@ export function server(core) {
 								task: id,
 								why: skipped,
 							})
-							return onward(tx, then(ran({ at: rt.now(), skipped })), checkpoint.ran ?? 0)
+							return onward(tx, next(then, ran({ at: rt.now(), skipped })), checkpoint.ran ?? 0)
 						}, ctx)
 					}
-				return post(undefined, then)
+				return due(undefined, then)
+			},
+			/**
+			 * Its check ended. A post runs it as any run does, with what the check found beside it; quiet or failed, the run
+			 * is kept among its runs and in the trail. STRIKES failures in a row pause it; done ends it after this run.
+			 */
+			checked: async ({ id, conversationId: threadId, input: set, state }, rt, ctx) => {
+				const {
+					checking,
+					then,
+					event,
+					said: given,
+					...rest
+				} = /** @type {any} */ (state).checkpoint
+				const checkpoint = { ...rest, phase: 'fire' }
+				const input = current(set, checkpoint)
+				const { end, onward, post, next } = steps({ id, threadId, input, checkpoint }, rt, ctx)
+				const said = given ?? outcomeOf(await rt.getTask(checking, ctx))
+				const at = rt.now()
+				const runs = checkpoint.runs ?? []
+				const count = (checkpoint.ran ?? 0) + 1
+				const kept = {
+					...(said.state !== undefined ? { state: said.state } : {}),
+					checks: (checkpoint.checks ?? 0) + 1,
+					strikes: 0,
+				}
+				const going = then.end ? then : { sleep: { ...then.sleep, ...kept } }
+				if (said.failed) {
+					const strikes = (checkpoint.strikes ?? 0) + 1
+					const failed = [...runs, { at, failed: said.failed, output: said.output ?? '' }].slice(
+						-RUNS,
+					)
+					const paused = !then.end && strikes >= STRIKES
+					const after = then.end
+						? then
+						: {
+								sleep: {
+									...then.sleep,
+									strikes,
+									...(paused
+										? {
+												paused: true,
+												note: `its check failed ${STRIKES} times: ${said.failed}`.slice(0, 200),
+											}
+										: {}),
+								},
+							}
+					return rt.commit(async (tx) => {
+						await core.trailed(tx, threadId, undefined, 'checked', {
+							task: id,
+							failed: said.failed,
+						})
+						return onward(tx, next(after, failed), count)
+					}, ctx)
+				}
+				if (said.post) return post(event, said.done ? { done: true } : going, said.post)
+				const last = runs.at(-1)
+				const quiet =
+					last?.checked !== undefined
+						? [...runs.slice(0, -1), { at, checked: last.checked + 1, output: said.output ?? '' }]
+						: [...runs, { at, checked: 1, output: said.output ?? '' }].slice(-RUNS)
+				return rt.commit(async (tx) => {
+					await core.trailed(tx, threadId, undefined, 'checked', {
+						task: id,
+						...(said.output ? { said: firstLine(said.output) } : {}),
+					})
+					if (said.done) return end(tx, 'its check said done')
+					return onward(tx, next(going, quiet), count)
+				}, ctx)
 			},
 		},
 		abort: (_task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
@@ -825,6 +954,16 @@ export function server(core) {
 						),
 					}
 				: {}),
+			...(checking
+				? {
+						check: opt(
+							str({
+								description:
+									'A Code Mode script that runs before each run, as you, with your tools and no model: `input` is {state, runs, now, event?}; post(text) has this run ask you, with text beside the instructions; done() ends the task after this run; keep(value) is input.state next time. Calling none, the run stays quiet. It cannot call schedule.',
+							}),
+						),
+					}
+				: {}),
 			cancel: opt(num({ description: "A scheduled task's id, to cancel it instead" })),
 		}),
 		replay: 'safe',
@@ -850,11 +989,13 @@ export function server(core) {
 				hooks,
 				threadId: at.thread,
 			})
+			const check = checkOf(args, {})
 			const id = await make(`schedule ${api.taskId}`, at.thread, {
 				conversation: api.conversationId,
 				by: at.name,
 				instructions,
 				schedule: planned,
+				...(check ? { check } : {}),
 			})
 			const others = (await pending(at.thread)).filter((one) => one.id !== id)
 			return {
@@ -932,6 +1073,23 @@ export function server(core) {
 	}
 
 	/** Instructions from a request, trimmed; required */
+	/**
+	 * A check from a request, trimmed: `''` removes one on an edit; refused without check on, too long, or for a task that
+	 * starts a new thread each run, which has no agent to check as
+	 */
+	const checkOf = (body, place) => {
+		if (body.check === undefined) return undefined
+		if (!checking) throw new Error('A check needs check on: MODULES=+check')
+		if (typeof body.check !== 'string') throw new Error('check is the text of a script')
+		const check = body.check.trim()
+		if (check.length > MOST) throw new Error(`A check is at most ${MOST} characters`)
+		if (check && place.to !== undefined)
+			throw new Error(
+				"A task that starts a new thread each run has no agent to check as; it can't have a check",
+			)
+		return check
+	}
+
 	const instructionsOf = (body) => {
 		const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : ''
 		if (!instructions) throw new Error('instructions is required')
@@ -951,7 +1109,12 @@ export function server(core) {
 			threadId: where.threadId,
 		})
 		const key = typeof body.key === 'string' && body.key ? body.key.slice(0, 100) : undefined
-		return makeIn(where, { by: user, instructions, schedule }, key && `schedule ${user}/${key}`)
+		const check = checkOf(body, where.input)
+		return makeIn(
+			where,
+			{ by: user, instructions, schedule, ...(check ? { check } : {}) },
+			key && `schedule ${user}/${key}`,
+		)
 	}
 
 	/**
@@ -989,9 +1152,11 @@ export function server(core) {
 				was.bot === undefined && was.to === undefined && was.conversation === undefined
 					? (await recipientsOf(body, record.conversationId)).recipients
 					: undefined
+			const check = checkOf(body, was)
 			const edited = await control(threadId, id, {
 				edit: {
 					...(instructions ? { instructions } : {}),
+					...(check !== undefined ? { check } : {}),
 					...(schedule ? { schedule } : {}),
 					...(to ? { to } : {}),
 					...(recipients ? { recipients } : {}),
@@ -1010,11 +1175,13 @@ export function server(core) {
 							? { to: was.to }
 							: await recipientsOf(body, record.conversationId),
 				}
+		const check = checkOf(body, where.input) ?? was.check
 		const made = await makeIn(where, {
 			by: was.by,
 			...(was.conversation === undefined ? {} : { conversation: was.conversation }),
 			instructions: instructions ?? was.instructions,
 			schedule: schedule ?? was.schedule,
+			...(check ? { check } : {}),
 			runs: checkpoint?.runs ?? [],
 		})
 		await cancel(undefined, id)

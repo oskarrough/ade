@@ -102,7 +102,7 @@ GET    /api/conversations/:id          an agent's own conversation, tool calls a
 
 A thread's trail is what happened in it, one step at a time, like Temporal's event history. Each step is written in the same commit as what it records, as an `ade.trail` entry in a conversation the thread keeps for its trail, so a restart can't lose it and reading the thread's messages never reads it. `GET /api/threads/:id/trail` answers the newest 200 steps, oldest first; `?entry=<message id>` answers that message's story whole. `ade trail N` prints the same, and `--message id` one story. Each step is `{id, thread, entry, at, kind, text, …}`: `entry` the message it's about, `at` epoch milliseconds, `text` the step as a plain line, and by `kind`:
 
-- `fired` `{task}`: a scheduled task posted this message; `skipped` `{task, why}`, with no `entry`: a run it skipped, or the one that ended it; `ended` `{task, why}`, with no `entry`: it ended by itself, its runs done or its end time come
+- `fired` `{task}`: a scheduled task posted this message; `skipped` `{task, why}`, with no `entry`: a run it skipped, or the one that ended it; `ended` `{task, why}`, with no `entry`: it ended by itself, its runs done or its end time come, or its check said done; `checked` `{task, said?}` or `{task, failed}`, with no `entry`: a run whose check asked no one, with the first line it printed, or whose check failed
 - `posted` `{author, to, direct?, picked?}`: a message to whom; `direct` when the director picks
 - `waited` `{ms, held?}`: the director's quiet before its pick, `held` when someone's typing kept it waiting
 - `picked` `{to, picked?, over?, chose?}`: whom the pick asks. `chose` is how it chose: `{model, outcome, ms, waited, choice, confidence, candidates, read}`, `read` the ids of the messages it read, or `error` when it failed; `over` when the author's next message took over
@@ -188,9 +188,9 @@ With `schedule` on:
 
 ```
 GET    /api/schedule                    every scheduled task in the house, soonest first, then the paused and those waiting on a thread or an event:
-                                          [{id, thread, schedule, at?, from?, paused?, note?, runs, ran?, instructions, by, agent?, bot?, to?}]
+                                          [{id, thread, schedule, at?, from?, paused?, note?, runs, ran?, instructions, by, agent?, bot?, to?, check?}]
 GET    /api/threads/:id/schedule        the thread's, the same rows
-POST   /api/schedule {instructions, bot | thread | to, in | at | every | times | after | when | on, until?, count?, …, key?}
+POST   /api/schedule {instructions, bot | thread | to, in | at | every | times | after | when | on, until?, count?, check?, …, key?}
                                         a person's new task: {id, thread}. It runs in `bot`'s home, in `thread` as your own message there,
                                           or with `to` (`{runner, model, thinkingLevel?}`) in a new thread each run, under one made for the task.
                                           When, in Temporal's shapes: `in` (a duration, 90s, 5m, 1h30m, 2d) or `at` (milliseconds, an ISO time,
@@ -200,7 +200,7 @@ POST   /api/schedule {instructions, bot | thread | to, in | at | every | times |
                                           `when` something happens in ade; `on` an event, with hooks on. One that repeats (`every`,
                                           `times`, `on`) can end `until` a time (as `at`, or a duration from now) or after `count` runs
 POST   /api/threads/:id/schedule {instructions, …}  the same, running in that thread
-POST   /api/schedule {edit, instructions?, <when>?, bot | thread | to?}
+POST   /api/schedule {edit, instructions?, <when>?, bot | thread | to?, check?}
                                         changes a task by its id: what's given replaces what it had, a new when starting its wait over
                                           from now. In place, keeping its id and runs: {edited}; moved to another thread, or starting or
                                           stopping listening for events, a new task takes its place with its runs: {edited, id, thread}.
@@ -213,6 +213,8 @@ POST   /api/schedule {move, runner}     a task that starts a new thread each run
 ```
 
 The same POSTs under `/api/threads/:id/schedule` refuse a task from another thread. `schedule` is `{at}` once, `{at, every}` every so often from its first run, `{times, days?, timeZone}` at clock times on those weekdays (every day without `days`), `{after}`, `{when}` or `{on}`; one that repeats may carry `until`, in milliseconds, and `count`. `when` is one of `{online: runner}` or `{offline: runner}`, when that runner connects or drops (at once if it already has), or `{failed: thread}` or `{answered: thread}`, the next time a run there fails or an agent there answers; it runs once, as `after` does. A task that ends by itself, after its `count`th run or once its next run would come after `until` (or `until` passes while it's paused or listening), leaves an `ended` step in its thread's trail, and `ran` counts its runs so far when it has a `count`; a run now counts too. `at` is its next run and `from` where the wait for it began, the run before or when a one-off was set; a paused task has neither, and `note` says why. `runs` are its last five, oldest first, each `{at, thread, entry}`, the message it posted, or `{at, skipped}`: a timed run that comes due while its last run's thread still works is skipped, Temporal's default overlap, and `skipped` says why, as `vps offline` when that run waits for an offline runner, else `the run before still working`. A run missed while the server was down runs once on start. `agent` is the agent that set it, `bot` the bot whose home it runs in, `to` the model a new thread each run asks.
+
+With check on too, `check` is a script that runs before each run (check.js), at most 16 KB; an edit's `check: ""` removes it, and a task with `to` can't have one. Its runs then also hold `{at, checked, output}`, a check that asked no one (`checked` counts those in a row, folded into one), and `{at, failed, output}`, one that failed; `output` is the first 2000 characters of what it printed, then a line per tool call. The message a check's `post` makes carries `checked`, what it found, which the agent reads after the instructions inside `<check-found>`.
 
 A run posts `{author, body: instructions, scheduledTask: id, to}`: an agent's goes to that agent, asking itself; a person's is theirs, asking the bot, or whom the thread would ask, or the new thread's agent. Subscribe to `schedule` or `schedule/<id>` on the `/ws` feed to hear tasks added, paused, run or cancelled live.
 

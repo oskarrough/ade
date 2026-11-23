@@ -1,9 +1,10 @@
 /** `pnpm fuzz --crash [--seed n] [--kills 100]`: holds ade to "a restart or a crash loses nothing". A scratch house with
  * the echo bot `echo/try@bot` on a real runner and bots bot1 and bot2 is kept busy, slow turns, side questions, scheduled
- * tasks, drafts being typed, forks, while the server is killed with SIGKILL at random moments and started again on the
+ * tasks, some with a check that runs a command first, drafts being typed, forks, while the server is killed with SIGKILL at random moments and started again on the
  * same store. After every restart it checks nothing that was there is gone, no message landed twice, no turn was answered
- * twice, no task ran twice and every draft is what was last saved; every 20 kills, and at the end, it lets the house settle
- * and checks every message was answered, or failed with an error, and every task that came due ran once.
+ * twice, no task ran twice (a checked one included) and every draft is what was last saved; every 20 kills, and at the end, it lets the house settle
+ * and checks every message was answered, or failed with an error, and every task that came due ran once, or its
+ * check finished it.
  * It prints "nothing broke" or the first violation, with the seed that replays the same moves; the timing is the
  * machine's, so a replay comes close rather than exact. The store, its log and the runner's folder stay in
  * .work/fuzz/crash-<time>/. Exits 0 when nothing broke, 1 on a violation. */
@@ -51,7 +52,7 @@ for (const name of Object.keys(env))
 		delete env[name]
 const port = 20000 + Math.floor(Math.random() * 20000)
 const base = `http://127.0.0.1:${port}`
-const modules = '+bots,+director,+schedule'
+const modules = '+bots,+director,+schedule,+check'
 const children = new Set()
 process.on('exit', () => {
 	for (const child of children)
@@ -131,6 +132,8 @@ const sent = new Map()
 const made = new Map()
 /** Person tasks: key → {due, id?} */
 const tasks = new Map()
+/** Person tasks with a check, which may post or not: key → {due, id?} */
+const checks = new Map()
 /** Drafts per thread: {key, text, could}, `could` what the store may hold, as `key:text` or 'null' */
 const drafts = new Map()
 /** Every entry ever read, by thread: id → body */
@@ -181,6 +184,27 @@ const moves = [
 				'/api/schedule',
 				{ thread: A, instructions: `task m${n}`, at: due, key },
 				(json) => (tasks.get(key).id = json.id),
+			)
+		},
+	],
+	[
+		1,
+		() => {
+			const key = `c${++n}`
+			const due = Date.now() + 500 + Math.floor(random() * 2000)
+			checks.set(key, { due })
+			return keyed(
+				key,
+				'POST',
+				'/api/schedule',
+				{
+					thread: A,
+					instructions: `checked m${n}`,
+					at: due,
+					key,
+					check: String.raw`const r = await tools.bash({ command: 'sleep 0.3; echo ok' }); post('found ' + r.output.trim())`,
+				},
+				(json) => (checks.get(key).id = json.id),
 			)
 		},
 	],
@@ -396,7 +420,10 @@ async function settle(when) {
 	while (Date.now() - moved < 30000) {
 		all = await views()
 		const busy = [...all.values()].filter((view) => view.row.busy || view.row.status === 'working')
-		const due = [...tasks.values()].some((task) => task.due > Date.now() - 1000)
+		const listed = new Set((await api('GET', '/api/schedule')).map((task) => task.id))
+		const due =
+			[...tasks.values(), ...checks.values()].some((task) => task.due > Date.now() - 1000) ||
+			[...checks.values()].some((task) => listed.has(task.id))
 		if (!busy.length && !due) break
 		const latest = Math.max(...[...all.values()].map((view) => view.entries.at(-1)?.id ?? 0))
 		if (latest > newest) [newest, moved] = [latest, Date.now()]
@@ -422,6 +449,13 @@ async function settle(when) {
 				fail(`thread ${thread}: message ${entry.id} "${data.body.slice(0, 40)}" was never answered`)
 		}
 	}
+	// A checked one-off ends once its check is done: posted, or its check failed with the command cut off
+	const live = new Set((await api('GET', '/api/schedule')).map((task) => task.id))
+	for (const [key, task] of checks)
+		if (task.due < Date.now() - 1000 && task.id !== undefined && live.has(task.id))
+			fail(
+				`checked task ${task.id} (${key}), due ${Math.round((Date.now() - task.due) / 1000)}s ago, never finished`,
+			)
 	for (const [key, task] of tasks)
 		if (task.due < Date.now() - 1000 && !fired.has(String(task.id)))
 			fail(

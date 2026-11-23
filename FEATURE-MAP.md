@@ -72,7 +72,9 @@ modules/
   inbox.js               `ask_person`, openQuestion, questions, unread; serve (GET /api/inbox, dismissals)
   schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, wakeAt, endOf,
                          onward, Control, Hooked, Ended, Happened), run, scheduleOf, startOf, firstRun, settle, happen, already, runner,
-                         entryStored, pending, cancel, control; serve
+                         entryStored, pending, cancel, control, checker, checkOf, steps (end, next, onward, post), the `checked` phase; serve
+  check.js               a scheduled task's check: CheckRun, Said doc, the `scheduled_check` tool (Code Mode with post, done
+                         and keep as globals), outcomeOf, the hook that keeps it from `schedule`
   hooks.js               outside events for scheduled tasks: Hook doc, issue, webhook, admit, PROBES, RATE, github,
                          fact, SHAPES, LIFETIME, GENERATION, stale; serve
   web-search.js          `web_search`
@@ -188,7 +190,7 @@ Where a feature lives:
 - Status dots and questions: server.js status/busiest/concerns (a failure is red and an answer blue only to who wrote in the thread, as the inbox lists it), dot.js, modules/inbox.js openQuestion.
 - Inbox: modules/inbox.js, client inbox.js, server.js inbox/dismiss/page, thread-list.js.
 - Pi session files: modules/pi-sessions.js, remote.js serveRunner and RUNNER_FILES, cli.js `import`.
-- Scheduled tasks: modules/schedule.js, modules/hooks.js, util.js said, client schedule.js and clock.js, time.js `ahead`.
+- Scheduled tasks: modules/schedule.js, modules/hooks.js, modules/check.js, util.js said, client schedule.js and clock.js, time.js `ahead`.
 - Settings and modules: modules.js, server.js saveSettings/restart, settings.js.
 - Threads side by side: client server.js followThread/besideKey/openBeside, `columns`.
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.

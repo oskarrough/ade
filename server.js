@@ -79,6 +79,7 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {true} [posted]  A bot's own post in a thread it's in, or opens, with its post tool: an agent's, as its answers are.
  * @property {number} [scheduledTask]  The scheduled task that posted it, when its time came: an agent's own instructions
  *   back to it, or a person's, as they set them.
+ * @property {string} [checked]  What that task's check found before the run, which the agent reads beside the instructions.
  * @property {true} [error]  The agent gave no answer.
  * @property {true} [stopped]  Its author pressed Stop while the thread was working; the body says `stopped`.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
@@ -1979,6 +1980,8 @@ function stepText(step) {
 			return `scheduled task ${step.task} skipped: ${step.why}`
 		case 'ended':
 			return `scheduled task ${step.task} ended: ${step.why}`
+		case 'checked':
+			return `scheduled task ${step.task}'s check ${step.failed ? `failed: ${step.failed}` : `was quiet${step.said ? `: ${step.said}` : ''}`}`
 		case 'posted':
 			return `posted as ${step.author} to ${names(step.to)}${step.direct ? ', for the director to pick' : ''}${step.picked ? ` (${step.picked})` : ''}`
 		case 'waited':
