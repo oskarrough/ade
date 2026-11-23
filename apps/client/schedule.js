@@ -67,10 +67,48 @@ const daysOf = (days) => {
 	return listed(days.map((day) => DAYS[day].slice(0, 3)))
 }
 
-/** How a schedule repeats, or what it waits for */
-const repeatOf = (schedule) => {
+/** What a task `when` waits for, as the server's schedule.js says it: a runner by name, a thread by id */
+const HAPPENINGS = {
+	online: {
+		runner: true,
+		said: (name) => `when ${name} comes online`,
+		label: 'When a runner comes online',
+	},
+	offline: {
+		runner: true,
+		said: (name) => `when ${name} goes offline`,
+		label: 'When a runner goes offline',
+	},
+	failed: {
+		said: (id) => `when ${titleOf(id)} fails`,
+		label: 'When a thread fails',
+	},
+	answered: {
+		said: (id) => `when ${titleOf(id)} answers`,
+		label: 'When a thread answers',
+	},
+}
+/** when vps comes online, when Deploy fails */
+const happening = (when) => {
+	const [name] = Object.keys(when)
+	return HAPPENINGS[name]?.said(when[name]) ?? name
+}
+
+/** How it ends, if it does: until 18:00, 3 runs */
+const endOf = (schedule) =>
+	[
+		schedule.until === undefined ? '' : `until ${runLabel(schedule.until, schedule.timeZone)}`,
+		schedule.count === undefined ? '' : `${schedule.count} run${schedule.count === 1 ? '' : 's'}`,
+	]
+		.filter(Boolean)
+		.join(', ')
+
+/** How a schedule repeats, or what it waits for, and when it ends */
+const repeatOf = (schedule) => [startOf(schedule), endOf(schedule)].filter(Boolean).join(', ')
+const startOf = (schedule) => {
 	if (schedule.on !== undefined) return `on ${EVENTS[schedule.on]}`
 	if (schedule.after !== undefined) return `once ${titleOf(schedule.after)} is done`
+	if (schedule.when !== undefined) return happening(schedule.when)
 	if (schedule.every) return `every ${span(schedule.every)}`
 	if (!schedule.times) return 'once'
 	const zone = schedule.timeZone === HERE ? '' : ` ${schedule.timeZone}`
@@ -163,7 +201,10 @@ function OfflineRunner(props) {
 							title=${() => `Its runs start on ${runner.name} from now on, in ${runner.dir}`}
 							onClick=${(event) => {
 								event.stopPropagation()
-								api('/api/schedule', { move: props.task.id, runner: runner.name }).catch(report)
+								api('/api/schedule', {
+									move: props.task.id,
+									runner: runner.name,
+								}).catch(report)
 							}}
 						>
 							${() => runner.name}
@@ -212,7 +253,10 @@ function Controls(props) {
 	const stop = (event) => event.stopPropagation()
 	const pause = (note) => {
 		setAsking(false)
-		act({ pause: props.task.id, ...(note.trim() ? { note: note.trim() } : {}) })
+		act({
+			pause: props.task.id,
+			...(note.trim() ? { note: note.trim() } : {}),
+		})
 	}
 	return html`
 		<${Show}
@@ -364,7 +408,9 @@ export function ScheduledTaskList() {
 	const id = createUniqueId()
 	const [open, setOpen] = createSignal(false)
 	const [form, setForm] = createSignal(null)
-	const tasks = feedView(() => (open() ? 'schedule' : null), { sort: taskSort })
+	const tasks = feedView(() => (open() ? 'schedule' : null), {
+		sort: taskSort,
+	})
 	const openForm = (thread, task) => {
 		setForm({ thread, task })
 		if (!panel.matches(':popover-open')) panel.showPopover()
@@ -495,7 +541,11 @@ const runLabel = (ms, timeZone = HERE) => {
 /** Night, when a run is more likely a slip than a wish */
 const atNight = (ms, timeZone = HERE) => {
 	const hour = Number(
-		new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone }),
+		new Date(ms).toLocaleTimeString('en-GB', {
+			hour: '2-digit',
+			hourCycle: 'h23',
+			timeZone,
+		}),
 	)
 	return hour < 6 || hour >= 23
 }
@@ -547,11 +597,13 @@ function TaskForm(props) {
 			? 'on'
 			: schedule.after !== undefined
 				? 'after'
-				: schedule.every
-					? 'every'
-					: schedule.times || !task
-						? 'days'
-						: 'once',
+				: schedule.when !== undefined
+					? Object.keys(schedule.when)[0]
+					: schedule.every
+						? 'every'
+						: schedule.times || !task
+							? 'days'
+							: 'once',
 	)
 	const [once, setOnce] = createSignal(
 		localField(schedule.at !== undefined && !schedule.every ? schedule.at : tomorrowAtNine()),
@@ -562,6 +614,22 @@ function TaskForm(props) {
 	const [start, setStart] = createSignal(schedule.every ? localField(schedule.at) : '')
 	const [days, setDays] = createSignal(schedule.days ?? [0, 1, 2, 3, 4, 5, 6])
 	const [times, setTimes] = createSignal(schedule.times ?? ['09:00'])
+	const [runner, setRunner] = createSignal(
+		schedule.when?.online ??
+			schedule.when?.offline ??
+			runners.find((one) => !one.online)?.name ??
+			runners[0]?.name,
+	)
+	const [watched, setWatched] = createSignal(
+		schedule.when?.failed ?? schedule.when?.answered ?? props.thread ?? threadRows().open[0]?.id,
+	)
+	/** Whether it repeats, so it can end: never, `until` a time, or after `count` runs */
+	const repeats = () => ['every', 'days', 'on'].includes(kind())
+	const [ends, setEnds] = createSignal(
+		schedule.count !== undefined ? 'count' : schedule.until !== undefined ? 'until' : 'never',
+	)
+	const [until, setUntil] = createSignal(localField(schedule.until ?? Date.now() + 2 * 3_600_000))
+	const [runs, setRuns] = createSignal(String(schedule.count ?? 10))
 	const [to, setTo] = createSignal(task?.to ?? null)
 	const [saving, setSaving] = createSignal(false)
 	const online = () => runners.filter((runner) => runner.online)
@@ -573,11 +641,20 @@ function TaskForm(props) {
 		const here = rows.find((row) => row.id === mine)
 		return [...(here ? [here] : []), ...rows.filter((row) => row !== here).slice(0, 30)]
 	}
-	/** When, as the server takes it: exactly what the fields say */
+	/** When, as the server takes it: exactly what the fields say, and how it ends */
 	const when = () => {
-		if (kind() === 'on') return { on: schedule.on ?? 'hook' }
+		if (kind() in HAPPENINGS)
+			return {
+				when: {
+					[kind()]: HAPPENINGS[kind()].runner ? runner() : Number(watched()),
+				},
+			}
 		if (kind() === 'after') return { after: schedule.after }
 		if (kind() === 'once') return { at: new Date(once()).getTime() }
+		return { ...startsAt(), ...ending() }
+	}
+	const startsAt = () => {
+		if (kind() === 'on') return { on: schedule.on ?? 'hook' }
 		if (kind() === 'every')
 			return {
 				every: `${Number(count())}${unit()}`,
@@ -589,10 +666,21 @@ function TaskForm(props) {
 			timeZone: zone,
 		}
 	}
+	const ending = () =>
+		ends() === 'until'
+			? { until: new Date(until()).toISOString() }
+			: ends() === 'count'
+				? { count: Number(runs()) }
+				: {}
 	/** The same as a schedule, to draw its next runs */
 	const planned = () => {
+		if (!['once', 'every', 'days'].includes(kind())) return null
 		const asked = /** @type {any} */ (when())
-		if (asked.times) return { ...asked, days: asked.days.length === 7 ? undefined : asked.days }
+		if (asked.times)
+			return {
+				...asked,
+				days: asked.days.length === 7 ? undefined : asked.days,
+			}
 		if (asked.every) {
 			const gap = Number(count()) * UNIT_SIZES[unit()]
 			if (!(gap >= 60_000)) return null
@@ -604,7 +692,12 @@ function TaskForm(props) {
 		const schedule = planned()
 		if (!schedule) return []
 		if (schedule.times && (!schedule.times.length || schedule.days?.length === 0)) return []
-		return runsAfter(schedule, now(), 5)
+		const end = ends() === 'until' ? new Date(until()).getTime() : Infinity
+		const left =
+			ends() === 'count'
+				? Math.max(0, Number(runs()) - (task?.schedule.count === undefined ? 0 : (task.ran ?? 0)))
+				: 5
+		return runsAfter(schedule, now(), Math.min(5, left)).filter((at) => at <= end)
 	}
 	const placeLink = () => {
 		const [where, value] = place().split(/ (.*)/)
@@ -614,7 +707,10 @@ function TaskForm(props) {
 		}
 		if (where === 'thread') return null
 		return task?.to
-			? { thread: task.thread, label: `a new thread each run, under ${titleOf(task.thread)}` }
+			? {
+					thread: task.thread,
+					label: `a new thread each run, under ${titleOf(task.thread)}`,
+				}
 			: { label: 'a new thread each run' }
 	}
 	const submit = async (event) => {
@@ -674,7 +770,46 @@ function TaskForm(props) {
 						${`On ${EVENTS[schedule.on ?? 'hook']}`}
 					</option>
 				<//>
+				<optgroup label="When something happens">
+					<${For} each=${Object.keys(HAPPENINGS)}
+						>${(name) =>
+							html`<option value=${name} selected=${() => kind() === name}>
+								${HAPPENINGS[name].label}
+							</option>`}<//
+					>
+				</optgroup>
 			</select>
+			<${Show} when=${() => HAPPENINGS[kind()]?.runner}>
+				<div class="when">
+					<span>when</span>
+					<select aria-label="Runner" onChange=${(event) => setRunner(event.currentTarget.value)}>
+						<${For} each=${() => runners}
+							>${(one) =>
+								html`<option value=${() => one.name} selected=${() => runner() === one.name}>
+									${() => one.name}
+								</option>`}<//
+						>
+					</select>
+					<span>${() => (kind() === 'online' ? 'comes online' : 'goes offline')}</span>
+				</div>
+			<//>
+			<${Show} when=${() => kind() === 'failed' || kind() === 'answered'}>
+				<div class="when">
+					<span>when</span>
+					<select
+						aria-label="Thread"
+						onChange=${(event) => setWatched(Number(event.currentTarget.value))}
+					>
+						<${For} each=${threads}
+							>${(row) =>
+								html`<option value=${() => row.id} selected=${() => watched() === row.id}>
+									${() => titleOf(row.id)}
+								</option>`}<//
+						>
+					</select>
+					<span>${() => (kind() === 'failed' ? 'fails' : 'answers')}</span>
+				</div>
+			<//>
 			<${Show} when=${() => kind() === 'once'}>
 				<div class="when">
 					<input
@@ -761,6 +896,37 @@ function TaskForm(props) {
 						<${Icon} name="plus" />
 					</button>
 					<${Show} when=${() => zone !== HERE}><small>${zone}</small><//>
+				</div>
+			<//>
+			<${Show} when=${repeats}>
+				<div class="when">
+					<span>ends</span>
+					<select aria-label="Ends" onChange=${(event) => setEnds(event.currentTarget.value)}>
+						<option value="never" selected=${() => ends() === 'never'}>never</option>
+						<option value="until" selected=${() => ends() === 'until'}>at</option>
+						<option value="count" selected=${() => ends() === 'count'}>after</option>
+					</select>
+					<${Show} when=${() => ends() === 'until'}>
+						<input
+							type="datetime-local"
+							aria-label="Ends at"
+							required
+							value=${until()}
+							onInput=${(event) => setUntil(event.currentTarget.value)}
+						/>
+					<//>
+					<${Show} when=${() => ends() === 'count'}>
+						<input
+							type="number"
+							class="count"
+							min="1"
+							required
+							aria-label="Runs"
+							value=${runs()}
+							onInput=${(event) => setRuns(event.currentTarget.value)}
+						/>
+						<span>${() => (Number(runs()) === 1 ? 'run' : 'runs')}</span>
+					<//>
 				</div>
 			<//>
 			<${Show} when=${() => task?.runs?.length || next().length}>
@@ -984,9 +1150,17 @@ export function ScheduledTasks(props) {
 export function ScheduledTaskSet(props) {
 	const when = () => {
 		const args = props.step.args
+		const end = [
+			args.until ? `until ${args.until}` : '',
+			args.count ? `${args.count} run${args.count === 1 ? '' : 's'}` : '',
+		].filter(Boolean)
+		return [started(args), ...end].join(', ')
+	}
+	const started = (args) => {
 		if (args.cancel !== undefined) return 'cancelled a scheduled task'
 		if (args.on !== undefined) return `scheduled a task on ${EVENTS[args.on] ?? args.on}`
 		if (args.after !== undefined) return `scheduled a task for once ${titleOf(args.after)} is done`
+		if (args.when !== undefined) return `scheduled a task for ${happening(args.when)}`
 		if (args.times)
 			return `scheduled a task ${args.days ? listed([args.days].flat()) : 'daily'} at ${listed([args.times].flat())}`
 		if (args.every)

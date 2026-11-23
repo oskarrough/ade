@@ -1977,6 +1977,8 @@ function stepText(step) {
 			return `scheduled task ${step.task} fired`
 		case 'skipped':
 			return `scheduled task ${step.task} skipped: ${step.why}`
+		case 'ended':
+			return `scheduled task ${step.task} ended: ${step.why}`
 		case 'posted':
 			return `posted as ${step.author} to ${names(step.to)}${step.direct ? ', for the director to pick' : ''}${step.picked ? ` (${step.picked})` : ''}`
 		case 'waited':
@@ -3724,6 +3726,8 @@ feed.define('server', {
 const entryStored = modules.flatMap((module) => module.entryStored ?? [])
 const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
+/** Told when a runner comes online, `true`, or goes offline, `false` */
+const runnerHooks = modules.flatMap((module) => module.runner ?? [])
 harness.observeCommits({
 	advance: (publication) => {
 		const ended = new Set()
@@ -4026,6 +4030,7 @@ async function upgrade(req, raw, head, serve = false) {
 		if (connection && runners.disconnect(connection)) {
 			say('runner', `${name} offline`)
 			feed.touch(['runners', 'bots', 'threads', 'archived', 'thread'])
+			for (const hook of runnerHooks) hook(name, false)
 		}
 	}
 	socket.on('close', close)
@@ -4099,6 +4104,7 @@ async function upgrade(req, raw, head, serve = false) {
 	listen(runners.receive)
 	runners.connect(connection, (text) => socket.send(text))
 	feed.touch(['runners', 'bots', 'threads', 'archived', 'thread'])
+	for (const hook of runnerHooks) hook(name, true)
 	socket.send(JSON.stringify({ op: 'ready' }))
 	if (runner.version && runner.version !== bundle.version) {
 		outdated.add(connection)

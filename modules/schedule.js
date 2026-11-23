@@ -1,6 +1,6 @@
 /**
  * Scheduled tasks: instructions that arrive in a thread later, once, every so often, by the clock, once another thread's
- * work ends, or on an outside event. On by default; MODULES=-schedule turns it off.
+ * work ends, when something happens in ade, or on an outside event. On by default; MODULES=-schedule turns it off.
  *
  * An agent sets one with `schedule`; its instructions come back to it, as it, marked `scheduledTask`. A person sets one
  * from the Scheduled tasks list (POST /api/schedule): it runs in a bot's home, asking her; in a thread, carrying its own
@@ -11,7 +11,10 @@
  * Each is an `ade.scheduled-task` task owned by its thread in the background: a stored sleep, so it survives a restart
  * and the thread's Stop, and holds no process. Its schedule is `{at}` once, `{at, every}` every so often from its first
  * run, `{times, days?, timeZone}` at clock times on chosen weekdays by the wall clock (so a clock change keeps it at
- * 7:30), `{after}` a thread, or `{on}` an event: Temporal's shapes, none of its weight; client clock.js works them out.
+ * 7:30), `{after}` a thread, `{when}` something happens in ade, or `{on}` an event: Temporal's shapes, none of its
+ * weight; client clock.js works them out. A repeating one can end, as a Temporal schedule's `endAt` and
+ * `remainingActions` do: `until` a time, or after `count` runs; its last run, or its end time passing, writes an
+ * `ended` step in the trail.
  * One that came due while the server was down runs once on start; a repeating one skips the runs it missed. A timed run
  * due while the previous run's thread still works is skipped, and kept among its `runs` with why: the runners that run
  * waits for, offline, or the run before still working.
@@ -24,7 +27,14 @@
  * A task `after` thread N sleeps on Ended. When the server hears a thread's work end (`ended`), and once on start,
  * settle signals each such task whose thread has no work left (core.busy); one set while N is already idle runs at once.
  * With hooks on, one `on` an outside event (hooks.js) sleeps on its next Hooked signal and posts each event beside its
- * instructions as `event`, which the agent reads as outside data. A run, or a run skipped, is a step in its thread's
+ * instructions as `event`, which the agent reads as outside data.
+ *
+ * A task `when` something happens sleeps on Happened, runs once and ends, like `after`: `{online}` or `{offline}`, a
+ * runner by name, when it connects or drops (at once if it already is, on set and on start); `{failed}` or
+ * `{answered}`, a thread, the next time a run there fails or an agent there answers, as its trail says (entryStored).
+ * Nothing polls: the server tells the module (runner, entryStored) and it signals the tasks waiting on just that.
+ *
+ * A run, or a run skipped, is a step in its thread's
  * trail; every change tells every page (`schedule` changed). Archiving a thread cancels its tasks.
  */
 import { arr, bool, num, obj, opt, str, unknown } from '@earendil-works/pi-schema'
@@ -57,8 +67,14 @@ export function duration(text, name) {
 
 /**
  * When a task runs: `{at}` once, `{at, every}` every so often from its first run, `{times, days?, timeZone}` at clock
- * times on chosen weekdays, `{after}` or `{on}`
- * @typedef {{ at?: number, every?: number, times?: string[], days?: number[], timeZone?: string, after?: number, on?: string }} Schedule
+ * times on chosen weekdays, `{after}`, `{when}` or `{on}`; a repeating one ends `until` a time or after `count` runs
+ * @typedef {{ at?: number, every?: number, times?: string[], days?: number[], timeZone?: string, after?: number, on?: string, when?: When, until?: number, count?: number }} Schedule
+ */
+
+/**
+ * What a task waits for inside ade, one of: a runner coming `online` or going `offline`, by name, or a thread whose next
+ * run `failed` or that `answered`, by id
+ * @typedef {{ online?: string, offline?: string, failed?: number, answered?: number }} When
  */
 
 /** A timed schedule's next run after the one at `at`, from `now`, skipping those missed; none for a one-off */
@@ -98,7 +114,7 @@ function clockTimes(times) {
 }
 
 /** A moment: milliseconds, an ISO time with its offset, or `2026-11-24T09:00` on the clock in `timeZone` */
-function moment(value, timeZone) {
+function moment(value, timeZone, name = 'at') {
 	if (typeof value === 'number' && Number.isFinite(value)) return value
 	const local = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})$/.exec(String(value).trim())
 	if (local) {
@@ -106,7 +122,7 @@ function moment(value, timeZone) {
 		return instant(year, month - 1, day, hour, minute, timeZone)
 	}
 	const ms = Date.parse(String(value))
-	if (Number.isNaN(ms)) throw new Error('at is a date and time like 2026-11-24T09:00')
+	if (Number.isNaN(ms)) throw new Error(`${name} is a date and time like 2026-11-24T09:00`)
 	return ms
 }
 
@@ -121,14 +137,57 @@ function zone(timeZone) {
 }
 
 /** What a request says about when: the fields scheduleOf reads */
-const WHEN = ['in', 'at', 'every', 'times', 'days', 'after', 'on']
+const WHEN = ['in', 'at', 'every', 'times', 'days', 'after', 'when', 'on', 'until', 'count']
+/** What `when` can wait for: a runner's name, or a thread's id */
+const HAPPENINGS = {
+	online: 'runner',
+	offline: 'runner',
+	failed: 'thread',
+	answered: 'thread',
+}
+
+/** `when` in words: when vps comes online, when thread 12 fails */
+export const happening = (when) =>
+	when.online !== undefined
+		? `when ${when.online} comes online`
+		: when.offline !== undefined
+			? `when ${when.offline} goes offline`
+			: when.failed !== undefined
+				? `when thread ${when.failed} fails`
+				: `when thread ${when.answered} answers`
 
 /**
  * A schedule from what a person or an agent asked: `in` or `at` once; `every` from `at`, or after `in` or `every`;
- * `times` on `days` (every day if left out) in `timeZone`; `after` a thread; `on` an event
+ * `times` on `days` (every day if left out) in `timeZone`; `after` a thread; `when` something happens; `on` an event.
+ * One that repeats can end `until` a time (or a duration from now) or after `count` runs.
  */
 /** @returns {Promise<Schedule>} */
 async function scheduleOf(asked, { core, hooks, threadId, now = Date.now() }) {
+	const { until, count, ...rest } = asked
+	const schedule = await startOf(rest, { core, hooks, threadId, now })
+	if (until === undefined && count === undefined) return schedule
+	if (!schedule.every && !schedule.times && schedule.on === undefined)
+		throw new Error('until and count end a task that repeats: every, times or on')
+	const ending = {}
+	if (count !== undefined) {
+		const runs = Number(count)
+		if (!Number.isInteger(runs) || runs < 1) throw new Error('count is how many runs, at least 1')
+		ending.count = runs
+	}
+	if (until !== undefined) {
+		const end = /^\s*(?:\d+\s*[smhd]\s*)+$/.test(String(until))
+			? now + duration(until, 'until')
+			: moment(until, schedule.timeZone ?? ZONE, 'until')
+		const first = schedule.on === undefined ? firstRun(schedule, now) : now
+		if (!(end > first)) throw new Error('until comes after its first run')
+		ending.until = end
+	}
+	return { ...schedule, ...ending }
+}
+
+/** When a task starts, from what was asked, without its end */
+/** @returns {Promise<Schedule>} */
+async function startOf(asked, { core, hooks, threadId, now }) {
 	const given = WHEN.filter((name) => asked[name] !== undefined)
 	const only = (allowed, message) => {
 		if (given.some((name) => !allowed.includes(name))) throw new Error(message)
@@ -138,6 +197,23 @@ async function scheduleOf(asked, { core, hooks, threadId, now = Date.now() }) {
 		if (!(asked.on in EVENTS)) throw new Error('on is push, ci or hook')
 		only(['on'], 'on runs on events, at no time: leave the time out')
 		return { on: asked.on }
+	}
+	if (asked.when !== undefined) {
+		only(['when'], 'when runs once, at no time: leave the time out')
+		const what = typeof asked.when === 'object' && asked.when ? Object.keys(asked.when) : []
+		if (what.length !== 1 || !(what[0] in HAPPENINGS))
+			throw new Error('when is one of online or offline, a runner, or failed or answered, a thread')
+		const [name] = what
+		const value = asked.when[name]
+		if (HAPPENINGS[name] === 'runner') {
+			if (typeof value !== 'string' || !(value in (await core.known())))
+				throw new Error(`No runner ${value}`)
+			return { when: { [name]: value } }
+		}
+		const id = Number(value)
+		if (id === threadId) throw new Error(`${name} is another thread`)
+		if (!Number.isInteger(id) || !(await core.thread(id))) throw new Error(`No thread ${value}`)
+		return { when: { [name]: id } }
 	}
 	if (asked.after !== undefined) {
 		only(['after'], 'after runs once, at no time: leave the time out')
@@ -170,11 +246,21 @@ async function scheduleOf(asked, { core, hooks, threadId, now = Date.now() }) {
 		if (at <= now) throw new Error('at is in the past')
 		return { at }
 	}
-	if (asked.in === undefined) throw new Error('give in, at, every, times, after, or on')
+	if (asked.in === undefined) throw new Error('give in, at, every, times, after, when, or on')
 	return { at: now + duration(asked.in, 'in') }
 }
 
-const Ended = defineSignal({ name: 'ade.thread-ended', version: 1, schema: obj({}) })
+const Ended = defineSignal({
+	name: 'ade.thread-ended',
+	version: 1,
+	schema: obj({}),
+})
+/** What a task `when` waits for came to pass */
+const Happened = defineSignal({
+	name: 'ade.happened',
+	version: 1,
+	schema: obj({}),
+})
 /** Pause (with a note why), resume or run now, on the next `control-N` key the task sleeps on */
 const Control = defineSignal({
 	name: 'ade.scheduled-task-control',
@@ -204,10 +290,19 @@ const current = (input, checkpoint) => ({
 const firstRun = (schedule, now) =>
 	schedule.times || schedule.every ? nextRun(schedule, now) : schedule.at
 
-/** What a task sleeps on at `checkpoint`: its next run's time, its next event or Ended, and its next Control key */
+/** When a task wakes by the clock: its next run, or its end time if that comes first or it has no run by time */
+const wakeAt = (schedule, checkpoint) =>
+	checkpoint.paused || checkpoint.at === undefined
+		? schedule.until
+		: Math.min(checkpoint.at, schedule.until ?? Infinity)
+
+/**
+ * What a task sleeps on at `checkpoint`: its next run's time or its end, its next event, Ended or Happened, and its
+ * next Control key
+ */
 const asleep = (schedule, checkpoint) => ({
 	status: /** @type {const} */ ('sleeping'),
-	...(checkpoint.paused || checkpoint.at === undefined ? {} : { until: checkpoint.at }),
+	...(wakeAt(schedule, checkpoint) === undefined ? {} : { until: wakeAt(schedule, checkpoint) }),
 	signals: [
 		Control.key(`control-${checkpoint.c}`),
 		...(checkpoint.paused
@@ -216,10 +311,20 @@ const asleep = (schedule, checkpoint) => ({
 				? [Hooked.key(`event-${checkpoint.n}`)]
 				: schedule.after !== undefined
 					? [Ended.key('ended')]
-					: []),
+					: schedule.when !== undefined
+						? [Happened.key('happened')]
+						: []),
 	],
 	checkpoint,
 })
+
+/** Why a task ends with this run: `ran` runs used up its count, or its next run `at` comes after its end time */
+const endOf = (schedule, ran, at) =>
+	schedule.count !== undefined && ran >= schedule.count
+		? `its last of ${schedule.count} run${schedule.count === 1 ? '' : 's'}`
+		: schedule.until !== undefined && at !== undefined && at > schedule.until
+			? 'its end time comes before another run'
+			: undefined
 
 export function server(core) {
 	const hooks = core.modulesOn.includes('hooks')
@@ -235,9 +340,10 @@ export function server(core) {
 
 	/**
 	 * The thread's scheduled tasks, or the whole house's, the soonest first, then the paused and those waiting on a thread
-	 * or an event: `{id, thread, schedule, at?, from?, paused?, note?, runs, instructions, by, agent?, bot?, to?}`. `at` is
-	 * its next run, `from` where the wait for it began: the run before, or when a one-off was set. `runs` are its last
-	 * few, oldest first, each `{at, thread, entry}` or `{at, skipped}`, why it was skipped; `note` why it's paused.
+	 * or an event: `{id, thread, schedule, at?, from?, paused?, note?, runs, ran?, instructions, by, agent?, bot?, to?}`.
+	 * `at` is its next run, `from` where the wait for it began: the run before, or when a one-off was set. `runs` are
+	 * its last few, oldest first, each `{at, thread, entry}` or `{at, skipped}`, why it was skipped; `ran`, for one
+	 * that ends after a `count`, how many it has run; `note` why it's paused.
 	 */
 	async function pending(threadId) {
 		return (await sleeping(threadId))
@@ -262,6 +368,7 @@ export function server(core) {
 					...(checkpoint.paused ? { paused: true } : {}),
 					...(checkpoint.paused && checkpoint.note ? { note: checkpoint.note } : {}),
 					runs: checkpoint.runs ?? [],
+					...(schedule.count === undefined ? {} : { ran: checkpoint.ran ?? 0 }),
 					instructions: input.instructions,
 					by: input.by,
 					...(input.conversation === undefined ? {} : { agent: input.by }),
@@ -276,23 +383,44 @@ export function server(core) {
 			)
 	}
 
+	/** Each task still to run, sleeping or not yet, with what it waits on now */
+	async function waiting() {
+		// A task just set may not sleep yet; Pi keeps a signal that comes first
+		return [...(await sleeping()), ...(await sleeping(undefined, 'pending'))].map((record) => ({
+			id: record.id,
+			schedule: current(record.input, /** @type {any} */ (record.state).checkpoint).schedule,
+		}))
+	}
+
 	/** Runs each task after `threadId`, or after any thread, whose thread has no work left; `duplicate` is fine */
 	async function settle(threadId) {
-		// A task just set may not sleep yet; Pi keeps a signal that comes first
-		const afterOf = (record) =>
-			current(record.input, /** @type {any} */ (record.state).checkpoint).schedule.after
-		const waiting = [...(await sleeping()), ...(await sleeping(undefined, 'pending'))].filter(
-			(record) =>
-				afterOf(record) !== undefined && (threadId === undefined || afterOf(record) === threadId),
-		)
 		const idle = new Map()
-		for (const record of waiting) {
-			const after = afterOf(record)
+		for (const { id, schedule } of await waiting()) {
+			const { after } = schedule
+			if (after === undefined || (threadId !== undefined && after !== threadId)) continue
 			if (!idle.has(after)) idle.set(after, !(await core.busy(after)))
-			if (idle.get(after)) await core.signal(record.id, Ended, 'ended', {})
+			if (idle.get(after)) await core.signal(id, Ended, 'ended', {})
 		}
 	}
 	const settling = (threadId) => settle(threadId).catch((error) => console.error(error))
+
+	/** Wakes each task `when` that `holds` for */
+	async function happen(holds) {
+		for (const { id, schedule } of await waiting())
+			if (schedule.when !== undefined && holds(schedule.when))
+				await core.signal(id, Happened, 'happened', {})
+	}
+	const waking = (holds) => happen(holds).catch((error) => console.error(error))
+	/** A runner already as a task waits for it to be: online, or offline */
+	const already = (when) =>
+		when.online !== undefined
+			? core.runners.isOnline(when.online)
+			: when.offline !== undefined && !core.runners.isOnline(when.offline)
+	/** A task just set or edited whose wait is already over runs at once */
+	const settleNew = (schedule) => {
+		if (schedule.after !== undefined) settling(schedule.after)
+		if (schedule.when !== undefined && already(schedule.when)) waking(already)
+	}
 
 	/** A scheduled task by id, in `threadId` if given, or a 404 */
 	async function find(threadId, id) {
@@ -330,7 +458,9 @@ export function server(core) {
 		const record = await find(threadId, id)
 		const { checkpoint } = /** @type {any} */ (record.state)
 		if (record.state.status === 'terminal' || record.abortRequested)
-			throw Object.assign(new Error(`Scheduled task ${id} has ended`), { status: 409 })
+			throw Object.assign(new Error(`Scheduled task ${id} has ended`), {
+				status: 409,
+			})
 		if (word.runner) {
 			const to = current(record.input, checkpoint).to
 			if (!to)
@@ -352,7 +482,9 @@ export function server(core) {
 			if (sent === 'duplicate')
 				throw Object.assign(new Error('It is taking another change; try again'), { status: 409 })
 			if (sent !== 'delivered')
-				throw Object.assign(new Error(`Scheduled task ${id} has ended`), { status: 409 })
+				throw Object.assign(new Error(`Scheduled task ${id} has ended`), {
+					status: 409,
+				})
 		}
 		return word.run
 			? { ran: id }
@@ -391,7 +523,11 @@ export function server(core) {
 	async function run(tx, { id, threadId, input, asked, event }) {
 		const row = await core.threadIn(tx, threadId)
 		if (row.hidden || !asked) return false
-		const mark = { body: input.instructions, scheduledTask: id, ...(event ? { event } : {}) }
+		const mark = {
+			body: input.instructions,
+			scheduledTask: id,
+			...(event ? { event } : {}),
+		}
 		if (input.conversation !== undefined) {
 			const key = Object.keys(row.agents).find(
 				(key) => row.agents[key].conversation === input.conversation,
@@ -458,6 +594,28 @@ export function server(core) {
 				const { schedule } = input
 				const runs = checkpoint.runs ?? []
 				const ran = (run) => [...runs, run].slice(-RUNS)
+				/** Its end, a step in the trail in the commit `tx`, and why */
+				const end = async (tx, why, result = {}) => {
+					await core.trailed(tx, threadId, undefined, 'ended', {
+						task: id,
+						why,
+					})
+					return finished('completed', { ...result, ended: why })
+				}
+				/**
+				 * Sleeps on as `state` says, `count` runs in, unless that run was its last: its count used up, or its next
+				 * run past its end time
+				 */
+				const onward = async (tx, state, count) => {
+					if (state.status === 'terminal') return state
+					const why = endOf(
+						schedule,
+						count,
+						state.checkpoint.paused ? undefined : state.checkpoint.at,
+					)
+					if (why) return end(tx, why)
+					return { ...state, checkpoint: { ...state.checkpoint, ran: count } }
+				}
 				/** Posts one run and sleeps on as `next` says, given its runs with this one; none left to ask, it ends */
 				const post = async (heard, next) => {
 					const asked = await recipients(threadId, input, rt.signal).catch((error) => {
@@ -477,7 +635,7 @@ export function server(core) {
 							})
 							return finished()
 						}
-						return next(ran({ at: rt.now(), ...landed }))
+						return onward(tx, next(ran({ at: rt.now(), ...landed })), (checkpoint.ran ?? 0) + 1)
 					}, ctx)
 				}
 				const told = await rt.readSignal(Control, `control-${checkpoint.c}`, ctx)
@@ -491,20 +649,29 @@ export function server(core) {
 					// Its runs ask another runner from now on, its model there
 					if (word.runner)
 						return rt.commit(
-							() => asleep(schedule, { ...moved, to: { ...input.to, runner: word.runner } }),
+							() =>
+								asleep(schedule, {
+									...moved,
+									to: { ...input.to, runner: word.runner },
+								}),
 							ctx,
 						)
-					// Edited, it does what it says now; a new schedule starts its wait over from now
+					// Edited, it does what it says now; a new schedule starts its wait, and its count, over from now
 					if (word.edit) {
 						const edited = { ...moved, ...word.edit }
 						if (word.edit.schedule)
 							Object.assign(edited, {
 								at: firstRun(word.edit.schedule, rt.now()),
 								since: rt.now(),
+								ran: 0,
 							})
 						return rt.commit(() => asleep(edited.schedule ?? schedule, edited), ctx)
 					}
-					const next = { ...moved, paused: word.paused, note: word.paused ? word.note : undefined }
+					const next = {
+						...moved,
+						paused: word.paused,
+						note: word.paused ? word.note : undefined,
+					}
 					// Resumed, a one-off overdue runs now; a repeating one at its next run from now
 					if (!word.paused && checkpoint.at !== undefined)
 						next.at =
@@ -513,6 +680,14 @@ export function server(core) {
 								: (following(schedule, checkpoint.at, rt.now()) ?? rt.now())
 					return rt.commit(() => asleep(schedule, next), ctx)
 				}
+				// Woken by its end time, paused, listening, or with its next run past it, it ends without a run
+				if (
+					schedule.until !== undefined &&
+					(checkpoint.paused || checkpoint.at === undefined
+						? rt.now() >= schedule.until
+						: checkpoint.at > schedule.until)
+				)
+					return rt.commit((tx) => end(tx, 'its end time passed'), ctx)
 				if (checkpoint.paused) return rt.commit(() => asleep(schedule, checkpoint), ctx)
 				if (schedule.on !== undefined) {
 					const heard = await rt.readSignal(Hooked, `event-${checkpoint.n}`, ctx)
@@ -537,8 +712,11 @@ export function server(core) {
 							? `${offline.join(' and ')} offline`
 							: 'the run before still working'
 						return rt.commit(async (tx) => {
-							await core.trailed(tx, threadId, undefined, 'skipped', { task: id, why: skipped })
-							return then(ran({ at: rt.now(), skipped }))
+							await core.trailed(tx, threadId, undefined, 'skipped', {
+								task: id,
+								why: skipped,
+							})
+							return onward(tx, then(ran({ at: rt.now(), skipped })), checkpoint.ran ?? 0)
 						}, ctx)
 					}
 				return post(undefined, then)
@@ -554,28 +732,36 @@ export function server(core) {
 			if (input.schedule.on !== undefined) await issue(tx, made)
 			return made
 		})
-		if (input.schedule.after !== undefined) settling(input.schedule.after)
+		settleNew(input.schedule)
 		return id
 	}
 
 	/** How an agent's task runs, in words */
 	const when = (schedule) =>
-		schedule.on !== undefined
+		(schedule.on !== undefined
 			? `on ${EVENTS[schedule.on]}`
 			: schedule.after !== undefined
 				? `after thread ${schedule.after}`
-				: schedule.times
-					? `${schedule.days ? schedule.days.map((day) => DAYS[day]).join(', ') : 'daily'} at ${schedule.times.join(' and ')} ${schedule.timeZone}`
-					: schedule.every
-						? `every ${span(schedule.every)} from ${new Date(schedule.at).toISOString()}`
-						: `at ${new Date(schedule.at).toISOString()}`
+				: schedule.when !== undefined
+					? happening(schedule.when)
+					: schedule.times
+						? `${schedule.days ? schedule.days.map((day) => DAYS[day]).join(', ') : 'daily'} at ${schedule.times.join(' and ')} ${schedule.timeZone}`
+						: schedule.every
+							? `every ${span(schedule.every)} from ${new Date(schedule.at).toISOString()}`
+							: `at ${new Date(schedule.at).toISOString()}`) +
+		(schedule.until === undefined ? '' : ` until ${new Date(schedule.until).toISOString()}`) +
+		(schedule.count === undefined
+			? ''
+			: `, ${schedule.count} run${schedule.count === 1 ? '' : 's'}`)
 
 	const schedule = defineTool({
 		name: 'schedule',
-		description: `Come back to this thread later: your instructions arrive here as a message to you after \`in\` or \`at\` a date and time, every \`every\` (from \`at\` if given), at clock \`times\` on \`days\` (${ZONE}), or once thread \`after\` has finished its work${hooks ? ', or on each outside event `on` names until you cancel it' : ''}. Returns at once. Or cancel one by its id.`,
+		description: `Come back to this thread later: your instructions arrive here as a message to you after \`in\` or \`at\` a date and time, every \`every\` (from \`at\` if given), at clock \`times\` on \`days\` (${ZONE}), once thread \`after\` has finished its work, or \`when\` something happens in ade${hooks ? ', or on each outside event `on` names until you cancel it' : ''}. One that repeats can stop by itself, \`until\` a time or after \`count\` runs. Returns at once. Or cancel one by its id.`,
 		parameters: obj({
 			instructions: opt(
-				str({ description: "What to do when it runs, written so you'll know without context" }),
+				str({
+					description: "What to do when it runs, written so you'll know without context",
+				}),
 			),
 			in: opt(str({ description: 'How long until it runs once: 90s, 5m, 1h30m, 2d' })),
 			at: opt(
@@ -595,12 +781,38 @@ export function server(core) {
 				}),
 			),
 			days: opt(
-				arr(str(), { description: 'With times: the weekdays, mon … sun; every day if left out' }),
+				arr(str(), {
+					description: 'With times: the weekdays, mon … sun; every day if left out',
+				}),
 			),
 			after: opt(
 				num({
 					description:
 						"Another thread's id: run once its work ends (now, if it's idle), instead of at a time",
+				}),
+			),
+			when: opt(
+				obj(
+					{
+						online: opt(str({ description: 'A runner, when it comes online' })),
+						offline: opt(str({ description: 'A runner, when it goes offline' })),
+						failed: opt(num({ description: 'A thread, when a run there fails' })),
+						answered: opt(num({ description: 'A thread, when an agent there answers' })),
+					},
+					{
+						description:
+							'Run once when one thing happens in ade, instead of at a time: {online: "vps"} when runner vps comes online, {offline: "vps"}, {failed: 12} when a run in thread 12 fails, {answered: 12} when an agent there answers. A runner already online, or offline, runs it at once.',
+					},
+				),
+			),
+			until: opt(
+				str({
+					description: `With every, times or on: stop after this, a date and time like 2026-11-24T18:00 (${ZONE}) or a duration from now like 2h`,
+				}),
+			),
+			count: opt(
+				num({
+					description: 'With every, times or on: stop after this many runs',
 				}),
 			),
 			...(hooks
@@ -627,11 +839,17 @@ export function server(core) {
 					: ended.fired
 						? 'Too late: it already ran,'
 						: 'It had already ended,'
-				return { output: [{ type: 'text', text: `${said} scheduled task ${args.cancel}.` }] }
+				return {
+					output: [{ type: 'text', text: `${said} scheduled task ${args.cancel}.` }],
+				}
 			}
 			const instructions = args.instructions?.trim()
 			if (!instructions) throw new Error('instructions is required')
-			const planned = await scheduleOf(args, { core, hooks, threadId: at.thread })
+			const planned = await scheduleOf(args, {
+				core,
+				hooks,
+				threadId: at.thread,
+			})
 			const id = await make(`schedule ${api.taskId}`, at.thread, {
 				conversation: api.conversationId,
 				by: at.name,
@@ -727,7 +945,11 @@ export function server(core) {
 	async function create(body, user) {
 		const instructions = instructionsOf(body)
 		const where = await placed(body)
-		const schedule = await scheduleOf(body, { core, hooks, threadId: where.threadId })
+		const schedule = await scheduleOf(body, {
+			core,
+			hooks,
+			threadId: where.threadId,
+		})
 		const key = typeof body.key === 'string' && body.key ? body.key.slice(0, 100) : undefined
 		return makeIn(where, { by: user, instructions, schedule }, key && `schedule ${user}/${key}`)
 	}
@@ -740,7 +962,9 @@ export function server(core) {
 		const record = await find(threadId, id)
 		const { checkpoint } = /** @type {any} */ (record.state)
 		if (record.state.status === 'terminal' || record.abortRequested)
-			throw Object.assign(new Error(`Scheduled task ${id} has ended`), { status: 409 })
+			throw Object.assign(new Error(`Scheduled task ${id} has ended`), {
+				status: 409,
+			})
 		const was = current(record.input, checkpoint)
 		const instructions = body.instructions === undefined ? undefined : instructionsOf(body)
 		const schedule = WHEN.some((name) => body[name] !== undefined)
@@ -773,7 +997,7 @@ export function server(core) {
 					...(recipients ? { recipients } : {}),
 				},
 			})
-			if (schedule?.after !== undefined) settling(schedule.after)
+			if (schedule) settleNew(schedule)
 			return edited
 		}
 		const where = places.length
@@ -840,7 +1064,10 @@ export function server(core) {
 	async function archiving(tx, threadId) {
 		core.afterCommit(tx, () =>
 			core
-				.tasks({ conversationId: threadId, kind: ScheduledTask.definition.name })
+				.tasks({
+					conversationId: threadId,
+					kind: ScheduledTask.definition.name,
+				})
 				.then((tasks) =>
 					Promise.all(
 						tasks
@@ -873,8 +1100,16 @@ export function server(core) {
 	return {
 		serve,
 		archiving,
-		start: () => settling(),
+		start: () => (settling(), waking(already)),
 		ended: settling,
+		/** A runner came online or went offline */
+		runner: (name, online) => waking((when) => when[online ? 'online' : 'offline'] === name),
+		/** A run in a thread failed, or an agent there answered, as its trail says */
+		entryStored: (entry) => {
+			const step = entry.kind === 'ade.trail' ? entry.data : undefined
+			if (step?.kind === 'failed' || step?.kind === 'answered')
+				waking((when) => when[step.kind] === step.thread)
+		},
 		extension: defineExtension({
 			name: 'ade.schedule',
 			tools: [schedule],

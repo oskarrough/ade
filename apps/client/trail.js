@@ -99,7 +99,7 @@ export function Trail(props) {
 
 /** Where a message's story lands stands out; the rest is how it got there */
 const important = (step) =>
-	['posted', 'picked', 'nobody', 'answered', 'failed', 'skipped'].includes(step.kind)
+	['posted', 'picked', 'nobody', 'answered', 'failed', 'skipped', 'ended'].includes(step.kind)
 const stateOf = (step) =>
 	step.kind === 'failed'
 		? 'error'

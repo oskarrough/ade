@@ -22,7 +22,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   createFeed, feed                  one versioned `/ws` feed (`seq`, `define`, `onCommit`, `touch`, `subscribe`, `sync`, `onUpdate`)
   shapeMessages, families, familyField   per-viewer message shaping (`speaker`, `showName`, `voice`, `to`, `other*`) and open families
   core.*                            what modules call: trailed, conversations, feed, snapshot, spent, task, tasks, signal
-  entryStored, documentStored, endedHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks)
+  entryStored, documentStored, endedHooks, runnerHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks, `runner` for runnerHooks)
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
   reachable                         a message waits for its agent's runner
@@ -70,8 +70,9 @@ modules/
   canvas.js              a tldraw canvas per thread: Canvas doc, rooms, `canvas_look` (look, seen, report, present),
                          `canvas_act` (apply, created, updated), meta.by (authorizeRecord, onCommittedChanges, grew); serve, connect
   inbox.js               `ask_person`, openQuestion, questions, unread; serve (GET /api/inbox, dismissals)
-  schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, Control, Hooked,
-                         Ended), run, scheduleOf, firstRun, settle, pending, cancel, control; serve
+  schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, wakeAt, endOf,
+                         onward, Control, Hooked, Ended, Happened), run, scheduleOf, startOf, firstRun, settle, happen, already, runner,
+                         entryStored, pending, cancel, control; serve
   hooks.js               outside events for scheduled tasks: Hook doc, issue, webhook, admit, PROBES, RATE, github,
                          fact, SHAPES, LIFETIME, GENERATION, stale; serve
   web-search.js          `web_search`
