@@ -62,6 +62,7 @@ import {
 	PAUSED,
 	stepText,
 } from './util.js'
+import { drop as dropRead } from './modules/read.js'
 import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
 
 /**
@@ -2996,6 +2997,8 @@ const touchThread = (threadId) => {
 // ── Modules ───────────────────────────────────────────────────────────────
 
 const core = {
+	/** ade's database: the SQLite file everything is kept in */
+	file,
 	/** A thread's doc inside a commit, where a snapshot would wait for the commit itself */
 	threadIn: (tx, id) => tx.doc(Thread, id),
 	archiveIn,
@@ -3087,6 +3090,7 @@ core.owner = owner
 /** Tailnet logins that are the owner through Serve, `ownerLogins` in ade.json: the owner's own devices */
 const ownerLogins = loginList(settings.config.ownerLogins ?? [])
 const modules = await load('server', core, settings)
+if (!core.modulesOn.includes('read')) dropRead(file)
 // The prompt keeps its sections in this order, and a cached prompt survives up to its first change, so the sections
 // that change most go last: a module's `volatility`, 0 unless it says otherwise
 for (const module of modules.toSorted((a, b) => (a.volatility ?? 0) - (b.volatility ?? 0)))
@@ -3723,6 +3727,7 @@ feed.define('server', {
 		(change.type === 'document' && change.record.kind === 'ade.keys'),
 })
 
+const committed = modules.flatMap((module) => module.committed ?? [])
 const entryStored = modules.flatMap((module) => module.entryStored ?? [])
 const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
@@ -3730,6 +3735,13 @@ const endedHooks = modules.flatMap((module) => module.ended ?? [])
 const runnerHooks = modules.flatMap((module) => module.runner ?? [])
 harness.observeCommits({
 	advance: (publication) => {
+		// A throw here would end Pi's telling us of commits at all: a module's trouble stays its own
+		for (const hook of committed)
+			try {
+				hook(publication)
+			} catch (error) {
+				console.error(error)
+			}
 		const ended = new Set()
 		movedFamilies = new Set()
 		for (const change of publication.changes) {

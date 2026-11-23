@@ -23,6 +23,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   shapeMessages, families, familyField   per-viewer message shaping (`speaker`, `showName`, `voice`, `to`, `other*`) and open families
   core.*                            what modules call: trailed, conversations, feed, snapshot, spent, task, tasks, signal
   entryStored, documentStored, endedHooks, runnerHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks, `runner` for runnerHooks)
+  committed                         modules' hook of that name: each commit Pi stored, whole, with its seq
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
   reachable                         a message waits for its agent's runner
@@ -84,6 +85,10 @@ modules/
   search.js              FTS5 index of every message: build, entryStored, search, matchOf; serve, the `search` tool
   jump.js                Cmd-K's switch; the client does the rest
   usage.js               tokens and cost: spend, build, entryStored, settle, spent; serve
+  read.js                the `ade_` tables, the house as SQL in ade's database: SCHEMA, projector (one function per kind of
+                         Pi record, apply), snapshot (Pi's records at one commit), recordsOf, fill; keep, the worker that
+                         writes them (make, apply on a beat, settle, fail, check with againstRebuild and FACTS); drop;
+                         serve (GET /api/read, ?check, POST {rebuild})
   pi-sessions.js         threads as pi session files (push, sync, changed, writePiSession) and back (bring);
                          serve, listPiSessions, readPiSession
 apps/desktop/            arbe desktop, a Go app on mygo (main.go, preload.js, offline.html, release.sh; README.md there); .github/workflows/desktop-release.yml builds its releases
@@ -195,6 +200,7 @@ Where a feature lives:
 - Threads side by side: client server.js followThread/besideKey/openBeside, `columns`.
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
 - What happened in a thread: server.js trailed (writes, in each step's commit) and trail (reads), util.js stepText, cli.js `trail`, client trail.js. What changes about a thread, a bot or a scheduled task is a step written where it changes: startThread, setTitleIn, archiveIn, setPaused, setTools, setUp, reconfigure, forkThread, bots.js write and remove, schedule.js make, fire and abort.
+- The house as SQL: modules/read.js, server.js `committed`, `core.file` and dropRead, docs/modules.md.
 - A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js.
 - The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log; without ade installed, its own ade and Node, fetched on first start and updated hourly in place by updateHouse; login, pi in a terminal for Desktop.Login, which the model picker's LogIn in apps/client/runner.js calls).
 - The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js; releases: release.sh tags, .github/workflows/desktop-release.yml builds and publishes.
