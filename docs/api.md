@@ -80,7 +80,7 @@ GET    /api/threads                    each thread's row; its `parent`, or `conv
 POST   /api/threads {title, parent?, tools?, key?, body?, to?, images?, steer?}  with a body, its first message in the same commit
 GET    /api/draft                      {draft}: yours for a thread not started yet, or null
 POST   /api/draft {key, text?, images?, pick?, page?}  saves it, as a thread's draft saves
-GET    /api/threads/:id                its row, people and shaped messages; `?last=n` newest n, `?after=id` after one, `?before=id` before one
+GET    /api/threads/:id                its row, people and its newest 50 shaped messages, with `earlier` when there are more; `?last=n` newest n, `?before=id&last=n` the page before one, `?after=id` those after one, `?all` every message
 GET    /api/threads/archived
 POST   /api/threads/:id/archive {archived}
 POST   /api/threads/:id/entries {body, to?, images?, steer?, key?}

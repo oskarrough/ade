@@ -25,7 +25,7 @@ const usage = `ade [--server url] <command>
                    --no-wait     post and return
                    A message starting with "$ " runs a command on the runner.
   threads          every thread, with its status and agents
-  read <thread>    a thread's messages, or its --last N, or those --after id
+  read <thread>    a thread's newest 50 messages, or its --last N, those --after id, or --all
   trail <thread>   what happened in it, step by step, or only to one --message id
   wait <thread>    wait until its agents are done, then print the answers to the latest ask, or all --after id
   runners          every runner holding a key, online or not, and its models
@@ -66,6 +66,7 @@ const {
 	steer: { type: 'boolean' },
 	'no-wait': { type: 'boolean' },
 	last: { type: 'string' },
+	all: { type: 'boolean' },
 	after: { type: 'string' },
 	message: { type: 'string' },
 	help: { type: 'boolean', short: 'h' },
@@ -221,11 +222,9 @@ const commands = {
 		const query = [
 			flags.after !== undefined && `after=${Number(flags.after)}`,
 			flags.last !== undefined && `last=${Number(flags.last)}`,
+			flags.all && 'all',
 		].filter(Boolean)
-		const { entries } = await api(
-			'GET',
-			`/api/threads/${Number(rest[0])}${query.length ? `?${query.join('&')}` : ''}`,
-		)
+		const { entries } = await api('GET', `/api/threads/${Number(rest[0])}?${query.join('&')}`)
 		for (const entry of entries.slice(-(Number(flags.last) || entries.length))) show(entry)
 	},
 	async trail() {

@@ -247,6 +247,16 @@ check(
 	'asked for all earlier messages, the rest comes at once',
 	`${allBefore.entries.length}`,
 )
+const plain = (await api('GET', `/api/threads/${id}`)).json
+const whole = (await api('GET', `/api/threads/${id}?all`)).json
+check(
+	plain.earlier === true &&
+		JSON.stringify(plain.entries.map((entry) => entry.data.body)) ===
+			JSON.stringify(paged.slice(-50)) &&
+		JSON.stringify(whole.entries.map((entry) => entry.data.body)) === JSON.stringify(paged),
+	'read plainly, a long thread answers its newest 50 messages and says there are earlier ones; ?all answers every one',
+	`${plain.entries.length} ${plain.earlier}, ${whole.entries.length}`,
+)
 check(
 	now && !now.run && !now.tools.length,
 	'after a restart, subscribing again says the agent is idle',

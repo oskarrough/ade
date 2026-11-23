@@ -2085,14 +2085,18 @@ async function threadPage(id, reader, raw, seed) {
 	])
 	return { ...row, people: who, entries }
 }
-/** A thread's page with all its messages, those after `after`, before `before`, or the newest `last` */
-async function threadView(id, reader, { after, before, last } = {}) {
+/**
+ * A thread's page with its newest `last` messages, the newest 50 unless it says, or those after `after` or before
+ * `before`; every message only with `all`, which for a long thread is megabytes
+ */
+async function threadView(id, reader, { after, before, last, all } = {}) {
 	const handle = await conversation(id)
+	if (after === undefined && before === undefined) last ??= 50
 	const {
 		entries: raw,
 		earlier,
 		seed,
-	} = after === undefined && before === undefined && last === undefined
+	} = all
 		? { entries: (await messages(id)).filter((entry) => !entry.data.withdrawn) }
 		: await windowOf(handle, { after, before, last })
 	return { ...(await threadPage(id, reader, raw, seed)), ...(earlier !== undefined && { earlier }) }
@@ -3399,6 +3403,7 @@ const routes = /** @type {[string, Function][]} */ ([
 				after: number('after'),
 				before: number('before'),
 				last: number('last'),
+				all: url.searchParams.has('all'),
 			})
 		},
 		'POST /api/threads/:id/archive': async (req, id) => {

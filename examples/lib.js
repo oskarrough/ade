@@ -204,7 +204,8 @@ export async function api(method, route, body, as = undefined) {
 export const createThread = async (title) => (await api('POST', '/api/threads', { title })).json.id
 export const postEntry = (id, body, to = undefined, as = undefined) =>
 	api('POST', `/api/threads/${id}/entries`, { body, to }, as)
-export const view = async (id) => (await api('GET', `/api/threads/${id}`)).json
+/** A thread with every message, where a plain read answers the newest 50 */
+export const view = async (id) => (await api('GET', `/api/threads/${id}?all`)).json
 /** An agent's own conversation, found by its name or by `provider/id@runner`, whatever it thinks */
 export const conversationOf = async (thread, name) =>
 	(

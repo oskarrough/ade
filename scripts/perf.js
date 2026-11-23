@@ -179,7 +179,7 @@ async function measure() {
 		['runners', '/api/runners'],
 		['inbox', '/api/inbox'],
 		[`thread ${big}`, `/api/threads/${big}`],
-		[`thread ${big} ?last=50`, `/api/threads/${big}?last=50`],
+		[`thread ${big} ?all`, `/api/threads/${big}?all`],
 		[`memory ${big}`, `/api/threads/${big}/memory?room=50`],
 		[`recap ${big}`, `/api/threads/${big}/recap`],
 		['search "the"', '/api/search?q=the'],
