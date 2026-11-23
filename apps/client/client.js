@@ -52,6 +52,11 @@ function Client() {
 		let pannedTo = 0
 		const fit = () => {
 			document.documentElement.style.setProperty('--visual-height', `${viewport.height}px`)
+			// The keyboard covers the home bar, so the composer can drop the room it keeps for it.
+			document.body.classList.toggle(
+				'keyboard',
+				viewport.height * viewport.scale < document.documentElement.clientHeight - 100,
+			)
 			if (viewport.offsetTop && viewport.offsetTop !== pannedTo) scrollTo(0, 0)
 			pannedTo = viewport.offsetTop
 		}

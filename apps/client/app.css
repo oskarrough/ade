@@ -2450,15 +2450,18 @@ body.resizing {
 			display: none;
 		}
 
+		/* Under the bar, so words scrolling up dissolve before it instead of being cut in half. */
 		&::before {
-			display: none;
+			top: var(--bar-height);
+			height: calc(2 * var(--baseline));
+			background: linear-gradient(Canvas var(--space-2), transparent);
 		}
 
 		/* A phone's narrower gutter, the composer keeping pace. */
 		> ul {
 			padding-inline: var(--space-4);
-			/* The bar, and a breath under it, so the top message reads whole. */
-			padding-top: calc(var(--bar-height) + var(--space-2) + var(--thread-top, 0px));
+			/* The bar, and the fade under it, so the top message reads whole. */
+			padding-top: calc(var(--bar-height) + 2 * var(--baseline) + var(--thread-top, 0px));
 			overscroll-behavior: contain;
 		}
 
@@ -2467,6 +2470,11 @@ body.resizing {
 			width: calc(100% - 2 * var(--space-4));
 			margin-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
 		}
+	}
+
+	/* With the keyboard up there's no home bar to clear: the composer sits on the keyboard. */
+	body.keyboard .thread form.compose {
+		margin-bottom: var(--space-2);
 	}
 
 	/* All threads are a screen of their own, under the thread: back slides the thread off to the right and the list in after it, like a mail inbox. */
