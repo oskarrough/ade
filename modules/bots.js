@@ -5,7 +5,7 @@
 import { obj, opt, str } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTool } from '@earendil-works/pi-durable'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
-import { AGENT, agentTo } from '../util.js'
+import { AGENT, agentTo, writtenTo } from '../util.js'
 
 export const on = true
 
@@ -131,23 +131,50 @@ export function server(core) {
 		ids = [],
 	) {
 		const all = await tx.doc(Bots)
+		/** What this write changes, for the step in the bot's home trail */
+		const changed = []
+		const old = name
 		if (rename) {
 			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
 			if (all[rename]) throw new Error(`${rename} is another bot; pick another name`)
 			await core.renameIn(tx, ids, name, rename)
 			all[rename] = JSON.parse(JSON.stringify(all[name]))
 			delete all[name]
+			changed.push('name')
 			name = rename
 		}
 		if (!all[name]) {
 			if (!to) throw new Error(`${name} is new: say what it runs as, to: model@runner`)
 			const home = await core.startThread(tx, name, null)
 			all[name] = { home, to, instructions: instructions ?? '' }
+			await core.trailed(tx, home, undefined, 'bot-created', {
+				bot: name,
+				to: writtenTo({ ...to, name: undefined }),
+			})
 		} else {
-			if (to) all[name].to = to
-			if (instructions !== undefined) all[name].instructions = instructions
+			if (to) {
+				all[name].to = to
+				changed.push('agent')
+			}
+			if (instructions !== undefined && instructions !== all[name].instructions) {
+				all[name].instructions = instructions
+				changed.push('instructions')
+			}
 		}
-		if (append) all[name].instructions = [all[name].instructions, append].filter(Boolean).join('\n')
+		if (append) {
+			all[name].instructions = [all[name].instructions, append].filter(Boolean).join('\n')
+			if (!changed.includes('instructions')) changed.push('instructions')
+		}
+		if (changed.length)
+			await core.trailed(tx, all[name].home, undefined, 'bot-changed', {
+				bot: name,
+				changed,
+				...(rename ? { from: old } : {}),
+				...(changed.includes('agent')
+					? { to: writtenTo({ ...all[name].to, name: undefined }) }
+					: {}),
+				...(changed.includes('instructions') ? { instructions: all[name].instructions } : {}),
+			})
 		if (projectContext === false) all[name].projectContext = false
 		else if (projectContext) delete all[name].projectContext
 		if (color === null) delete all[name].color
@@ -185,6 +212,7 @@ export function server(core) {
 			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
 			const { home } = all[name]
 			delete all[name]
+			await core.trailed(tx, home, undefined, 'bot-forgotten', { bot: name })
 			await core.archiveIn(tx, home)
 			return { name, home }
 		})

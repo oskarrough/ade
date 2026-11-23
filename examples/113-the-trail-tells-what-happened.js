@@ -78,6 +78,35 @@ check(
 	JSON.stringify(failed),
 )
 
+await api('POST', `/api/threads/${id}/title`, { title: 'what happened then' })
+await api('POST', `/api/threads/${id}/archive`, { archived: true })
+await api('POST', `/api/threads/${id}/archive`, { archived: false })
+await api('POST', '/api/bots', { name: 'Jeroen', instructions: 'Answer in one word.' })
+const whole = (await api('GET', `/api/threads/${id}/trail`)).json
+const changes = whole.filter((step) => step.entry === undefined)
+check(
+	changes[0].kind === 'created' &&
+		changes[0].title === 'what happened' &&
+		changes
+			.filter((step) => step.kind === 'joined')
+			.map((step) => step.agent)
+			.toSorted()
+			.join() === 'Jeroen,Kira' &&
+		kinds(changes.slice(-3)) === 'renamed → archived → unarchived' &&
+		changes.at(-3).from === 'what happened' &&
+		changes.at(-3).to === 'what happened then',
+	'what changed about the thread is a step too: created, each agent joining, renamed, archived and back',
+	JSON.stringify(changes),
+)
+const jeroen = (await api('GET', '/api/bots')).json.find((bot) => bot.name === 'Jeroen')
+const home = (await api('GET', `/api/threads/${jeroen.home}/trail`)).json
+check(
+	kinds(home.filter((step) => step.kind.startsWith('bot-'))) === 'bot-created → bot-changed' &&
+		home.at(-1).instructions === 'Answer in one word.',
+	"a bot's home keeps what became of the bot: made, then its instructions rewritten, with what they say now",
+	JSON.stringify(home),
+)
+
 const before = (await api('GET', `/api/threads/${id}/trail`)).json
 await kill(srv, 'SIGKILL')
 srv = await server(modules)

@@ -106,9 +106,19 @@ A thread's trail is what happened in it, one step at a time, like Temporal's eve
 - `posted` `{author, to, direct?, picked?}`: a message to whom; `direct` when the director picks
 - `waited` `{ms, held?}`: the director's quiet before its pick, `held` when someone's typing kept it waiting
 - `picked` `{to, picked?, over?, chose?}`: whom the pick asks. `chose` is how it chose: `{model, outcome, ms, waited, choice, confidence, candidates, read}`, `read` the ids of the messages it read, or `error` when it failed; `over` when the author's next message took over
-- `started`, `answered`, `failed` `{reason}`, `stopped`: an agent's run, with its `agent` and the messages it `held`; `answered` names its `answer`
+- `started`, `answered`, `failed` `{reason}`, `stopped`: an agent's run, with its `agent`, the messages it `held` and `run`, the run's id, the same on each of its steps; `answered` names its `answer`
 - `nobody`: the message asked no one and nothing started
 - `withdrawn`: its author took it back
+
+What changes about the thread itself is a step too, with no `entry`, so its past can be read back as well as its present:
+
+- `created` `{title, parent?}`, `forked` `{from, at, title}`: the thread began
+- `renamed` `{from, to}`, `archived`, `unarchived`, `paused`, `resumed`, `tools` `{tools}`
+- `joined`, `changed` `{agent, conversation, model, thinking?, runner, folder}`: an agent's first message here, and each time it moves to another model, runner or folder; `conversation` is the same through every change and rename
+- `bot-created` `{bot, to}`, `bot-changed` `{bot, changed, from?, to?, instructions?}`, `bot-forgotten` `{bot}`, in the bot's home: `changed` lists `name`, `agent` or `instructions`, with the old name as `from`, what it runs as now as `to`, and its instructions whole
+- `scheduled` `{task, by, schedule, instructions}`, `edited` `{task, changed, …}` with what the edit set, `task-paused` `{task, note?}`, `task-resumed`, `cancelled`, and `ended` `{task, why}`: a scheduled task's life, beside its `fired` and `skipped`
+
+These begin with the version that writes them: a thread made before has no `created`, and its first such step is its first change since.
 
 An answer that asks no one in turn writes no `posted` of its own: its run's `answered` or `failed` is its story. The trail keeps no tokens and no transcript; an agent's conversation has those.
 

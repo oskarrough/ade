@@ -60,6 +60,7 @@ import {
 	finished,
 	directorTimes,
 	PAUSED,
+	stepText,
 } from './util.js'
 import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
 
@@ -423,6 +424,7 @@ const Admit = defineTask({
 				await trailed(tx, threadId, Math.max(...held), 'started', {
 					agent: await nameIn(tx, row, agent),
 					held,
+					...(deliver && { run: deliver }),
 				})
 				return finished('completed', { submission, held, ...(note ? { note } : {}) })
 			}, ctx)
@@ -477,7 +479,7 @@ const Deliver = defineTask({
 	initial: () => ({ phase: 'wait' }),
 	phases: {
 		wait: ({ input: { admit } }, rt, ctx) => rt.commit(() => waiting([admit], 'tell'), ctx),
-		async tell({ conversationId: threadId, input: { admit, agent, upTo } }, rt, ctx) {
+		async tell({ id, conversationId: threadId, input: { admit, agent, upTo } }, rt, ctx) {
 			const [result] = /** @type {any[]} */ (await rt.outcomes([admit], ctx))
 			const submitted = result.status === 'completed' ? result.result : null
 			if (submitted && !submitted.submission && !submitted.missing)
@@ -505,13 +507,16 @@ const Deliver = defineTask({
 						}
 			const told = await outcome(threadId, agent, settled, submitted?.held ?? [upTo])
 			await rt.commit(
-				async (tx) => (await tell(tx, threadId, agent, settled, submitted, told, upTo), finished()),
+				async (tx) => (
+					await tell(tx, threadId, agent, settled, submitted, told, upTo, id),
+					finished()
+				),
 				ctx,
 			)
 		},
 	},
 	/** Pi's abort of the thread withdrew its input if still queued. */
-	abort: ({ conversationId: threadId, input: { admit, agent, upTo } }, rt, ctx) =>
+	abort: ({ id, conversationId: threadId, input: { admit, agent, upTo } }, rt, ctx) =>
 		rt.commit(async (tx) => {
 			const submitted = /** @type {any} */ ((await tx.task(admit)).state.outcome?.result)
 			const record = submitted?.submission && (await tx.submissionByRequest(agent, String(admit)))
@@ -522,6 +527,7 @@ const Deliver = defineTask({
 				await trailed(tx, threadId, Math.max(...held), 'stopped', {
 					agent: await nameIn(tx, await tx.doc(Thread, threadId), agent),
 					held,
+					run: id,
 				})
 			return finished('aborted')
 		}, ctx),
@@ -1380,7 +1386,7 @@ async function ask(tx, row, threadId, upTo, to, { steer = false, prior = [] } = 
 		if (!row.agents[key]) {
 			row.agents[key] = await newAgent(tx, threadId, [...prior, upTo])
 			await setUp(tx, row.agents[key].conversation, threadId, one)
-		} else await reconfigure(tx, row.agents[key], one)
+		} else await reconfigure(tx, row.agents[key], one, threadId)
 		const recipient = row.agents[key]
 		const { conversation: agent, unseen, admission: after } = recipient
 		if (!unseen.length) continue
@@ -1467,7 +1473,7 @@ const fresh = ({ kind, data }) =>
  * @param {Recipient} recipient
  * @param {To} to
  */
-async function reconfigure(tx, recipient, to) {
+async function reconfigure(tx, recipient, to, threadId) {
 	const now = await tx.doc(AgentDoc, recipient.conversation)
 	const cwd = folder((await tx.doc(Runners))[to.runner], to)
 	const model = { provider: `runner:${to.runner}`, modelId: to.model }
@@ -1480,6 +1486,11 @@ async function reconfigure(tx, recipient, to) {
 	await configure(tx, recipient.conversation, {
 		...(remodelled ? { model, cwd } : {}),
 		...(thinks ? { thinkingLevel: to.thinkingLevel } : {}),
+	})
+	await trailed(tx, threadId, undefined, 'changed', {
+		agent: writtenTo(to),
+		conversation: recipient.conversation,
+		...ranAs(to, cwd),
 	})
 	// A turn waiting for the runner it leaves, offline, retries where the agent runs now
 	if (keys)
@@ -1506,14 +1517,28 @@ async function newAgent(tx, threadId, unseen, from) {
 	return { conversation: id, unseen }
 }
 
+/** What an agent runs as, as its `joined` and `changed` steps keep it */
+const ranAs = (to, cwd) => ({
+	model: to.model,
+	...(to.thinkingLevel ? { thinking: to.thinkingLevel } : {}),
+	runner: to.runner,
+	folder: cwd,
+})
+
 /** @param {To} to */
 const setUp = async (tx, conversation, threadId, to) => {
 	const { tools } = await tx.doc(Thread, threadId)
+	const cwd = folder((await tx.doc(Runners))[to.runner], to)
+	await trailed(tx, threadId, undefined, 'joined', {
+		agent: writtenTo(to),
+		conversation,
+		...ranAs(to, cwd),
+	})
 	return configure(tx, conversation, {
 		model: { provider: `runner:${to.runner}`, modelId: to.model },
 		tools: toolsOf(tools),
 		thinkingLevel: to.thinkingLevel ?? null,
-		cwd: folder((await tx.doc(Runners))[to.runner], to),
+		cwd,
 		instructions: instructions(to.name ?? AGENT, threadId, tools),
 	})
 }
@@ -1618,7 +1643,7 @@ async function outcome(threadId, agent, settled, mine) {
 }
 
 /** Posts what a settled input told; a submitted input Pi never placed gives its messages back */
-async function tell(tx, threadId, agent, settled, submitted, told, upTo) {
+async function tell(tx, threadId, agent, settled, submitted, told, upTo, run) {
 	const posted = []
 	for (const { thread, data, steer } of told)
 		posted.push({ thread, ...(await append(tx, thread, data, { steer })) })
@@ -1635,6 +1660,7 @@ async function tell(tx, threadId, agent, settled, submitted, told, upTo) {
 		{
 			agent: await nameIn(tx, await tx.doc(Thread, threadId), agent),
 			held,
+			run,
 			...(answer === undefined ? {} : { answer }),
 			...(settled.status === 'done' || stopped
 				? {}
@@ -1671,7 +1697,7 @@ async function faulted({ task, reason }) {
 	const submitted = (await harness.getTask(admit, context)).state.outcome?.result ?? null
 	const settled = { id: admit, status: 'unanswered', reason, entry: placed?.entry }
 	const told = await outcome(threadId, agent, settled, submitted?.held ?? [upTo])
-	await commit((tx) => tell(tx, threadId, agent, settled, submitted, told, upTo))
+	await commit((tx) => tell(tx, threadId, agent, settled, submitted, told, upTo, task.id))
 }
 
 // ── Read views: threads, lists, people ────────────────────────────────────
@@ -1969,56 +1995,6 @@ async function trail(id, { entry = undefined, last = 200 } = {}) {
 	return entry === undefined ? steps.slice(0, last).reverse() : steps
 }
 
-const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`
-/** One step as a plain line */
-function stepText(step) {
-	const names = (list) => (list?.length ? list.join(', ') : 'nobody')
-	switch (step.kind) {
-		case 'fired':
-			return `scheduled task ${step.task} fired`
-		case 'skipped':
-			return `scheduled task ${step.task} skipped: ${step.why}`
-		case 'ended':
-			return `scheduled task ${step.task} ended: ${step.why}`
-		case 'checked':
-			return `scheduled task ${step.task}'s check ${step.failed ? `failed: ${step.failed}` : `was quiet${step.said ? `: ${step.said}` : ''}`}`
-		case 'posted':
-			return `posted as ${step.author} to ${names(step.to)}${step.direct ? ', for the director to pick' : ''}${step.picked ? ` (${step.picked})` : ''}`
-		case 'waited':
-			return `director waited ${seconds(step.ms)}${step.held ? ', some of it for someone typing' : ''}`
-		case 'picked': {
-			if (step.over) return "picked nobody: the author's next message took over"
-			const chose = step.chose
-			if (!chose) return `picked ${names(step.to)}${step.picked ? `: ${step.picked}` : ''}`
-			if (chose.outcome !== 'ok')
-				return `${chose.model} ${chose.outcome === 'timeout' ? 'timed out' : 'failed'} after ${seconds(chose.ms)}${chose.error ? `: ${chose.error}` : ''}; asked ${names(step.to)}`
-			const sure =
-				typeof chose.confidence === 'number' ? `, ${Math.round(chose.confidence * 100)}% sure` : ''
-			const among = chose.candidates?.length ? ` among ${chose.candidates.join(', ')}` : ''
-			const read = chose.read ? `, read ${chose.read.length} messages` : ''
-			const why = step.picked && !/% sure$/.test(step.picked) ? `: ${step.picked}` : ''
-			// The pick may not stand: paused meanwhile, or a runner the author can't reach
-			const asked =
-				chose.choice === 'all' || names(step.to) === chose.choice ? '' : `; asks ${names(step.to)}`
-			return `${chose.model} picked ${chose.choice}${sure}${why}, in ${seconds(chose.ms)}${among}${read}${asked}`
-		}
-		case 'nobody':
-			return 'asked nobody, nothing started'
-		case 'started':
-			return `${step.agent} started`
-		case 'answered':
-			return `${step.agent} answered`
-		case 'failed':
-			return `${step.agent ? `${step.agent}'s run` : 'run'} failed: ${step.reason}`
-		case 'stopped':
-			return `${step.agent} stopped`
-		case 'withdrawn':
-			return 'withdrawn before anyone read it'
-		default:
-			return step.kind
-	}
-}
-
 /** A thread's newest messages, read back from its end: those after `after`, before `before`, or the newest `last`, with their picks */
 async function newest(handle, { after = -1, before = undefined, last = Infinity }) {
 	const routes = new Map()
@@ -2276,7 +2252,9 @@ async function moveAgent(threadId, input) {
 	const to = /** @type {To} */ (
 		await address({ ...was, runner }, false, undefined, !was.thinkingLevel)
 	)
-	await commit(async (tx) => reconfigure(tx, (await tx.doc(Thread, threadId)).agents[key], to))
+	await commit(async (tx) =>
+		reconfigure(tx, (await tx.doc(Thread, threadId)).agents[key], to, threadId),
+	)
 	touchThread(threadId)
 	return { conversation: input.conversation, to }
 }
@@ -2368,6 +2346,7 @@ function imageList(images) {
 async function startThread(tx, title, parent, tools = null) {
 	const { id } = await tx.createConversation(ownerless)
 	Object.assign(await tx.doc(Thread, id), { title, parent, createdAt: now(), tools })
+	await trailed(tx, id, undefined, 'created', { title, ...(parent === null ? {} : { parent }) })
 	return id
 }
 
@@ -2497,7 +2476,10 @@ async function setTitle(id, { title, key }) {
 /** The title's one write path; an automatic title must still match its default. */
 async function setTitleIn(tx, id, title, expected) {
 	const row = await tx.doc(Thread, id)
-	if (expected === undefined || row.title === expected) row.title = title
+	if ((expected === undefined || row.title === expected) && row.title !== title) {
+		await trailed(tx, id, undefined, 'renamed', { from: row.title, to: title })
+		row.title = title
+	}
 	return { title: row.title }
 }
 
@@ -2509,6 +2491,7 @@ async function setTools(id, { tools }) {
 		row.tools = tools
 		for (const { conversation } of Object.values(row.agents))
 			await configure(tx, conversation, { tools: toolsOf(tools) })
+		await trailed(tx, id, undefined, 'tools', { tools })
 		return { tools }
 	})
 }
@@ -2518,7 +2501,10 @@ async function setPaused(id, { paused }) {
 	if (typeof paused !== 'boolean') throw new Error('paused is true or false')
 	await conversation(id)
 	return commit(async (tx) => {
-		;(await tx.doc(Thread, id)).paused = paused
+		const row = await tx.doc(Thread, id)
+		if (Boolean(row.paused) !== paused)
+			await trailed(tx, id, undefined, paused ? 'paused' : 'resumed')
+		row.paused = paused
 		return { paused }
 	})
 }
@@ -2586,6 +2572,11 @@ async function forkThread(id, { at, title }, person) {
 					title: forkTitle,
 					createdAt: now(),
 					agents: row,
+				})
+				await trailed(tx, forkId, undefined, 'forked', {
+					from: id,
+					at: Number(at),
+					title: forkTitle,
 				})
 				// What the forker had picked to ask next, they still have
 				if (pick)
@@ -3169,14 +3160,20 @@ async function input(req) {
 /** Archives a thread inside the commit `tx`, ending what modules keep running in it; one may refuse by throwing */
 async function archiveIn(tx, id) {
 	for (const hook of archiving) await hook(tx, id)
-	;(await tx.doc(Thread, id)).hidden = true
+	const row = await tx.doc(Thread, id)
+	if (!row.hidden) await trailed(tx, id, undefined, 'archived')
+	row.hidden = true
 }
 
 async function archiveThread(id, archived, requestKey) {
 	await conversation(id)
 	return once(scopedKey(`archive ${id}`, requestKey), `archive ${id}`, async (tx) => {
 		if (archived) await archiveIn(tx, id)
-		else (await tx.doc(Thread, id)).hidden = false
+		else {
+			const row = await tx.doc(Thread, id)
+			if (row.hidden) await trailed(tx, id, undefined, 'unarchived')
+			row.hidden = false
+		}
 		return { id, archived: Boolean(archived) }
 	})
 }

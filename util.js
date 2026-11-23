@@ -229,3 +229,85 @@ export async function complete(core, to, messages, { signal, retry = undefined, 
 		throw new Error(reply.errorMessage ?? reply.stopReason)
 	return reply
 }
+
+const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`
+/** One step of a thread's trail as a plain line */
+export function stepText(step) {
+	const names = (list) => (list?.length ? list.join(', ') : 'nobody')
+	switch (step.kind) {
+		case 'fired':
+			return `scheduled task ${step.task} fired`
+		case 'skipped':
+			return `scheduled task ${step.task} skipped: ${step.why}`
+		case 'ended':
+			return `scheduled task ${step.task} ended: ${step.why}`
+		case 'checked':
+			return `scheduled task ${step.task}'s check ${step.failed ? `failed: ${step.failed}` : `was quiet${step.said ? `: ${step.said}` : ''}`}`
+		case 'posted':
+			return `posted as ${step.author} to ${names(step.to)}${step.direct ? ', for the director to pick' : ''}${step.picked ? ` (${step.picked})` : ''}`
+		case 'waited':
+			return `director waited ${seconds(step.ms)}${step.held ? ', some of it for someone typing' : ''}`
+		case 'picked': {
+			if (step.over) return "picked nobody: the author's next message took over"
+			const chose = step.chose
+			if (!chose) return `picked ${names(step.to)}${step.picked ? `: ${step.picked}` : ''}`
+			if (chose.outcome !== 'ok')
+				return `${chose.model} ${chose.outcome === 'timeout' ? 'timed out' : 'failed'} after ${seconds(chose.ms)}${chose.error ? `: ${chose.error}` : ''}; asked ${names(step.to)}`
+			const sure =
+				typeof chose.confidence === 'number' ? `, ${Math.round(chose.confidence * 100)}% sure` : ''
+			const among = chose.candidates?.length ? ` among ${chose.candidates.join(', ')}` : ''
+			const read = chose.read ? `, read ${chose.read.length} messages` : ''
+			const why = step.picked && !/% sure$/.test(step.picked) ? `: ${step.picked}` : ''
+			// The pick may not stand: paused meanwhile, or a runner the author can't reach
+			const asked =
+				chose.choice === 'all' || names(step.to) === chose.choice ? '' : `; asks ${names(step.to)}`
+			return `${chose.model} picked ${chose.choice}${sure}${why}, in ${seconds(chose.ms)}${among}${read}${asked}`
+		}
+		case 'nobody':
+			return 'asked nobody, nothing started'
+		case 'started':
+			return `${step.agent} started`
+		case 'answered':
+			return `${step.agent} answered`
+		case 'failed':
+			return `${step.agent ? `${step.agent}'s run` : 'run'} failed: ${step.reason}`
+		case 'stopped':
+			return `${step.agent} stopped`
+		case 'withdrawn':
+			return 'withdrawn before anyone read it'
+		case 'created':
+			return `thread created${step.title ? ` as "${step.title}"` : ''}${step.parent ? `, from thread ${step.parent}` : ''}`
+		case 'forked':
+			return `forked from thread ${step.from} at message ${step.at}`
+		case 'renamed':
+			return `renamed from "${step.from}" to "${step.to}"`
+		case 'archived':
+		case 'unarchived':
+		case 'paused':
+		case 'resumed':
+			return `thread ${step.kind}`
+		case 'tools':
+			return step.tools ? `tools set to ${step.tools.join(', ')}` : 'every tool allowed again'
+		case 'joined':
+		case 'changed':
+			return `${step.agent} ${step.kind === 'joined' ? 'joined' : 'now runs'} as ${step.model}${step.thinking ? `:${step.thinking}` : ''} on ${step.runner}, in ${step.folder}`
+		case 'bot-created':
+			return `bot ${step.bot} created`
+		case 'bot-changed':
+			return `bot ${step.bot} changed its ${step.changed.join(' and ')}${step.to ? `; now ${step.to}` : ''}`
+		case 'bot-forgotten':
+			return `bot ${step.bot} forgotten`
+		case 'scheduled':
+			return `scheduled task ${step.task} set by ${step.by}`
+		case 'edited':
+			return `scheduled task ${step.task} edited: ${step.changed.join(', ')}`
+		case 'task-paused':
+			return `scheduled task ${step.task} paused${step.note ? `: ${step.note}` : ''}`
+		case 'task-resumed':
+			return `scheduled task ${step.task} resumed`
+		case 'cancelled':
+			return `scheduled task ${step.task} cancelled`
+		default:
+			return step.kind
+	}
+}

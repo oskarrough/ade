@@ -12,7 +12,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   recipients, invited               who a message asks; bots it @mentions that aren't in the thread yet
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused
   ask, route, ROUTE, routed, fresh  whom a message asks; the director's saved pick
-  TRAIL, trailed, trail, stepText, nameIn   a thread's trail, in a conversation of its own: each step written in its commit, GET /api/threads/:id/trail, `trail/<id>`
+  TRAIL, trailed, trail, nameIn, ranAs   a thread's trail, in a conversation of its own: each step written in its commit, GET /api/threads/:id/trail, `trail/<id>`
   messagesFrom, firstWrote, authors   a thread's messages from one on, and when each person first wrote, so a run reads no further back
   Draft, saveDraft, draftIn, NEW, spentUnder   a person's unsent draft per thread, and for a new one; `draft/<id>` feed view
   createThread, written, mayAsk     a thread and its first message in one commit
@@ -52,7 +52,7 @@ runner-updater.js        what `curl <server>/connect-runner | sh` starts; keeps 
 remote.js                the runner protocol: createRunners (server), serveRunner (runner), runnerProvider, remoteEnv
 cli.js                   the API from a terminal; `link`, the owner's browser link
 util.js                  shared helpers: personName, agentTo, writtenTo, smallModel, mentioned, keyOf, speaker, said,
-                         written, byAgent, finished, background, collect, firstIn, complete (module model calls)
+                         written, byAgent, finished, background, collect, firstIn, complete (module model calls), stepText
 modules.js               builtIn, dataDir, ade.json, MODULES; loads each module's server and runner half
 modules/
   talk.js                `post` and `threads` tools; resolveThread, reply, member
@@ -194,7 +194,7 @@ Where a feature lives:
 - Settings and modules: modules.js, server.js saveSettings/restart, settings.js.
 - Threads side by side: client server.js followThread/besideKey/openBeside, `columns`.
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
-- What happened in a thread: server.js trailed (writes, in each step's commit) and trail (reads), cli.js `trail`, client trail.js.
+- What happened in a thread: server.js trailed (writes, in each step's commit) and trail (reads), util.js stepText, cli.js `trail`, client trail.js. What changes about a thread, a bot or a scheduled task is a step written where it changes: startThread, setTitleIn, archiveIn, setPaused, setTools, setUp, reconfigure, forkThread, bots.js write and remove, schedule.js make, fire and abort.
 - A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js.
 - The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log; without ade installed, its own ade and Node, fetched on first start and updated hourly in place by updateHouse; login, pi in a terminal for Desktop.Login, which the model picker's LogIn in apps/client/runner.js calls).
 - The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js; releases: release.sh tags, .github/workflows/desktop-release.yml builds and publishes.

@@ -713,14 +713,14 @@ export function server(core) {
 					if (word.run) return due(undefined, { sleep: moved })
 					// Its runs ask another runner from now on, its model there
 					if (word.runner)
-						return rt.commit(
-							() =>
-								asleep(schedule, {
-									...moved,
-									to: { ...input.to, runner: word.runner },
-								}),
-							ctx,
-						)
+						return rt.commit(async (tx) => {
+							await core.trailed(tx, threadId, undefined, 'edited', {
+								task: id,
+								changed: ['runner'],
+								runner: word.runner,
+							})
+							return asleep(schedule, { ...moved, to: { ...input.to, runner: word.runner } })
+						}, ctx)
 					// Edited, it does what it says now; a new schedule starts its wait, and its count, over from now
 					if (word.edit) {
 						const edited = { ...moved, ...word.edit }
@@ -730,7 +730,14 @@ export function server(core) {
 								since: rt.now(),
 								ran: 0,
 							})
-						return rt.commit(() => asleep(edited.schedule ?? schedule, edited), ctx)
+						return rt.commit(async (tx) => {
+							await core.trailed(tx, threadId, undefined, 'edited', {
+								task: id,
+								changed: Object.keys(word.edit),
+								...word.edit,
+							})
+							return asleep(edited.schedule ?? schedule, edited)
+						}, ctx)
 					}
 					const after = {
 						...moved,
@@ -744,7 +751,19 @@ export function server(core) {
 							checkpoint.at > rt.now()
 								? checkpoint.at
 								: (following(schedule, checkpoint.at, rt.now()) ?? rt.now())
-					return rt.commit(() => asleep(schedule, after), ctx)
+					return rt.commit(async (tx) => {
+						await core.trailed(
+							tx,
+							threadId,
+							undefined,
+							word.paused ? 'task-paused' : 'task-resumed',
+							{
+								task: id,
+								...(word.paused && word.note ? { note: word.note } : {}),
+							},
+						)
+						return asleep(schedule, after)
+					}, ctx)
 				}
 				// Woken by its end time, paused, listening, or with its next run past it, it ends without a run
 				if (
@@ -851,13 +870,23 @@ export function server(core) {
 				}, ctx)
 			},
 		},
-		abort: (_task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
+		abort: ({ id, conversationId: threadId }, rt, ctx) =>
+			rt.commit(async (tx) => {
+				await core.trailed(tx, threadId, undefined, 'cancelled', { task: id })
+				return finished('aborted')
+			}, ctx),
 	})
 
 	/** Makes one in `threadId` and says so; hooks give an event's task its secret in the same commit */
 	async function make(requestKey, threadId, input) {
 		const id = await core.once(requestKey, 'schedule', async (tx) => {
 			const made = await tx.createTask(ScheduledTask, input, background(threadId))
+			await core.trailed(tx, threadId, undefined, 'scheduled', {
+				task: made,
+				by: input.by,
+				schedule: input.schedule,
+				instructions: input.instructions,
+			})
 			if (input.schedule.on !== undefined) await issue(tx, made)
 			return made
 		})
