@@ -12,6 +12,7 @@ import {
 	hueOf,
 	hues,
 	openThread,
+	page,
 	paint,
 	saveBot,
 	server,
@@ -67,7 +68,7 @@ const botMenu = (bot) => [
 
 export function BotItem(props) {
 	return html`
-		<li class=${() => ({ current: props.bot.home === current() })}>
+		<li class=${() => ({ current: page().kind === 'threads' && props.bot.home === current() })}>
 			<a
 				class="row"
 				href=${() => hrefOf(props.bot.home)}
