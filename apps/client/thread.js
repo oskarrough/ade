@@ -793,6 +793,13 @@ export function Thread(props) {
 								`Talk to ${homeBot(props.id).name} and find out who it is.`}
 						</li>
 					<//>
+					<${Show} when=${() => ready() && !earlier[props.id] && forkedFrom(thread())}>
+						<li class="mute">
+							forked from${' '}<${ThreadLink} id=${() => forkedFrom(thread())}
+								>${() => titleOf(forkedFrom(thread()))}<//
+							>
+						</li>
+					<//>
 					<${For} each=${onScreen} keyed=${(row) => row.key}
 						>${(row) => html`
 							<${Show} when=${() => row().break}>

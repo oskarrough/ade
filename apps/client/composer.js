@@ -891,7 +891,8 @@ function heardDraft(rows, frame, reset) {
 	else if (saver !== page) tookDraft(thread, draft)
 }
 /** Each thread's pick, `{agent, bots}`, kept by thread id; a new thread's under `new` */
-const pick = (thread = current()) => compose.picks[thread ?? 'new'] ?? null
+/** What you chose in a thread's composer, or the new thread's for `null`; none until you choose */
+export const pick = (thread = current()) => compose.picks[thread ?? 'new'] ?? null
 const here = (thread = current()) => threadOf(thread)?.agents ?? []
 const lastTo = (thread = current()) =>
 	(entries[thread] ?? []).findLast((event) => event.data.to?.length)?.data.to

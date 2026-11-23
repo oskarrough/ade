@@ -69,6 +69,11 @@
 				<h2>Hello, ade</h2>
 				<p>Start it where it can stay on.</p>
 				<pre>npx github:oskarrough/ade</pre>
+				<p>
+					On your own computer,
+					<a href="https://github.com/oskarrough/ade#get-the-desktop-app">the desktop app</a> runs
+					it for you.
+				</p>
 			</section>
 
 			<section data-focus="runners">
@@ -111,6 +116,32 @@
 				<div class="try">
 					<button data-try="talk">Have the agent ask two others</button>
 				</div>
+			</section>
+
+			<section data-focus="thread">
+				<h2>Bots</h2>
+				<p>
+					A bot is an agent with a name and a home thread. It starts with no instructions, and
+					writes its own once it knows what it's for. Ask it anywhere with @ and its name: it's the
+					same bot in every thread.
+				</p>
+				<p>
+					A bot can also give itself work for later: a scheduled task brings instructions back to it
+					once, every so often, or at a time each day. Each task sits above its composer, where you
+					run it now, pause it or cancel it.
+				</p>
+				<div class="try"><button data-try="bot">Make a bot that keeps a diary</button></div>
+			</section>
+
+			<section data-focus="server">
+				<h2>One inbox</h2>
+				<p>
+					When an agent needs a decision only you can make, it asks and carries on with what it can.
+					Its question waits in the Inbox, in the sidebar under New thread, with every other
+					thread's. Answer it there, and the answer goes to the agent that asked.
+				</p>
+				<p>Runs that failed and answers you haven't read wait there too.</p>
+				<div class="try"><button data-try="inbox">Have an agent ask you something</button></div>
 			</section>
 
 			<section data-focus="server">
@@ -199,7 +230,7 @@ sequenceDiagram
   A-->>You: its answer, live as it lands
 </pre>
 				<p>
-					Everything is a module. Bots, memory and @mentions are on; the inbox, scheduled tasks,
+					Everything is a module. Bots, memory, @mentions, the inbox and scheduled tasks are on;
 					Matrix rooms, web search, a page per thread saying where it stands and a canvas per thread
 					you switch on in settings, beside the runners. The words, the principles and the API are
 					in the

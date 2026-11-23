@@ -4,8 +4,18 @@ import { defaultTitle } from './title.js'
 import html from '@solidjs/html'
 import { Portal } from '@solidjs/web'
 import { onSettled, Show, snapshot } from 'solid-js'
-import { api, current, createThread, entries, fork, openThread, runners } from './server.js'
-import { choose, toFor } from './composer.js'
+import {
+	api,
+	bots,
+	current,
+	createThread,
+	entries,
+	fork,
+	openThread,
+	runners,
+	saveBot,
+} from './server.js'
+import { choose, pick, toFor } from './composer.js'
 import { ConnectRunner } from './runner.js'
 import { report } from './notice.js'
 import { Memory } from './agent-memory.js'
@@ -58,23 +68,35 @@ const online = () =>
 		.sort((a, b) => Number(Boolean(a.own)) - Number(Boolean(b.own)))
 /** Written with its provider, exactly as the runner lists it, so it can't resolve to another provider's login */
 const named = (to) => `${to.model}@${to.runner}`
-/** Two small models the online runners offer: Haiku, Luna, Sonnet or Terra, on two runners and from two providers if
- * possible, then the model the thread is on to fill up. `anthropic/…` is never picked from the list: its login can be expired. */
+/** The model you picked in the composer, here or for a new thread, while its runner is online; a bot's pick isn't one */
+const picked = (thread = current()) => {
+	const mine = [pick(thread), pick(null)].find((one) => one && !one.held)
+	const to = mine?.agent
+	return to && !to.name && runners.some((runner) => runner.online && runner.name === to.runner)
+		? to
+		: undefined
+}
+/** The model a try asks: yours, else the first online runner's, the server's own last */
+const chosen = (thread = current()) => picked(thread) ?? defaults()[0]
+/** Two models to ask: yours if you picked one, then small ones the online runners offer (Haiku, Luna, Sonnet or Terra),
+ * on another runner and from another provider if possible, then the model the thread is on to fill up. `anthropic/…` is
+ * never picked from the list: its login can be expired. */
 const smallTwo = () => {
 	const small = online().flatMap((runner) =>
 		(runner.offers ?? [])
 			.filter((model) => /haiku|luna|sonnet|terra/.test(model) && providerOf(model) !== 'anthropic')
 			.map((model) => ({ ...toFor(runner), model })),
 	)
-	const [one = defaults()[0]] = small
+	const one = picked() ?? small[0] ?? defaults()[0]
 	if (!one) return []
+	const others = small.filter((option) => named(option) !== named(one))
 	const elsewhere = (option) => option.runner !== one.runner
 	const otherProvider = (option) => providerOf(option.model) !== providerOf(one.model)
 	const two =
-		small.find((option) => elsewhere(option) && otherProvider(option)) ??
-		small.find(elsewhere) ??
-		small.find(otherProvider) ??
-		small.find((option) => option !== one) ??
+		others.find((option) => elsewhere(option) && otherProvider(option)) ??
+		others.find(elsewhere) ??
+		others.find(otherProvider) ??
+		others[0] ??
 		defaults()[0]
 	return [one, two]
 }
@@ -87,14 +109,13 @@ async function ask(body, to, was = current()) {
 }
 
 const fresh = () => openThread(null)
+/** The walkthrough's bot: made once, then asked again in its home */
+const DIARIST = 'scribe'
 const TRIES = {
 	hands: () => {
+		const to = chosen()
 		fresh()
-		return ask(
-			"Which file in this folder is biggest? Look, don't guess. One line.",
-			defaults()[0],
-			null,
-		)
+		return ask("Which file in this folder is biggest? Look, don't guess. One line.", to, null)
 	},
 	friend: async () => {
 		const id = current() ?? (await api('/api/threads', { title: 'A thread for two' })).id
@@ -109,10 +130,11 @@ const TRIES = {
 		)
 	},
 	slow: () => {
+		const to = chosen()
 		fresh()
 		return ask(
 			'Count from 1 to 20 in your shell, one number a second: run `for i in $(seq 1 20); do echo $i; sleep 1; done`. Then say how far you got, in one line.',
-			defaults()[0],
+			to,
 			null,
 		)
 	},
@@ -126,12 +148,34 @@ const TRIES = {
 		if (!current()) throw new Error('Load the example thread first.')
 		return ask(
 			'What is the gate code now, what colour is the shed, and how long are the rafters? Say which message you found each in.',
-			defaults()[0],
+			chosen(),
+		)
+	},
+	bot: async () => {
+		const name = DIARIST
+		const to = chosen()
+		if (!to) throw new Error('Pick a model first.')
+		const home =
+			bots.find((bot) => bot.name === name)?.home ??
+			(await saveBot(name, { to: { ...snapshot(to), name: undefined } })).home
+		openThread(home)
+		await api(`/api/threads/${home}/entries`, {
+			body: 'You\'re new here. You keep a diary of this house, here in your home: one short entry a day about what happened in its threads. Write that into your instructions with your bot tool. Then schedule a task at times ["09:00"] whose instructions tell you to write the day\'s entry; never a second one. Tell me what you did in two lines.',
+			to: name,
+		})
+	},
+	inbox: () => {
+		const to = chosen()
+		fresh()
+		return ask(
+			"Ask me with ask_person which colour the shed should be, then end your turn. Don't guess, and don't ask anything else.",
+			to,
+			null,
 		)
 	},
 	talk: () => {
-		fresh()
 		const [one, two] = smallTwo()
+		fresh()
 		if (!one) throw new Error('Pick a model first.')
 		return ask(
 			`With your post tool, start two threads at once: one asking ${named(one)}, one asking ${named(two)}, which machine and folder it is in, in one line. Wait for both answers, then tell me in two lines.`,

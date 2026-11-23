@@ -180,7 +180,7 @@ Where a feature lives:
 - Memory and compaction: modules/memory.js, server.js compact, agent-memory.js, thread.js rows, run.js cutOf.
 - Bots: modules/bots.js, bot.js, composer.js PickerBot, client server.js homeBot/botAgent/colorOf, settings.js.
 - Runners and keys: remote.js, runner.js, server.js mintKey/revoke/upgrade, client runner.js.
-- Forks: server.js forkThread, client server.js fork, thread.js Message.
+- Forks: server.js forkThread, client server.js fork, thread.js Message (forked →) and Thread (forked from).
 - `$ cmd`: server.js Shell, printed, shells.
 - Status dots and questions: server.js status/busiest/concerns (a failure is red and an answer blue only to who wrote in the thread, as the inbox lists it), dot.js, modules/inbox.js openQuestion.
 - Inbox: modules/inbox.js, client inbox.js, server.js inbox/dismiss/page, thread-list.js.
