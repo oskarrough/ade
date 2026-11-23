@@ -201,7 +201,7 @@ function showPage(next, { closeDrawer = true } = {}) {
 	for (const key of PAGE_PARAMS) address.searchParams.delete(key)
 	if (next.kind === 'search') address.searchParams.set('search', next.query)
 	else if (next.kind !== 'threads') address.searchParams.set(next.kind, '')
-	history.replaceState(null, '', address)
+	history.replaceState(history.state, '', address)
 }
 
 export const openInbox = () => showPage({ kind: 'inbox' })
@@ -214,9 +214,28 @@ export function openThread(id) {
 	setBeside(shown.includes(id) && shown.length > 1 ? shown : [])
 	setPage({ kind: 'threads' })
 	setCurrent(id)
+	// Picked from the phone's list, the thread is a page of its own on top of it, so back (the edge swipe, Android's back) returns to the list
+	if (document.body.classList.contains('list')) {
+		history.replaceState({ list: true }, '', location.href)
+		history.pushState({ thread: id }, '', hrefOf(id))
+	} else history.replaceState(history.state, '', hrefOf(id))
 	drawer(null)
-	history.replaceState(null, '', hrefOf(id))
 }
+
+/** The phone bar's back: the list the thread was opened from, else the list opened anew */
+export function backToList() {
+	if (history.state?.thread) history.back()
+	else drawer('list')
+}
+
+addEventListener('popstate', (event) => {
+	if (event.state?.list) document.body.classList.add('list')
+	else if (event.state?.thread) {
+		setPage({ kind: 'threads' })
+		setCurrent(event.state.thread)
+		drawer(null)
+	}
+})
 
 /** A link to a thread opens it here, and still opens in a new tab or window when the click asks for one */
 /** Ctrl-click, or Cmd-click on a Mac, opens a thread in a column beside the ones on screen */

@@ -204,7 +204,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Model controls: model-picker.js `ModelPicker`, `.model-controls`: `.search`, `.model-list`, `.models`, `.foot`, `.thinking`.
 - Left aside: thread-list.js `ThreadList`, `.thread-list`, `ul.top-row`, `ul.inbox-row`, `li > .row`, `.thread-family`, `.list-foot`, `.foot-toggle`.
 - Side column: `aside.side`, side.js `PageTabs`; `.thread-details`, `.recap`, `.canvas`, `.director`; bot.js `BotSettings`, `.bot`.
-- Thread head: `h2.title > button.ghost.thread-name`, `.close`, the phone's `.app-bar`; `.page-head` on list pages.
+- Thread head: `h2.title > button.ghost.thread-name`, `.close`, the phone's `.app-bar` (its back is server.js `backToList`: a thread opened from the phone's list is a history entry, popstate brings the list back); `.page-head` on list pages.
 - Message list: thread.js `Message` in `.thread > ul > li`, `.markdown`, `div.images`, `li.cut`, `li.line`.
 - Quoting: quote.js, composer.js `appendQuote`, app.css `.quote-anchor`/`.quote`.
 - Tool calls: run.js `Turn`, `Exchange`, `Step`, `Call`; `li.turn`, `.steps`, `.tool`, `.said`, `.exchange`, `li.sent`, `li.received`.

@@ -4,6 +4,7 @@ import { Icon } from './icons.js'
 import { render } from '@solidjs/web'
 import { createEffect, Errored, Loading, onSettled, Show } from 'solid-js'
 import {
+	backToList,
 	chat,
 	colorOf,
 	current,
@@ -104,7 +105,7 @@ function Client() {
 		>
 			<${Loading}>
 				<header class="app-bar">
-					<button type="button" aria-label="All threads" onClick=${() => drawer('list')}>
+					<button type="button" aria-label="All threads" onClick=${backToList}>
 						<${Icon} name="back" />
 					</button>
 					<button
