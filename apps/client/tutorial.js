@@ -51,30 +51,34 @@ export function Tutorial(props) {
 }
 
 const providerOf = (model) => model.split('/')[0]
+/** Online runners with a model, the server's own last: a machine you connected shows where work happens, and its work outlives a server restart */
+const online = () =>
+	runners
+		.filter((runner) => runner.online && toFor(runner).model)
+		.sort((a, b) => Number(Boolean(a.own)) - Number(Boolean(b.own)))
 /** Written with its provider, exactly as the runner lists it, so it can't resolve to another provider's login */
 const named = (to) => `${to.model}@${to.runner}`
-/** Two small models the online runners offer: Haiku, Luna, Sonnet or Terra, from two providers if possible, then the
- * model the thread is on to fill up. `anthropic/…` is never picked from the list: its login can be expired. */
+/** Two small models the online runners offer: Haiku, Luna, Sonnet or Terra, on two runners and from two providers if
+ * possible, then the model the thread is on to fill up. `anthropic/…` is never picked from the list: its login can be expired. */
 const smallTwo = () => {
-	const small = runners
-		.filter((runner) => runner.online && toFor(runner).model)
-		.flatMap((runner) =>
-			(runner.offers ?? [])
-				.filter(
-					(model) => /haiku|luna|sonnet|terra/.test(model) && providerOf(model) !== 'anthropic',
-				)
-				.map((model) => ({ ...toFor(runner), model })),
-		)
+	const small = online().flatMap((runner) =>
+		(runner.offers ?? [])
+			.filter((model) => /haiku|luna|sonnet|terra/.test(model) && providerOf(model) !== 'anthropic')
+			.map((model) => ({ ...toFor(runner), model })),
+	)
 	const [one = defaults()[0]] = small
 	if (!one) return []
+	const elsewhere = (option) => option.runner !== one.runner
+	const otherProvider = (option) => providerOf(option.model) !== providerOf(one.model)
 	const two =
-		small.find((option) => providerOf(option.model) !== providerOf(one.model)) ??
+		small.find((option) => elsewhere(option) && otherProvider(option)) ??
+		small.find(elsewhere) ??
+		small.find(otherProvider) ??
 		small.find((option) => option !== one) ??
 		defaults()[0]
 	return [one, two]
 }
-const defaults = () =>
-	runners.filter((runner) => runner.online && toFor(runner).model).map((runner) => toFor(runner))
+const defaults = () => online().map((runner) => toFor(runner))
 async function ask(body, to, was = current()) {
 	if (!to) throw new Error('Pick a model first.')
 	choose(to)
@@ -98,7 +102,11 @@ const TRIES = {
 		const link = new URL(location.pathname, location.origin)
 		link.searchParams.set('thread', id)
 		await navigator.clipboard.writeText(link.href)
-		report(`Copied ${link.href}`)
+		report(
+			/^(localhost|127(?:\.\d+){3}|\[::1\])$/.test(location.hostname)
+				? `Copied ${link.href}. It opens only on this machine: for a friend, run tailscale serve on the server's serve port and send its address.`
+				: `Copied ${link.href}`,
+		)
 	},
 	slow: () => {
 		fresh()
