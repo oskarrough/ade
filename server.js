@@ -29,6 +29,7 @@ import {
 	InboxDoc,
 	LiveDoc,
 	ProviderDoc,
+	SubmissionSettled,
 } from '@earendil-works/pi-durable'
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node'
@@ -368,6 +369,7 @@ const Admit = defineTask({
 			const content = images.length ? [...(text ? [{ type: 'text', text }] : []), ...images] : text
 			const handle = await rt.conversation(agent, ctx)
 			const entry = { kind: DELIVERY, data: { held } }
+			const deliver = await deliverOf(threadId, id)
 			await rt.commit(async (tx) => {
 				// A message withdrawn while this read the thread has left `unseen`: read it again without
 				const left = recipientOf(await tx.doc(Thread, threadId), agent).unseen
@@ -384,6 +386,7 @@ const Admit = defineTask({
 					content,
 					entry,
 					requestId: String(id),
+					...(deliver && { notify: { taskId: deliver, key: ANSWERED } }),
 					whenBusy: steer ? 'steer' : 'followUp',
 				})
 				const recipient = recipientOf(await tx.doc(Thread, threadId), agent)
@@ -416,7 +419,26 @@ async function skillCommand(row, entry, agent, signal) {
 	return { ...entry, data: { ...entry.data, body } }
 }
 
-/** A durable wait observes admission faults too; onReport is only diagnostic. */
+/** The Deliver that tells the thread what admission `admit` brings; it waits on it, so it's still waiting */
+async function deliverOf(threadId, admit) {
+	const waiting = await collect((cursor) =>
+		storage.scanTasks(
+			{ conversationId: threadId, kind: Deliver.definition.name, status: 'waiting' },
+			100,
+			cursor,
+			context,
+		),
+	)
+	return waiting.find((task) => /** @type {any} */ (task.input).admit === admit)?.id
+}
+
+/** The key a Deliver sleeps on until its submission settles */
+const ANSWERED = 'answered'
+
+/**
+ * A durable wait observes admission faults too; onReport is only diagnostic. While the agent answers, Deliver sleeps
+ * until Pi signals the submission settled, so crashes meanwhile don't count against it, however long the answer takes.
+ */
 const Deliver = defineTask({
 	name: 'ade.deliver',
 	version: 1,
@@ -428,10 +450,22 @@ const Deliver = defineTask({
 			const submitted = result.status === 'completed' ? result.result : null
 			if (submitted && !submitted.submission && !submitted.missing)
 				return rt.commit(() => finished(), ctx)
+			const submission =
+				submitted?.submission && (await harness.submission(submitted.submission, ctx))
+			const now = submission && (await submission.status(ctx))
+			if (now?.notify && now.status !== 'done' && now.status !== 'unanswered')
+				return rt.commit(
+					() => ({
+						status: 'sleeping',
+						signals: [SubmissionSettled.key(ANSWERED)],
+						checkpoint: { phase: 'tell' },
+					}),
+					ctx,
+				)
 			const settled = submitted?.missing
 				? { id: admit, status: 'unanswered', said: `folder ${submitted.missing} no longer exists` }
-				: submitted
-					? await (await harness.submission(submitted.submission, ctx)).wait(ctx)
+				: submission
+					? await submission.wait(ctx)
 					: {
 							id: admit,
 							status: 'unanswered',
