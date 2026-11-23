@@ -1,5 +1,5 @@
 /**
- * MODULES=+check: a scheduled task's check runs before each run, as the agent the run asks, with its tools and no model.
+ * MODULES=+check, as by default: a scheduled task's check runs before each run, as the agent the run asks, with its tools and no model.
  * Quiet, the run asks no one and is kept as checked; `post` asks, with what it found beside the instructions; `keep`
  * carries its state to the next run, across a restart; `done` ends the task; it can't schedule. A check that fails
  * three times running pauses its task, saying why.

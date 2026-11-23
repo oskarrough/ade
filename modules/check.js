@@ -1,6 +1,6 @@
 /**
  * A scheduled task's check: a script that runs before each of its runs, with no model, and decides whether the run asks
- * anyone. Off by default, and needs schedule: MODULES=+check.
+ * anyone. On by default, with schedule; MODULES=-check turns it off.
  *
  * A check is a Code Mode script, run as the agent the run would ask, on its runner and with its tools. It reads `input`,
  * `{state, runs, now, event?}`, and calls `post(text)` to have this run ask, with `text` beside the task's instructions;
@@ -28,7 +28,7 @@ import {
 import { createCodemodeTool } from '@earendil-works/pi-durable/codemode'
 import { finished } from '../util.js'
 
-export const on = false
+export const on = true
 
 /** The tool a check's script runs through: Code Mode's own, callable only by a check */
 const TOOL = 'scheduled_check'
@@ -154,8 +154,8 @@ export const outcomeOf = (record) => {
 }
 
 export function server(core) {
-	if (!core.modulesOn.includes('schedule'))
-		throw new Error('check needs schedule: MODULES=+check, without -schedule')
+	// Without scheduled tasks there's nothing to check before
+	if (!core.modulesOn.includes('schedule')) return {}
 	const codemode = createCodemodeTool({
 		sandbox: new CodemodeSandbox({ memoryLimitBytes: 64 * 1024 * 1024 }),
 		globals: [

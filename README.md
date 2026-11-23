@@ -51,4 +51,4 @@ pi install npm:pi-antigravity
 
 ## Known gaps
 
-- A scheduled task's check (`check`, off by default) calls `post`, `done` and `keep` through Code Mode's `globals`, which pi-durable marks internal. examples/61 pins them: if a pi-durable upgrade breaks them, `pnpm examples` fails there instead of checks going quiet.
+- A scheduled task's check (`check`, on by default) calls `post`, `done` and `keep` through Code Mode's `globals`, which pi-durable marks internal. examples/61 pins them: if a pi-durable upgrade breaks them, `pnpm examples` fails there instead of checks going quiet.

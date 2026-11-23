@@ -37,7 +37,7 @@
  * A run, or a run skipped, is a step in its thread's
  * trail; every change tells every page (`schedule` changed). Archiving a thread cancels its tasks.
  *
- * With check on, a task may carry a `check` (check.js): when it comes due, run now included, it waits on the check
+ * With check on, as it is by default, a task may carry a `check` (check.js): when it comes due, run now included, it waits on the check
  * first, as the agent the run asks, and posts only if the check said `post`, with what it found beside the
  * instructions (`checked`). A quiet check is a run too, counted toward `count`, kept among its runs (quiet ones in a
  * row as one) and in the trail; one that fails is kept with why, and STRIKES in a row pause the task with a note.
@@ -1079,7 +1079,8 @@ export function server(core) {
 	 */
 	const checkOf = (body, place) => {
 		if (body.check === undefined) return undefined
-		if (!checking) throw new Error('A check needs check on: MODULES=+check')
+		if (!checking)
+			throw new Error('A check needs the check module, which MODULES=-check turned off')
 		if (typeof body.check !== 'string') throw new Error('check is the text of a script')
 		const check = body.check.trim()
 		if (check.length > MOST) throw new Error(`A check is at most ${MOST} characters`)
