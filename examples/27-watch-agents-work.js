@@ -261,6 +261,28 @@ check(
 	now && !now.run && !now.tools.length,
 	'after a restart, subscribing again says the agent is idle',
 )
+// An image someone sends is in the thread's message; the turn that handed it to the agent names it without its bytes
+const pixel =
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+await api('POST', `/api/threads/${id}/entries`, {
+	body: 'look',
+	to: { runner: 'bot', model: 'echo/echo' },
+	images: [{ type: 'image', mimeType: 'image/png', data: pixel }],
+})
+const handed = await until(async () =>
+	entriesIn(restarted.heard)
+		.flatMap((entry) => entry.model?.[0]?.content ?? [])
+		.find((block) => block.type === 'image'),
+)
+check(
+	feedEntries(restarted.frames).some((entry) => entry.data.images?.[0]?.data === pixel),
+	'a message keeps the image it was sent with',
+)
+check(
+	handed?.mimeType === 'image/png' && !('data' in handed),
+	"an agent's turn names the image it was handed, without its bytes",
+	JSON.stringify(handed),
+)
 restarted.close()
 bot.close()
 done()

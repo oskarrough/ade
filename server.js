@@ -4079,15 +4079,18 @@ feed.define('agents/', {
 	},
 })
 /**
- * A model message as a page shows it: without the provider's diagnostics and the signatures that let it check its own
- * thinking, which are most of an answer's bytes and nothing a person reads
+ * A model message as a page shows it: without the provider's diagnostics, the signatures that let it check its own
+ * thinking and the bytes of its images, which are most of a turn's bytes and nothing a person reads there; an image
+ * someone sent is in the thread's message
  */
 const visible = (message) => {
 	const { diagnostics: _, ...shown } = message
 	if (!Array.isArray(shown.content)) return shown
 	return {
 		...shown,
-		content: shown.content.map(({ thinkingSignature: _, textSignature: __, ...block }) => block),
+		content: shown.content.map(({ thinkingSignature: _, textSignature: __, data, ...block }) =>
+			block.type === 'image' ? block : { ...block, ...(data !== undefined && { data }) },
+		),
 	}
 }
 
