@@ -193,7 +193,7 @@ Where a feature lives:
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
 - What happened in a thread: server.js trailed (writes, in each step's commit) and trail (reads), cli.js `trail`, client trail.js.
 - A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js.
-- The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log; without ade installed, fetches it with npx, pnpx or bunx).
+- The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log; without ade installed, its own ade and Node, fetched on first start and updated hourly in place by updateHouse).
 - The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js; releases: release.sh tags, .github/workflows/desktop-release.yml builds and publishes.
 
 ## UI parts

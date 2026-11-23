@@ -195,16 +195,24 @@ func waitForServer(target string) {
 	offline.waiting = true
 	offline.Unlock()
 
+	setHouseNote("", false)
 	if local(origin) {
 		startHouse()
 	}
 	page := strings.ReplaceAll(offlinePage, "{{server}}", html.EscapeString(origin))
-	page = strings.ReplaceAll(page, "{{house}}", html.EscapeString(houseNote))
+	page = strings.ReplaceAll(page, "{{house}}", html.EscapeString(Desktop{}.House()))
 	mygo.RunOnMain(func() { win.Page().LoadHTML(page, "") })
-	for !reachable() {
+	stopped := false
+	for checks := 1; !reachable(); checks++ {
 		select {
 		case <-time.After(2 * time.Second):
 		case <-tryNow:
+			if stopped && local(origin) {
+				stopped = !startHouse()
+			}
+		}
+		if checks%5 == 0 && houseStopped() {
+			stopped = true
 		}
 	}
 	offline.Lock()
@@ -241,6 +249,10 @@ func main() {
 		// Alt, or F10, opens it in the window's corner
 		mygo.App.SetMenu(houseMenu())
 		findLog()
+		go func() {
+			time.Sleep(10 * time.Second)
+			updateHouse()
+		}()
 		start := startURL(*flagURL)
 		found, ok := originOf(start)
 		if !ok {

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -100,7 +101,7 @@ func runHouse(ctx context.Context, action string, h house) (string, error) {
 	} else {
 		dir = shellQuote(dir)
 	}
-	script := "HOUSE_DIR=" + dir + "\nHOUSE_COMMAND=" + shellQuote(h.command()) + "\n" + houseScript
+	script := "HOUSE_DIR=" + dir + "\nHOUSE_COMMAND=" + shellQuote(h.command()) + "\nHOUSE_SCRIPT=" + shellQuote(houseScript) + "\n" + houseScript
 	// The login shell's environment, as in a terminal: PATH with node and ade
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -158,11 +159,85 @@ func startHouse() bool {
 	out, err := runHouse(ctx, "start", h)
 	noteLog(out)
 	if err != nil {
-		houseNote = "Couldn't start the house: " + err.Error()
+		setHouseNote("Couldn't start the house: "+err.Error(), false)
 		return false
 	}
-	houseNote = "Starting the house in " + h.dir() + "…"
+	if strings.HasSuffix(out, "installing") {
+		setHouseNote("Setting up ade, the first time only: fetching it and its packages takes a minute or two.", true)
+	} else {
+		setHouseNote("Starting the house in "+h.dir()+"…", true)
+	}
 	return true
+}
+
+// The house's note on the offline page, and whether the house is on its way
+// up, when the log's last line shows how far it got.
+var houseNote struct {
+	sync.Mutex
+	text     string
+	starting bool
+}
+
+func setHouseNote(text string, starting bool) {
+	houseNote.Lock()
+	houseNote.text, houseNote.starting = text, starting
+	houseNote.Unlock()
+}
+
+// House is what the offline page says about the house, checked every two
+// seconds.
+func (Desktop) House() string {
+	houseNote.Lock()
+	text, starting := houseNote.text, houseNote.starting
+	houseNote.Unlock()
+	if starting {
+		if last := lastLines(1); last != "" {
+			return text + "\n" + last
+		}
+	}
+	return text
+}
+
+// lastLines is the end of the house log.
+func lastLines(n int) string {
+	data, err := os.ReadFile(houseLog)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
+}
+
+// houseStopped tells the offline page when a house it is waiting for stops,
+// with the log's last lines; Try now starts it again.
+func houseStopped() bool {
+	houseNote.Lock()
+	starting := houseNote.starting
+	houseNote.Unlock()
+	if !starting {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := runHouse(ctx, "status", loadHouse())
+	if err != nil || !strings.HasSuffix(out, "stopped") {
+		return false
+	}
+	setHouseNote("The house stopped; the log says why: "+houseLog+"\n"+lastLines(8), false)
+	return true
+}
+
+// updateHouse brings the ade the app keeps up to GitHub's main, every hour;
+// the page then offers Update. A house running ade you installed is left alone.
+func updateHouse() {
+	for {
+		if h := loadHouse(); h.Start != nil && *h.Start && local(origin) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_, _ = runHouse(ctx, "update", h)
+			cancel()
+		}
+		time.Sleep(time.Hour)
+	}
 }
 
 func askToStart() bool {
@@ -182,9 +257,6 @@ func askToStart() bool {
 	})
 	return <-answer
 }
-
-// houseNote is what the offline page says about the house.
-var houseNote string
 
 // findLog learns where the log is before anything starts, for Open house log.
 func findLog() {

@@ -2,7 +2,9 @@
 
 ## 0.1.7
 
-- Starts your house without ade installed: it fetches ade from GitHub with npx, pnpx or bunx, so Node 24 is all you need.
+- Works with nothing installed (on Windows, nothing but WSL): without ade, the first start fetches it, and Node when there's none, and the waiting page shows how far it got.
+- Keeps that ade up to date: every hour it fetches main, and the page offers Update.
+- When the house stops while you wait, the page shows the log's last lines, and Try now starts it again.
 
 ## 0.1.6
 

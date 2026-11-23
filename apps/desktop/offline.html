@@ -86,6 +86,7 @@
 			}
 			.house {
 				margin-top: 0.5rem;
+				white-space: pre-line;
 			}
 			.actions {
 				margin-top: 1rem;
@@ -118,6 +119,10 @@
 		</main>
 		<script>
 			document.querySelector('#try').addEventListener('click', () => mygo.call('Desktop.TryNow'))
+			const house = document.querySelector('.house')
+			setInterval(async () => {
+				house.textContent = await mygo.call('Desktop.House').catch(() => house.textContent)
+			}, 2000)
 			document.querySelector('form').addEventListener('submit', (event) => {
 				event.preventDefault()
 				const out = document.querySelector('output')
