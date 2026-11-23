@@ -16,7 +16,7 @@ if (mygo) {
 /**
  * The window's own buttons sit over the top right of the page. Whichever pane reaches under them, the last one or, once
  * the panes scroll sideways, the one at the window's edge, gets `--under-controls`: how far it reaches in, which its
- * header keeps clear of, and `data-under-controls` while it reaches in at all.
+ * header keeps clear of.
  */
 function clearOfControls() {
 	let queued = false
@@ -31,7 +31,6 @@ function clearOfControls() {
 			const { left, right } = pane.getBoundingClientRect()
 			const under = Math.min(Math.max(right - edge, 0), right - left)
 			pane.style.setProperty('--under-controls', `${Math.round(under)}px`)
-			pane.toggleAttribute('data-under-controls', under > 0)
 		}
 	}
 	const queue = () => {
