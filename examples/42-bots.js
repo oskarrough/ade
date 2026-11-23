@@ -242,10 +242,10 @@ v = await answered(shed, 3)
 check(
 	gone.status === 200 &&
 		!(await bots()).some((b) => b.name === 'bot1') &&
-		(await api('GET', '/api/threads')).json.some((t) => t.id === home && !t.archived) &&
+		(await api('GET', '/api/threads/archived')).json.some((t) => t.id === home) &&
 		answers(v)[2]?.data.author === 'bot1' &&
 		JSON.parse(prompt.laptop).at(-1).sections?.bot === null,
-	'forgetting bot1 keeps every thread: her agents stay, without her instructions',
+	'forgetting bot1 archives her home and keeps every other thread: her agents stay, without her instructions',
 	JSON.stringify([gone.json, answers(v)[2]?.data, prompt.laptop]),
 )
 

@@ -483,7 +483,7 @@ export const {
 	const bothLists = ({ seq, boot }) =>
 		Promise.all([caughtUp('threads', seq, boot), caughtUp('archived', seq, boot)])
 	/** The row moves the moment you ask; if the server refuses, it moves back and this throws why */
-	const archiveThread = action(function* (id, archived) {
+	const moveRow = (id, archived) => {
 		if (archived && id === current()) openThread(null)
 		const moving = (archived ? threads : archivedThreads).find((row) => row.id === id)
 		const moved = moving ? { ...snapshot(moving), archived } : null
@@ -494,6 +494,9 @@ export const {
 			setOptimisticArchived((rows) => rows.filter((row) => row.id !== id))
 			if (moved) setOptimisticThreads((rows) => [moved, ...rows].sort(byNewest))
 		}
+	}
+	const archiveThread = action(function* (id, archived) {
+		moveRow(id, archived)
 		yield bothLists(yield write(`/api/threads/${id}/archive`, { archived }))
 	})
 	const renameThread = action(function* (id, title) {
@@ -502,10 +505,13 @@ export const {
 		setOptimisticArchived(patch)
 		yield bothLists(yield write(`/api/threads/${id}/title`, { title }))
 	})
+	/** Forgetting a bot archives its home too */
 	const forgetBot = action(function* (name) {
+		const home = bots.find((row) => row.name === name)?.home
 		setOptimisticBots((rows) => rows.filter((row) => row.name !== name))
+		if (home) moveRow(home, true)
 		const { seq, boot } = yield write(`/api/bots/${encodeURIComponent(name)}`, undefined, 'DELETE')
-		yield caughtUp('bots', seq, boot)
+		yield Promise.all([caughtUp('bots', seq, boot), bothLists({ seq, boot })])
 	})
 	const revokeRunner = action(function* (name) {
 		setOptimisticRunners((rows) => rows.filter((row) => row.name !== name))

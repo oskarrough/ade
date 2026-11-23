@@ -183,8 +183,10 @@ export function server(core) {
 		core.once(core.scopedKey(`forget ${name}`, requestKey), `forget ${name}`, async (tx) => {
 			const all = await tx.doc(Bots)
 			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
+			const { home } = all[name]
 			delete all[name]
-			return { name }
+			await core.archiveIn(tx, home)
+			return { name, home }
 		})
 
 	async function archiving(tx, threadId) {

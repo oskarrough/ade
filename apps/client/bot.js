@@ -191,13 +191,13 @@ export function BotSettings(props) {
 	`
 }
 
-/** Forget: the bot's instructions go, every thread it was in stays */
+/** Forget: the bot's instructions go and its home is archived; every other thread stays */
 export const ForgetBot = (props) => html`
 	<${Sure}
 		class="forget"
-		title="Every thread stays; agents of its name stop reading its instructions"
+		title="Its home is archived and every other thread stays; agents of its name stop reading its instructions"
 		ask=${() => `Forget ${props.bot.name}?`}
-		why="Its instructions go; every thread stays."
+		why="Its instructions go and its home is archived; every other thread stays."
 		onConfirm=${async (_e) => {
 			try {
 				await forgetBot(props.bot.name)

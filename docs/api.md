@@ -128,7 +128,7 @@ Modules add their own routes under `/api/<module>`. With `bots` on:
 ```
 GET    /api/bots
 POST   /api/bots {name, to?, instructions?, append?, color?, projectContext?, rename?}   makes or changes a bot
-DELETE /api/bots/:name
+DELETE /api/bots/:name   forgets a bot and archives its home; every other thread it was in stays
 GET    /api/threads/:home/bots?asked=4,7   for a bot's home, each thread that asked her: `{thread, question, answer}`, its first message and her answer to it, or `null`
 ```
 

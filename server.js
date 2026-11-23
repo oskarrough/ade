@@ -3002,6 +3002,7 @@ const touchThread = (threadId) => {
 const core = {
 	/** A thread's doc inside a commit, where a snapshot would wait for the commit itself */
 	threadIn: (tx, id) => tx.doc(Thread, id),
+	archiveIn,
 	busy,
 	work,
 	isWork,
@@ -3160,11 +3161,17 @@ async function input(req) {
 	return JSON.parse(body || '{}')
 }
 
+/** Archives a thread inside the commit `tx`, ending what modules keep running in it; one may refuse by throwing */
+async function archiveIn(tx, id) {
+	for (const hook of archiving) await hook(tx, id)
+	;(await tx.doc(Thread, id)).hidden = true
+}
+
 async function archiveThread(id, archived, requestKey) {
 	await conversation(id)
 	return once(scopedKey(`archive ${id}`, requestKey), `archive ${id}`, async (tx) => {
-		if (archived) for (const hook of archiving) await hook(tx, id)
-		;(await tx.doc(Thread, id)).hidden = Boolean(archived)
+		if (archived) await archiveIn(tx, id)
+		else (await tx.doc(Thread, id)).hidden = false
 		return { id, archived: Boolean(archived) }
 	})
 }
