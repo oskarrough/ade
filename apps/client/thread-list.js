@@ -167,6 +167,7 @@ function Update() {
 		<button
 			type="button"
 			class="ghost small foot-toggle update-toggle"
+			data-fuzz-skip
 			disabled=${() => Boolean(restarting())}
 			aria-label=${label}
 			title=${() =>

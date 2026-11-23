@@ -158,7 +158,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   walkthrough.css        the story page and live system, under body:not(.chat)
 scripts/
   try.js                 scratch server with a real runner, using echo/try; no provider keys reach it
-  fuzz.js, fuzz-spec.js  `pnpm fuzz`: Bombadil against a fresh try.js, and the properties it holds the client to
+  fuzz.js, fuzz-spec.js  `pnpm fuzz`: Bombadil against a fresh try.js, its one-screen failure story, replay, repeat and per-machine lock, and the properties it holds the client to
   page-spy.js            browser init script: fetches, socket frames, stalls
   solid-attribution.js   browser init script: Solid's cost warnings and costs()
   vendor-canvas-agent.js refreshes canvas_act's schema

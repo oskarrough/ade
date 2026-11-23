@@ -1,7 +1,14 @@
 /** What every example shares */
 import WebSocket from 'ws'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import {
+	createWriteStream,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createModels } from '@earendil-works/pi-ai/models'
@@ -102,6 +109,18 @@ export function start(file, args = [], env = {}, cwd = tmp) {
 	})
 }
 
+/** Where every child's lines go too, each stamped with the time and who said it, once a script like try.js asks */
+let log
+export const logTo = (file) => {
+	log = createWriteStream(file, { flags: 'a' })
+}
+const stamp = (who, chunk) =>
+	String(chunk)
+		.split('\n')
+		.filter((line) => line.trim())
+		.map((line) => `${new Date().toISOString().slice(11, 23)} ${who} ${line}\n`)
+		.join('')
+
 /** Own the whole process group until the example exits, even if its leader exits first. */
 export function command(file, args = [], options = {}) {
 	const child = spawn(file, args, {
@@ -109,11 +128,16 @@ export function command(file, args = [], options = {}) {
 		detached: true,
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
-	child.stdout.on(
-		'data',
-		(chunk) => process.env.VERBOSE && process.stdout.write(`[${file}] ${chunk}`),
-	)
-	child.stderr.on('data', (chunk) => process.stdout.write(`[${file} err] ${chunk}`))
+	const who = path.basename(args[0] ?? file)
+	child.stdout.on('data', (chunk) => {
+		log?.write(stamp(who, chunk))
+		if (process.env.VERBOSE) process.stdout.write(`[${file}] ${chunk}`)
+	})
+	child.stderr.on('data', (chunk) => {
+		log?.write(stamp(`${who} err`, chunk))
+		process.stdout.write(`[${file} err] ${chunk}`)
+	})
+	child.on('exit', (code, signal) => log?.write(stamp(who, `exited ${signal ?? code}`)))
 	procs.add(child)
 	return child
 }

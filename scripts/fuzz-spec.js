@@ -22,17 +22,16 @@ export {
 
 /**
  * Restarting takes the server down a moment, a reload then lands on Chrome's error page, and there Bombadil offers only
- * Back and, with no page behind, stops. Bombadil can click any point, whatever it took aim at, and its names for buttons
- * can come up empty, so this switches the restart buttons off in the page: Settings' Restart and Update's restart. The property only
- * makes Bombadil run it on every state.
+ * Back and, with no page behind, stops. Bombadil clicks a point, not an element, so controls that would restart the server
+ * carry `data-fuzz-skip` and this disables them in the page; crashes and restarts are `pnpm fuzz --crash`'s. The property
+ * only makes Bombadil run it on every state.
  */
-const restartsOff = extract((state) => {
-	for (const button of state.document.querySelectorAll('button'))
-		if (/restart/i.test(`${button.textContent} ${button.getAttribute('aria-label') ?? ''}`))
-			button.disabled = true
+const skipped = extract((state) => {
+	for (const control of state.document.querySelectorAll('[data-fuzz-skip]'))
+		control.setAttribute('disabled', '')
 	return true
 })
-export const serverStaysUp = always(() => restartsOff.current)
+export const serverStaysUp = always(() => skipped.current)
 
 // Text crosses to Bombadil as JSON, and a lone half of a surrogate pair, which its random typing can leave, stops it dead
 const composer = extract((state) => {

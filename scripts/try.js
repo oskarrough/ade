@@ -6,8 +6,10 @@
  * `node scripts/try.js &`, open the address it prints, stop it with the `kill` line it prints. Every server it starts goes with it.
  * The bot's model, echo/try, thinks, writes, reads, edits and runs a command in its folder, then answers in markdown.
  * A message with "post" in it makes it post to a new thread too, or to a bot it names; "slow" makes the command take five seconds, to watch live work, and passes on to the thread it posts to.
- * With inbox on, a message starting "ask " makes it ask you the rest with `ask_person`. */
-import { api, base, hookPort, runner, server, servePort, shellEnv } from '../examples/lib.js'
+ * With inbox on, a message starting "ask " makes it ask you the rest with `ask_person`.
+ * Everything the server and runner print goes in server.log where it starts, each line stamped with the time. */
+import path from 'node:path'
+import { api, base, hookPort, logTo, runner, server, servePort, shellEnv } from '../examples/lib.js'
 import { personas } from '../echo.js'
 
 // No scratch run reaches a paid model: the provider keys in your shell stay out of the server and runner it starts
@@ -17,6 +19,7 @@ for (const name of Object.keys(process.env))
 
 // MODULES=+web-search layers changes on top of this script's own modules.
 const modules = ['+bots,+director', shellEnv.MODULES].filter(Boolean).join(',')
+logTo(path.join(process.cwd(), 'server.log'))
 await server({ MODULES: modules, DIRECTOR_MODEL: 'echo/try@bot' })
 await runner('bot', {
 	dir: process.cwd(),

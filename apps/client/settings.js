@@ -132,6 +132,7 @@ export function Settings() {
 						<button
 							type="button"
 							class="save"
+							data-fuzz-skip
 							disabled=${() => Boolean(restarting())}
 							aria-busy=${() => save.state() === 'busy' || Boolean(restarting())}
 							onClick=${(_event) => save()}
