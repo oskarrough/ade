@@ -44,7 +44,7 @@ From WSL this opens a Linux window. For the Windows app, build it and run the ex
 GOTOOLCHAIN=auto go tool mygo build -platform windows/amd64   # dist/windows-amd64/: the exe and its installer
 ```
 
-`dist/` is ignored. Windows installers also need NSIS (`sudo dnf install mingw32-nsis`).
+`dist/` is ignored. A build made here calls itself `0.1.8-local` in Settings, so you can tell it from a release; only GitHub's builds drop the `-local`. Windows installers also need NSIS (`sudo dnf install mingw32-nsis`).
 
 ## Release a new version
 
