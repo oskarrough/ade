@@ -633,10 +633,12 @@ export function server(core) {
 			hooks: [hook(CompactionTask, { beforeCompact }), hook(GenerationTask, { afterResponse })],
 		}),
 		async start() {
-			for (const archived of [false, true])
-				for (const row of await core.threadList(undefined, archived))
-					if (remembers(await core.thread(row.id)))
-						await core.commit((tx) => tx.createTask(Line, { backfill: true }, background(row.id)))
+			const threads = core.threadIds()
+			const rows = await Promise.all(threads.map((id) => core.thread(id)))
+			await core.commit(async (tx) => {
+				for (const [at, id] of threads.entries())
+					if (remembers(rows[at])) await tx.createTask(Line, { backfill: true }, background(id))
+			})
 		},
 		posted,
 		withdrawn: async (tx, threadId, entry) => {

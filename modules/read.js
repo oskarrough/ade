@@ -5,8 +5,8 @@
  *
  * Pi's records stay the truth. The `ade_` tables are worked out from them and nothing but this module writes them, so
  * they can be dropped at any time: every start makes them again from Pi's records as one transaction sees them (about
- * fifteen seconds for 90,000 entries, in the background), and from then each commit Pi stores is applied whole, in one transaction that also
- * moves `ade_projection.seq`. A commit that fails to apply, or one that doesn't follow the last, marks them `broken`
+ * six seconds for 90,000 entries, in the background), and from then each commit Pi stores is applied whole, in one
+ * transaction that also moves `ade_projection.seq`. A commit that fails to apply, or one that doesn't follow the last, marks them `broken`
  * and they're made again. With the module off, the next start drops them. Ids are Pi's own, times ISO text in UTC.
  *
  * One writer at a time is SQLite's rule, and Pi's commits are the ones that matter. So the tables are written by a
@@ -667,9 +667,10 @@ function projector(db) {
 			tick()
 		}
 		// An admission that found nothing to take leaves a Deliver that did nothing: not a run
-		run(
-			`delete from ade_runs where status = 'silent' and submission_id is null and answer_id is null and error is null`,
-		)
+		if (tasks.length)
+			run(
+				`delete from ade_runs where status = 'silent' and submission_id is null and answer_id is null and error is null`,
+			)
 	}
 
 	return { apply }
@@ -1200,7 +1201,6 @@ export function server(core) {
 	}
 
 	function start() {
-		kept()
 		setTimeout(checked, 60_000).unref()
 		setInterval(checked, DAY).unref()
 	}
@@ -1226,5 +1226,7 @@ export function server(core) {
 		return { file, state, seq, version, rows }
 	}
 
+	// Before any module starts and work resumes, so the tables are made from records no commit has yet followed
+	kept()
 	return { committed, start, serve }
 }

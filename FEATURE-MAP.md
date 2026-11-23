@@ -19,9 +19,9 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   withdraw, WITHDRAWAL              a message taken back before any agent read it
   afterCommit                       best-effort work after a commit
   isWork, busy, workIn              whether a thread has work
-  createFeed, feed                  one versioned `/ws` feed (`seq`, `define`, `onCommit`, `touch`, `subscribe`, `sync`, `onUpdate`)
+  createFeed, feed                  one versioned `/ws` feed (`seq`, `define`, `onCommit`, `touch`, `subscribe`, `sync`)
   shapeMessages, families, familyField   per-viewer message shaping (`speaker`, `showName`, `voice`, `to`, `other*`) and open families
-  core.*                            what modules call: trailed, conversations, feed, snapshot, spent, task, tasks, signal
+  core.*                            what modules call: trailed, conversations, feed, snapshot, spent, task, tasks, signal, threadRows, threadMatch
   entryStored, documentStored, endedHooks, runnerHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks, `runner` for runnerHooks)
   committed                         modules' hook of that name: each commit Pi stored, whole, with its seq
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
@@ -32,7 +32,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   finishShell                       a shell's output and outcome, committed together
   gone                              an agent whose folder no longer exists
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
-  threadList, threadRow, threadPage, threadView, people, newest   GET /api/threads and a thread's view, which `thread/<id>` shares
+  threadIds, threadList, threadRows, threadRow, threadPage, threadView, people, newest   GET /api/threads and a thread's view, which `thread/<id>` shares
   loadEntries                       the shared entry cache
   recent, older, back, conversationRecord   each thread's newest entries, older ones on demand
   anyRunner, mayRun                 `bash` with a `runner`, and the `runners` tool
@@ -72,7 +72,7 @@ modules/
                          serve, the `recap` tool
   canvas.js              a tldraw canvas per thread: Canvas doc, rooms, `canvas_look` (look, seen, report, present),
                          `canvas_act` (apply, created, updated), meta.by (authorizeRecord, onCommittedChanges, grew); serve, connect
-  inbox.js               `ask_person`, openQuestion, questions, unread; serve (GET /api/inbox, dismissals)
+  inbox.js               `ask_person`, openQuestion, itemOf, list, the `inbox` feed a thread at a time; serve (GET /api/inbox, dismissals)
   schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, wakeAt, endOf,
                          onward, Control, Hooked, Ended, Happened), run, scheduleOf, startOf, firstRun, settle, happen, already, runner,
                          entryStored, pending, cancel, control, checker, checkOf, steps (end, next, onward, post), the `checked` phase; serve
@@ -81,7 +81,7 @@ modules/
   hooks.js               outside events for scheduled tasks: Hook doc, issue, webhook, admit, PROBES, RATE, github,
                          fact, SHAPES, LIFETIME, GENERATION, stale; serve
   web-search.js          `web_search`
-  status.js              Program Status Protocol (OSC 7501) on the runner's terminal
+  status.js              Program Status Protocol (OSC 7501) on the runner's terminal: tell and touched (the threads a commit changed), heard
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)
   export.js              GET /api/export: fileName, toMarkdown, foldShell; cli.js `export <dir>`
   search.js              FTS5 index of every message: build, entryStored, search, matchOf; serve, the `search` tool

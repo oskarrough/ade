@@ -54,72 +54,63 @@ export function server(core) {
 		},
 	})
 
-	/** Each thread's open question, unless it was dismissed; archived threads have none */
-	async function questions() {
-		const found = await Promise.all(
-			(await core.threadIds()).map(async (thread) => {
-				const row = await core.thread(thread)
-				if (row.hidden) return undefined
-				const question = await openQuestion(thread, row)
-				if (!question || question.id === row.dismissed) return undefined
-				/** The conversation of the agent that asked, whom an answer from the inbox goes to */
-				const asker = row.agents[keyOf(question.data.author)]?.conversation ?? null
-				const askerTo = asker ? await core.agentOf(asker, keyOf(question.data.author)) : null
-				return { thread, kind: 'question', question, asker, askerTo }
-			}),
-		)
-		return found.filter(Boolean).sort(newest)
-	}
-
 	/**
-	 * What else needs `reader`, as the sidebar's dots say it: a thread whose last run failed (`error`) or whose answer
-	 * they haven't read (`done`), but only where they wrote; a thread agents keep among themselves never comes. Each
-	 * carries the message behind it, and leaves once they read the thread.
+	 * What a thread holds for `reader`, if anything; an archived one holds nothing. Its open question, unless it was
+	 * dismissed. Else, as the sidebar's dots say it and only where they wrote: its last run failed (`error`) or its
+	 * answer they haven't read (`done`), with the message behind it, which leaves once they read the thread.
 	 */
-	async function unread(reader) {
-		if (!reader) return []
-		const found = await Promise.all(
-			(await core.threadList(reader)).map(async (row) => {
-				if (!['done', 'error'].includes(row.status)) return undefined
-				if (!(await core.concerns(row.id, reader))) return undefined
-				// As the status reads it: a `$ cmd` someone stopped is neither an answer nor a failure
-				const message = await core.latestMessage(
-					row.id,
-					({ data }) =>
-						Boolean(data.answer || data.error || data.shell) && data.shell?.error !== 'stopped',
-				)
-				if (!message) return undefined
-				const failed = Boolean(message.data.error || message.data.shell?.error)
-				// Your own `$ cmd` that ran fine is nothing to read
-				if (!failed && !message.data.answer) return undefined
-				return { thread: row.id, kind: failed ? 'failed' : 'answered', message }
-			}),
+	async function itemOf(thread, reader, work) {
+		const row = await core.thread(thread)
+		if (!row || row.hidden) return undefined
+		const question = await openQuestion(thread, row)
+		if (question) {
+			if (question.id === row.dismissed) return undefined
+			/** The conversation of the agent that asked, whom an answer from the inbox goes to */
+			const asker = row.agents[keyOf(question.data.author)]?.conversation ?? null
+			const askerTo = asker ? await core.agentOf(asker, keyOf(question.data.author)) : null
+			return { thread, kind: 'question', question, asker, askerTo }
+		}
+		const jobs = work.filter((job) => job.thread === thread)
+		if (!reader || !['done', 'error'].includes(await core.statusOf(thread, jobs, reader)))
+			return undefined
+		// As the status reads it: a `$ cmd` someone stopped is neither an answer nor a failure
+		const message = await core.latestMessage(
+			thread,
+			({ data }) =>
+				Boolean(data.answer || data.error || data.shell) && data.shell?.error !== 'stopped',
 		)
-		const items = found.filter(Boolean).sort(newest)
-		return [
-			...items.filter((item) => item.kind === 'failed'),
-			...items.filter((item) => item.kind === 'answered'),
-		]
+		const failed = Boolean(message?.data.error || message?.data.shell?.error)
+		// Your own `$ cmd` that ran fine is nothing to read
+		if (!failed && !message?.data.answer) return undefined
+		return { thread, kind: failed ? 'failed' : 'answered', message }
 	}
-	const newest = (a, b) => (time(a) < time(b) ? 1 : -1)
+	const KINDS = ['question', 'failed', 'answered']
 	const time = (item) => (item.question ?? item.message).data.createdAt ?? ''
 
+	/** Every thread's, most pressing first: questions, failed runs, then answers, each newest first */
 	const list = async (reader) => {
-		const asked = await questions()
-		const waiting = new Set(asked.map((item) => item.thread))
-		return [...asked, ...(await unread(reader)).filter((item) => !waiting.has(item.thread))]
+		const work = await core.work()
+		const items = await Promise.all(core.threadIds().map((thread) => itemOf(thread, reader, work)))
+		return KINDS.flatMap((kind) =>
+			items.filter((item) => item?.kind === kind).sort((a, b) => (time(a) < time(b) ? 1 : -1)),
+		)
 	}
 	core.feed.define('inbox', {
 		perViewer: true,
 		keyOf: (item) => `${item.kind} ${item.thread}`,
 		all: list,
-		match: (change) => {
-			if (change.type === 'entry') return change.value.kind === 'ade.message'
-			if (change.type === 'document') return change.record.kind === 'ade.thread'
-			if (change.type === 'task') return core.isWork(change.value.kind)
-			if (change.type === 'conversation') return !change.value.owner
-			return false
+		/** A touched thread's item under its kind, and nothing under the others */
+		rows: async (threads, reader) => {
+			const work = await core.work()
+			const items = await Promise.all(threads.map((thread) => itemOf(thread, reader, work)))
+			return threads.flatMap((thread, index) =>
+				KINDS.map((kind) => [
+					`${kind} ${thread}`,
+					items[index]?.kind === kind ? items[index] : null,
+				]),
+			)
 		},
+		match: core.threadMatch,
 	})
 
 	async function serve(threadId, _query, body, reader) {
@@ -145,24 +136,25 @@ export function server(core) {
 	/**
 	 * The thread's open question: its newest `ask_person` message, unless someone other than the agent that asked has
 	 * written since - a person, or another agent answering for them; the asking agent's own later turns don't count.
-	 * With `tx`, read in that commit.
+	 * With `tx`, read in that commit; with `before`, as it stood before that message. Read back from the thread's end
+	 * only until two have written: whoever asked before them, one of the two has answered.
 	 */
-	async function openQuestion(id, _row, tx) {
-		const question = await core.latestMessage(
+	async function openQuestion(id, _row, tx, before = Infinity) {
+		const since = new Set()
+		const found = await core.latestMessage(
 			id,
-			(entry) => entry.data.waitingOnPerson === true,
+			({ id, data }) => {
+				if (id >= before) return false
+				if (data.waitingOnPerson === true) return true
+				if (!data.stopped) since.add(data.author)
+				return since.size > 1
+			},
 			undefined,
 			tx,
 		)
-		if (!question) return undefined
-		const closedBy = await core.latestMessage(
-			id,
-			(entry) =>
-				entry.id > question.id && !entry.data.stopped && entry.data.author !== question.data.author,
-			undefined,
-			tx,
-		)
-		return closedBy ? undefined : question
+		if (found?.data.waitingOnPerson !== true) return undefined
+		since.delete(found.data.author)
+		return since.size ? undefined : found
 	}
 
 	/**
@@ -179,25 +171,9 @@ export function server(core) {
 	}
 
 	async function noteClosed(tx, threadId, entry) {
-		const question = await core.latestMessage(
-			threadId,
-			(one) => one.data.waitingOnPerson === true,
-			undefined,
-			tx,
-		)
-		if (!question || question.data.author === entry.data.author) return
-		const earlierCloser = await core.latestMessage(
-			threadId,
-			(one) =>
-				one.id > question.id &&
-				one.id < entry.id &&
-				!one.data.stopped &&
-				one.data.author !== question.data.author,
-			undefined,
-			tx,
-		)
-		if (earlierCloser) return
-		await core.trailed(tx, threadId, question.id, 'question-answered', { by: entry.data.author })
+		const question = await openQuestion(threadId, undefined, tx, entry.id)
+		if (question && question.data.author !== entry.data.author)
+			await core.trailed(tx, threadId, question.id, 'question-answered', { by: entry.data.author })
 	}
 
 	return {

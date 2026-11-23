@@ -5,39 +5,46 @@
 
 export const on = true
 
-/** One telling at a time, so an older one never lands after a newer one; only a change to the thread list is told */
-export function server({ runners, known, threadList, feed }) {
+/**
+ * Each runner hears the threads a commit touched, as its owner's list has them: `{id, title, agents, status}` for one
+ * its agents work in, answered or failed, `{id}` for one that's none of those now; and all of them once it's online.
+ * One telling at a time, so an older one never lands after a newer one.
+ */
+export function server({ runners, known, threadIds, threadRows, threadMatch }) {
+	let changed = new Set()
 	let telling
-	let again = false
-	function tell() {
-		if (telling) return void (again = true)
-		telling = (async () => {
+	async function tell() {
+		while (changed.size) {
+			const ids = [...changed]
+			changed = new Set()
 			const all = await known()
 			for (const name of Object.keys(all).filter(runners.isOnline)) {
-				const threads = (await threadList(all[name].owner))
-					.map((thread) => ({
-						...thread,
-						agents: thread.agents
-							.filter((agent) => agent.to?.runner === name)
-							.map((agent) => agent.name)
-							.join(' '),
-					}))
-					.filter((thread) => thread.agents && ['working', 'done', 'error'].includes(thread.status))
-					.map(({ id, title, agents, status }) => ({ id, title, agents, status }))
+				const threads = (await threadRows(ids, all[name].owner)).map(([id, thread]) => {
+					const agents = thread?.agents
+						.filter((agent) => agent.to?.runner === name)
+						.map((agent) => agent.name)
+						.join(' ')
+					return agents && ['working', 'done', 'error'].includes(thread.status)
+						? { id, title: thread.title, agents, status: thread.status }
+						: { id }
+				})
 				runners.tell(name, { op: 'status', threads })
 			}
-		})()
-			.catch((error) => console.error(error))
-			.finally(() => {
-				telling = undefined
-				if (again) {
-					again = false
-					tell()
-				}
-			})
+		}
 	}
-	feed.onUpdate('threads', tell)
-	return {}
+	function touched(ids) {
+		for (const id of ids) changed.add(id)
+		telling ??= tell()
+			.catch((error) => console.error(error))
+			.finally(() => (telling = undefined))
+	}
+	return {
+		committed({ changes }) {
+			const hits = changes.map(threadMatch)
+			touched(hits.includes(true) ? threadIds() : hits.flatMap((hit) => hit || []))
+		},
+		runner: (_name, online) => online && touched(threadIds()),
+	}
 }
 
 // oxlint-disable-next-line no-control-regex -- strip terminal control characters
@@ -60,6 +67,8 @@ const report = (pairs) =>
 export function runner({ name, server }) {
 	if (!process.stdout.isTTY && process.env.STATUS !== '1') return {}
 	let shown = new Map()
+	/** The threads the server told of and hasn't taken back, by id */
+	const heard = new Map()
 	function show(root, threads = []) {
 		const next = new Map([
 			['', report({ state: root.state, app: 'ade', msg: text(root.msg, 2048) })],
@@ -82,15 +91,21 @@ export function runner({ name, server }) {
 	}
 	return {
 		told({ threads }) {
-			const working = threads.filter((thread) => thread.status === 'working').length
+			for (const thread of threads)
+				if (thread.status) heard.set(thread.id, thread)
+				else heard.delete(thread.id)
+			const working = [...heard.values()].filter((thread) => thread.status === 'working').length
 			show(
 				{
 					state: working ? 'working' : 'idle',
 					msg: `${name}: ${working ? `${working} working` : 'online'}`,
 				},
-				threads,
+				[...heard.values()],
 			)
 		},
-		disconnected: () => show({ state: 'error', msg: `${name}: offline, retrying ${server}` }),
+		disconnected: () => {
+			heard.clear()
+			show({ state: 'error', msg: `${name}: offline, retrying ${server}` })
+		},
 	}
 }

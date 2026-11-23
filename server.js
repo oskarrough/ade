@@ -967,10 +967,8 @@ const conversation = async (id) => {
 const conversations = () =>
 	collect((cursor) => commit((tx) => tx.scanConversations({ order: 'descending' }, 500, cursor)))
 
-const threadIds = async () =>
-	(await conversations())
-		.filter((conversation) => !conversation.owner)
-		.map((conversation) => conversation.id)
+/** Every thread, newest first */
+const threadIds = () => [...placed.keys()].sort((a, b) => b - a)
 
 // ── Small helpers ─────────────────────────────────────────────────────────
 
@@ -1900,9 +1898,9 @@ async function firstWrote(id) {
 	return writers.get(id).first
 }
 
-/** `homes`, each bot's home thread → its name, its `doc` and the `runners` as known save reading them for every row of a list */
-async function threadRow(id, reader, all, homes, doc, runnersKnown) {
-	const { reads, hidden, dismissed: _, picks: __, trail: ___, ...row } = doc ?? (await thread(id))
+/** `homes`, each bot's home thread → its name, and the `runners` as known save reading them for every row of a list */
+async function threadRow(id, reader, all, homes, runnersKnown) {
+	const { reads, hidden, dismissed: _, picks: __, trail: ___, ...row } = await thread(id)
 	const busy = all.filter((job) => job.thread === id)
 	const agents = await agentsIn(row, busy, runnersKnown)
 	const rowStatus = await status(id, { ...row, reads }, busy, reader)
@@ -1928,22 +1926,21 @@ async function threadRow(id, reader, all, homes, doc, runnersKnown) {
 		conversation: await conversationRecord(id),
 	}
 }
-/** Each shown thread's row; the client works out families from `parent` and forks */
-const threadList = async (reader, archived = false) => {
-	const busy = await work()
-	const homes = (await homesOf?.()) ?? {}
-	const runnersKnown = await known()
-	/** Only the threads this list shows get a row, since a row reads its thread's entries for its status */
-	const ids = await threadIds()
-	const docs = await Promise.all(ids.map((id) => thread(id)))
+/** `[id, row]` for each of `ids`, the row null for a thread the list doesn't show: the open ones, or the archived */
+const threadRows = async (ids, reader, archived = false) => {
+	const [busy, homes, runnersKnown] = await Promise.all([work(), homesOf?.() ?? {}, known()])
 	return Promise.all(
-		ids.flatMap((id, index) =>
-			Boolean(docs[index].hidden) === archived
-				? [threadRow(id, reader, busy, homes, docs[index], runnersKnown)]
-				: [],
-		),
+		ids.map(async (id) => [
+			id,
+			placed.get(id)?.hidden === archived
+				? await threadRow(id, reader, busy, homes, runnersKnown)
+				: null,
+		]),
 	)
 }
+/** Each shown thread's row; the client works out families from `parent` and forks */
+const threadList = async (reader, archived = false) =>
+	(await threadRows(threadIds(), reader, archived)).flatMap(([, row]) => row ?? [])
 /** Short display label for an author: a model's bare id, a tailnet login without `~` or `+provider`, or a name as is */
 const shortLabel = (author) =>
 	!author
@@ -2771,8 +2768,6 @@ function createFeed() {
 	const specs = new Map()
 	/** @type {Map<string, any>} */
 	const states = new Map()
-	/** @type {Map<string, Set<Function>>} */
-	const listeners = new Map()
 	const IDLE_MS = 60_000
 	const MAX_DELETED = 500
 	const MAX_IDLE = 64
@@ -2911,15 +2906,8 @@ function createFeed() {
 			[...states.values()].some(
 				(state) => state.subs.size && (state.view === view || state.view.startsWith(`${view}?`)),
 			),
-		onUpdate: (view, fn) => {
-			const set = listeners.get(view) ?? new Set()
-			listeners.set(view, set.add(fn))
-		},
 		onCommit: (publication) => {
 			seq = Math.max(seq + 1, publication.seq)
-			for (const [view, set] of listeners)
-				if (publication.changes.some((change) => Boolean(specs.get(view)?.match?.(change))))
-					for (const fn of set) fn()
 			for (const state of states.values()) {
 				if (!state.ready) continue
 				let dirty = /** @type {false | true | Set<any>} */ (false)
@@ -2941,7 +2929,6 @@ function createFeed() {
 		touch: (views, key) => {
 			seq++
 			const names = Array.isArray(views) ? views : [views]
-			for (const view of names) for (const fn of listeners.get(view) ?? []) fn()
 			for (const state of states.values()) {
 				if (!state.ready) continue
 				if (names.some((view) => state.view === view || state.view.startsWith(`${view}/`)))
@@ -3169,12 +3156,16 @@ const core = {
 	thread,
 	home,
 	threadList,
+	threadRows,
+	/** The threads a commit's change touches: their ids, `true` for all of them, or `false` */
+	threadMatch: (change) => threadMatch(change),
 	entries,
 	messages,
 	shapeMessages,
 	latestMessage,
-	/** A document's value as stored, read without a commit */
-	snapshot: (doc, id) => harness.snapshot(doc, id, context),
+	/** A document's value as stored, read without a commit: a thread's or an agent's by `id`, the house's without */
+	snapshot: (doc, id) =>
+		id === undefined ? harness.snapshot(doc, context) : harness.snapshot(doc, id, context),
 	/** What a module's own model call spent, for the usage module to record; without it, nothing */
 	spent: async (thread, purpose, reply) => {
 		for (const hook of spentHooks)
@@ -3203,7 +3194,6 @@ const core = {
 	/** Writes one step of a thread's trail in the commit `tx`: `(tx, thread, entry, kind, data)` */
 	trailed,
 	authors,
-	concerns,
 	afterCommit,
 	abortTask: (id) => harness.abortTask(id, context),
 	/** One task's latest record, or every task matching `query` (Pi's TaskQuery) */
@@ -3275,15 +3265,6 @@ compactAt = hook('compactAt')
 const webhook = hook('webhook')
 harnessed = undefined
 const remembers = hook('remembers')
-for (const conv of await conversations()) {
-	if (!conv.owner) {
-		records.set(conv.id, conv)
-		place(conv.id, await thread(conv.id), conv)
-	}
-}
-for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
-harness.resume()
-for (const module of modules) await module.start?.()
 
 // ── HTTP: input, routes, static files, runner script ──────────────────────
 
@@ -3789,16 +3770,7 @@ const defineThreadView = (name, archived) =>
 		perViewer: true,
 		keyOf: (row) => row.id,
 		all: (viewer) => threadList(viewer, archived),
-		rows: async (ids, viewer) => {
-			const [busy, homes, runnersKnown] = await Promise.all([work(), homesOf?.() ?? {}, known()])
-			return Promise.all(
-				ids.map(async (id) => {
-					const meta = placed.get(id)
-					if (!meta || meta.hidden !== archived) return [id, null]
-					return [id, await threadRow(id, viewer, busy, homes, undefined, runnersKnown)]
-				}),
-			)
-		},
+		rows: (ids, viewer) => threadRows(ids, viewer, archived),
 		match: threadMatch,
 	})
 defineThreadView('threads', false)
@@ -3917,6 +3889,17 @@ harness.observeCommits({
 	},
 	end: () => {},
 })
+
+// Work resumes and modules start only now that every commit is heard: one stored before would never reach a feed or a module
+for (const conv of await conversations()) {
+	if (!conv.owner) {
+		records.set(conv.id, conv)
+		place(conv.id, await thread(conv.id), conv)
+	}
+}
+for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
+harness.resume()
+for (const module of modules) await module.start?.()
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
 const FIRST = 15

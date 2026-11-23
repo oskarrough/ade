@@ -93,22 +93,13 @@ export function Jump() {
 		} catch {}
 	})
 
-	let timer
 	createEffect(
 		() => (on('search') ? search() : ''),
 		(text) => {
-			clearTimeout(timer)
-			if (text.length < 3) {
-				setHits({ for: '', rows: [] })
-				return
-			}
-			timer = setTimeout(
-				() =>
-					api(`/api/search?q=${encodeURIComponent(text)}`).then(
-						(rows) => search() === text && setHits({ for: text, rows: rows.slice(0, 6) }),
-						() => {},
-					),
-				150,
+			if (text.length < 3) return void setHits({ for: '', rows: [] })
+			api(`/api/search?q=${encodeURIComponent(text)}`).then(
+				(rows) => search() === text && setHits({ for: text, rows: rows.slice(0, 6) }),
+				() => {},
 			)
 		},
 	)

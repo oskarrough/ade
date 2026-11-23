@@ -84,7 +84,9 @@ export function server(core) {
 	let ready
 	async function build() {
 		// Oldest first, so a fork's parent is read before the fork that reads its messages too
-		for (const thread of (await core.threadIds()).reverse()) {
+		for (const thread of core.threadIds().reverse()) {
+			// A turn of the event loop a thread, so the server answers meanwhile
+			await new Promise(setImmediate)
 			const found = await core.entries(thread)
 			db.exec('begin')
 			try {

@@ -5,6 +5,7 @@ import { whatHappened } from './trail.js'
 import {
 	createEffect,
 	createMemo,
+	onCleanup,
 	createProjection,
 	createRoot,
 	createSignal,
@@ -1218,12 +1219,17 @@ const Images = (props) => html`
 		<div class="images">
 			<${For} each=${() => props.images}
 				>${(image) => {
-					// Data URLs display inline, but browsers block opening them as pages.
-					const url = createMemo(() => {
+					// Data URLs display inline, but browsers block opening them as pages: a link gets a blob's once it's
+					// pressed or focused, since decoding every image a thread opens on is most of showing it
+					let url
+					const link = (event) => {
+						if (url) return
 						const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0))
-						return URL.createObjectURL(new Blob([bytes], { type: image.mimeType }))
-					})
-					createEffect(url, (url) => () => URL.revokeObjectURL(url))
+						event.currentTarget.href = url = URL.createObjectURL(
+							new Blob([bytes], { type: image.mimeType }),
+						)
+					}
+					onCleanup(() => url && URL.revokeObjectURL(url))
 					// A plain click opens its thread's lightbox on it; a modified one still opens a tab.
 					const open = (event) => {
 						if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
@@ -1234,10 +1240,12 @@ const Images = (props) => html`
 						view(image)
 					}
 					return html`<a
-						href=${() => url()}
+						href="#"
 						target="_blank"
 						rel="noopener noreferrer"
 						aria-label="Open image full size"
+						onPointerDown=${link}
+						onFocus=${link}
 						onClick=${open}
 					>
 						<img src=${() => imageUrl(image)} alt="" loading="lazy" />

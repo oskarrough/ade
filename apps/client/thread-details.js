@@ -122,33 +122,34 @@ export function DetailsPage(props) {
 				open=${page}
 				onBack=${(_event) => setPage(false)}
 				detailTitle="Threads"
-				detail=${html`<${Show}
-					when=${bot}
-					fallback=${html`<ul class="thread-family">
-						<${For} each=${() => lineage().map(threadOf).filter(Boolean)}>
-							${(thread) =>
-								html`<${ThreadItem} thread=${() => thread} depth=${() => depth(thread.id)} />`}
-						<//>
-					</ul>`}
-				>
-					<ul class="thread-family">
-						<${For} each=${() => allByLatest(botFamily().own)}
-							>${(thread) =>
-								html`<${ThreadItem}
-									thread=${() => thread}
-									depth=${() => depth(thread.id) - 1}
-								/>`}<//
-						>
-					</ul>
-					<${Show} when=${() => botFamily().elsewhere.length}>
-						<h2>Also in</h2>
+				detail=${() =>
+					html`<${Show}
+						when=${bot}
+						fallback=${html`<ul class="thread-family">
+							<${For} each=${() => lineage().map(threadOf).filter(Boolean)}>
+								${(thread) =>
+									html`<${ThreadItem} thread=${() => thread} depth=${() => depth(thread.id)} />`}
+							<//>
+						</ul>`}
+					>
 						<ul class="thread-family">
-							<${For} each=${() => allByLatest(botFamily().elsewhere)}
-								>${(thread) => html`<${ThreadItem} thread=${() => thread} />`}<//
+							<${For} each=${() => allByLatest(botFamily().own)}
+								>${(thread) =>
+									html`<${ThreadItem}
+										thread=${() => thread}
+										depth=${() => depth(thread.id) - 1}
+									/>`}<//
 							>
 						</ul>
-					<//>
-				<//>`}
+						<${Show} when=${() => botFamily().elsewhere.length}>
+							<h2>Also in</h2>
+							<ul class="thread-family">
+								<${For} each=${() => allByLatest(botFamily().elsewhere)}
+									>${(thread) => html`<${ThreadItem} thread=${() => thread} />`}<//
+								>
+							</ul>
+						<//>
+					<//>`}
 			>
 				<${Show}
 					when=${id}

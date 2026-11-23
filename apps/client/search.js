@@ -9,10 +9,8 @@ import {
 	createMemo,
 	createSignal,
 	For,
-	isPending,
 	latest,
 	Loading,
-	onSettled,
 	Show,
 	untrack,
 } from 'solid-js'
@@ -36,27 +34,21 @@ import { reveal } from './thread.js'
 
 const searchQuery = () => (page().kind === 'search' ? page().query : null)
 
-/** The sidebar's field: results follow as you type, Enter shows them on a phone, Escape or emptying it closes them */
+/** The sidebar's field: results follow each letter you type, Enter shows them on a phone, Escape or emptying it closes them */
 export function SearchField() {
 	const [draft, setDraft] = createSignal(untrack(searchQuery) ?? '')
-	let timer
 	// Closed from anywhere else, it empties
 	createEffect(searchQuery, (text) => {
-		if (text !== null) return
-		clearTimeout(timer)
-		setDraft('')
+		if (text === null) setDraft('')
 	})
-	onSettled(() => () => clearTimeout(timer))
 	const close = () => {
-		clearTimeout(timer)
 		setDraft('')
 		if (latest(searchQuery) !== null) openThread(current())
 	}
 	const typed = (text) => {
 		setDraft(text)
-		clearTimeout(timer)
-		if (!text.trim()) return close()
-		timer = setTimeout(() => openSearch(text), 150)
+		if (text.trim()) openSearch(text)
+		else close()
 	}
 	return html`
 		<li class=${() => ['new', 'search', { current: searchQuery() !== null }]}>
@@ -65,8 +57,6 @@ export function SearchField() {
 				role="search"
 				onSubmit=${(event) => {
 					event.preventDefault()
-					clearTimeout(timer)
-					if (draft().trim()) openSearch(draft())
 					drawer(null)
 				}}
 			>
@@ -120,9 +110,6 @@ export function Search() {
 			</header>
 			<ul>
 				<${Loading} fallback=${html`<li class="mute">Searching…</li>`}>
-					<${Show} when=${() => isPending(results)}>
-						<li class="mute" role="status">Updating results…</li>
-					<//>
 					<${For} each=${results} keyed=${(item) => item.message}>
 						${(item) => html`<${Result} item=${() => item()} />`}
 					<//>

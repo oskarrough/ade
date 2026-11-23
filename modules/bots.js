@@ -22,7 +22,7 @@ const Bots = defineDoc({
 
 export function server(core) {
 	const madeHue = (index) => Math.round(50 + index * 137.508) % 360
-	const bots = () => core.commit(async (tx) => JSON.parse(JSON.stringify(await tx.doc(Bots))))
+	const bots = async () => (await core.snapshot(Bots)) ?? {}
 	const list = async (viewer) => {
 		const all = await bots()
 		const order = Object.entries(all).sort(([, left], [, right]) => left.home - right.home)

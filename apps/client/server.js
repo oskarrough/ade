@@ -529,7 +529,10 @@ export const {
 				socket = ws
 				if (restarting() === 'down') location.reload()
 				setConnected(true)
-				for (const [name, view] of views) {
+				// What's on screen comes first: the open thread before the lists
+				for (const [name, view] of [...views].sort(
+					([a], [b]) => b.includes('/') - a.includes('/'),
+				)) {
 					view.synced = false
 					sendSocket({
 						sub: name,
