@@ -105,7 +105,8 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     Asked                in a bot's home, a question another thread asked it (askedHere)
     Message              one message: author, pick, fork link, waiting, Body, Images; `Cross` for one that crossed threads
     Body, threadLink     a message's markdown; thread titles as links
-    Images               a message's images and the lightbox
+    Images               a message's images; a click opens its thread's Lightbox
+    Lightbox             every image in the thread over the page, thumbnails down the side, arrows and swipes between, go to message (`images`, `showRow`)
   run.js                 an agent's turns
     heardAgents, conversations   each agent's entries, cut and live work from `agents/<id>`
     turnsOf, cutOf       turns, and the newest compaction cut
@@ -217,7 +218,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Left aside: thread-list.js `ThreadList`, `.thread-list`, `ul.top-row`, `ul.inbox-row`, `li > .row`, `.thread-family`, `.list-foot`, `.foot-toggle`.
 - Side column: `aside.side`, side.js `PageTabs`; `.thread-details`, `.recap`, `.canvas`, `.director`; bot.js `BotSettings`, `.bot`.
 - Thread head: `h2.title > button.ghost.thread-name`, `.close`, the phone's `.app-bar` (its back is server.js `backToList`: a thread opened from the phone's list is a history entry, popstate brings the list back); `.page-head` on list pages.
-- Message list: thread.js `Message` in `.thread > ul > li`, `.markdown`, `div.images`, `li.cut`, `li.line`.
+- Message list: thread.js `Message` in `.thread > ul > li`, `.markdown`, `div.images`, `dialog.lightbox`, `li.cut`, `li.line`.
 - Quoting: quote.js, composer.js `appendQuote`, app.css `.quote-anchor`/`.quote`.
 - Tool calls: run.js `Turn`, `Exchange`, `Step`, `Call`; `li.turn`, `.steps`, `.tool`, `.said`, `.exchange`, `li.sent`, `li.received`.
 - Composer: composer.js `Composer`, `.thread form`, `.bar`, `.icon`, `.pick`, `.stop`, `ul.images`.

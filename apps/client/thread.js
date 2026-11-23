@@ -435,6 +435,33 @@ export function Thread(props) {
 			if (start !== null) setShownFrom((from) => from ?? start)
 		},
 	)
+	/** Every image in the messages loaded so far, in order, each with the message it came in */
+	const images = createMemo(() =>
+		messages().flatMap((entry) =>
+			entry.data.withdrawn
+				? []
+				: (entry.data.images ?? []).map((image) => ({ image, entry: entry.id })),
+		),
+	)
+	const [viewing, setViewing] = createSignal(null)
+	/** A message's own row, if it has one here rather than inside an ask line or folded into memory */
+	const rowOf = (entry) => rows.find((row) => row.entry?.id === entry && !row.thread)
+	/** Scrolls to a message's row, bringing it on screen first if it's above the rows shown */
+	const showRow = (entry) => {
+		const row = rowOf(entry)
+		if (!row) return
+		if (row.at < (shownFrom() ?? -Infinity)) {
+			hold()
+			setShownFrom(row.at)
+		}
+		let frames = 0
+		const look = () => {
+			const element = list?.querySelector(`:scope > li[data-entry="${entry}"]`)
+			if (element) reveal(element)
+			else if (++frames < 60) requestAnimationFrame(look)
+		}
+		requestAnimationFrame(look)
+	}
 	const titleClick = () =>
 		current() !== props.id ? openThread(props.id) : toggleSide(props.id, 'details')
 	let list,
@@ -730,6 +757,7 @@ export function Thread(props) {
 	}
 	return html`
 		<article
+			ref=${(element) => lightboxes.set(element, setViewing)}
 			data-thread=${() => props.id}
 			class=${() => [
 				'thread',
@@ -902,6 +930,13 @@ export function Thread(props) {
 				</ul>
 			<//>
 			<${Composer} thread=${() => props.id} />
+			<${Lightbox}
+				images=${images}
+				image=${viewing}
+				onPick=${setViewing}
+				hasRow=${(entry) => !!rowOf(entry)}
+				showRow=${showRow}
+			/>
 		</article>
 	`
 }
@@ -1189,40 +1224,211 @@ const Images = (props) => html`
 						return URL.createObjectURL(new Blob([bytes], { type: image.mimeType }))
 					})
 					createEffect(url, (url) => () => URL.revokeObjectURL(url))
-					// A plain click shows it over the page; a modified one still opens a tab.
-					const [shown, setShown] = createSignal(false)
-					let dialog
+					// A plain click opens its thread's lightbox on it; a modified one still opens a tab.
 					const open = (event) => {
 						if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
 							return
+						const view = lightboxes.get(event.currentTarget.closest('article.thread'))
+						if (!view) return
 						event.preventDefault()
-						setShown(true)
-						dialog.showModal()
+						view(image)
 					}
 					return html`<a
-							href=${() => url()}
-							target="_blank"
-							rel="noopener noreferrer"
-							aria-label="Open image full size"
-							onClick=${open}
-						>
-							<img src=${() => imageUrl(image)} alt="" loading="lazy" />
-						</a>
-						<dialog
-							class="lightbox"
-							closedby="any"
-							aria-label="Image"
-							ref=${(element) => (dialog = element)}
-							onClick=${() => dialog.close()}
-							onClose=${() => setShown(false)}
-						>
-							<${Show} when=${shown}><img src=${() => url()} alt="" /><//>
-						</dialog>`
+						href=${() => url()}
+						target="_blank"
+						rel="noopener noreferrer"
+						aria-label="Open image full size"
+						onClick=${open}
+					>
+						<img src=${() => imageUrl(image)} alt="" loading="lazy" />
+					</a>`
 				}}<//
 			>
 		</div>
 	<//>
 `
+
+/** Each thread's article → what opens one of its images in its lightbox */
+const lightboxes = new WeakMap()
+
+/** The image a swipe has to travel, in px, to move to the next */
+const SWIPE = 48
+
+/**
+ * A thread's images over the page: the open one large, every image in the thread down the side to pick from, along the
+ * foot on a phone. The arrow keys, a thumbnail or a swipe move between them; Escape or a click beside the image closes.
+ * An image from another thread, seen in an ask line, opens on its own.
+ */
+function Lightbox(props) {
+	let dialog, picture
+	const list = createMemo(() => {
+		const open = props.image
+		if (!open) return []
+		const all = props.images
+		return all.some((one) => one.image.data === open.data) ? all : [{ image: open }]
+	})
+	const at = createMemo(() => list().findIndex((one) => one.image.data === props.image?.data))
+	const step = (by) => {
+		const next = list()[at() + by]
+		if (next) props.onPick(next.image)
+	}
+	/** The image on screen: the open one once it's decoded, so moving never shows a blank frame */
+	const [shown, setShown] = createSignal(null)
+	/** The open image and its neighbours, decoded ahead, by their data */
+	let decoded = new Map()
+	const decode = (image) => {
+		const found = decoded.get(image.data)
+		if (found) return found
+		const element = new Image()
+		element.src = imageUrl(image)
+		return { element, ready: element.decode().catch(() => {}) }
+	}
+	createEffect(
+		() =>
+			[list()[at() - 1], list()[at()], list()[at() + 1]].filter(Boolean).map((one) => one.image),
+		(near) => {
+			decoded = new Map(near.map((image) => [image.data, decode(image)]))
+		},
+	)
+	let showing = null
+	createEffect(
+		() => props.image,
+		(image) => {
+			if (!image) {
+				showing = null
+				if (dialog.open) dialog.close()
+				return
+			}
+			if (!dialog.open) {
+				showing = image
+				setShown(image)
+				dialog.showModal()
+				return
+			}
+			decode(image).ready.then(() => {
+				if (props.image !== image || showing === image) return
+				showing = image
+				setShown(image)
+			})
+		},
+	)
+	const entry = () => list()[at()]?.entry
+	const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches
+	// A swipe drags the image with the finger; far enough, it moves on, else it settles back
+	let swipe = null
+	let swiped = false
+	const drag = (x) => picture?.style.setProperty('--drag', `${x}px`)
+	const onPointerDown = (event) => {
+		swiped = false
+		if (event.pointerType === 'mouse') return
+		swipe = { x: event.clientX, y: event.clientY, id: event.pointerId }
+		picture.classList.add('dragging')
+	}
+	const onPointerMove = (event) => {
+		if (!swipe || event.pointerId !== swipe.id) return
+		const x = event.clientX - swipe.x
+		if (Math.abs(x) > 8) swiped = true
+		const edge = (x > 0 && at() === 0) || (x < 0 && at() === list().length - 1)
+		drag(edge ? x / 4 : x)
+	}
+	const onPointerUp = (event) => {
+		if (!swipe || event.pointerId !== swipe.id) return
+		const x = event.clientX - swipe.x
+		const y = event.clientY - swipe.y
+		swipe = null
+		picture.classList.remove('dragging')
+		drag(0)
+		if (Math.abs(x) > SWIPE && Math.abs(x) > Math.abs(y)) step(x < 0 ? 1 : -1)
+	}
+	const onKeyDown = (event) => {
+		const by = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key]
+		const to = { Home: 0, End: list().length - 1 }[event.key]
+		if (by === undefined && to === undefined) return
+		event.preventDefault()
+		step(by ?? to - at())
+	}
+	const goToMessage = () => {
+		const at = entry()
+		dialog.close()
+		props.showRow(at)
+	}
+	return html`<dialog
+		class="lightbox"
+		closedby="any"
+		autofocus
+		aria-label="Images"
+		ref=${(element) => (dialog = element)}
+		onClose=${() => {
+			setShown(null)
+			props.onPick(null)
+		}}
+		onKeyDown=${onKeyDown}
+		onClick=${(event) => {
+			if (swiped) return
+			if (event.target === dialog || event.target === picture) dialog.close()
+		}}
+	>
+		<${Show} when=${shown}>
+			<div
+				class="picture"
+				ref=${(element) => (picture = element)}
+				onPointerDown=${onPointerDown}
+				onPointerMove=${onPointerMove}
+				onPointerUp=${onPointerUp}
+				onPointerCancel=${onPointerUp}
+			>
+				<img src=${() => imageUrl(shown())} alt="" draggable="false" />
+			</div>
+			<${Show} when=${() => list().length > 1}>
+				<ol class="thumbs" aria-label="Images in this thread">
+					<${For} each=${list}
+						>${(one, index) => {
+							let button
+							createEffect(
+								() => index() === at(),
+								(current) => {
+									if (current)
+										button?.scrollIntoView({
+											block: 'nearest',
+											inline: 'nearest',
+											behavior: calm() ? 'instant' : 'smooth',
+										})
+								},
+							)
+							return html`<li>
+								<button
+									type="button"
+									aria-label=${() => `Image ${index() + 1} of ${list().length}`}
+									aria-current=${() => (index() === at() ? 'true' : undefined)}
+									ref=${(element) => (button = element)}
+									onClick=${() => props.onPick(one.image)}
+								>
+									<img src=${() => imageUrl(one.image)} alt="" loading="lazy" />
+								</button>
+							</li>`
+						}}<//
+					>
+				</ol>
+			<//>
+			<div class="bar">
+				<${Show} when=${() => list().length > 1}>
+					<span class="count">${() => `${at() + 1} of ${list().length}`}</span>
+				<//>
+				<${Show} when=${() => entry() !== undefined && props.hasRow(entry())}>
+					<button type="button" class="ghost" onClick=${goToMessage}>Go to message</button>
+				<//>
+				<button
+					type="button"
+					class="ghost close"
+					aria-label="Close"
+					onClick=${() => dialog.close()}
+				>
+					<${Icon} name="close" />
+				</button>
+			</div>
+		<//>
+	</dialog>`
+}
 
 const ThreadLink = (props) => html`
 	<a
