@@ -7,6 +7,7 @@
 ## 0.1.8
 
 - On macOS, Cmd+A, C, V, X and Z work again: the menu bar has its Edit menu back, beside House.
+- On macOS, the window buttons sit level with the top row's Search, Thread and Bot.
 
 ## 0.1.7
 

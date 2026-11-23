@@ -271,7 +271,9 @@ func main() {
 			BackgroundColor: "#121212",
 			TitleBarStyle:   mygo.TitleBarHidden,
 			TitleBarHeight:  48,
-			Hidden:          true,
+			// Centered in the page's 48px top row, as Windows' and Linux's are
+			TrafficLightPosition: &mygo.Point{X: 18, Y: 17},
+			Hidden:               true,
 			Page: mygo.PageOptions{
 				// The ade server is ours: its page may call Desktop and gets
 				// notifications and the clipboard without asking.
