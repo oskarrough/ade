@@ -159,6 +159,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
 scripts/
   try.js                 scratch server with a real runner, using echo/try; no provider keys reach it
   fuzz.js, fuzz-spec.js  `pnpm fuzz`: Bombadil against a fresh try.js, its one-screen failure story, replay, repeat and per-machine lock, and the properties it holds the client to
+  fuzz-crash.js          `pnpm fuzz --crash`: kills a busy scratch server 100 times and checks a crash loses nothing
   page-spy.js            browser init script: fetches, socket frames, stalls
   solid-attribution.js   browser init script: Solid's cost warnings and costs()
   vendor-canvas-agent.js refreshes canvas_act's schema

@@ -24,6 +24,9 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 
+// `pnpm fuzz --crash` kills the server instead of clicking around: scripts/fuzz-crash.js
+if (process.argv.includes('--crash')) await import('./fuzz-crash.js')
+
 const repo = path.resolve(import.meta.dirname, '..')
 const bombadilBin = path.join(repo, 'node_modules/.bin/bombadil')
 const spec = path.join(repo, 'scripts/fuzz-spec.js')
