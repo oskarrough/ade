@@ -43,6 +43,7 @@
  * row as one) and in the trail; one that fails is kept with why, and STRIKES in a row pause the task with a note.
  * `done` ends the task after the run.
  */
+import { createHash } from 'node:crypto'
 import { arr, bool, num, obj, opt, str, unknown } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
 import { background, finished, writtenTo } from '../util.js'
@@ -547,6 +548,16 @@ export function server(core) {
 	async function run(tx, { id, threadId, input, asked, event, checked }) {
 		const row = await core.threadIn(tx, threadId)
 		if (row.hidden || !asked) return false
+		/** The task as it stood for this run, kept on its `fired` step, so two runs compare without replaying its edits */
+		const fired = {
+			instructions: input.instructions,
+			schedule: json(input.schedule),
+			recipients: (asked.to ?? []).map(writtenTo),
+			...(input.to?.runner ? { runner: input.to.runner } : {}),
+			...(input.check
+				? { check: createHash('sha256').update(input.check).digest('hex').slice(0, 12) }
+				: {}),
+		}
 		const mark = {
 			body: input.instructions,
 			scheduledTask: id,
@@ -563,7 +574,7 @@ export function server(core) {
 				tx,
 				threadId,
 				{ author: writtenTo(to), ...mark, to: [to] },
-				{ member: true },
+				{ member: true, fired: { ...fired, recipients: [writtenTo(to)] } },
 			)
 			return { thread: threadId, entry }
 		}
@@ -573,7 +584,7 @@ export function server(core) {
 				tx,
 				thread,
 				{ author: input.by, ...mark, to: asked.to },
-				{ empty: true },
+				{ empty: true, fired },
 			)
 			return { thread, entry }
 		}
@@ -586,7 +597,7 @@ export function server(core) {
 				...(asked.to.length ? { to: asked.to } : {}),
 				...(asked.picked ? { picked: asked.picked } : {}),
 			},
-			{ direct: asked.direct, unlessPaused: asked.solo },
+			{ direct: asked.direct, unlessPaused: asked.solo, fired },
 		)
 		return { thread: threadId, entry }
 	}

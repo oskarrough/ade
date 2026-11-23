@@ -1314,7 +1314,7 @@ async function append(
 	tx,
 	threadId,
 	{ to = undefined, ...message },
-	{ steer = false, empty = false, direct = false, unlessPaused = false } = {},
+	{ steer = false, empty = false, direct = false, unlessPaused = false, fired = undefined } = {},
 ) {
 	const row = await tx.doc(Thread, threadId)
 	// A solo thread's message, decided outside this commit, asks no one if the thread was paused meanwhile
@@ -1356,7 +1356,7 @@ async function append(
 		row.unpicked = [...new Set([...row.unpicked, ...covers, entry.id])]
 	}
 	if (message.scheduledTask)
-		await trailed(tx, threadId, entry.id, 'fired', { task: message.scheduledTask })
+		await trailed(tx, threadId, entry.id, 'fired', { task: message.scheduledTask, ...fired })
 	// An answer is its run's last step, `answered` or `failed`, unless it asks someone in turn
 	const answer = message.answer || message.error
 	if (!answer || names.length)

@@ -118,6 +118,23 @@ check(
 	JSON.stringify({ edited: edited.json, changed }),
 )
 
+await api('POST', '/api/schedule', { run: daily.id })
+const twice = await until(async () => {
+	const steps = (await api('GET', `/api/threads/${id}/trail`)).json.filter(
+		(step) => step.kind === 'fired' && step.task === daily.id,
+	)
+	return steps.length === 2 && steps
+})
+check(
+	twice[0].instructions === 'write the brief' &&
+		twice[0].schedule.times.join() === '09:00' &&
+		twice[1].instructions === 'write the short brief' &&
+		twice[1].schedule.times.join() === '09:00,17:30' &&
+		twice[1].recipients.length === 1,
+	"each run's step in the trail keeps the task as it stood then: what it said, when it ran and whom it asked",
+	JSON.stringify(twice),
+)
+
 await api('POST', '/api/schedule', { instructions: 'check the deploy', thread: id, in: '1s' })
 const run = await until(async () =>
 	(await view(id)).entries.find(
