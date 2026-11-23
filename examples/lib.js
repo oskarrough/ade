@@ -29,6 +29,7 @@ for (const name of [
 	'STATUS',
 	'ADE_KEY',
 	'ADE_LENT',
+	'ADE_AGENT_OF',
 	'ADE_SERVER',
 	'SERVE_PORT',
 	'TYPESAFE_API_KEY',

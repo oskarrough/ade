@@ -7,7 +7,9 @@ import path from 'node:path'
 import {
 	appendFileSync,
 	existsSync,
+	readdirSync,
 	readFileSync,
+	readlinkSync,
 	rmSync,
 	watch as watchFiles,
 	writeFileSync,
@@ -209,6 +211,65 @@ function whoSent(req, serve) {
 	)
 	return loopback(req.socket.remoteAddress ?? '') && loopbackHost(req) && !proxied ? owner : null
 }
+/**
+ * Whether a request comes from an agent's command, on this machine, working for this server: a runner marks what its
+ * agents run with ADE_AGENT_OF, the server they work for. Such a request reads but writes nothing, with the owner's key
+ * or without, so an agent never speaks as a person. Asked once per connection; only Linux says whose a connection is.
+ */
+const agentConnections = new WeakMap()
+function fromAgent(req) {
+	const { socket } = req
+	if (!loopback(socket.remoteAddress ?? '')) return false
+	if (!agentConnections.has(socket)) agentConnections.set(socket, agentPeer(socket))
+	return agentConnections.get(socket)
+}
+function agentPeer(socket) {
+	const hex = (number) => `:${number.toString(16).toUpperCase().padStart(4, '0')}`
+	let inode
+	for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+		let text = ''
+		try {
+			text = readFileSync(table, 'utf8')
+		} catch {
+			continue
+		}
+		for (const line of text.split('\n').slice(1)) {
+			const fields = line.trim().split(/\s+/)
+			if (fields[1]?.endsWith(hex(socket.remotePort)) && fields[2]?.endsWith(hex(socket.localPort)))
+				inode = fields[9]
+		}
+	}
+	if (!inode || inode === '0') return false
+	const link = `socket:[${inode}]`
+	for (const pid of readdirSync('/proc')) {
+		if (!/^\d+$/.test(pid) || Number(pid) === process.pid) continue
+		let fds = []
+		try {
+			fds = readdirSync(`/proc/${pid}/fd`)
+		} catch {}
+		const holds = fds.some((fd) => {
+			try {
+				return readlinkSync(`/proc/${pid}/fd/${fd}`) === link
+			} catch {
+				return false
+			}
+		})
+		if (!holds) continue
+		try {
+			const marked = readFileSync(`/proc/${pid}/environ`, 'utf8')
+				.split('\0')
+				.find((pair) => pair.startsWith('ADE_AGENT_OF='))
+				?.slice('ADE_AGENT_OF='.length)
+			const url = marked && new URL(marked)
+			return Boolean(url) && [port, servePort].includes(Number(url.port || 80))
+		} catch {
+			return false
+		}
+	}
+	return false
+}
+const agentRefused =
+	'An agent writes here only through its own tools, never as a person. Put what you have to say, images as `![](path)`, in your answer; to reach another thread, use the post tool.'
 /** Tailnet logins as `name@provider`, as Tailscale-User-Login gives them, compared without case; anything else throws */
 function loginList(logins) {
 	if (
@@ -3535,6 +3596,8 @@ async function handleRequest(req, res, serve = false) {
 		if (!sender) return send(res, 401, { error: nobody(serve) })
 		senders.set(req, sender)
 	}
+	if (!['GET', 'HEAD'].includes(req.method) && fromAgent(req))
+		return send(res, 403, { error: agentRefused })
 	/** A browser brought in with the owner's key keeps it as a cookie its scripts can't read */
 	if (req.method === 'POST' && url.pathname === '/api/me') {
 		const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
@@ -4084,6 +4147,8 @@ async function upgrade(req, raw, head, serve = false) {
 	/** A person's socket is theirs from how it arrived, as a request is; a runner shows its own key below */
 	const sender = !name && whoSent(req, serve)
 	if (!name && !sender) return refuse('401 Unauthorized')
+	// A module's socket writes, the canvas's strokes; the feed's only reads
+	if (taker && fromAgent(req)) return refuse('403 Forbidden')
 	const socket = await new Promise((resolve) => wss.handleUpgrade(req, raw, head, resolve))
 	if (taker)
 		return taker.connect(threadId && Number(threadId), socket, url, sender).catch((error) => {

@@ -149,6 +149,12 @@ export const tryEcho = (request) => {
 				.join('\n---\n'),
 		)
 	}
+	// "shell <command>" runs it in bash and answers with what it printed
+	const shell = request.messages.findLast((m) => m.role === 'user')
+	if (shell && text(shell).startsWith('shell ')) {
+		if (latest === shell) return call('bash', { command: text(shell).slice('shell '.length) })
+		if (latest.role === 'toolResult') return say(text(latest).trim())
+	}
 	const bot = bots(request)
 	if (bot) return bot
 	const last = request.messages.findLastIndex((m) => m.role === 'user')

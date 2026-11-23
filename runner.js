@@ -65,6 +65,8 @@ if (args.help) {
 const roots = [...new Set(args.dir.map((dir) => path.resolve(dir)))]
 const dir = roots[0]
 const server = new URL(args.server).origin
+// What agents run carries the server they work for, so it can tell their requests from the owner's on the same machine
+process.env.ADE_AGENT_OF = server
 /** Named after its folder, as a runner's name is a word: anything else becomes a dash */
 const name =
 	args.name ||

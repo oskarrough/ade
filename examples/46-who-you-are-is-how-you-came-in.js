@@ -10,6 +10,7 @@ import {
 	createThread,
 	postEntry,
 	answered,
+	answers,
 	api,
 	base,
 	check,
@@ -256,6 +257,26 @@ check(thief.code === 4001, 'a wrong key is turned away', JSON.stringify(thief))
 check(await runnerOnline('laptop'), 'and the real laptop stays online: nobody can take its name')
 const minted = await api('POST', '/api/runners', { name: '../x' })
 check(minted.status === 400, 'a runner name is letters, digits, dot, dash or underscore')
+// An agent's command on the server's machine reads but never writes as a person, even holding the owner's key
+const shelled = await createThread('an agent’s shell')
+const keyFile = path.join(path.dirname(db), 'owner.key')
+await postEntry(
+	shelled,
+	`shell curl -s ${base}/api/threads/${shelled} -o /dev/null -w '%{http_code} '; curl -s -X POST ${base}/api/threads/${shelled}/entries -H "authorization: Bearer $(cat ${keyFile})" -H 'content-type: application/json' -d '{"body":"agent as owner","to":null}'`,
+	'echo/try@laptop',
+)
+const shell = await answered(shelled)
+const said = answers(shell)[0]?.data.body ?? ''
+check(
+	said.startsWith('200 ') && said.includes('post tool') && said.includes('in your answer'),
+	'an agent’s command reads, and its post is refused with the way to say it',
+	said,
+)
+check(
+	!shell.entries.some((entry) => entry.data.body === 'agent as owner'),
+	'and nothing it sent shows as the owner’s',
+)
+
 const gone = exited(laptop)
 check((await api('DELETE', '/api/runners/laptop')).status === 200, 'revoking answers')
 check((await gone) === 1, 'the revoked runner is cut off and stops dialling back')

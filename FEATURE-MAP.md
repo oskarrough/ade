@@ -42,6 +42,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once
   whoSent, answersTo, owner         who sent a request: owner key, Tailscale login, listeners (SERVE_PORT, HOOK_PORT)
+  fromAgent, agentPeer              an agent's command on this machine (runner.js sets ADE_AGENT_OF) writes nothing
   exampleShed                       the walkthrough's example thread (POST /api/threads/shed)
   routes                            every HTTP route
   agents/, agentRows, agentRow, liveOf, followLive, cutOf, covers   `agents/<id>` feed view: a thread's agents' turns, cuts and live work
