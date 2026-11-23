@@ -146,6 +146,8 @@ DELETE /api/bots/:name   forgets a bot and archives its home; every other thread
 GET    /api/threads/:home/bots?asked=4,7   for a bot's home, each thread that asked her: `{thread, question, answer}`, its first message and her answer to it, or `null`
 ```
 
+Only the creator or the house owner can change or forget a bot through the API. Other guests get 403. Bots made before ade recorded their creator belong to the house owner; a bot made with the `bot` tool belongs to the same person as the bot that made it.
+
 `rename` gives a bot a new name, under the same rules as a new one. It keeps its home, instructions, model and colour, and its agent in every thread it's in answers to the new name. Messages already written keep the old one, which asks no one now. A bot's home thread always shows the bot's name as its title, so it can't be renamed on its own.
 
 `GET /api/bots` gives each bot an `answeredAt`: an ISO time, the newest message anywhere she answered (not only her home), or `null` if she never has.
@@ -225,6 +227,8 @@ POST   /api/schedule {pause, note?} | {resume}  pauses one by its id, with a not
 POST   /api/schedule {run}              runs it once now, outside its schedule: {ran}
 POST   /api/schedule {move, runner}     a task that starts a new thread each run asks that runner from now on, its model there: {moved, runner}
 ```
+
+Only the house owner or whoever a task runs as can edit, cancel, pause, resume, move or run it early. Other guests get 403. An agent can cancel tasks it set in its own thread with the `schedule` tool.
 
 The same POSTs under `/api/threads/:id/schedule` refuse a task from another thread. `schedule` is `{at}` once, `{at, every}` every so often from its first run, `{times, days?, timeZone}` at clock times on those weekdays (every day without `days`), `{after}`, `{when}` or `{on}`; one that repeats may carry `until`, in milliseconds, and `count`. `when` is one of `{online: runner}` or `{offline: runner}`, when that runner connects or drops (at once if it already has), or `{failed: thread}` or `{answered: thread}`, the next time a run there fails or an agent there answers; it runs once, as `after` does. A task that ends by itself, after its `count`th run or once its next run would come after `until` (or `until` passes while it's paused or listening), leaves an `ended` step in its thread's trail, and `ran` counts its runs so far when it has a `count`; a run now counts too. `at` is its next run and `from` where the wait for it began, the run before or when a one-off was set; a paused task has neither, and `note` says why. `runs` are its last five, oldest first, each `{at, thread, entry}`, the message it posted, or `{at, skipped}`: a timed run that comes due while its last run's thread still works is skipped, Temporal's default overlap, and `skipped` says why, as `vps offline` when that run waits for an offline runner, else `the run before still working`. A run missed while the server was down runs once on start. `agent` is the agent that set it, `bot` the bot whose home it runs in, `to` the model a new thread each run asks.
 

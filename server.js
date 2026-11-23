@@ -3469,7 +3469,8 @@ const routes = /** @type {[string, Function][]} */ ([
 						? [
 								[
 									`DELETE /api/${module.name}/:name`,
-									(req, name, url) => module.remove(name, url.searchParams.get('key') ?? undefined),
+									(req, name, url) =>
+										module.remove(name, url.searchParams.get('key') ?? undefined, user(req)),
 								],
 							]
 						: []),

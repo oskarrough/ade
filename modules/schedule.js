@@ -435,8 +435,8 @@ export function server(core) {
 		if (schedule.when !== undefined && already(schedule.when)) waking(already)
 	}
 
-	/** A scheduled task by id, in `threadId` if given, or a 404 */
-	async function find(threadId, id) {
+	/** A task runs as whoever set it. An agent may only cancel its own conversation’s tasks. */
+	async function taskForChange(threadId, id, by, conversation = undefined) {
 		const record = await core.task(id)
 		if (
 			record?.kind !== ScheduledTask.definition.name ||
@@ -448,6 +448,14 @@ export function server(core) {
 				),
 				{ status: 404 },
 			)
+		const allowed =
+			conversation === undefined
+				? by === core.owner || (record.input.conversation === undefined && record.input.by === by)
+				: record.input.conversation === conversation
+		if (!allowed)
+			throw Object.assign(new Error('Only whoever the task runs as or the owner can change it'), {
+				status: 403,
+			})
 		return record
 	}
 
@@ -455,8 +463,8 @@ export function server(core) {
 	 * Cancels one, and says what came of it: `{cancelled}`, or `{fired}` for a one-off that ran first, `{ended}` for
 	 * one that ended otherwise
 	 */
-	async function cancel(threadId, id) {
-		await find(threadId, id)
+	async function cancel(threadId, id, by, conversation = undefined) {
+		await taskForChange(threadId, id, by, conversation)
 		if ((await core.abortTask(id)) === 'marked') await core.waitForTask(id)
 		const outcome = /** @type {any} */ ((await core.task(id))?.state)?.outcome
 		if (outcome?.status === 'aborted') return { cancelled: id }
@@ -467,14 +475,16 @@ export function server(core) {
 	 * Pauses one, with an optional note why, resumes it, or runs it now: `{paused}`, `{resumed}` or `{ran}` once it has
 	 * the word; it acts in its next phase, and its pages hear when
 	 */
-	async function control(threadId, id, word) {
-		const record = await find(threadId, id)
+	async function control(threadId, id, word, by) {
+		const record = await taskForChange(threadId, id, by)
 		const { checkpoint } = /** @type {any} */ (record.state)
 		if (record.state.status === 'terminal' || record.abortRequested)
 			throw Object.assign(new Error(`Scheduled task ${id} has ended`), {
 				status: 409,
 			})
-		if (word.runner) {
+		if (word.runner !== undefined) {
+			if (typeof word.runner !== 'string' || !word.runner)
+				throw new Error('move takes the runner its runs ask from now on')
 			const to = current(record.input, checkpoint).to
 			if (!to)
 				throw new Error('Only a task that starts a new thread each run runs on a runner of its own')
@@ -1012,7 +1022,7 @@ export function server(core) {
 			const at = await core.home(api.conversationId)
 			if (!at) throw new Error('Only an agent in a thread can schedule a task')
 			if (args.cancel !== undefined) {
-				const ended = await cancel(at.thread, args.cancel)
+				const ended = await cancel(at.thread, args.cancel, at.name, api.conversationId)
 				const said = ended.cancelled
 					? 'Cancelled'
 					: ended.fired
@@ -1163,7 +1173,7 @@ export function server(core) {
 	 * another thread or starts or stops listening for events: then a new task takes its place, `{edited, id, thread}`.
 	 */
 	async function edit(threadId, id, body, user) {
-		const record = await find(threadId, id)
+		const record = await taskForChange(threadId, id, user)
 		const { checkpoint } = /** @type {any} */ (record.state)
 		if (record.state.status === 'terminal' || record.abortRequested)
 			throw Object.assign(new Error(`Scheduled task ${id} has ended`), {
@@ -1194,15 +1204,20 @@ export function server(core) {
 					? (await recipientsOf(body, record.conversationId)).recipients
 					: undefined
 			const check = checkOf(body, was)
-			const edited = await control(threadId, id, {
-				edit: {
-					...(instructions ? { instructions } : {}),
-					...(check !== undefined ? { check } : {}),
-					...(schedule ? { schedule } : {}),
-					...(to ? { to } : {}),
-					...(recipients ? { recipients } : {}),
+			const edited = await control(
+				threadId,
+				id,
+				{
+					edit: {
+						...(instructions ? { instructions } : {}),
+						...(check !== undefined ? { check } : {}),
+						...(schedule ? { schedule } : {}),
+						...(to ? { to } : {}),
+						...(recipients ? { recipients } : {}),
+					},
 				},
-			})
+				user,
+			)
 			if (schedule) settleNew(schedule)
 			return edited
 		}
@@ -1225,7 +1240,7 @@ export function server(core) {
 			...(check ? { check } : {}),
 			runs: checkpoint?.runs ?? [],
 		})
-		await cancel(undefined, id)
+		await cancel(undefined, id, user)
 		return { edited: id, ...made }
 	}
 
@@ -1247,18 +1262,20 @@ export function server(core) {
 		for (const action of ['cancel', 'pause', 'resume', 'run', 'move'])
 			if (body[action] !== undefined) {
 				if (!Number.isInteger(body[action])) throw new Error(`${action} is the task's id`)
-				if (action === 'cancel') return cancel(threadId, body.cancel)
-				if (action === 'run') return control(threadId, body.run, { run: true })
-				if (action === 'move') {
-					if (typeof body.runner !== 'string' || !body.runner)
-						throw new Error('move takes the runner its runs ask from now on')
-					return control(threadId, body.move, { runner: body.runner })
-				}
+				if (action === 'cancel') return cancel(threadId, body.cancel, user)
+				if (action === 'run') return control(threadId, body.run, { run: true }, user)
+				if (action === 'move')
+					return control(threadId, body.move, { runner: body.runner ?? null }, user)
 				const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : ''
-				return control(threadId, body[action], {
-					paused: action === 'pause',
-					...(action === 'pause' && note ? { note } : {}),
-				})
+				return control(
+					threadId,
+					body[action],
+					{
+						paused: action === 'pause',
+						...(action === 'pause' && note ? { note } : {}),
+					},
+					user,
+				)
 			}
 		throw new Error(
 			'POST cancel, pause, resume, run or edit with a task id, move with one and a runner, or instructions for a new task',

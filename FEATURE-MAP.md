@@ -62,7 +62,7 @@ modules/
   auto-title.js          AutoTitle, sanitizeThreadTitle; serve
   memory.js              memory lines (Line task), `zoom`, writerOf, demand, beforeCompact, inTurn, writeLines,
                          indexOf, checked, remembers, turn, view, opened, views, layOut, render, rendered
-  bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, renameIn), askedHome,
+  bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, requireBotEditor, botKey, renameIn), askedHome,
                          answeredAt, posted, homesOf, DEFAULT_VOICE, voice, section, bot-threads, volatility, withoutProject
   context.js             AGENTS.md, skills and cwd from the runner; expand, skillCommand
   director.js            the `direct` hook and Pick task: directing, picks, typing, beatOf, typingIn, sent, Nudge,
@@ -75,7 +75,7 @@ modules/
   inbox.js               `ask_person`, openQuestion, itemOf, list, the `inbox` feed a thread at a time; serve (GET /api/inbox, dismissals)
   schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, wakeAt, endOf,
                          onward, Control, Hooked, Ended, Happened), run, scheduleOf, startOf, firstRun, settle, happen, already, runner,
-                         entryStored, pending, cancel, control, checker, checkOf, steps (end, next, onward, post), the `checked` phase; serve
+                         entryStored, pending, taskForChange, cancel, control, checker, checkOf, steps (end, next, onward, post), the `checked` phase; serve
   check.js               a scheduled task's check: CheckRun, Said doc, the `scheduled_check` tool (Code Mode with post, done
                          and keep as globals), outcomeOf, the hook that keeps it from `schedule`
   hooks.js               outside events for scheduled tasks: Hook doc, issue, webhook, admit, PROBES, RATE, github,

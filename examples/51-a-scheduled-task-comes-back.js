@@ -30,6 +30,8 @@ let srv = await server(env)
 await scriptedRunner('laptop', (request) => {
 	const last = request.messages.findLast((m) => m.role !== 'system')
 	if (last.role === 'toolResult') return say(last.isError ? `failed: ${text(last)}` : 'set')
+	const cancel = text(last).match(/^cancel (\d+)$/)
+	if (cancel) return call('schedule', { cancel: Number(cancel[1]) })
 	const after = text(last).match(/^schedule after (\d+) (.*)/)
 	if (after) return call('schedule', { after: Number(after[1]), instructions: after[2] })
 	const asked = text(last).match(/^schedule (\S+) (.*)/)
@@ -193,5 +195,27 @@ check(
 	JSON.stringify(heard.slice(0, 5)),
 )
 socket.close()
+
+const cleanup = await createThread('who can cancel a task')
+const human = await api('POST', `/api/threads/${cleanup}/schedule`, {
+	in: '1h',
+	instructions: 'the owner asked',
+})
+await postIn(cleanup, 'schedule 1h the agent asked')
+await answered(cleanup)
+const agentTask = (await tasksIn(cleanup)).find((task) => task.instructions === 'the agent asked')
+await postIn(cleanup, `cancel ${human.json.id}`)
+const refused = await answered(cleanup, 2)
+check(
+	answers(refused).at(-1).data.body.startsWith('failed:') &&
+		(await tasksIn(cleanup)).some((task) => task.id === human.json.id),
+	'the agent can’t cancel the owner’s task from its own thread',
+)
+await postIn(cleanup, `cancel ${agentTask.id}`)
+await answered(cleanup, 3)
+check(
+	!(await tasksIn(cleanup)).some((task) => task.id === agentTask.id),
+	'the agent can cancel its own task',
+)
 
 done()

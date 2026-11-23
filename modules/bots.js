@@ -2,6 +2,7 @@
  * A bot is one name in many threads: a home thread, the agent it joins as, instructions, and the hue it's shown in if
  * someone picked one.
  */
+import { createHash } from 'node:crypto'
 import { obj, opt, str } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTool } from '@earendil-works/pi-durable'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
@@ -29,7 +30,7 @@ export function server(core) {
 		const defaults = new Map(order.map(([name], index) => [name, madeHue(index)]))
 		const allWork = await core.work()
 		return Promise.all(
-			Object.entries(all).map(async ([name, bot]) => {
+			Object.entries(all).map(async ([name, { creator: _creator, ...bot }]) => {
 				const defaultColor = defaults.get(name)
 				const family = core.familyOf(bot.home)
 				let working = 0
@@ -128,9 +129,11 @@ export function server(core) {
 	async function write(
 		tx,
 		{ name, rename, to, instructions, append, color, projectContext },
+		by,
 		ids = [],
 	) {
 		const all = await tx.doc(Bots)
+		requireBotEditor(all[name], by)
 		/** What this write changes, for the step in the bot's home trail */
 		const changed = []
 		const old = name
@@ -146,7 +149,7 @@ export function server(core) {
 		if (!all[name]) {
 			if (!to) throw new Error(`${name} is new: say what it runs as, to: model@runner`)
 			const home = await core.startThread(tx, name, null)
-			all[name] = { home, to, instructions: instructions ?? '' }
+			all[name] = { home, to, instructions: instructions ?? '', creator: by }
 			await core.trailed(tx, home, undefined, 'bot-created', {
 				bot: name,
 				to: writtenTo({ ...to, name: undefined }),
@@ -179,7 +182,8 @@ export function server(core) {
 		else if (projectContext) delete all[name].projectContext
 		if (color === null) delete all[name].color
 		else if (color !== undefined) all[name].color = color
-		return JSON.parse(JSON.stringify({ name, ...all[name] }))
+		const { creator: _creator, ...bot } = all[name]
+		return JSON.parse(JSON.stringify({ name, ...bot }))
 	}
 
 	const askedHome = (ids, viewer) =>
@@ -192,30 +196,51 @@ export function server(core) {
 				return { thread, question, answer }
 			}),
 		)
+	/** A retry belongs to the person who wrote it, even after a bot was forgotten. */
+	const botKey = (action, name, by, key) => {
+		const scope = createHash('sha256')
+			.update(JSON.stringify([action, name, by]))
+			.digest('base64url')
+		return core.scopedKey(`bot ${scope.slice(0, 22)}`, key)
+	}
 	async function serve(id, query, body, by) {
 		if (id !== undefined && body === undefined && query.has('asked'))
 			return askedHome(query.get('asked').split(',').filter(Boolean).map(Number), by)
 		if (id !== undefined)
 			throw new Error('Bots live at /api/bots; a home reads the threads that asked with ?asked=1,2')
 		if (body === undefined) return list(by)
+		requireBotEditor((await bots())[body?.name], by)
 		const asked = await change(body)
 		const ids = asked.rename ? await core.threadIds() : []
 		return core.once(
-			core.scopedKey(`bot ${asked.name}`, body.key ?? body.requestId),
+			botKey('change', asked.name, by, body.key ?? body.requestId),
 			`bot ${asked.name}`,
-			(tx) => write(tx, asked, ids),
+			(tx) => write(tx, asked, by, ids),
 		)
 	}
-	const remove = (name, requestKey) =>
-		core.once(core.scopedKey(`forget ${name}`, requestKey), `forget ${name}`, async (tx) => {
+	/** Bots made before ade recorded their creator belong to the owner. */
+	const requireBotEditor = (bot, by) => {
+		if (bot && by !== core.owner && bot.creator !== by)
+			throw Object.assign(
+				new Error('Only the creator or the owner can change or forget this bot'),
+				{
+					status: 403,
+				},
+			)
+	}
+	const remove = async (name, requestKey, by) => {
+		requireBotEditor((await bots())[name], by)
+		return core.once(botKey('forget', name, by, requestKey), `forget ${name}`, async (tx) => {
 			const all = await tx.doc(Bots)
 			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
+			requireBotEditor(all[name], by)
 			const { home } = all[name]
 			delete all[name]
 			await core.trailed(tx, home, undefined, 'bot-forgotten', { bot: name })
 			await core.archiveIn(tx, home)
 			return { name, home }
 		})
+	}
 
 	async function archiving(tx, threadId) {
 		const [name] = Object.entries(await tx.doc(Bots)).find(([, bot]) => bot.home === threadId) ?? []
@@ -268,12 +293,21 @@ export function server(core) {
 				to: args.model ?? (name === at.name ? undefined : { ...own, name: undefined }),
 			})
 			const made = await core.once(`bot ${api.taskId}`, 'bot', async (tx) => {
-				const was = (await tx.doc(Bots))[name]
+				const roster = await tx.doc(Bots)
+				const self = roster[at.name]
+				if (self?.home !== at.thread) throw new Error('Only a bot can, in its home thread')
+				const was = roster[name]
+				if (name !== at.name && was)
+					throw new Error(`${name} is another bot; it changes at its own home`)
 				const before = was && {
 					instructions: was.instructions,
 					model: `${was.to.model}${was.to.thinkingLevel ? `:${was.to.thinkingLevel}` : ''}@${was.to.runner}`,
 				}
-				return { ...(await write(tx, asked)), ...(before && { before }) }
+				// A bot can change itself; a new bot it makes belongs to the same person.
+				return {
+					...(await write(tx, asked, self.creator ?? core.owner)),
+					...(before && { before }),
+				}
 			})
 			return {
 				...(name === at.name && { details: { before: made.before } }),

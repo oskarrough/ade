@@ -105,6 +105,81 @@ check(
 	ownDevice.json.me,
 )
 
+// A task runs as its creator, even after the owner edits it.
+const schedule = '/api/schedule'
+const anaTask = await api(
+	'POST',
+	schedule,
+	{ thread: id, in: '1d', instructions: 'write a brief' },
+	'ana',
+)
+const otherTaskChanges = []
+for (const [action, fields] of Object.entries({
+	edit: { instructions: 'write a different brief' },
+	cancel: {},
+	pause: {},
+	resume: {},
+	move: { runner: 'laptop' },
+	run: {},
+})) {
+	const route = action === 'edit' ? `/api/threads/${id}/schedule` : schedule
+	otherTaskChanges.push(
+		(await api('POST', route, { [action]: anaTask.json.id, ...fields }, 'bea')).status,
+	)
+}
+check(
+	otherTaskChanges.every((status) => status === 403),
+	'another guest can’t control Ana’s task',
+	otherTaskChanges,
+)
+const ownerEdit = await api(
+	'POST',
+	schedule,
+	{ edit: anaTask.json.id, instructions: 'write a short brief' },
+	'oskar',
+)
+const anaCancel = await api('POST', schedule, { cancel: anaTask.json.id }, 'ana')
+check(
+	ownerEdit.json.edited === anaTask.json.id && anaCancel.json.cancelled === anaTask.json.id,
+	'the owner can edit Ana’s task and Ana can still cancel it',
+	[ownerEdit.json, anaCancel.json],
+)
+
+const botRoute = '/api/bots'
+const anaBot = await api(
+	'POST',
+	botRoute,
+	{ name: 'finch', to: 'echo/try@laptop', key: 'make-finch' },
+	'ana',
+)
+const guestBotChanges = [
+	await api('POST', botRoute, { name: 'finch', to: 'echo/try@laptop', key: 'make-finch' }, 'bea'),
+	await api('POST', botRoute, { name: 'finch', rename: 'robin' }, 'bea'),
+	await api('DELETE', `${botRoute}/finch`, undefined, 'bea'),
+]
+check(
+	anaBot.json.name === 'finch' && guestBotChanges.every(({ status }) => status === 403),
+	'another guest can’t replace, rename or forget Ana’s bot',
+	guestBotChanges.map(({ status }) => status),
+)
+const anaRename = await api('POST', botRoute, { name: 'finch', rename: 'robin' }, 'ana')
+const ownerBotEdit = await api(
+	'POST',
+	botRoute,
+	{ name: 'robin', instructions: 'Be brief.' },
+	'oskar',
+)
+const anaForget = await api('DELETE', `${botRoute}/robin?key=forget-robin`, undefined, 'ana')
+const otherForget = await api('DELETE', `${botRoute}/robin?key=forget-robin`, undefined, 'bea')
+check(
+	anaRename.json.name === 'robin' &&
+		ownerBotEdit.json.instructions === 'Be brief.' &&
+		anaForget.json.name === 'robin' &&
+		otherForget.status === 404,
+	'Ana can rename and forget her bot, the owner can edit it, and another guest can’t reuse the receipt',
+	[anaRename.json, ownerBotEdit.json, anaForget.json, otherForget.status],
+)
+
 // The owner key, from beside the store, is the owner anywhere; a browser keeps it as a cookie its scripts can't read
 const key = readFileSync(path.join(path.dirname(db), 'owner.key'), 'utf8').trim()
 const asOwner = await fetch(`${tailnet}/api/server`, {
