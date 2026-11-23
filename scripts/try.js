@@ -6,7 +6,7 @@
  * `node scripts/try.js &`, open the address it prints, stop it with the `kill` line it prints. Every server it starts goes with it.
  * The bot's model, echo/try, thinks, writes, reads, edits and runs a command in its folder, then answers in markdown.
  * A message with "post" in it makes it post to a new thread too, or to a bot it names; "slow" makes the command take five seconds, to watch live work, and passes on to the thread it posts to.
- * With MODULES=+inbox, a message starting "ask " makes it ask you the rest with `ask_person`. */
+ * With inbox on, a message starting "ask " makes it ask you the rest with `ask_person`. */
 import { api, base, hookPort, runner, server, servePort, shellEnv } from '../examples/lib.js'
 import { personas } from '../echo.js'
 

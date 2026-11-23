@@ -1,6 +1,6 @@
 /**
  * Scheduled tasks: instructions that arrive in a thread later, once, every so often, by the clock, once another thread's
- * work ends, or on an outside event. Off by default; MODULES=+schedule turns it on.
+ * work ends, or on an outside event. On by default; MODULES=-schedule turns it off.
  *
  * An agent sets one with `schedule`; its instructions come back to it, as it, marked `scheduledTask`. A person sets one
  * from the Scheduled tasks list (POST /api/schedule): it runs in a bot's home, asking her; in a thread, as their own
@@ -33,7 +33,7 @@ import { defaultTitle } from '../apps/client/title.js'
 import { clockTime, DAYS, instant, lastRun, nextRun, span } from '../apps/client/clock.js'
 import { EVENTS, Hooked, issue } from './hooks.js'
 
-export const on = false
+export const on = true
 
 const UNITS = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
 /** The shortest repeat, so a routine can't fill a thread */

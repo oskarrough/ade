@@ -1,6 +1,6 @@
 /**
  * Outside events run scheduled tasks: a GitHub push or failed CI run, or any service's POST, reaches a task set `on` one
- * at POST /hooks/<task id>. Off by default, and needs schedule: MODULES=+schedule,+hooks.
+ * at POST /hooks/<task id>. Off by default, and needs schedule: MODULES=+hooks.
  *
  * The server takes hooks on a listener of its own, the only part meant for the internet: no page, no socket, no owner
  * key or login there. Each task has its own secret, kept apart from the task in a Hook doc, never in a transcript: the
@@ -161,7 +161,7 @@ function github(on, payload) {
 
 export function server(core) {
 	if (!core.modulesOn.includes('schedule'))
-		throw new Error('hooks needs schedule: MODULES=+schedule,+hooks')
+		throw new Error('hooks needs schedule: MODULES=+hooks, without -schedule')
 	const hookOf = (taskId) =>
 		core.commit(async (tx) => JSON.parse(JSON.stringify(await tx.doc(Hook, taskId))))
 	/** Each task's admitted events in the last minute */

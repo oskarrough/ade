@@ -1,7 +1,7 @@
 /**
  * Agents can leave a question for a person; the thread waits on them until a person next writes, while the agent
  * goes on with its own work. A newer question replaces the older one. Every open question also lists in one inbox,
- * answered from there. Off by default; MODULES=+inbox turns it on.
+ * answered from there. On by default; MODULES=-inbox turns it off.
  *
  * `GET /api/inbox` answers what needs you, most pressing first. Open questions, newest first:
  * `{thread, kind: 'question', question, asker}`, `question` being the thread's `ask_person` message as the thread holds
@@ -16,7 +16,7 @@ import { obj, str } from '@earendil-works/pi-schema'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
 import { keyOf, writtenTo } from '../util.js'
 
-export const on = false
+export const on = true
 
 export function server(core) {
 	const askPerson = defineTool({

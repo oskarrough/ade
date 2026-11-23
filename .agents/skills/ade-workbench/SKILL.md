@@ -18,7 +18,7 @@ AGENTS.md has the rules; this is the how.
 
 ## A scratch server: try.js
 
-Start `node scripts/try.js &` from `.work/<your-name>/`, since it writes files where it starts, and keep `$!` with absolute log and pid paths. Its store lives in a fresh temp folder deleted the moment it exits, so there's no restarting try.js itself on the same data; for that, run `server.js` directly with your own `DB_PATH` and `XDG_CONFIG_HOME` (as under "Real data" below) and start it again with the same ones. In a second it has bots and director on, three bots (bot1, bot2, bot3) that answer with their name, persona and what they were handed, a real runner on the scripted model `echo/try@bot`, and one answered thread. It prints its address, its Serve port (people come in with `Tailscale-User-Login`), the `export ADE_SERVER=…` for the CLI and the `kill` that stops it.
+Start `node scripts/try.js &` from `.work/<your-name>/`, since it writes files where it starts, and keep `$!` with absolute log and pid paths. Its store lives in a fresh temp folder deleted the moment it exits, so there's no restarting try.js itself on the same data; for that, run `server.js` directly with your own `DB_PATH` and `XDG_CONFIG_HOME` (as under "Real data" below) and start it again with the same ones. To stop a server you started that way, as Ctrl-C would, take its pid from its port (`ss -ltnp | grep '127.0.0.1:<port> '`), not `$!`, which can be a wrapper shell's; its own runner is that pid's child (`ps --ppid <pid>`). Never find either with `pgrep -f` on a pattern your own command line contains: it matches your shell. In a second it has bots and director on, three bots (bot1, bot2, bot3) that answer with their name, persona and what they were handed, a real runner on the scripted model `echo/try@bot`, and one answered thread. It prints its address, its Serve port (people come in with `Tailscale-User-Login`), the `export ADE_SERVER=…` for the CLI and the `kill` that stops it.
 
 `MODULES=+web-search node scripts/try.js` layers module changes on its own list; try.js locks module switches, so the settings panel's Save can only be exercised through memory's compact-at field. A shell started from a server's runner inherits `SERVE_PORT` and `MODULES`: start a scratch server with `env -u SERVE_PORT -u MODULES …` or it takes the real one's. try.js drops every provider key (`*_API_KEY`, `*_TOKEN`, `ANTHROPIC_*`, `AWS_*` and the like) from what its server and runner see, so a scratch run never reaches a paid model; a real model goes through the runner under "Real data" below.
 
@@ -27,8 +27,8 @@ To take a runner offline mid-work, kill its node process (`pgrep -f "^node [^ ]*
 What a message to `echo/try@bot` makes it do:
 
 - `slow` runs a 5-second tool; `post` asks another thread (`post to 12` follows up in thread 12), and `slow post` carries `slow` over; `think <text>` is a turn that only thinks; `fail` fails the run; `sleep 0.5` delays it.
-- `ask <question>` calls `ask_person` (`+inbox`, one-person threads only); `search <words>` calls `search` (`+search`).
-- `schedule 5m …`, `schedule every 1h …`, `schedule daily 09:00 …` and `schedule mon,fri 09:00,17:30 …` set tasks (`+schedule`); `schedule on hook …` answers with its `/hooks/<id>` path (`+schedule,+hooks`); `GET /api/threads/N/hooks?task=<id>` gives its secret.
+- `ask <question>` calls `ask_person` (one-person threads only); `search <words>` calls `search` (`+search`).
+- `schedule 5m …`, `schedule every 1h …`, `schedule daily 09:00 …` and `schedule mon,fri 09:00,17:30 …` set tasks; `schedule on hook …` answers with its `/hooks/<id>` path (`+hooks`); `GET /api/threads/N/hooks?task=<id>` gives its secret.
 - `bot <instructions>` and `bot append <line>`, in a bot's home.
 
 Only the model is scripted; skills, AGENTS.md and modules load as usual. To catch an agent mid-run, send `slow` to `echo/try@bot` (a named bot answers before its tool runs) and act while the tool shows as running.
