@@ -20,7 +20,12 @@ import {
 await server()
 copyFileSync(path.join(repo, 'apps/client/icons/192.png'), path.join(dir, 'shot.png'))
 await scriptedRunner('laptop', () =>
-	say(`Here it is:\n\n![the icon](shot.png)\n\nand ![](${path.join(dir, 'gone.png')}) too.`),
+	say(
+		`Here it is:\n\n![the icon](shot.png)\n\nand ![](${path.join(dir, 'gone.png')}) too. ` +
+			'Also, the syntax is `![](path)`, and a miss reads `' +
+			"(couldn't show path: …)" +
+			'` in a code span.',
+	),
 )
 const id = await createThread('show me')
 await postEntry(id, 'show me the icon', 'echo/echo@laptop')
@@ -39,6 +44,13 @@ check(
 check(
 	answer.data.body.includes(`(couldn't show ${path.join(dir, 'gone.png')}:`),
 	"one it can't show says why",
+	answer.data.body,
+)
+
+check(
+	answer.data.body.includes('`![](path)`') &&
+		answer.data.body.includes("`(couldn't show path: …)`"),
+	'but that syntax inside a code span stays plain text',
 	answer.data.body,
 )
 

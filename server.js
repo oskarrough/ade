@@ -1722,12 +1722,29 @@ const SHOWN_TYPES = {
 }
 let photon
 
+/** True at each index of `body` that falls inside a fenced code block or an inline code span */
+function codeMask(body) {
+	const mask = new Array(body.length).fill(false)
+	const mark = (re) => {
+		for (const match of body.matchAll(re))
+			for (let i = match.index; i < match.index + match[0].length; i++) mask[i] = true
+	}
+	mark(/```[\s\S]*?```/g)
+	mark(/`[^`\n]+`/g)
+	return mask
+}
+
 /**
  * What an answer shows: each `![](path)` to a file on its agent's machine, read through its runner and shrunk to what a
  * model takes, becomes one of the message's images, up to 8; the words keep the rest. One it can't show says why.
  */
 async function shown(agent, body) {
-	const found = [...body.matchAll(SHOWN)].filter(([, at]) => !/^[a-z][\w+.-]+:/i.test(at))
+	const coded = codeMask(body)
+	const found = [...body.matchAll(SHOWN)].filter(
+		(match) =>
+			!/^[a-z][\w+.-]+:/i.test(match[1]) &&
+			!coded.slice(match.index, match.index + match[0].length).includes(true),
+	)
 	if (!found.length) return { words: body, images: null }
 	const doc = await harness.snapshot(AgentDoc, agent, context)
 	const runner = doc?.model?.provider?.match(/^runner:(.+)$/)?.[1]
