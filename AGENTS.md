@@ -11,6 +11,7 @@
 - Never `pkill` or `killall`; stop only the pid you started. Build no proxies, harnesses or helper scripts: if ade and agent-browser can't show it, ask.
 - Test in proportion. A style, copy or layout tweak gets no browser check; look only at new or redesigned UI. Landing always runs `pnpm check`; `pnpm examples` runs too unless the change is client-only (apps/client: CSS, copy, markup, client JS). Run `pnpm perf` before and after a change to reads, lists or rendering. If a check fails twice, stop and report.
 - Leave package.json and the lockfile alone unless the task is about dependencies.
+- If only Oskar can decide or confirm something, use ask_person before ending your turn; don't leave the ask in your report for the lead to relay. Anything the lead can decide stays in the report.
 - End with a report Oskar can read as is: what changed from where he sits, one line each, the commit id, and what you couldn't check. Name threads by title. If the skill should have told you something about checking, say so in one line.
 
 ## What to build
