@@ -12,7 +12,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   recipients, invited               who a message asks; bots it @mentions that aren't in the thread yet
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused
   ask, route, ROUTE, routed, fresh  whom a message asks; the director's saved pick
-  TRAIL, trailed, trail, stepText, nameIn   a thread's trail: each step written in its commit, GET /api/threads/:id/trail, `trail/<id>`
+  TRAIL, trailed, trail, stepText, nameIn   a thread's trail, in a conversation of its own: each step written in its commit, GET /api/threads/:id/trail, `trail/<id>`
+  messagesFrom, firstWrote, authors   a thread's messages from one on, and when each person first wrote, so a run reads no further back
   Draft, saveDraft, draftIn, NEW, spentUnder   a person's unsent draft per thread, and for a new one; `draft/<id>` feed view
   createThread, written, mayAsk     a thread and its first message in one commit
   withdraw, WITHDRAWAL              a message taken back before any agent read it

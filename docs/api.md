@@ -100,7 +100,7 @@ GET    /api/conversations/:id          an agent's own conversation, tool calls a
 
 ### The trail
 
-A thread's trail is what happened in it, one step at a time, like Temporal's event history. Each step is written in the same commit as what it records, as an `ade.trail` entry in the thread's own conversation, so it lasts as long as the thread and a restart can't lose it. `GET /api/threads/:id/trail` answers the newest 200 steps, oldest first; `?entry=<message id>` answers that message's story whole. `ade trail N` prints the same, and `--message id` one story. Each step is `{id, entry, at, kind, text, …}`: `entry` the message it's about, `at` epoch milliseconds, `text` the step as a plain line, and by `kind`:
+A thread's trail is what happened in it, one step at a time, like Temporal's event history. Each step is written in the same commit as what it records, as an `ade.trail` entry in a conversation the thread keeps for its trail, so a restart can't lose it and reading the thread's messages never reads it. `GET /api/threads/:id/trail` answers the newest 200 steps, oldest first; `?entry=<message id>` answers that message's story whole. `ade trail N` prints the same, and `--message id` one story. Each step is `{id, thread, entry, at, kind, text, …}`: `entry` the message it's about, `at` epoch milliseconds, `text` the step as a plain line, and by `kind`:
 
 - `fired` `{task}`: a scheduled task posted this message; `skipped` `{task, why}`, with no `entry`: a run it skipped, or the one that ended it
 - `posted` `{author, to, direct?, picked?}`: a message to whom; `direct` when the director picks
@@ -112,12 +112,14 @@ A thread's trail is what happened in it, one step at a time, like Temporal's eve
 
 An answer that asks no one in turn writes no `posted` of its own: its run's `answered` or `failed` is its story. The trail keeps no tokens and no transcript; an agent's conversation has those.
 
-By hand, with sqlite3, a thread's last 20 steps:
+By hand, with sqlite3, a thread's last 20 steps (it reads every entry in the store, under a second):
 
 ```sql
-select id, datetime(json_extract(data, '$.at') / 1000, 'unixepoch') as at,
-       json_extract(data, '$.entry') as message, json_extract(data, '$.kind') as kind, data
-from entries where conversation_id = 140844 and kind = 'ade.trail'
+select id, datetime(json_extract(record, '$.data.at') / 1000, 'unixepoch') as at,
+       json_extract(record, '$.data.entry') as message, json_extract(record, '$.data.kind') as step,
+       json_extract(record, '$.data') as data
+from entries
+where json_extract(record, '$.kind') = 'ade.trail' and json_extract(record, '$.data.thread') = 140844
 order by id desc limit 20;
 ```
 

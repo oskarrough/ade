@@ -452,7 +452,7 @@ export function server(core) {
 		if (at !== undefined) await demand(home.thread, { fill: 'leaves', upTo: at + 1 })
 	}
 
-	async function catchUp(threadId, held, all, agent, told) {
+	async function catchUp(threadId, held, agent, told) {
 		if (!remembers(await core.thread(threadId))) return held.map(told).join('\n\n')
 		const most = await budget(agent)
 		let first = held.length - 1,
@@ -461,8 +461,8 @@ export function server(core) {
 			size += bytes(told(held[--first])) + 2
 		const whole = held.slice(first).map(told).join('\n\n')
 		if (!first) return whole
-		const at = (entry) => all.findIndex((message) => message.id === entry.id)
-		const { have } = await indexOf(core, threadId)
+		const { have, positions } = await indexOf(core, threadId)
+		const at = (entry) => positions.get(entry.id)
 		const older = shown(have, at(held[first - 1]) + 1, Math.min(most, PANEL), at(held[0]))
 		return `${render(older)}\n\n${whole}`
 	}

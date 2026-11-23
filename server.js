@@ -228,8 +228,9 @@ const ROUTE = 'ade.route'
 const WITHDRAWAL = 'ade.withdrawal'
 const WITHDRAWN = 'withdrawn'
 /**
- * One step of a message's story, written in the commit that takes it: `{entry, at, kind, …}`, `entry` the message it's
- * about. The thread's trail reads them back (GET /api/threads/:id/trail).
+ * One step of a message's story, written in the commit that takes it: `{thread, entry, at, kind, …}`, `entry` the
+ * message it's about. They go in a conversation of the thread's own, its `trail`, so reading messages never reads them;
+ * the thread's trail reads them back (GET /api/threads/:id/trail).
  */
 const TRAIL = 'ade.trail'
 /** An agent's input in its conversation; `held` names the thread messages it gave */
@@ -275,6 +276,8 @@ const Thread = defineDoc({
 		unpicked: [],
 		/** With inbox on, the open question dismissed from it: its message id */
 		dismissed: null,
+		/** The conversation its trail's steps go in, from its first; a fork starts its own */
+		trail: null,
 	}),
 })
 const Receipts = defineDocFamily({
@@ -299,12 +302,27 @@ const Draft = defineDocFamily({
 	initial: () => ({ key: '', text: '', images: [], pick: null }),
 })
 const now = () => new Date().toISOString()
-/** Writes one step of the trail, inside the commit that takes it; `entry` may be undefined for a step of no message */
-const trailed = (tx, threadId, entry, kind, data = {}) =>
-	tx.appendEntry(threadId, {
+/**
+ * Writes one step of the trail, inside the commit that takes it, starting the thread's trail conversation with its
+ * first; `entry` may be undefined for a step of no message
+ */
+async function trailed(tx, threadId, entry, kind, data = {}) {
+	const row = await tx.doc(Thread, threadId)
+	if (!row.trail) {
+		const anchor = await tx.createTask(Anchor, null, { ...own, conversationId: threadId })
+		row.trail = (await tx.createConversation({ ownership: { kind: 'task', taskId: anchor } })).id
+	}
+	return tx.appendEntry(row.trail, {
 		kind: TRAIL,
-		data: { ...(entry === undefined ? {} : { entry }), at: Date.now(), kind, ...data },
+		data: {
+			thread: threadId,
+			...(entry === undefined ? {} : { entry }),
+			at: Date.now(),
+			kind,
+			...data,
+		},
 	})
+}
 const ownerless = { ownership: { kind: /** @type {const} */ ('ownerless') } }
 const own = { ownership: { kind: /** @type {const} */ ('conversation') } }
 const waiting = (on, phase) => ({
@@ -353,28 +371,25 @@ const Admit = defineTask({
 			/** A folder renamed or deleted under the agent: it doesn't run there, and what it was asked waits for another folder */
 			const missing = await gone(agent, rt.signal)
 			if (missing) return rt.commit(() => finished('completed', { held, missing }), ctx)
-			const all = await messages(threadId)
+			// It reads only from the first message it takes on, however long the thread
+			const since = await messagesFrom(threadId, Math.min(...held))
 			const mine = await Promise.all(
-				all
+				since
 					.filter((entry) => held.includes(entry.id))
 					.map((entry) => skillCommand(row, entry, agent, rt.signal)),
 			)
-			const people = (upTo) => [
-				...new Set(
-					all
-						.filter((entry) => entry.id <= upTo && person(row, entry))
-						.map((entry) => entry.data.author),
-				),
-			]
+			const first = await firstWrote(threadId)
+			const people = (upTo) =>
+				[...first]
+					.filter(([author, at]) => at <= upTo && !row.agents[keyOf(author)])
+					.map(([author]) => author)
 			/** One person's words come as typed; once a second has written, each person's come tagged, and the agent hears whose the untagged ones were */
 			const plain = people(Math.max(...held)).length < 2
 			const before = people(Math.min(...held) - 1)
 			const joined =
 				!plain && before.length === 1 && `[Every message above without a tag is ${before[0]}'s.]`
 			const say = (entry) => said(entry, plain && person(row, entry))
-			const told = catchUp
-				? await catchUp(threadId, mine, all, agent, say)
-				: mine.map(say).join('\n\n')
+			const told = catchUp ? await catchUp(threadId, mine, agent, say) : mine.map(say).join('\n\n')
 			const text = [note, joined, told].filter(Boolean).join('\n\n')
 			const images = mine.flatMap((entry) => entry.data.images ?? [])
 			const content = images.length ? [...(text ? [{ type: 'text', text }] : []), ...images] : text
@@ -830,10 +845,13 @@ async function conversationRecord(id) {
 }
 /** Each thread's people who wrote there, read once and kept as commits land; see `authors` below */
 const writers = new Map()
-const heardAuthor = (entry) => {
-	const wrote = writers.get(entry.conversationId)
+const heardAuthor = (entry, wrote = writers.get(entry.conversationId)) => {
 	if (!wrote) return
-	if (entry.kind === KIND && !byAgent(entry.data)) wrote.authors.add(entry.data.author)
+	if (entry.kind === KIND && !byAgent(entry.data)) {
+		const { author, stopped } = entry.data
+		wrote.authors.add(author)
+		if (!stopped) wrote.first.set(author, Math.min(wrote.first.get(author) ?? Infinity, entry.id))
+	}
 	wrote.after = Math.max(wrote.after, entry.id)
 }
 harness.observeCommits({
@@ -1164,6 +1182,8 @@ async function messages(id) {
 	await conversation(id)
 	return routed(await entries(id))
 }
+/** A thread's messages from `first` on, each with its pick, reading no further back */
+const messagesFrom = async (id, first) => newest(await conversation(id), { after: first - 1 })
 /**
  * A thread's messages among its entries, each with the director's pick for it, once there is one; a withdrawn one keeps
  * its place, so positions hold, but only its author and `withdrawn`
@@ -1221,8 +1241,23 @@ async function back(id, kind, look) {
 		if (found) return found
 	}
 }
+/** Whom the thread's newest message that asked anyone asked, read back from its end until it's found */
 async function lastAsked(id) {
-	const names = (await messages(id)).findLast((entry) => entry.data.to)?.data.to ?? []
+	const handle = await conversation(id)
+	const routes = new Map()
+	let names = []
+	read: for (let cursor; ;) {
+		const page = await handle.entries({ order: 'descending' }, 200, cursor, context)
+		for (const entry of page.items) {
+			if (entry.kind === ROUTE || entry.kind === WITHDRAWAL) routed([entry], routes)
+			const to = entry.kind === KIND && withRoute(entry, routes).data.to
+			if (to) {
+				names = to
+				break read
+			}
+		}
+		if (!(cursor = page.next)) break
+	}
 	const { agents } = await thread(id)
 	return Promise.all(
 		names.map((name) =>
@@ -1532,7 +1567,9 @@ async function outcome(threadId, agent, settled, mine) {
 				).flatMap((entry) => entry.data.held)
 			: mine,
 	)
-	const held = (await messages(threadId)).filter((entry) => ids.has(entry.id))
+	const held = ids.size
+		? (await messagesFrom(threadId, Math.min(...ids))).filter((entry) => ids.has(entry.id))
+		: []
 	/** A thread answers the thread that started it on its own; a post from anywhere else gets an answer only through `post` */
 	const { parent } = await thread(threadId)
 	const asks = held.filter((entry) => entry.data.from && !entry.data.re)
@@ -1648,7 +1685,7 @@ async function status(id, row, busy, reader) {
 	/** An answer or error unread, or a read since: the newest entries say, unless none of them does */
 	const said = (entry) => {
 		if (seen.has(entry.id)) return 'idle'
-		if (entry.kind !== KIND || entry.data?.shell?.error === 'stopped') return undefined
+		if (entry.data?.shell?.error === 'stopped') return undefined
 		if (entry.data?.answer || entry.data?.error || entry.data?.shell)
 			return entry.data.error || entry.data.shell?.error ? 'error' : 'done'
 	}
@@ -1675,7 +1712,7 @@ async function people(id) {
 async function authors(id) {
 	let wrote = writers.get(id)
 	if (!wrote) {
-		wrote = { after: 0, authors: new Set(), ready: undefined }
+		wrote = { after: 0, authors: new Set(), first: new Map(), ready: undefined }
 		writers.set(id, wrote)
 		const loading = wrote
 		wrote.ready = (async () => {
@@ -1683,13 +1720,7 @@ async function authors(id) {
 			const read = await collect((cursor) =>
 				handle.entries({ order: 'ascending', minEntryId: loading.after + 1 }, 500, cursor, context),
 			)
-			for (const record of read) {
-				const entry = /** @type {import("@earendil-works/pi-durable").TypedEntry<Message>} */ (
-					record
-				)
-				if (entry.kind === KIND && !byAgent(entry.data)) loading.authors.add(entry.data.author)
-				loading.after = Math.max(loading.after, entry.id)
-			}
+			for (const record of read) heardAuthor(record, loading)
 		})()
 		wrote.ready.catch(() => writers.get(id) === loading && writers.delete(id))
 	}
@@ -1698,10 +1729,15 @@ async function authors(id) {
 	 * stores hold names anyone could claim */
 	return [...wrote.authors].filter((name) => name === owner || name.startsWith('~'))
 }
+/** When each one who isn't an agent first wrote in a thread, by name, a stop aside: a message id */
+async function firstWrote(id) {
+	await authors(id)
+	return writers.get(id).first
+}
 
 /** `homes`, each bot's home thread → its name, its `doc` and the `runners` as known save reading them for every row of a list */
 async function threadRow(id, reader, all, homes, doc, runnersKnown) {
-	const { reads, hidden, dismissed: _, picks: __, ...row } = doc ?? (await thread(id))
+	const { reads, hidden, dismissed: _, picks: __, trail: ___, ...row } = doc ?? (await thread(id))
 	const busy = all.filter((job) => job.thread === id)
 	const agents = await agentsIn(row, busy, runnersKnown)
 	const rowStatus = await status(id, { ...row, reads }, busy, reader)
@@ -1722,10 +1758,7 @@ async function threadRow(id, reader, all, homes, doc, runnersKnown) {
 		status: rowStatus,
 		unread: ['done', 'error'].includes(rowStatus),
 		/** The id of its newest message, which sorts threads by latest activity; its own id before it has one */
-		latest:
-			(await recent(id)).entries.findLast(
-				(entry) => entry.kind.startsWith('ade.') && entry.kind !== TRAIL,
-			)?.id ?? id,
+		latest: (await recent(id)).entries.findLast((entry) => entry.kind.startsWith('ade.'))?.id ?? id,
 		...(!hidden && familyField(id)),
 		conversation: await conversationRecord(id),
 	}
@@ -1907,8 +1940,11 @@ async function threadView(id, reader, { after, before, last } = {}) {
  * only: its own steps and the runs that took it; else the newest `last` steps.
  */
 async function trail(id, { entry = undefined, last = 200 } = {}) {
-	const handle = await conversation(id)
+	await conversation(id)
+	const kept = (await thread(id)).trail
+	const handle = kept && (await harness.conversation(kept, context))
 	const steps = []
+	if (!handle) return steps
 	for (let cursor; ;) {
 		const page = await handle.entries(
 			entry === undefined ? { order: 'descending' } : { order: 'ascending', minEntryId: entry },
@@ -3666,7 +3702,7 @@ feed.define('trail/', {
 	match: (change, param) =>
 		change.type === 'entry' &&
 		change.value.kind === TRAIL &&
-		change.value.conversationId === Number(param),
+		/** @type {any} */ (change.value.data).thread === Number(param),
 })
 
 feed.define('server', {
