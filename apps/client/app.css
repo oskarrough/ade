@@ -419,6 +419,12 @@ agent-memory {
 	min-width: 0;
 	height: 100%;
 	background: Canvas;
+
+	/* Beside its own side column a thread gives way first, so the two fit a narrow window without scrolling sideways. */
+	&:has(+ .side-edge + .side) {
+		flex-shrink: 1;
+		min-width: min(100%, 20rem);
+	}
 	border-right: 1px solid var(--line);
 	transition: opacity var(--duration-popover) var(--ease-out);
 
