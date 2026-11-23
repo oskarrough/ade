@@ -59,8 +59,10 @@ export async function runnerBundle(dir) {
 }
 
 function encode(value) {
-	return JSON.stringify(value, (key, item) => {
-		if (item instanceof Uint8Array) return { $bytes: Buffer.from(item).toString('base64') }
+	return JSON.stringify(value, function (key, item) {
+		// A Buffer turns itself into JSON before this sees it; its bytes are still the holder's
+		if (this[key] instanceof Uint8Array)
+			return { $bytes: Buffer.from(this[key]).toString('base64') }
 		if (item instanceof FileError || item instanceof ExecutionError)
 			return {
 				$error: item.constructor.name,

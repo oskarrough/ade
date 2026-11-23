@@ -26,6 +26,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   committed                         modules' hook of that name: each commit Pi stored, whole, with its seq
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
+  shown                             images an answer shows as `![](path)`, read through its runner and attached
   reachable                         a message waits for its agent's runner
   moveAgent, keysOf                 move an agent to another runner (POST /api/threads/:id/move)
   finishShell                       a shell's output and outcome, committed together

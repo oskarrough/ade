@@ -288,7 +288,7 @@ export function server(core) {
 			"Answers to your posts wake you, even mid-turn: while you wait for one, end your turn with no text, and don't sleep or poll.",
 	}
 
-	async function reply(posts, answeredIn, agent, body) {
+	async function reply(posts, answeredIn, agent, body, images) {
 		const replies = []
 		for (const from of new Set(posts.map((post) => post.data.from))) {
 			const done = await answered(from, answeredIn)
@@ -307,6 +307,7 @@ export function server(core) {
 				data: {
 					author: agent,
 					body: body.slice(0, 8000),
+					...(images ? { images } : {}),
 					...(askers.length ? { to: askers } : {}),
 					from: answeredIn,
 					re: mine.map((post) => post.id),

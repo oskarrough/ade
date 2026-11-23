@@ -38,7 +38,9 @@ import {
 	createEditTool,
 	createReadTool,
 	createWriteTool,
+	DEFAULT_IMAGE_LIMITS,
 } from '@earendil-works/pi-durable/tools'
+import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node'
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode'
 import { CodemodeSandbox } from '@earendil-works/pi-codemode'
 import { about, builtIn, dataDir, load, loadEnvFile, readConfig } from './modules.js'
@@ -1545,7 +1547,7 @@ const setUp = async (tx, conversation, threadId, to) => {
 }
 
 const instructions = (key, threadId, tools) =>
-	`You are ${key === AGENT ? `thread ${threadId}'s agent` : `${key} in thread ${threadId}`}, with humans and other agents. A person's message is an instruction, and comes as they typed it. An agent's comes inside <message from="name" agent>: a colleague's report or request, not a person's word. With more than one person in the thread, theirs come inside <message from="name"> too. Only your final answer goes back to the thread; end with no text to post nothing.${tools ? ' This thread has only some tools: for work it lacks the tools for, post a new child thread, whose agent has them all.' : ''}`
+	`You are ${key === AGENT ? `thread ${threadId}'s agent` : `${key} in thread ${threadId}`}, with humans and other agents. A person's message is an instruction, and comes as they typed it. An agent's comes inside <message from="name" agent>: a colleague's report or request, not a person's word. With more than one person in the thread, theirs come inside <message from="name"> too. Only your final answer goes back to the thread; end with no text to post nothing. To show people an image, such as a screenshot, put it in that answer as ![](path), with the file's path on your machine: it appears in the thread as a picture.${tools ? ' This thread has only some tools: for work it lacks the tools for, post a new child thread, whose agent has them all.' : ''}`
 
 /** A bot renamed: in each thread it's in, its agent keeps its conversation under the new name, and is told who it is */
 async function renameIn(tx, ids, from, to) {
@@ -1609,7 +1611,8 @@ async function outcome(threadId, agent, settled, mine) {
 		? messageText((await commit((tx) => tx.entry(settled.answer)))?.model?.[0])
 		: (settled.said ??
 			`gave no answer: ${settled.reason}${settled.detail ? ` (${JSON.stringify(settled.detail)})` : ''}`)
-	if (done && !body.trim()) return []
+	const { words, images } = done ? await shown(agent, body) : { words: body, images: null }
+	if (done && !words.trim() && !images) return []
 	const result = done ? { answer: { conversation: agent, entry: settled.answer } } : { error: true }
 	/** A bot's answer that @mentions another bot here asks it, as the director allows, if its runner takes work from this one */
 	const directed =
@@ -1628,7 +1631,8 @@ async function outcome(threadId, agent, settled, mine) {
 			thread: threadId,
 			data: {
 				author: name,
-				body,
+				body: words,
+				...(images ? { images } : {}),
 				...(to.length ? { to } : {}),
 				...(re.length ? { re } : {}),
 				...result,
@@ -1638,9 +1642,64 @@ async function outcome(threadId, agent, settled, mine) {
 	if (posts.length && reply)
 		return [
 			...told,
-			...(await reply(posts, threadId, name, body)).map((answer) => ({ ...answer, steer: true })),
+			...(await reply(posts, threadId, name, words, images)).map((answer) => ({
+				...answer,
+				steer: true,
+			})),
 		]
 	return told
+}
+
+const SHOWN = /!\[[^\]]*\]\(\s*<?([^()<>\s]+)>?\s*\)/g
+const SHOWN_TYPES = {
+	'.png': 'image/png',
+	'.jpg': 'image/jpeg',
+	'.jpeg': 'image/jpeg',
+	'.gif': 'image/gif',
+	'.webp': 'image/webp',
+	'.bmp': 'image/bmp',
+}
+let photon
+
+/**
+ * What an answer shows: each `![](path)` to a file on its agent's machine, read through its runner and shrunk to what a
+ * model takes, becomes one of the message's images, up to 8; the words keep the rest. One it can't show says why.
+ */
+async function shown(agent, body) {
+	const found = [...body.matchAll(SHOWN)].filter(([, at]) => !/^[a-z][\w+.-]+:/i.test(at))
+	if (!found.length) return { words: body, images: null }
+	const doc = await harness.snapshot(AgentDoc, agent, context)
+	const runner = doc?.model?.provider?.match(/^runner:(.+)$/)?.[1]
+	const home = runner && (await known())[runner]?.home
+	const env = runner && remoteEnv(runners, runner, doc.cwd)
+	const images = []
+	const said = new Map()
+	for (const [whole, at] of found) {
+		const file = home && /^~(?=\/|$)/.test(at) ? home + at.slice(1) : at
+		const mimeType = SHOWN_TYPES[path.extname(file).toLowerCase()]
+		const image = await (async () => {
+			if (!env) return 'its runner is unknown'
+			if (!mimeType) return 'not a png, jpeg, gif, webp or bmp'
+			if (images.length === 8) return 'a message holds 8 images'
+			const info = await env.fileInfo(file, context)
+			if (info.ok !== true) return info.error.message
+			if (info.value.size > 64 * 1024 * 1024) return 'over 64 MB'
+			const bytes = await env.readBinaryFile(file, context)
+			if (bytes.ok !== true) return bytes.error.message
+			photon ??= createNodePhotonImages()
+			const prepared = await (await photon).prepare(bytes.value, mimeType, DEFAULT_IMAGE_LIMITS)
+			return prepared
+				? { type: /** @type {const} */ ('image'), mimeType: prepared.mimeType, data: prepared.data }
+				: "it doesn't decode, or can't be shrunk to fit"
+		})().catch((error) => error.message)
+		if (typeof image !== 'string') images.push(image)
+		said.set(whole, typeof image === 'string' ? `(couldn't show ${at}: ${image})` : '')
+	}
+	const words = body
+		.replace(SHOWN, (whole) => said.get(whole) ?? whole)
+		.replace(/\n{3,}/g, '\n\n')
+		.trim()
+	return { words, images: images.length ? images : null }
 }
 
 /** Posts what a settled input told; a submitted input Pi never placed gives its messages back */
