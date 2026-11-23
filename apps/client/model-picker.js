@@ -5,7 +5,7 @@ import { api, runners } from './server.js'
 import { modelsOf, THINKING_LEVELS, thinkingWord } from './agent.js'
 import { Dot } from './dot.js'
 import { Icon } from './icons.js'
-import { ConnectRunner } from './runner.js'
+import { canLogIn, ConnectRunner, LogIn, logins } from './runner.js'
 
 /** Every word of the search is somewhere in the text. */
 export const matches = (search, text) =>
@@ -145,17 +145,21 @@ function PickerRunner(runner, props, search) {
 	const [opened, setAll] = createSignal(false)
 	const all = () => opened() || !modelsOf(runner, props.getTo(runner)).length
 	const [available, setAvailable] = createSignal([])
-	let asked = false
+	let asked = -1
+	// Asked once, and again after the window comes back from a login
 	createEffect(
-		() => ((search() || all()) && runner.online ? runner.name : null),
-		(name) => {
-			if (!name || asked) return
-			asked = true
-			api(`/api/runners/${encodeURIComponent(name)}/available`).then(setAvailable, () => {
-				asked = false
+		() => ((search() || all()) && runner.online ? logins() : null),
+		(round) => {
+			if (round === null || asked === round) return
+			asked = round
+			api(`/api/runners/${encodeURIComponent(runner.name)}/available`).then(setAvailable, () => {
+				asked = -1
 			})
 		},
 	)
+	/** Only echo answers here: pi isn't logged in to any model */
+	const echoOnly = () =>
+		available().length > 0 && available().every((model) => model.startsWith('echo/'))
 	const found = (model) => matches(search(), `${model} ${runner.name}`)
 	const scoped = () => modelsOf(runner, to())
 	const scopedFound = () => scoped().filter(found)
@@ -196,6 +200,9 @@ function PickerRunner(runner, props, search) {
 					<${Show} when=${() => rest().length}>
 						<h3>All models</h3>
 						<${For} each=${rest}>${choice}<//>
+					<//>
+					<${Show} when=${() => !search() && echoOnly() && canLogIn(runner)}>
+						<p class="login">Only echo answers here. <${LogIn} /></p>
 					<//>
 				</div>
 			</li>

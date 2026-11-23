@@ -2,6 +2,10 @@
 
 ## 0.1.8
 
+- "Log in to a model" in the model picker, while only echo answers: it opens pi in a terminal, where `/login` logs you in, and the picker lists the models when you're back.
+
+## 0.1.8
+
 - On macOS, Cmd+A, C, V, X and Z work again: the menu bar has its Edit menu back, beside House.
 
 ## 0.1.7

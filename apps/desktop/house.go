@@ -258,6 +258,15 @@ func askToStart() bool {
 	return <-answer
 }
 
+// Login opens pi in a terminal on this machine, to log in to a model with
+// /login; the page offers it when the house's runner has none.
+func (Desktop) Login() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := runHouse(ctx, "login", loadHouse())
+	return err
+}
+
 // findLog learns where the log is before anything starts, for Open house log.
 func findLog() {
 	go func() {

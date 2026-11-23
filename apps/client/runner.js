@@ -53,7 +53,11 @@ export function Runner(props) {
 			</button>
 			<small>${() => runner().dir}</small>
 			<${Show} when=${() => runner().dir && !models().length}
-				><small>No models here yet: run pi there and /login.</small><//
+				><small
+					>No models here
+					yet:${' '}${() =>
+						canLogIn(runner()) ? html`<${LogIn} />` : 'run pi there and /login.'}</small
+				><//
 			>
 			<${Show} when=${() => !runner().dir}
 				><small>Not connected yet. Run the command on ${() => runner().name}.</small><//
@@ -226,6 +230,34 @@ function RunnerItem(props) {
 }
 
 /** A name makes a key and the command that connects it; a name already in the list gets a new one. */
+const desktop = /** @type {any} */ (window).mygo
+
+/** Whether this window can open a terminal on the runner's machine: arbe desktop, on its server's own runner, here */
+export const canLogIn = (runner) =>
+	Boolean(desktop) && runner.own && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+
+/** Counts the window's returns from a login, so pickers ask runners for their models again */
+export const [logins, setLogins] = createSignal(0)
+
+/** Opens pi in a terminal on this machine, where /login logs in to a model; pi keeps the login, not ade */
+export function LogIn() {
+	const open = busy(async () => {
+		await desktop.call('Desktop.Login')
+		addEventListener('focus', () => setLogins((count) => count + 1), { once: true })
+	})
+	return html`<button
+		type="button"
+		class="small"
+		title="Opens pi in a terminal: type /login and pick a provider"
+		onClick=${(event) => {
+			event.stopPropagation()
+			open()
+		}}
+	>
+		<${Busy} state=${open.state}>Log in to a model<//>
+	</button>`
+}
+
 export function ConnectRunner(props) {
 	const [name, setName] = createSignal(props.name ?? '')
 	const [error, setError] = createSignal('')

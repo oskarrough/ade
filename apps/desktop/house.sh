@@ -159,6 +159,45 @@ update)
 	cp -R "$own/ade.next/." "$own/ade/" && rm -rf "$own/ade.next"
 	echo "$(date '+%F %T'): updated ade to $(printf %.12s "$commit")"
 	;;
+login)
+	# pi in a terminal of its own, where you log in to a model with /login; the runner reads its logins as they change
+	if command -v pi > /dev/null; then
+		pi="$(command -v pi)"
+	else
+		node_on_path || exit 1
+		pi="$own/ade/node_modules/.bin/pi"
+		[ -x "$pi" ] || {
+			echo "There's no pi here to log in with: npm i -g @earendil-works/pi-coding-agent" >&2
+			exit 1
+		}
+	fi
+	file="$state/login.command"
+	cat > "$file" <<- EOF
+		#!/bin/sh
+		PATH='$(printf %s "$PATH" | sed "s/'/'\\\\''/g")'
+		export PATH
+		cd
+		clear
+		echo "Type /login and pick a provider. Close this window when you're done."
+		echo
+		exec '$pi'
+	EOF
+	chmod +x "$file"
+	if [ "$(uname -s)" = Darwin ]; then
+		open "$file"
+	elif [ -n "${WSL_DISTRO_NAME:-}" ]; then
+		cmd.exe /c start "" wsl.exe -d "$WSL_DISTRO_NAME" -e sh "$file" 2> /dev/null
+	else
+		for terminal in x-terminal-emulator gnome-terminal konsole xfce4-terminal kitty alacritty foot xterm; do
+			command -v "$terminal" > /dev/null || continue
+			[ "$terminal" = gnome-terminal ] && flag=-- || flag=-e
+			setsid "$terminal" $flag sh "$file" > /dev/null 2>&1 < /dev/null &
+			exit 0
+		done
+		echo "No terminal to open; run $pi and type /login" >&2
+		exit 1
+	fi
+	;;
 *)
 	if ours; then echo running; else echo stopped; fi
 	;;
