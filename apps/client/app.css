@@ -369,6 +369,13 @@ agent-memory {
 	&:focus-within button {
 		visibility: visible;
 	}
+
+	/* On the Archived page, Unarchive is what a row is there for: always in sight, beside the title. */
+	&.archived > button.archive {
+		position: static;
+		translate: none;
+		visibility: visible;
+	}
 }
 
 /* Without hover, the open thread's row keeps its archive button in sight, and a runner its revoke. */
@@ -2064,8 +2071,8 @@ button.foot-toggle {
 	}
 }
 
-/* The side column's edges drag the same way; they take no room between it and the threads beside it, and at the window's edge there is none. */
-.side-edge {
+/* The side column's edges drag the same way, and so does the edge between two threads; they take no room between the columns, and at the window's edge there is none. */
+:is(.side-edge, .column-edge) {
 	flex: none;
 	align-self: stretch;
 	position: relative;
@@ -2882,10 +2889,14 @@ body.resizing {
 
 /* arbe desktop hides the OS title bar so the top rows double as the window's own, clear of its buttons: a pane's header by as much as desktop.js measures the pane reaching under them. */
 :root[data-desktop] {
-	.thread-list > ul.top-row {
+	.thread-list > :is(ul.top-row, .page-head) {
 		min-height: max(var(--header-height), var(--mygo-titlebar-height, 0px));
 		padding-left: var(--mygo-titlebar-inset-left, 0px);
 		--app-region: drag;
+	}
+
+	.thread-list > .page-head {
+		margin-left: 0;
 	}
 
 	.thread > header {

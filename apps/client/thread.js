@@ -23,6 +23,7 @@ import {
 	bots,
 	closeColumn,
 	colorOf,
+	archivedThreads,
 	columns,
 	current,
 	earlier,
@@ -97,7 +98,10 @@ const fetched = new Map()
 const SHOWN = 40
 
 export function Thread(props) {
-	const thread = createMemo(() => threadOf(props.id))
+	/** An archived thread isn't in the open list, so its row comes from the archived one */
+	const thread = createMemo(
+		() => threadOf(props.id) ?? archivedThreads.find((row) => row.id === props.id),
+	)
 	const messages = () => entries[props.id] ?? []
 	/** The forks made from any message shown here, by `thread entry`; a fork is in its source's family, so only the family is read */
 	const forks = createMemo(() => {

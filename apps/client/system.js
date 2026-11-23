@@ -107,7 +107,10 @@ export function System() {
 							<${Usage} />
 						<//>
 						<${For} each=${() => (activePage() === 'threads' ? columns() : [])}
-							>${(id) => html`
+							>${(id, index) => html`
+								<${Show} when=${() => index() > 0 && !sideOf(columns()[index() - 1])}>
+									<${ColumnEdge} id=${() => columns()[index() - 1]} />
+								<//>
 								<${Thread} id=${() => id} />
 								<${Show} when=${() => sideOf(id)}>
 									<${SideEdge} />
@@ -202,6 +205,41 @@ function SideEdge(props) {
 	})
 }
 
+/** The edge between two threads side by side sets the left one's width, kept per thread; the threads after it share the rest. */
+function ColumnEdge(props) {
+	let edge
+	const column = () => edge.previousElementSibling
+	const fit = (px) => Math.round(Math.max(px, 288))
+	const apply = (px) => {
+		column().style.flex = px ? `0 0 ${px}px` : ''
+	}
+	const set = (px) => {
+		apply(px)
+		columnWidths.set(props.id, px)
+	}
+	onSettled(() => {
+		const shown = column()
+		apply(columnWidths.get(props.id))
+		return () => {
+			shown.style.flex = ''
+		}
+	})
+	return Edge({
+		ref: (el) => (edge = el),
+		label: 'Thread width',
+		width: () => column().offsetWidth,
+		drag: () => {
+			const left = column().getBoundingClientRect()
+			const right = edge.nextElementSibling.getBoundingClientRect()
+			const most = left.width + right.width - 288
+			return (pointer) => set(fit(Math.min(pointer.clientX - left.left, most)))
+		},
+		set: (_edge, px) => set(px && fit(px)),
+		grow: 1,
+		edge: 'column-edge',
+	})
+}
+
 function Edge(props) {
 	return html`
 		<div
@@ -258,3 +296,26 @@ function width(key, property) {
 }
 const listWidth = width('ade.list-width', '--list-width')
 const sideWidth = width('ade.side-width', '--side-width')
+
+/** Each thread's dragged width, by id, here on this device */
+const columnWidths = {
+	key: 'ade.column-widths',
+	all() {
+		try {
+			return JSON.parse(localStorage.getItem(this.key) ?? '{}')
+		} catch {
+			return {}
+		}
+	},
+	get(id) {
+		return this.all()[id]
+	},
+	set(id, px) {
+		const all = this.all()
+		if (px) all[id] = px
+		else delete all[id]
+		try {
+			localStorage.setItem(this.key, JSON.stringify(all))
+		} catch {}
+	},
+}

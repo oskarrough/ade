@@ -338,7 +338,10 @@ export function ThreadItem(props) {
 		<li
 			title=${() => (cards ? undefined : props.thread.title)}
 			style=${() => `--depth: ${props.depth ?? 0}`}
-			class=${() => ({ current: page().kind === 'threads' && props.thread.id === current() })}
+			class=${() => ({
+				current: page().kind === 'threads' && props.thread.id === current(),
+				archived: props.archived,
+			})}
 		>
 			<a
 				class="row"
