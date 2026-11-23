@@ -26,6 +26,7 @@ const usage = `ade [--server url] <command>
                    A message starting with "$ " runs a command on the runner.
   threads          every thread, with its status and agents
   read <thread>    a thread's messages, or its --last N, or those --after id
+  trail <thread>   what happened in it, step by step, or only to one --message id
   wait <thread>    wait until its agents are done, then print the answers to the latest ask, or all --after id
   runners          every runner holding a key, online or not, and its models
   key <name>       a new key for the runner of that name, replacing its old one, and the line that
@@ -66,6 +67,7 @@ const {
 	'no-wait': { type: 'boolean' },
 	last: { type: 'string' },
 	after: { type: 'string' },
+	message: { type: 'string' },
 	help: { type: 'boolean', short: 'h' },
 })
 
@@ -225,6 +227,13 @@ const commands = {
 			`/api/threads/${Number(rest[0])}${query.length ? `?${query.join('&')}` : ''}`,
 		)
 		for (const entry of entries.slice(-(Number(flags.last) || entries.length))) show(entry)
+	},
+	async trail() {
+		const message = flags.message === undefined ? '' : `?entry=${Number(flags.message)}`
+		for (const step of await api('GET', `/api/threads/${Number(rest[0])}/trail${message}`))
+			console.log(
+				`${new Date(step.at).toLocaleTimeString()}  ${step.entry === undefined ? '' : `#${step.entry} `}${step.text}`,
+			)
 	},
 	async wait() {
 		const id = Number(rest[0])

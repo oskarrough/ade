@@ -42,7 +42,7 @@ Write routes (`POST` and `DELETE`) include `seq` and `boot` in their JSON respon
 
 With the `inbox` module on, the agent's `ask_person({body})` tool posts a message with `waitingOnPerson: true`. Thread views and lists return `status: "blocked"` until a person's next message, even if agents keep writing. This takes precedence over live work and unread-answer status. It is derived from messages, not stored separately. The tool returns at once, so the agent may carry on or end its turn; the CLI's `post` and `wait` stop waiting once only the question is left. A thread's `busy` says whether it has work whatever its status shows: an agent answering or waiting for its runner, a `$` command, a director pick. With a question open and a command running, it's `blocked` and `busy`, and `wait` waits for the command.
 
-Everything a page hears from the server comes over one versioned feed on `/ws`. Subscribe with `{"sub": "<view>", "after": <seq?>, "boot": "<boot?>"}`, unsubscribe with `{"unsub": "<view>"}`, or ask to catch up to a write's version with `{"sync": "<view>", "seq": <seq>}`. Views are `server`, `runners`, `bots`, `inbox`, `threads`, `archived`, `schedule`, `schedule/<id>`, `recap/<id>`, `memory/<id>?room=<n>`, `usage?since=<ms>&zone=<ms>`, `usage/<id>?since=<ms>`, `thread/<id>`, `agents/<id>`, `activity/<id>`, and your own `draft/<id>` and `draft/new`. The server sends ordered envelopes:
+Everything a page hears from the server comes over one versioned feed on `/ws`. Subscribe with `{"sub": "<view>", "after": <seq?>, "boot": "<boot?>"}`, unsubscribe with `{"unsub": "<view>"}`, or ask to catch up to a write's version with `{"sync": "<view>", "seq": <seq>}`. Views are `server`, `runners`, `bots`, `inbox`, `threads`, `archived`, `schedule`, `schedule/<id>`, `recap/<id>`, `memory/<id>?room=<n>`, `usage?since=<ms>&zone=<ms>`, `usage/<id>?since=<ms>`, `thread/<id>`, `agents/<id>`, `trail/<id>`, and your own `draft/<id>` and `draft/new`. The server sends ordered envelopes:
 
 ```json
 {
@@ -63,7 +63,7 @@ Everything a page hears from the server comes over one versioned feed on `/ws`. 
 
 `reset: true` is the full bootstrap (and what a reconnect gets after a restart, mismatched `boot`, or eviction); later updates send only changed rows in `put` and removed keys in `del`, and a reconnect with `after` and the current `boot` gets only what changed since that `seq`. In `threads`, each row's `latest` is the id of its newest message (its own id until it has one), so thread rows sort by latest activity; each family's root row carries `family: [{id, depth}, ...]` and descendants carry `root`. In `bots`, each row carries its server-computed `color`, `defaultColor`, `customColor`, `working` and `status`. In `thread/<id>`, key `"thread"` holds the thread's row, `people` and `earlier`, and integer entry ids hold the shaped messages (the newest 15 on bootstrap, then every new message as `put`, a later director pick as a `put` of the same key, and a withdrawal as a `del`).
 
-In `agents/<id>`, each of the thread's agents has three kinds of row, keyed by its conversation: `<agent>/live`, what it does now as `{run, message, tools, delivery}` (the message it's writing, each tool call with its `args`, and the delivery it answers with the messages it `held`); `<agent>/cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`; and `<agent>/<entry id>`, each conversation entry, as far back as the thread's newest page. `agents/<id>?from=<message id>` reaches back to that message's turns instead, and `?from=0` to all of them. In `activity/<id>`, modules' events as they work, the newest 200 kept in memory until a restart, each `{key, n, at, purpose, kind, …}` in the order of `n`, where `kind: "call"` is a model call (`model`, `ms`, `tokens`, `outcome`: running, ok, error, timeout or stopped), whose end replaces its start under the same key. The director's (`purpose: "director"`) add `message`, `mention`, `wait`, `hold` (with the `names` typing), `dropped` and `picked` (with its `confidence`), the last once the pick is saved. Fetch earlier messages with `GET /api/threads/3?before=<id>&last=50`, and subscribe to `agents/3?from=<its oldest id>` for their agents' turns.
+In `agents/<id>`, each of the thread's agents has three kinds of row, keyed by its conversation: `<agent>/live`, what it does now as `{run, message, tools, delivery}` (the message it's writing, each tool call with its `args`, and the delivery it answers with the messages it `held`); `<agent>/cut`, its newest compaction as `{id, model, first}` (the summary, and the first message it still reads whole), or `null`; and `<agent>/<entry id>`, each conversation entry, as far back as the thread's newest page. `agents/<id>?from=<message id>` reaches back to that message's turns instead, and `?from=0` to all of them. In `trail/<id>`, the thread's newest 200 trail steps, keyed by `id`, each as `GET /api/threads/:id/trail` gives it. Fetch earlier messages with `GET /api/threads/3?before=<id>&last=50`, and subscribe to `agents/3?from=<its oldest id>` for their agents' turns.
 
 ```
 GET    /api/server                     modules, settings, `me`, who the server takes you for, `client`, what a reload of the page gets,
@@ -92,9 +92,33 @@ POST   /api/threads/:id/pause {paused}  only @mentions and named recipients get 
 POST   /api/threads/:id/move {conversation, runner}  moves that agent in place to another runner: its model and thinking there, its folder starting over; what it waits to answer goes with it
 POST   /api/threads/:id/typing {typing}  you're typing (a beat lasts 6 s) or stopped; the director's picks wait for it
 POST   /api/threads/:id/read
+GET    /api/threads/:id/trail          what happened, step by step, oldest first; `?entry=id` that message's story only
 POST   /api/threads/:id/stop
 POST   /api/threads/:id/compact
 GET    /api/conversations/:id          an agent's own conversation, tool calls and all
+```
+
+### The trail
+
+A thread's trail is what happened in it, one step at a time, like Temporal's event history. Each step is written in the same commit as what it records, as an `ade.trail` entry in the thread's own conversation, so it lasts as long as the thread and a restart can't lose it. `GET /api/threads/:id/trail` answers the newest 200 steps, oldest first; `?entry=<message id>` answers that message's story whole. `ade trail N` prints the same, and `--message id` one story. Each step is `{id, entry, at, kind, text, …}`: `entry` the message it's about, `at` epoch milliseconds, `text` the step as a plain line, and by `kind`:
+
+- `fired` `{task}`: a scheduled task posted this message; `skipped` `{task, why}`, with no `entry`: a run it skipped, or the one that ended it
+- `posted` `{author, to, direct?, picked?}`: a message to whom; `direct` when the director picks
+- `waited` `{ms, held?}`: the director's quiet before its pick, `held` when someone's typing kept it waiting
+- `picked` `{to, picked?, over?, chose?}`: whom the pick asks. `chose` is how it chose: `{model, outcome, ms, waited, choice, confidence, candidates, read}`, `read` the ids of the messages it read, or `error` when it failed; `over` when the author's next message took over
+- `started`, `answered`, `failed` `{reason}`, `stopped`: an agent's run, with its `agent` and the messages it `held`; `answered` names its `answer`
+- `nobody`: the message asked no one and nothing started
+- `withdrawn`: its author took it back
+
+An answer that asks no one in turn writes no `posted` of its own: its run's `answered` or `failed` is its story. The trail keeps no tokens and no transcript; an agent's conversation has those.
+
+By hand, with sqlite3, a thread's last 20 steps:
+
+```sql
+select id, datetime(json_extract(data, '$.at') / 1000, 'unixepoch') as at,
+       json_extract(data, '$.entry') as message, json_extract(data, '$.kind') as kind, data
+from entries where conversation_id = 140844 and kind = 'ade.trail'
+order by id desc limit 20;
 ```
 
 Modules add their own routes under `/api/<module>`. With `bots` on:

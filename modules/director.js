@@ -10,7 +10,8 @@
  * else's message gets a pick of its own. A pick waits `director.burst` seconds of quiet, then holds while anyone in the
  * thread is typing (a heartbeat lasts 6 s, a hold at most 20 s, sending or clearing ends it), then one model call
  * picks one candidate or nobody, with a confidence: TypeSafe's Jev when TYPESAFE_API_KEY is set, else the chooser
- * model. Pages hear all of it on `activity/<id>`, kept in memory only.
+ * model. How it chose (`chose`: model, choice, confidence, the wait, the call's time, the candidates and the ids of
+ * the messages it read) is a step in the thread's trail, written with the route.
  *
  * The chooser is `director.model` in ade.json, `provider/model:thinking`, optionally @runner (else the thread's), with
  * DIRECTOR_MODEL winning over it. Left empty, it's Haiku or Luna with thinking off when the thread agent's runner lists
@@ -68,12 +69,10 @@ export function server(core) {
 	const name = process.env.DIRECTOR_MODEL || own.model
 	const picks = own.picks !== false || Boolean(process.env.DIRECTOR_MODEL)
 	const { context, timeoutMs, burstMs } = directorTimes(own)
-	const tell = (threadId, event) => core.activity(threadId, { purpose: 'director', ...event })
-	let calls = 0
 
 	/**
-	 * The one judgment: given the recent messages, the new ones and who could answer, `{choice, confidence, reason,
-	 * tokens}`, `choice` a candidate's name or undefined for nobody. TypeSafe's Jev chooses when the server has
+	 * The one judgment: given the recent messages, the new ones and who could answer, `{choice, confidence, reason}`,
+	 * `choice` a candidate's name or undefined for nobody. TypeSafe's Jev chooses when the server has
 	 * TYPESAFE_API_KEY, else the chooser model fills the same choice. Throws when it can't choose.
 	 */
 	async function decide({ thread, said, fresh, candidates }, to, signal) {
@@ -84,13 +83,11 @@ export function server(core) {
 						(known) => known.toLowerCase() === choice.replace(/^@/, '').trim().toLowerCase(),
 					)
 				: undefined
-		const typed = (choice, confidence, reason, tokens) => {
+		const typed = (choice, confidence, reason) => {
 			const name = known(choice)
 			if (!name || typeof confidence !== 'number' || !(confidence >= 0 && confidence <= 1))
-				throw Object.assign(new Error(`the chooser returned no valid choice (${choice})`), {
-					tokens,
-				})
-			return { choice: name === 'nobody' ? undefined : name, confidence, reason, tokens }
+				throw new Error(`the chooser returned no valid choice (${choice})`)
+			return { choice: name === 'nobody' ? undefined : name, confidence, reason }
 		}
 		if (process.env.TYPESAFE_API_KEY) {
 			const response = await fetch(TYPESAFE, {
@@ -143,12 +140,7 @@ export function server(core) {
 				throw new Error(`TypeSafe ${response.status}: ${(await response.text()).slice(0, 200)}`)
 			const body = await response.json()
 			const { choice, confidence } = body.answers?.speaker ?? {}
-			return typed(
-				choice,
-				confidence,
-				`Jev, ${Math.round(confidence * 100)}% sure`,
-				body.usage?.input_tokens,
-			)
+			return typed(choice, confidence, `Jev, ${Math.round(confidence * 100)}% sure`)
 		}
 		const ask = [
 			'Conversation (newest last):',
@@ -169,18 +161,16 @@ export function server(core) {
 			],
 			{ signal, thread, purpose: 'director' },
 		)
-		const tokens = reply.usage?.totalTokens
 		let answer
 		try {
 			answer = JSON.parse(messageText(reply).match(/\{[\s\S]*\}/)?.[0] ?? '')
 		} catch {
-			throw Object.assign(new Error('the chooser answered no JSON'), { tokens })
+			throw new Error('the chooser answered no JSON')
 		}
 		return typed(
 			answer.choice,
 			answer.confidence,
 			typeof answer.reason === 'string' ? answer.reason.trim() : '',
-			tokens,
 		)
 	}
 
@@ -190,10 +180,11 @@ export function server(core) {
 	}
 
 	/**
-	 * Whom a saved message asks, `{to, picked}`: a model's pick over the messages before it, or on failure the thread's
-	 * agent. Pi's `signal` ending it (a stop, a restart) throws, so the task decides again or ends.
+	 * Whom a saved message asks, `{to, picked, chose}`: a model's pick over the messages before it, or on failure the
+	 * thread's agent; `chose` is how, from the pick's start `since`. Pi's `signal` ending it (a stop, a restart) throws,
+	 * so the task decides again or ends.
 	 */
-	async function pick(threadId, entry, covers, stopped) {
+	async function pick(threadId, entry, covers, stopped, since, held) {
 		const all = await core.messages(threadId)
 		const at = all.findIndex((one) => one.id === entry)
 		const message = all[at].data
@@ -227,11 +218,14 @@ export function server(core) {
 				}
 			}),
 		)
-		const said = all
+		const read = all
 			.slice(0, first)
 			.filter((entry) => !entry.data.shell)
 			.slice(-context)
-			.map(({ data }) => ({ author: data.author, body: (data.body ?? '').slice(0, SAID) }))
+		const said = read.map(({ data }) => ({
+			author: data.author,
+			body: (data.body ?? '').slice(0, SAID),
+		}))
 		const setup = participants.find((agent) => !agent.name) ?? participants[0]
 		const chosen = name && agentTo(name.includes('@') ? name : `${name}@${setup.runner}`)
 		// The model it's set to, while its runner is online; else a small one on any runner that is
@@ -247,20 +241,18 @@ export function server(core) {
 		chooser.thinkingLevel ??= 'off'
 		const timeout = AbortSignal.timeout(timeoutMs)
 		const signal = AbortSignal.any([timeout, stopped])
-		const call = ++calls
 		const started = Date.now()
 		const model = process.env.TYPESAFE_API_KEY ? `typesafe/${JEV}` : writtenTo(chooser)
-		tell(threadId, { kind: 'call', call, entry, model, outcome: 'running' })
-		const ended = (outcome, tokens) =>
-			tell(threadId, {
-				kind: 'call',
-				call,
-				entry,
-				model,
-				ms: Date.now() - started,
-				tokens,
-				outcome,
-			})
+		const chose = (outcome, more = {}) => ({
+			model,
+			waited: Math.max(0, started - (since ?? started)),
+			...(held ? { held } : {}),
+			ms: Date.now() - started,
+			outcome,
+			candidates: candidates.map((candidate) => candidate.name),
+			read: read.map((one) => one.id),
+			...more,
+		})
 		let decided
 		try {
 			if (!process.env.TYPESAFE_API_KEY) await core.runners.online(chooser.runner, signal)
@@ -270,16 +262,17 @@ export function server(core) {
 				signal,
 			)
 		} catch (error) {
-			if (stopped.aborted) throw (ended('stopped', error.tokens), error)
-			ended(timeout.aborted ? 'timeout' : 'error', error.tokens)
+			if (stopped.aborted) throw error
 			console.error(`director: thread ${threadId}: ${error.message}`)
 			const agent = here.find((agent) => !agent.name)
 			return {
 				to: agent ? [agent] : [],
 				picked: `Pick failed: ${timeout.aborted ? 'the chooser timed out' : 'the chooser could not choose'}. ${agent ? "The thread's agent answers." : 'No thread agent to answer; @mention a bot.'}`,
+				chose: chose(timeout.aborted ? 'timeout' : 'error', {
+					error: error.message,
+				}),
 			}
 		}
-		ended('ok', decided.tokens)
 		const to =
 			decided.choice === 'all'
 				? here
@@ -293,7 +286,10 @@ export function server(core) {
 		return {
 			to,
 			picked: decided.reason || (decided.choice ? `${decided.choice} fits` : 'nothing for them'),
-			confidence: decided.confidence,
+			chose: chose('ok', {
+				choice: decided.choice ?? 'nobody',
+				confidence: decided.confidence,
+			}),
 		}
 	}
 
@@ -316,7 +312,6 @@ export function server(core) {
 	async function supersede(tx, threadId, pick) {
 		const task = await nudge(tx, pick)
 		if (!task || task.state.status === 'terminal') return []
-		tell(threadId, { kind: 'dropped', entry: task.input.entry })
 		if (task.state.status === 'running')
 			core.afterCommit(tx, () => core.abortTask(pick).catch((error) => console.error(error)))
 		return [...(task.input.covers ?? []), task.input.entry]
@@ -373,11 +368,8 @@ export function server(core) {
 		})
 	}
 
-	/** Tells the Director tab what the committed route asks, after the runner check and any newer message */
-	const picked = (threadId, entry, route, confidence) =>
-		tell(threadId, { kind: 'picked', entry, to: route.to, reason: route.picked, confidence })
-
-	async function call({ id, conversationId: threadId, input }, rt, ctx) {
+	async function call(task, rt, ctx) {
+		const { id, conversationId: threadId, input, startedAt, state } = /** @type {any} */ (task)
 		const { entry, steer, author, covers = [] } = input
 		const row = await core.thread(threadId)
 		// Taken over by the author's next message, or before it got here (no burst, or a restart): no model call
@@ -386,13 +378,18 @@ export function server(core) {
 				? { to: [] }
 				: row.paused
 					? { to: [], picked: PAUSED }
-					: await pick(threadId, entry, covers, rt.signal)
-		let route
+					: await pick(
+							threadId,
+							entry,
+							covers,
+							rt.signal,
+							startedAt,
+							Boolean(state.checkpoint?.holdUntil),
+						)
 		await rt.commit(async (tx) => {
-			route = await core.route(tx, threadId, entry, routed, { steer, pick: id, covers })
+			await core.route(tx, threadId, entry, routed, { steer, pick: id, covers })
 			return finished()
 		}, ctx)
-		picked(threadId, entry, route, routed.confidence)
 	}
 
 	/**
@@ -424,18 +421,16 @@ export function server(core) {
 					)
 				const burstUntil = checkpoint.burstUntil ?? now + burstMs
 				const mine = (await core.thread(threadId)).picks?.[input.author] === id
-				if (mine && now < burstUntil) {
-					if (!round) tell(threadId, { kind: 'wait', entry: input.entry, ms: burstMs })
-					return sleep(burstUntil)
-				}
+				if (mine && now < burstUntil) return sleep(burstUntil)
 				const holdUntil = checkpoint.holdUntil ?? now + HOLD
 				const here = typingIn(threadId)
-				if (mine && here.size && now < holdUntil) {
-					tell(threadId, { kind: 'hold', entry: input.entry, names: [...here.keys()] })
+				if (mine && here.size && now < holdUntil)
 					return sleep(Math.min(holdUntil, ...here.values()), { holdUntil })
-				}
 				await rt.commit(
-					() => ({ status: /** @type {const} */ ('running'), checkpoint: { phase: 'call' } }),
+					() => ({
+						status: /** @type {const} */ ('running'),
+						checkpoint: { phase: 'call', ...(checkpoint.holdUntil ? { holdUntil } : {}) },
+					}),
 					ctx,
 				)
 				return call(task, rt, ctx)
@@ -447,9 +442,8 @@ export function server(core) {
 			rt,
 			ctx,
 		) => {
-			let route
 			await rt.commit(async (tx) => {
-				route = await core.route(
+				await core.route(
 					tx,
 					threadId,
 					entry,
@@ -458,23 +452,15 @@ export function server(core) {
 				)
 				return finished('aborted')
 			}, ctx)
-			picked(threadId, entry, route)
 		},
 	})
 
-	const directing = (
-		tx,
-		threadId,
-		entry,
-		{ steer = false, author = '', body = '', covers = [] } = {},
-	) => {
-		tell(threadId, { kind: 'message', entry, author, body: (body ?? '').slice(0, SAID) })
-		return tx.createTask(
+	const directing = (tx, threadId, entry, { steer = false, author = '', covers = [] } = {}) =>
+		tx.createTask(
 			Pick,
 			{ entry, steer, author, covers },
 			{ ownership: { kind: 'conversation' }, conversationId: threadId },
 		)
-	}
 
 	async function botTurns(threadId) {
 		const said = (await core.messages(threadId)).filter((entry) => !entry.data.shell)
@@ -496,16 +482,7 @@ export function server(core) {
 		).map((name) => here.find((agent) => agent.name === name))
 		if (message.answer)
 			return named.length && (await botTurns(threadId)) + 1 < REST ? { to: named } : undefined
-		if (named.length) {
-			if (participants.length > 1)
-				tell(threadId, {
-					kind: 'mention',
-					author: message.author,
-					body: (message.body ?? '').slice(0, SAID),
-					to: named.map(writtenTo),
-				})
-			return { to: named, mention: true }
-		}
+		if (named.length) return { to: named, mention: true }
 		if (!free || !participants.length) return undefined
 		// One agent answers one person without a pick; with two or more people writing, it may be talk between them
 		if (participants.length < 2) {

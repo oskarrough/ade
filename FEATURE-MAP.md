@@ -12,6 +12,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   recipients, invited               who a message asks; bots it @mentions that aren't in the thread yet
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused
   ask, route, ROUTE, routed, fresh  whom a message asks; the director's saved pick
+  TRAIL, trailed, trail, stepText, nameIn   a thread's trail: each step written in its commit, GET /api/threads/:id/trail, `trail/<id>`
   Draft, saveDraft, draftIn, NEW, spentUnder   a person's unsent draft per thread, and for a new one; `draft/<id>` feed view
   createThread, written, mayAsk     a thread and its first message in one commit
   withdraw, WITHDRAWAL              a message taken back before any agent read it
@@ -19,7 +20,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   isWork, busy, workIn              whether a thread has work
   createFeed, feed                  one versioned `/ws` feed (`seq`, `define`, `onCommit`, `touch`, `subscribe`, `sync`, `onUpdate`)
   shapeMessages, families, familyField   per-viewer message shaping (`speaker`, `showName`, `voice`, `to`, `other*`) and open families
-  core.*                            what modules call: activity, conversations, feed, snapshot, spent, task, tasks, signal
+  core.*                            what modules call: trailed, conversations, feed, snapshot, spent, task, tasks, signal
   entryStored, documentStored, endedHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks)
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
@@ -41,7 +42,6 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   exampleShed                       the walkthrough's example thread (POST /api/threads/shed)
   routes                            every HTTP route
   agents/, agentRows, agentRow, liveOf, followLive, cutOf, covers   `agents/<id>` feed view: a thread's agents' turns, cuts and live work
-  activity/, activities             `activity/<id>` feed view: what modules did in a thread lately (core.activity)
   mintKey, revoke, upgrade          runner keys and sockets; a module's `connect` socket
   saveSettings, restartSoon, restart, connectSelf   settings, restart (POST /api/restart), the server's own machine as a runner
   stale                             whether the server's code changed since it started
@@ -139,7 +139,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   canvas/tldraw.js       the one place tldraw's version is named
   recap.js               Recap tab: topicsOf, Topic, Page
   side.js                the side column: pagesOf, sideOf, openSide, toggleSide, PageTabs
-  director.js            Director tab: `activity/<id>` feed, said
+  trail.js               Trail tab: `trail/<id>` feed, and whatHappened, a message's story from its right-click menu
   agent-memory.js        memory popover and compaction view
   icons.js               Icon, the stroke icons
   title.js               defaultTitle
@@ -190,6 +190,7 @@ Where a feature lives:
 - Settings and modules: modules.js, server.js saveSettings/restart, settings.js.
 - Threads side by side: client server.js followThread/besideKey/openBeside, `columns`.
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
+- What happened in a thread: server.js trailed (writes, in each step's commit) and trail (reads), cli.js `trail`, client trail.js.
 - A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js.
 - The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log).
 - The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js; releases: release.sh tags, .github/workflows/desktop-release.yml builds and publishes.

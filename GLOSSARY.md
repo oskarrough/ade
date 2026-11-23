@@ -7,3 +7,4 @@
 - **Bot**: one name in many threads, with a home thread, the agent it joins as, and instructions. Only bots have names.
 - **Conversation**: what one agent has read, its tool calls and its answers.
 - **Client**: the web page, the CLI or a Matrix room you use to read and write in threads; the server keeps the data.
+- **Trail**: what happened in a thread, one step at a time: a task firing, a message posted and to whom, the director's pick, a run started, answered or failed. Each step is written with what it records and kept with the thread.

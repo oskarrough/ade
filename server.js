@@ -227,6 +227,11 @@ const ROUTE = 'ade.route'
 /** A message its author took back before any agent read it: `{message}`; the message reads as `withdrawn` from then on */
 const WITHDRAWAL = 'ade.withdrawal'
 const WITHDRAWN = 'withdrawn'
+/**
+ * One step of a message's story, written in the commit that takes it: `{entry, at, kind, …}`, `entry` the message it's
+ * about. The thread's trail reads them back (GET /api/threads/:id/trail).
+ */
+const TRAIL = 'ade.trail'
 /** An agent's input in its conversation; `held` names the thread messages it gave */
 const DELIVERY = 'ade.delivery'
 /** How much of a `$ cmd`'s stdout and of its stderr is kept, from the end */
@@ -294,6 +299,12 @@ const Draft = defineDocFamily({
 	initial: () => ({ key: '', text: '', images: [], pick: null }),
 })
 const now = () => new Date().toISOString()
+/** Writes one step of the trail, inside the commit that takes it; `entry` may be undefined for a step of no message */
+const trailed = (tx, threadId, entry, kind, data = {}) =>
+	tx.appendEntry(threadId, {
+		kind: TRAIL,
+		data: { ...(entry === undefined ? {} : { entry }), at: Date.now(), kind, ...data },
+	})
 const ownerless = { ownership: { kind: /** @type {const} */ ('ownerless') } }
 const own = { ownership: { kind: /** @type {const} */ ('conversation') } }
 const waiting = (on, phase) => ({
@@ -389,9 +400,14 @@ const Admit = defineTask({
 					...(deliver && { notify: { taskId: deliver, key: ANSWERED } }),
 					whenBusy: steer ? 'steer' : 'followUp',
 				})
-				const recipient = recipientOf(await tx.doc(Thread, threadId), agent)
+				const row = await tx.doc(Thread, threadId)
+				const recipient = recipientOf(row, agent)
 				recipient.unseen = recipient.unseen.filter((id) => !held.includes(id))
 				if (note && recipient.note === note) delete recipient.note
+				await trailed(tx, threadId, Math.max(...held), 'started', {
+					agent: await nameIn(tx, row, agent),
+					held,
+				})
 				return finished('completed', { submission, held, ...(note ? { note } : {}) })
 			}, ctx)
 		},
@@ -473,18 +489,24 @@ const Deliver = defineTask({
 						}
 			const told = await outcome(threadId, agent, settled, submitted?.held ?? [upTo])
 			await rt.commit(
-				async (tx) => (await tell(tx, threadId, agent, settled, submitted, told), finished()),
+				async (tx) => (await tell(tx, threadId, agent, settled, submitted, told, upTo), finished()),
 				ctx,
 			)
 		},
 	},
 	/** Pi's abort of the thread withdrew its input if still queued. */
-	abort: ({ conversationId: threadId, input: { admit, agent } }, rt, ctx) =>
+	abort: ({ conversationId: threadId, input: { admit, agent, upTo } }, rt, ctx) =>
 		rt.commit(async (tx) => {
 			const submitted = /** @type {any} */ ((await tx.task(admit)).state.outcome?.result)
 			const record = submitted?.submission && (await tx.submissionByRequest(agent, String(admit)))
 			if (record && record.entry === undefined && record.reason !== WITHDRAWN)
 				await restore(tx, threadId, agent, submitted)
+			const held = submitted?.held ?? [upTo]
+			if (held.length)
+				await trailed(tx, threadId, Math.max(...held), 'stopped', {
+					agent: await nameIn(tx, await tx.doc(Thread, threadId), agent),
+					held,
+				})
 			return finished('aborted')
 		}, ctx),
 })
@@ -1283,7 +1305,6 @@ async function append(
 			? await directing(tx, threadId, entry.id, {
 					steer,
 					author: message.author,
-					body: message.body,
 					covers,
 				})
 			: undefined
@@ -1291,6 +1312,18 @@ async function append(
 		row.picks[message.author] = pick
 		row.unpicked = [...new Set([...row.unpicked, ...covers, entry.id])]
 	}
+	if (message.scheduledTask)
+		await trailed(tx, threadId, entry.id, 'fired', { task: message.scheduledTask })
+	// An answer is its run's last step, `answered` or `failed`, unless it asks someone in turn
+	const answer = message.answer || message.error
+	if (!answer || names.length)
+		await trailed(tx, threadId, entry.id, 'posted', {
+			author: message.author,
+			to: names,
+			...(pick ? { direct: true } : {}),
+			...(message.picked ? { picked: message.picked } : {}),
+		})
+	if (!answer && !pick && !names.length) await trailed(tx, threadId, entry.id, 'nobody')
 	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
 }
 
@@ -1338,13 +1371,14 @@ async function route(
 	tx,
 	threadId,
 	messageId,
-	{ to, picked },
+	{ to, picked, chose },
 	{ steer = false, pick, covers = [] } = {},
 ) {
 	const { data } = await tx.entry(messageId)
 	const row = await tx.doc(Thread, threadId)
 	row.picks ??= {}
-	if (row.picks[data.author] !== pick)
+	const over = row.picks[data.author] !== pick
+	if (over)
 		// The author's newer message took over: this one asks no one, and whatever took over reads it
 		[to, picked] = [[], undefined]
 	else {
@@ -1367,6 +1401,18 @@ async function route(
 		data: { message: messageId, to: to.map(writtenTo), ...(picked ? { picked } : {}) },
 	})
 	await ask(tx, row, threadId, messageId, to, { steer, prior })
+	if (chose?.waited !== undefined)
+		await trailed(tx, threadId, messageId, 'waited', {
+			ms: chose.waited,
+			...(chose.held ? { held: true } : {}),
+		})
+	await trailed(tx, threadId, messageId, 'picked', {
+		to: to.map(writtenTo),
+		...(picked ? { picked } : {}),
+		...(over ? { over: true } : {}),
+		...(chose ? { chose } : {}),
+	})
+	if (!to.length) await trailed(tx, threadId, messageId, 'nobody')
 	return { to: to.map(writtenTo), ...(picked ? { picked } : {}) }
 }
 
@@ -1534,10 +1580,41 @@ async function outcome(threadId, agent, settled, mine) {
 }
 
 /** Posts what a settled input told; a submitted input Pi never placed gives its messages back */
-async function tell(tx, threadId, agent, settled, submitted, told) {
-	for (const { thread, data, steer } of told) await append(tx, thread, data, { steer })
+async function tell(tx, threadId, agent, settled, submitted, told, upTo) {
+	const posted = []
+	for (const { thread, data, steer } of told)
+		posted.push({ thread, ...(await append(tx, thread, data, { steer })) })
 	if (submitted?.submission && settled.entry === undefined && settled.reason !== WITHDRAWN)
 		await restore(tx, threadId, agent, submitted)
+	const held = submitted?.held ?? [upTo]
+	const answer = posted.find((one) => one.thread === threadId)?.entry
+	const stopped = settled.reason === 'aborted' || settled.reason === WITHDRAWN
+	await trailed(
+		tx,
+		threadId,
+		Math.max(...held),
+		settled.status === 'done' ? 'answered' : stopped ? 'stopped' : 'failed',
+		{
+			agent: await nameIn(tx, await tx.doc(Thread, threadId), agent),
+			held,
+			...(answer === undefined ? {} : { answer }),
+			...(settled.status === 'done' || stopped
+				? {}
+				: {
+						reason:
+							settled.said ??
+							`${settled.reason}${settled.detail ? ` (${JSON.stringify(settled.detail)})` : ''}`,
+					}),
+		},
+	)
+}
+
+/** The name an agent's conversation goes by in a thread: a bot's, or the thread agent's model@runner */
+async function nameIn(tx, row, conversation) {
+	const key = Object.keys(row.agents).find((key) => row.agents[key].conversation === conversation)
+	if (!key || key !== AGENT) return key ?? String(conversation)
+	const agent = await agentOf(conversation, key, tx)
+	return agent ? writtenTo(agent) : AGENT
 }
 
 /** Work that threw, or that crashes kept cutting off, Pi ends instead of running again, and the thread says so */
@@ -1556,7 +1633,7 @@ async function faulted({ task, reason }) {
 	const submitted = (await harness.getTask(admit, context)).state.outcome?.result ?? null
 	const settled = { id: admit, status: 'unanswered', reason, entry: placed?.entry }
 	const told = await outcome(threadId, agent, settled, submitted?.held ?? [upTo])
-	await commit((tx) => tell(tx, threadId, agent, settled, submitted, told))
+	await commit((tx) => tell(tx, threadId, agent, settled, submitted, told, upTo))
 }
 
 // ── Read views: threads, lists, people ────────────────────────────────────
@@ -1571,7 +1648,7 @@ async function status(id, row, busy, reader) {
 	/** An answer or error unread, or a read since: the newest entries say, unless none of them does */
 	const said = (entry) => {
 		if (seen.has(entry.id)) return 'idle'
-		if (entry.data?.shell?.error === 'stopped') return undefined
+		if (entry.kind !== KIND || entry.data?.shell?.error === 'stopped') return undefined
 		if (entry.data?.answer || entry.data?.error || entry.data?.shell)
 			return entry.data.error || entry.data.shell?.error ? 'error' : 'done'
 	}
@@ -1645,7 +1722,10 @@ async function threadRow(id, reader, all, homes, doc, runnersKnown) {
 		status: rowStatus,
 		unread: ['done', 'error'].includes(rowStatus),
 		/** The id of its newest message, which sorts threads by latest activity; its own id before it has one */
-		latest: (await recent(id)).entries.findLast((entry) => entry.kind.startsWith('ade.'))?.id ?? id,
+		latest:
+			(await recent(id)).entries.findLast(
+				(entry) => entry.kind.startsWith('ade.') && entry.kind !== TRAIL,
+			)?.id ?? id,
 		...(!hidden && familyField(id)),
 		conversation: await conversationRecord(id),
 	}
@@ -1822,6 +1902,82 @@ async function threadView(id, reader, { after, before, last } = {}) {
 		: await windowOf(handle, { after, before, last })
 	return { ...(await threadPage(id, reader, raw, seed)), ...(earlier !== undefined && { earlier }) }
 }
+/**
+ * A thread's trail: its steps oldest first, each `{id, entry?, at, kind, text, …}`. With `entry`, that message's story
+ * only: its own steps and the runs that took it; else the newest `last` steps.
+ */
+async function trail(id, { entry = undefined, last = 200 } = {}) {
+	const handle = await conversation(id)
+	const steps = []
+	for (let cursor; ;) {
+		const page = await handle.entries(
+			entry === undefined ? { order: 'descending' } : { order: 'ascending', minEntryId: entry },
+			500,
+			cursor,
+			context,
+		)
+		for (const { id: at, kind, data } of page.items) {
+			const step = /** @type {any} */ (data)
+			if (
+				kind === TRAIL &&
+				(entry === undefined ||
+					step.entry === entry ||
+					step.answer === entry ||
+					step.held?.includes(entry))
+			)
+				steps.push({ id: at, ...step, text: stepText(step) })
+		}
+		if (!(cursor = page.next) || (entry === undefined && steps.length >= last)) break
+	}
+	return entry === undefined ? steps.slice(0, last).reverse() : steps
+}
+
+const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`
+/** One step as a plain line */
+function stepText(step) {
+	const names = (list) => (list?.length ? list.join(', ') : 'nobody')
+	switch (step.kind) {
+		case 'fired':
+			return `scheduled task ${step.task} fired`
+		case 'skipped':
+			return `scheduled task ${step.task} skipped: ${step.why}`
+		case 'posted':
+			return `posted as ${step.author} to ${names(step.to)}${step.direct ? ', for the director to pick' : ''}${step.picked ? ` (${step.picked})` : ''}`
+		case 'waited':
+			return `director waited ${seconds(step.ms)}${step.held ? ', some of it for someone typing' : ''}`
+		case 'picked': {
+			if (step.over) return "picked nobody: the author's next message took over"
+			const chose = step.chose
+			if (!chose) return `picked ${names(step.to)}${step.picked ? `: ${step.picked}` : ''}`
+			if (chose.outcome !== 'ok')
+				return `${chose.model} ${chose.outcome === 'timeout' ? 'timed out' : 'failed'} after ${seconds(chose.ms)}${chose.error ? `: ${chose.error}` : ''}; asked ${names(step.to)}`
+			const sure =
+				typeof chose.confidence === 'number' ? `, ${Math.round(chose.confidence * 100)}% sure` : ''
+			const among = chose.candidates?.length ? ` among ${chose.candidates.join(', ')}` : ''
+			const read = chose.read ? `, read ${chose.read.length} messages` : ''
+			const why = step.picked && !/% sure$/.test(step.picked) ? `: ${step.picked}` : ''
+			// The pick may not stand: paused meanwhile, or a runner the author can't reach
+			const asked =
+				chose.choice === 'all' || names(step.to) === chose.choice ? '' : `; asks ${names(step.to)}`
+			return `${chose.model} picked ${chose.choice}${sure}${why}, in ${seconds(chose.ms)}${among}${read}${asked}`
+		}
+		case 'nobody':
+			return 'asked nobody, nothing started'
+		case 'started':
+			return `${step.agent} started`
+		case 'answered':
+			return `${step.agent} answered`
+		case 'failed':
+			return `${step.agent ? `${step.agent}'s run` : 'run'} failed: ${step.reason}`
+		case 'stopped':
+			return `${step.agent} stopped`
+		case 'withdrawn':
+			return 'withdrawn before anyone read it'
+		default:
+			return step.kind
+	}
+}
+
 /** A thread's newest messages, read back from its end: those after `after`, before `before`, or the newest `last`, with their picks */
 async function newest(handle, { after = -1, before = undefined, last = Infinity }) {
 	const routes = new Map()
@@ -2146,6 +2302,7 @@ async function withdraw(threadId, author, messageId) {
 		}
 		row.unpicked = (row.unpicked ?? []).filter((id) => id !== messageId)
 		await tx.appendEntry(threadId, { kind: WITHDRAWAL, data: { message: messageId } })
+		await trailed(tx, threadId, messageId, 'withdrawn')
 		for (const hook of withdrawn) await hook(tx, threadId, messageId)
 		return { withdrawn: messageId }
 	})
@@ -2870,6 +3027,8 @@ const core = {
 	waitForTask: (id, within = context) => harness.waitForTask(id, within),
 	post,
 	route,
+	/** Writes one step of a thread's trail in the commit `tx`: `(tx, thread, entry, kind, data)` */
+	trailed,
 	authors,
 	concerns,
 	afterCommit,
@@ -2879,20 +3038,6 @@ const core = {
 	tasks: (query) => collect((cursor) => storage.scanTasks(query, 200, cursor, context)),
 	/** Delivers a signal to a sleeping task: Pi's `delivered`, `duplicate`, `closed` or `not_found` */
 	signal: (taskId, kind, key, value) => harness.signal(taskId, kind, key, value, context),
-	/**
-	 * Tells `activity/<thread>` what a module is doing there, as it happens; the newest 200 are kept in memory only. An
-	 * event is `{purpose, kind, …}`: `kind: 'call'` is a model call (`model`, `ms`, `tokens`, `outcome`), whose end
-	 * replaces its start; others are the module's own.
-	 */
-	activity: (threadId, event) => {
-		const events = activities.get(threadId) ?? new Map()
-		activities.set(threadId, events)
-		const n = ++activitySeq
-		const key = event.kind === 'call' ? `call ${event.call}` : String(n)
-		events.set(key, { key, n: events.get(key)?.n ?? n, at: Date.now(), ...event })
-		if (events.size > 200) events.delete(events.keys().next().value)
-		feed.touch(`activity/${threadId}`)
-	},
 	seenBy,
 	commit,
 	once,
@@ -3109,6 +3254,10 @@ const routes = /** @type {[string, Function][]} */ ([
 			await typing?.(id, user(req), on === true, Number.isSafeInteger(seq) ? seq : 0)
 			return { typing: on === true }
 		},
+		'GET /api/threads/:id/trail': (req, id, url) =>
+			trail(id, {
+				entry: url.searchParams.has('entry') ? Number(url.searchParams.get('entry')) : undefined,
+			}),
 		'POST /api/threads/:id/read': (req, id) => markRead(id, user(req)),
 		'POST /api/threads/:id/stop': async (req, id) => {
 			const working = await busy(id)
@@ -3511,12 +3660,13 @@ feed.define('draft/', {
 		change.record.key === draftOf(param, state.viewer),
 })
 
-/** What modules did in each thread lately, for `activity/<id>` */
-const activities = new Map()
-let activitySeq = 0
-feed.define('activity/', {
-	keyOf: (row) => row.key,
-	all: (_viewer, param) => [...(activities.get(Number(param))?.values() ?? [])],
+/** A thread's trail, its newest steps, for the Director tab */
+feed.define('trail/', {
+	all: (_viewer, param) => trail(Number(param)),
+	match: (change, param) =>
+		change.type === 'entry' &&
+		change.value.kind === TRAIL &&
+		change.value.conversationId === Number(param),
 })
 
 feed.define('server', {

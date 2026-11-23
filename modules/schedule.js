@@ -24,8 +24,8 @@
  * A task `after` thread N sleeps on Ended. When the server hears a thread's work end (`ended`), and once on start,
  * settle signals each such task whose thread has no work left (core.busy); one set while N is already idle runs at once.
  * With hooks on, one `on` an outside event (hooks.js) sleeps on its next Hooked signal and posts each event beside its
- * instructions as `event`, which the agent reads as outside data. Every change tells the pages on its thread
- * (`schedule` activity) and every page (`schedule` changed). Archiving a thread cancels its tasks.
+ * instructions as `event`, which the agent reads as outside data. A run, or a run skipped, is a step in its thread's
+ * trail; every change tells every page (`schedule` changed). Archiving a thread cancels its tasks.
  */
 import { arr, bool, num, obj, opt, str, unknown } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
@@ -468,7 +468,15 @@ export function server(core) {
 						const event =
 							heard && 'value' in heard ? JSON.parse(JSON.stringify(heard.value)) : undefined
 						const landed = await run(tx, { id, threadId, input, asked, event })
-						if (!landed) return finished()
+						if (!landed) {
+							await core.trailed(tx, threadId, undefined, 'skipped', {
+								task: id,
+								why: asked
+									? 'its thread is archived or its agent gone; it ends'
+									: 'it could not work out whom to ask; it ends',
+							})
+							return finished()
+						}
 						return next(ran({ at: rt.now(), ...landed }))
 					}, ctx)
 				}
@@ -528,7 +536,10 @@ export function server(core) {
 						const skipped = offline.length
 							? `${offline.join(' and ')} offline`
 							: 'the run before still working'
-						return rt.commit(() => then(ran({ at: rt.now(), skipped })), ctx)
+						return rt.commit(async (tx) => {
+							await core.trailed(tx, threadId, undefined, 'skipped', { task: id, why: skipped })
+							return then(ran({ at: rt.now(), skipped }))
+						}, ctx)
 					}
 				return post(undefined, then)
 			},
