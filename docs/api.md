@@ -276,18 +276,18 @@ ade wait "${thread#thread }"
 The server's address and data path are set in the environment, not in `ade.json`:
 
 ```sh
-PORT=3001 npx github:oskarrough/ade     # a fixed port; otherwise the first free one from 3000
-DB_PATH=other.sqlite npx github:oskarrough/ade
+PORT=3001 npx --allow-git=all github:oskarrough/ade     # a fixed port; otherwise the first free one from 3000
+DB_PATH=other.sqlite npx --allow-git=all github:oskarrough/ade
 ```
 
 These win over the file; leave them unset to choose from the page. Only the owner changes settings: `POST /api/settings` from anyone else is refused with 403, since settings name the owner and the tailnet logins that count as them.
 
 ```sh
-MODULES=+web-search,-talk npx github:oskarrough/ade
-MEMORY_MODEL=sonnet@laptop npx github:oskarrough/ade
+MODULES=+web-search,-talk npx --allow-git=all github:oskarrough/ade
+MEMORY_MODEL=sonnet@laptop npx --allow-git=all github:oskarrough/ade
 ```
 
-From a clone, use `node server.js` in place of `npx github:oskarrough/ade`.
+From a clone, use `node server.js` in place of `npx --allow-git=all github:oskarrough/ade`.
 
 Threads and conversations live in `${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite`, with its `-wal`, `-shm`, `.lock` and the server's output in `ade.log` beside it. Every folder you start in sees the same threads. Settings stay in `${XDG_CONFIG_HOME:-~/.config}/ade/ade.json`. `DB_PATH=other.sqlite` selects another store and logs to `other.log` beside it; it does not move settings.
 

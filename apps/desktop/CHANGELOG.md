@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7
+
+- Starts your house without ade installed: it fetches ade from GitHub with npx, pnpx or bunx, so Node 24 is all you need.
+
 ## 0.1.6
 
 - The House menu holds just "Start house when it's down" and "Open house log": ticking the switch starts a house that's down.

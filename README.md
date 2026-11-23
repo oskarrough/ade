@@ -1,14 +1,14 @@
 # ade
 
-Ade is a program for working with agents. 
+Ade is a program for working with agents.
 
-You get bots, multi-user durable threads, scheduled tasks aka workflows. Cross-thread communication feels natural, and bots know how to orchestrate and delegate efficiently. 
+You get bots, multi-user durable threads, scheduled tasks aka workflows. Cross-thread communication feels natural, and bots know how to orchestrate and delegate efficiently.
 
 Use your Anthropic, ChatGPT or Antigravity subscriptions, or really any model that works in `pi`.
 
-Threads live on a server you own, and agents run on the machines you want. Works great for yourself in your own, private Tailscale. 
+Threads live on a server you own, and agents run on the machines you want. Works great for yourself in your own, private Tailscale.
 
-There are two ways to run it: download an run the desktop app (easy), or run `npx github:oskarrough/ade`.
+There are two ways to run it: download an run the desktop app (easy), or run `npx --allow-git=all github:oskarrough/ade`.
 
 ## Get the desktop app
 
@@ -22,15 +22,15 @@ They aren't code-signed yet, so Windows and macOS warn the first time; [the app'
 
 ## Browser usage
 
-Run `npx github:oskarrough/ade` and open the URL it prints.
+Run `npx --allow-git=all github:oskarrough/ade` and open the URL it prints. Since npm 12, npx refuses packages from GitHub without that flag; `pnpx` and `bunx` don't need it.
 
 It starts the server and connects a runner, so agents can work immediately.
 
-You need Node 24 or newer and [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) logged in to at least one model provider: `npm i -g @earendil-works/pi-coding-agent`, run `pi`, then `/login`. 
+You need Node 24 or newer and [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) logged in to at least one model provider: `npm i -g @earendil-works/pi-coding-agent`, run `pi`, then `/login`.
 
 ## Connect a runner
 
-Ade can let agents work on any device. It works by creating a "runner" on that machine. A runner lends a machine's folders and model logins to your server. To let agents work on your laptop too, open "Runners" and follow the command. You get one, private line run on the laptop. 
+Ade can let agents work on any device. It works by creating a "runner" on that machine. A runner lends a machine's folders and model logins to your server. To let agents work on your laptop too, open "Runners" and follow the command. You get one, private line run on the laptop.
 
 Every runner shows up in the model picker, so `sonnet:low@laptop` is Sonnet working on the laptop.
 
@@ -40,7 +40,6 @@ Click New thread, pick a model and runner below the composer, and write what you
 
 From there: [running the server](docs/server.md) for other devices, friends, settings and where your data lives; [modules](docs/modules.md) for bots, scheduled tasks, search and the rest; [the API and CLI](docs/api.md) to script it.
 
-
 ## Claude Code and Antigravity in pi
 
 API keys work out of the box (Anthropic, OpenRouter and so on), and so does a ChatGPT subscription. A Claude subscription and Antigravity each need their extension, the ones below.
@@ -49,4 +48,3 @@ API keys work out of the box (Anthropic, OpenRouter and so on), and so does a Ch
 pi install https://github.com/earendil-works/pi-claude-code
 pi install npm:pi-antigravity
 ```
-

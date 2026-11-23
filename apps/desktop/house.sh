@@ -37,7 +37,17 @@ start)
 	if command -v setsid > /dev/null; then detach=setsid; else detach="perl -MPOSIX=setsid -e setsid;exec(@ARGV) --"; fi
 	# mise's shims find only the tools mise installed; its exec puts node's own bin, where npm put ade, on PATH
 	command -v mise > /dev/null && detach="$detach mise exec --"
-	$detach env ARBE_DESKTOP_HOUSE="$token" sh -c "$HOUSE_COMMAND" >> "$log" 2>&1 < /dev/null &
+	run="$HOUSE_COMMAND"
+	# Without ade installed, fetch it with whichever package runner there is; npm 12 refuses git packages unless allowed
+	[ "$run" = ade ] && run='command -v ade > /dev/null && exec ade
+	for x in "npx -y --allow-git=all" pnpx bunx; do
+		command -v ${x%% *} > /dev/null || continue
+		echo "ade is not installed; fetching it: $x github:oskarrough/ade"
+		exec $x github:oskarrough/ade
+	done
+	echo "ade needs Node 24 or newer: https://nodejs.org" >&2
+	exit 127'
+	$detach env ARBE_DESKTOP_HOUSE="$token" sh -c "$run" >> "$log" 2>&1 < /dev/null &
 	echo "$! $token" > "$pidfile"
 	sleep 1
 	if ours; then

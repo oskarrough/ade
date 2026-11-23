@@ -14,7 +14,7 @@ Changes to ade itself need none of this: the window loads the client from the se
 
 ## The house
 
-When the window's address is on this machine (localhost) and nothing answers, arbe desktop can start ade itself: on Windows inside WSL, elsewhere directly, in a login shell, so it finds node and ade as your terminal does. It asks the first time. The server keeps running when you close the window, so agents finish their work. If something already answers, it starts nothing.
+When the window's address is on this machine (localhost) and nothing answers, arbe desktop can start ade itself: on Windows inside WSL, elsewhere directly, in a login shell, so it finds node and ade as your terminal does. Without ade installed, it fetches it from GitHub with npx, pnpx or bunx, whichever is there, so all you need is Node 24 or newer. It asks the first time. The server keeps running when you close the window, so agents finish their work. If something already answers, it starts nothing.
 
 To update, the page's Update button restarts the server in place when its code changed, wherever it was started, and reloads once it's back. The House menu (Alt or F10 on Windows) has only the switch, Start house when it's down, which starts it at once if nothing answers, and the house log, with startup crashes: `~/.local/state/arbe-desktop/house.log` (in WSL on Windows). `house.sh` keeps the house's process group and a token in `~/.local/state/arbe-desktop/house.pid`; to stop it, `kill -TERM -- -<pid>` with that file's first word.
 
