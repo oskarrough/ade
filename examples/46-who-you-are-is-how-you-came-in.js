@@ -255,6 +255,15 @@ check(out.join('').includes('ade key stray'), 'and is told how to get one', JSON
 const thief = await dial('laptop', 'air_guessed')
 check(thief.code === 4001, 'a wrong key is turned away', JSON.stringify(thief))
 check(await runnerOnline('laptop'), 'and the real laptop stays online: nobody can take its name')
+// A key takes a name's work, and a new one cuts off its holder, so a friend makes and revokes none
+const friendMints = await api('POST', '/api/runners', { name: 'laptop' }, 'ana')
+const friendRevokes = await api('DELETE', '/api/runners/laptop', undefined, 'ana')
+check(
+	friendMints.status === 403 && friendRevokes.status === 403,
+	'a login through Serve can’t mint or revoke a runner’s key',
+	JSON.stringify([friendMints.status, friendRevokes.status]),
+)
+check(await runnerOnline('laptop'), 'and the laptop stays online with its own key')
 const minted = await api('POST', '/api/runners', { name: '../x' })
 check(minted.status === 400, 'a runner name is letters, digits, dot, dash or underscore')
 // An agent's command on the server's machine reads but never writes as a person, even holding the owner's key

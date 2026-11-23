@@ -17,9 +17,9 @@ With `HOST` set to a network address, the main port answers that network, but on
 
 ## What a guest can do
 
-A tailnet guest is nearly the owner. They can't change settings, restart the server or read a hook's secret. Everything else is theirs: they see every thread, write in any, start and archive threads, and mint, replace or revoke runner keys.
+A tailnet guest is nearly the owner. They can't change settings, restart the server, mint or revoke runner keys, or read a hook's secret. Everything else is theirs: they see every thread, write in any, start and archive threads, and change or forget any bot or scheduled task.
 
-That includes running commands. A runner takes work from anyone unless it was started with `--owner` (and `--allow`), and the server's own runner never is. So a guest can start a thread on your machine and have its agent run `rm -rf ~` as you.
+That includes running commands, by design: everyone on your tailnet can run agents on your machine as you. Who you let onto your tailnet is the trust boundary. A runner takes work from anyone unless it was started with `--owner` (and `--allow`), and the server's own runner never is, so a guest can start a thread on your machine and have its agent run `rm -rf ~` as you. Keep a runner to yourself with `--owner`.
 
 ## Runners
 
@@ -48,8 +48,7 @@ Since 6d4cc800, the server looks up who's on the other end of every write that a
 
 ## Known gaps
 
-- A guest can run commands on the server's own runner, and on any runner without `--owner`. Adding a friend to the tailnet hands them a shell as you.
-- A guest can replace any runner's key. That cuts off the real runner, the server's own until it restarts, and a runner of theirs can then connect under its name and take its work.
+- A guest can edit the owner's scheduled tasks, and the task still runs as the owner's, so it reaches runners started with `--owner`. They can also rewrite or forget any bot, the owner's included.
 - The agent-write check is skin-deep. `env -u ADE_AGENT_OF curl -X POST …` from an agent's shell writes as the owner; so does any process the agent starts without the mark.
 - It only exists on Linux. On macOS there's no `/proc`, and an agent's writes from the server's machine count as the owner's.
 - It only sees this machine. An agent on another runner reaches the server through Serve as that machine's tailnet login, which is the owner if it's in `ownerLogins`.

@@ -3357,28 +3357,34 @@ async function serverInfo(viewer) {
 	}
 }
 
+const ownerOnly = (req, refusal) => {
+	if (user(req) !== owner) throw Object.assign(new Error(refusal), { status: 403 })
+}
+
 /** @type {[RegExp, Function][]} */
 const routes = /** @type {[string, Function][]} */ ([
 	...Object.entries({
 		'GET /api/server': (req) => serverInfo(user(req)),
 		'POST /api/settings': async (req) => {
 			// Settings name the owner and their logins, so only the owner changes them
-			if (user(req) !== owner)
-				throw Object.assign(new Error('Only the owner changes settings'), { status: 403 })
+			ownerOnly(req, 'Only the owner changes settings')
 			return saveSettings(await input(req))
 		},
 		'POST /api/restart': (req) => {
-			if (user(req) !== owner)
-				throw Object.assign(new Error('Only the owner restarts the server'), { status: 403 })
+			ownerOnly(req, 'Only the owner restarts the server')
 			return restartSoon('updating')
 		},
 		'GET /api/runners': runnerList,
+		// A key lets a runner take a name's work, and a new one cuts off whoever held it, so only the owner mints or revokes
 		'POST /api/runners': async (req) => {
+			ownerOnly(req, 'Only the owner makes runner keys')
 			const body = await input(req)
 			return mintKey(String(body.name ?? ''), origin(req), body.key)
 		},
-		'DELETE /api/runners/:name': (req, name, url) =>
-			revoke(name, url.searchParams.get('key') ?? undefined),
+		'DELETE /api/runners/:name': (req, name, url) => {
+			ownerOnly(req, 'Only the owner revokes runner keys')
+			return revoke(name, url.searchParams.get('key') ?? undefined)
+		},
 		'GET /api/runners/:name/available': async (req, name) => {
 			if (!runners.isOnline(name)) throw new Error(`${name} is offline`)
 			return runners.call(name, { op: 'available' }, {})
