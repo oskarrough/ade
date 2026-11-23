@@ -11,7 +11,7 @@ import { Runner } from './runner.js'
 import { Thread } from './thread.js'
 import { Canvas } from './canvas.js'
 import { Recap } from './recap.js'
-import { Director } from './director.js'
+import { Trail } from './trail.js'
 import { sideOf } from './side.js'
 import { DetailsPage } from './thread-details.js'
 import { ThreadList } from './thread-list.js'
@@ -19,7 +19,7 @@ import { Wires } from './wires.js'
 import { QuoteButton } from './quote.js'
 import { Usage } from './usage.js'
 
-const SIDE_PAGES = { canvas: Canvas, director: Director, recap: Recap }
+const SIDE_PAGES = { canvas: Canvas, trail: Trail, recap: Recap }
 
 export function System() {
 	const activePage = () => {

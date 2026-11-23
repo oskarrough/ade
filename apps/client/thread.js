@@ -1,6 +1,7 @@
 /** A thread owns its message subscription while it is on screen. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
+import { whatHappened } from './trail.js'
 import {
 	createEffect,
 	createMemo,
@@ -917,7 +918,7 @@ function Message(props) {
 		() => props.entry.sentAt != null && performance.now() - props.entry.sentAt < 1000,
 	)
 	const data = () => props.entry.data
-	/** Its right-click menu in arbe desktop: the selection, else the whole message, quoted or copied, and its fork */
+	/** Its right-click menu in arbe desktop: the selection, else the whole message, quoted or copied, its fork, and its story */
 	const messageMenu = (element) => {
 		const text = selectedIn(element) || data().body || ''
 		// Into the composer on screen, the column's, as the Quote button does: a bot's home shows its side questions' answers too
@@ -931,6 +932,9 @@ function Message(props) {
 			props.entry.sending || props.waiting
 				? null
 				: { label: 'Fork from here', run: () => fork(props.thread, props.entry.id) },
+			props.entry.sending
+				? null
+				: { label: 'What happened', run: () => whatHappened(props.thread, props.entry.id) },
 		]
 	}
 	const row = () => props.row

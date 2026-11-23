@@ -561,7 +561,7 @@ button[data-danger]:focus-visible:not(:disabled) {
 .model-controls > ul,
 .popover .rows,
 .recap .rows,
-.director .rows,
+.trail .rows,
 .thread-details .rows,
 .rows.usage {
 	list-style: none;
@@ -571,12 +571,12 @@ button[data-danger]:focus-visible:not(:disabled) {
 	gap: var(--space-1);
 }
 
-/* One row across models, runners, modules, a recap's topics and the director's events, also inside the phone sheets. */
+/* One row across models, runners, modules, a recap's topics and the trail's steps, also inside the phone sheets. */
 :is(
 	.model-controls .who,
 	.popover .rows > li,
 	.recap .rows > li,
-	.director .rows > li,
+	.trail .rows > li,
 	.thread-details .rows > li,
 	.rows.usage > li
 ) {
