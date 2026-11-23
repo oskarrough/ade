@@ -2643,14 +2643,13 @@ body.resizing {
 	}
 }
 
-/* More tabs than room, beside the × or arbe desktop's window buttons, scroll sideways rather than pushing past them. */
+/* More tabs than room wrap to another line rather than hiding any. */
 .panes nav.tabs {
 	display: flex;
 	flex: 1;
+	flex-wrap: wrap;
 	min-width: 0;
 	gap: var(--space-1);
-	overflow-x: auto;
-	scrollbar-width: none;
 
 	> button {
 		flex: none;
@@ -2987,6 +2986,20 @@ body.resizing {
 	.threads > .thread > header,
 	.threads > .side .panes .pane > header {
 		padding-right: calc(var(--space-4) + var(--under-controls, 0px));
+	}
+
+	/* A side column under the window's buttons gives its header two rows: the bare title bar on top, holding only the × beside the buttons, and its tabs the whole width below. */
+	.threads > .side[data-under-controls] .panes .pane > header {
+		position: relative;
+		min-height: calc(var(--mygo-titlebar-height, 0px) + var(--header-height));
+		padding-top: var(--mygo-titlebar-height, 0px);
+		padding-right: var(--space-4);
+
+		> button.close {
+			position: absolute;
+			top: calc((var(--mygo-titlebar-height, 0px) - var(--small-button)) / 2);
+			right: calc(var(--space-4) + var(--under-controls, 0px));
+		}
 	}
 
 	@media (max-width: 700px) {
