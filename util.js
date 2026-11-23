@@ -273,6 +273,8 @@ export function stepText(step) {
 			return `${step.agent ? `${step.agent}'s run` : 'run'} failed: ${step.reason}`
 		case 'stopped':
 			return `${step.agent} stopped`
+		case 'question-answered':
+			return `answered in thread by ${step.by}`
 		case 'withdrawn':
 			return 'withdrawn before anyone read it'
 		case 'created':

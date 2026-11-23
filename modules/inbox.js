@@ -5,8 +5,9 @@
  *
  * `GET /api/inbox` answers what needs you, most pressing first. Open questions, newest first:
  * `{thread, kind: 'question', question, asker}`, `question` being the thread's `ask_person` message as the thread holds
- * it and `asker` the conversation of the agent that asked, whom an answer goes to. A question stays until a person writes
- * in its thread, the same rule that keeps the thread blocked; everyone sees it. Then, for you alone and only in threads you
+ * it and `asker` the conversation of the agent that asked, whom an answer goes to. A question stays until someone other
+ * than the agent that asked writes in its thread - a person, or another agent answering on their behalf; the asking
+ * agent's own later turns don't count. Everyone sees it; the trail says who closed it. Then, for you alone and only in threads you
  * wrote in, the ones the sidebar dots as failed or unread, newest first: `{thread, kind: 'failed' | 'answered', message}`,
  * the message behind it. Those leave once you read the thread (`POST /api/threads/:id/read`), which is also how to
  * dismiss one. `POST /api/threads/:id/inbox {dismiss: <message id>}` hides that question without
@@ -141,15 +142,62 @@ export function server(core) {
 		)
 	}
 
-	/** The thread's open question: its newest `ask_person` message, unless a person has written since; with `tx`, read in that commit */
-	async function openQuestion(id, row, tx) {
-		const latest = await core.latestMessage(
+	/**
+	 * The thread's open question: its newest `ask_person` message, unless someone other than the agent that asked has
+	 * written since - a person, or another agent answering for them; the asking agent's own later turns don't count.
+	 * With `tx`, read in that commit.
+	 */
+	async function openQuestion(id, _row, tx) {
+		const question = await core.latestMessage(
 			id,
-			(entry) => entry.data.waitingOnPerson || core.person(row, entry),
+			(entry) => entry.data.waitingOnPerson === true,
 			undefined,
 			tx,
 		)
-		return latest?.data.waitingOnPerson === true ? latest : undefined
+		if (!question) return undefined
+		const closedBy = await core.latestMessage(
+			id,
+			(entry) =>
+				entry.id > question.id && !entry.data.stopped && entry.data.author !== question.data.author,
+			undefined,
+			tx,
+		)
+		return closedBy ? undefined : question
+	}
+
+	/**
+	 * When someone other than the asker closes a question, the trail says who. Reading the thread's other entries
+	 * can't happen in the same commit as this one's write, so it's done after, in a commit of its own.
+	 */
+	function posted(tx, threadId, entry) {
+		if (entry.data.waitingOnPerson || entry.data.stopped) return
+		core.afterCommit(tx, () =>
+			core
+				.commit((fresh) => noteClosed(fresh, threadId, entry))
+				.catch((error) => console.error(`inbox: thread ${threadId}: ${error.message}`)),
+		)
+	}
+
+	async function noteClosed(tx, threadId, entry) {
+		const question = await core.latestMessage(
+			threadId,
+			(one) => one.data.waitingOnPerson === true,
+			undefined,
+			tx,
+		)
+		if (!question || question.data.author === entry.data.author) return
+		const earlierCloser = await core.latestMessage(
+			threadId,
+			(one) =>
+				one.id > question.id &&
+				one.id < entry.id &&
+				!one.data.stopped &&
+				one.data.author !== question.data.author,
+			undefined,
+			tx,
+		)
+		if (earlierCloser) return
+		await core.trailed(tx, threadId, question.id, 'question-answered', { by: entry.data.author })
 	}
 
 	return {
@@ -167,5 +215,6 @@ export function server(core) {
 		}),
 		serve,
 		openQuestion,
+		posted,
 	}
 }

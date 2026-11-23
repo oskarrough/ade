@@ -27,6 +27,8 @@ await scriptedRunner('laptop', (request) => {
 	if (last.role === 'toolResult') return say('asked')
 	if (/fail please\s*$/.test(text(last)))
 		return fauxAssistantMessage([], { stopReason: 'error', errorMessage: 'boom' })
+	const told = text(last).match(/^tell (\d+): (.*)$/)
+	if (told) return call('post', { thread: Number(told[1]), body: told[2] })
 	const asked = text(last).match(/ask: ([^\n]*)\s*$/)?.[1]
 	return asked ? call('ask_person', { body: asked }) : say(`got: ${text(last)}`)
 })
@@ -57,6 +59,23 @@ check(
 	asks(items) === `${ship}: ship it today?`,
 	'answering in its thread takes a question out, and the agent carries on',
 	JSON.stringify(items),
+)
+
+// Another agent answering on the person's behalf closes the question too, and the trail says who
+await api('POST', '/api/bots', { name: 'lead', to: 'echo/echo@laptop' })
+const review = await createThread('review')
+await post(review, 'ask: ship friday?')
+const asker = await until(async () => (await inbox()).find((item) => item.thread === review))
+const leadHome = (await api('GET', '/api/bots')).json.find((bot) => bot.name === 'lead').home
+await postEntry(leadHome, `tell ${review}: Ship it.`, 'lead')
+await until(async () => !(await inbox()).some((item) => item.thread === review))
+const reviewTrail = (await api('GET', `/api/threads/${review}/trail`)).json
+check(
+	Boolean(asker) &&
+		!(await inbox()).some((item) => item.thread === review) &&
+		reviewTrail.some((step) => step.text === 'answered in thread by lead'),
+	'another agent posting into the thread closes it too, and the trail says who answered',
+	JSON.stringify([asker, reviewTrail.map((step) => step.text)]),
 )
 
 const dismissed = await api('POST', `/api/threads/${ship}/inbox`, {
