@@ -2643,10 +2643,18 @@ body.resizing {
 	}
 }
 
+/* More tabs than room, beside the × or arbe desktop's window buttons, scroll sideways rather than pushing past them. */
 .panes nav.tabs {
 	display: flex;
 	flex: 1;
+	min-width: 0;
 	gap: var(--space-1);
+	overflow-x: auto;
+	scrollbar-width: none;
+
+	> button {
+		flex: none;
+	}
 }
 
 /* A canvas takes the column's whole height and more of its width; tldraw draws everything inside its board. */
