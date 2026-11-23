@@ -20,6 +20,20 @@ export {
 	waitOnce,
 } from '@antithesishq/bombadil/browser/defaults/actions'
 
+/**
+ * Restarting takes the server down a moment, a reload then lands on Chrome's error page, and there Bombadil offers only
+ * Back and, with no page behind, stops. Bombadil can click any point, whatever it took aim at, and its names for buttons
+ * can come up empty, so this switches the restart buttons off in the page: Settings' Restart and Update's restart. The property only
+ * makes Bombadil run it on every state.
+ */
+const restartsOff = extract((state) => {
+	for (const button of state.document.querySelectorAll('button'))
+		if (/restart/i.test(`${button.textContent} ${button.getAttribute('aria-label') ?? ''}`))
+			button.disabled = true
+	return true
+})
+export const serverStaysUp = always(() => restartsOff.current)
+
 // Text crosses to Bombadil as JSON, and a lone half of a surrogate pair, which its random typing can leave, stops it dead
 const composer = extract((state) => {
 	const box = /** @type {HTMLTextAreaElement | null} */ (
@@ -52,6 +66,41 @@ const plain = (text) => (text ?? '').replace(/[^\p{L}\p{N}]/gu, '')
  * The bookkeeping runs in the page and keeps to sessionStorage, which outlasts the reloads; it answers what was lost, or null.
  */
 const lostDraft = extract((state) => {
+	// What's typed counts at once: a fork opening as the keys land moves to another thread before this looks again
+	if (!state.document.documentElement.dataset.fuzzDrafts) {
+		state.document.documentElement.dataset.fuzzDrafts = '1'
+		state.document.addEventListener(
+			'input',
+			(event) => {
+				const target = /** @type {HTMLElement} */ (event.target)
+				if (!target.matches?.('form.compose textarea.draft')) return
+				const saved = JSON.parse(state.window.sessionStorage.getItem('fuzz-drafts') ?? 'null')
+				if (!saved) return
+				const thread = target.closest('article.thread')?.getAttribute('data-thread') || 'new'
+				saved.left[thread] = /** @type {HTMLTextAreaElement} */ (target).value.toWellFormed()
+				if (saved.showing === thread) saved.loading = null
+				state.window.sessionStorage.setItem('fuzz-drafts', JSON.stringify(saved))
+			},
+			true,
+		)
+		// A send counts as its form goes, before the box empties: Bombadil's name for the Send icon can come up empty
+		state.document.addEventListener(
+			'submit',
+			(event) => {
+				const form = /** @type {HTMLElement} */ (event.target)
+				const text = form.matches?.('form.compose')
+					? (/** @type {HTMLTextAreaElement | null} */ (
+							form.querySelector('textarea.draft')
+						)?.value.toWellFormed() ?? '')
+					: ''
+				const saved = JSON.parse(state.window.sessionStorage.getItem('fuzz-drafts') ?? 'null')
+				if (!saved || !text.trim()) return
+				saved.sent.push(text)
+				state.window.sessionStorage.setItem('fuzz-drafts', JSON.stringify(saved))
+			},
+			true,
+		)
+	}
 	const box = /** @type {HTMLTextAreaElement | null} */ (
 		state.document.querySelector('article.thread.current form.compose textarea.draft')
 	)

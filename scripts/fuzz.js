@@ -1,7 +1,7 @@
 /** `pnpm fuzz [3m]`: Bombadil clicks, types and reloads its way around a fresh try.js server for that long, holding the
  * client to scripts/fuzz-spec.js, then says "nothing broke" or names the broken property with the command that replays it.
- * The run's log, trace and the scratch server's folder go in .work/fuzz/<time>/; try.js keeps provider keys away, so no
- * paid model is reachable. It runs one headless Chrome at the lowest priority, so the machine stays usable meanwhile: CHROME
+ * The run's log, trace, the scratch server's folder and its output (server.log) go in .work/fuzz/<time>/; try.js keeps
+ * provider keys away, so no paid model is reachable. It runs one headless Chrome at the lowest priority, so the machine stays usable meanwhile: CHROME
  * if set, else Playwright's newest Chromium, else whatever is on PATH. Not chrome-headless-shell: lighter, but it stalled
  * within a minute here, as Bombadil's manual warns it may.
  * Exits 0 when nothing broke, 1 when a property broke, 2 when Bombadil itself failed. */
@@ -17,6 +17,8 @@ mkdirSync(folder, { recursive: true })
 
 const env = { ...process.env }
 for (const name of ['MODULES', 'SERVE_PORT', 'ADE_SERVER']) delete env[name]
+// try.js passes its server's own lines on only when asked
+const serverEnv = { ...env, VERBOSE: '1' }
 const playwright = path.join(homedir(), '.cache/ms-playwright')
 const chromium =
 	!env.CHROME &&
@@ -30,9 +32,12 @@ if (chromium) env.CHROME = chromium
 
 const server = spawn('nice', ['-n', '19', process.execPath, path.join(repo, 'scripts/try.js')], {
 	cwd: folder,
-	env,
-	stdio: ['ignore', 'pipe', 'inherit'],
+	env: serverEnv,
+	stdio: ['ignore', 'pipe', 'pipe'],
 })
+const serverLog = createWriteStream(path.join(folder, 'server.log'))
+server.stdout.pipe(serverLog)
+server.stderr.pipe(serverLog)
 const stop = () => server.exitCode === null && server.kill()
 process.on('exit', stop)
 const address = await new Promise((resolve, reject) => {
