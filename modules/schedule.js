@@ -3,9 +3,10 @@
  * work ends, or on an outside event. On by default; MODULES=-schedule turns it off.
  *
  * An agent sets one with `schedule`; its instructions come back to it, as it, marked `scheduledTask`. A person sets one
- * from the Scheduled tasks list (POST /api/schedule): it runs in a bot's home, asking her; in a thread, as their own
- * message there, which the director or the thread's last agent answers; or in a new thread each run, a child of the
- * task's own thread, asking the agent they chose.
+ * from the Scheduled tasks list (POST /api/schedule): it runs in a bot's home, asking her; in a thread, carrying its own
+ * `recipients` (keys into that thread's agents, a bot's name or `agent` for its own; left out, everyone there, worked
+ * out fresh each run so the director never guesses for it); or in a new thread each run, a child of the task's own
+ * thread, asking the agent they chose.
  *
  * Each is an `ade.scheduled-task` task owned by its thread in the background: a stored sleep, so it survives a restart
  * and the thread's Stop, and holds no process. Its schedule is `{at}` once, `{at, every}` every so often from its first
@@ -196,6 +197,7 @@ const current = (input, checkpoint) => ({
 	...(checkpoint?.schedule ? { schedule: checkpoint.schedule } : {}),
 	...(checkpoint?.instructions ? { instructions: checkpoint.instructions } : {}),
 	...(input.to !== undefined && checkpoint?.to ? { to: checkpoint.to } : {}),
+	...(checkpoint?.recipients !== undefined ? { recipients: checkpoint.recipients } : {}),
 })
 
 /** Its first run from `now`: by the clock or every so often, the next one due; once, its time */
@@ -265,6 +267,7 @@ export function server(core) {
 					...(input.conversation === undefined ? {} : { agent: input.by }),
 					...(input.bot === undefined ? {} : { bot: input.bot }),
 					...(input.to === undefined ? {} : { to: input.to }),
+					...(input.recipients === undefined ? {} : { recipients: input.recipients }),
 				}
 			})
 			.sort(
@@ -364,7 +367,8 @@ export function server(core) {
 
 	/**
 	 * Whom a run asks and how, worked out before its commit: the agent that set it, as itself; a bot, in her home; a
-	 * person's message in their thread, as they'd send it; or a new thread's agent
+	 * new thread's agent; or, in its own thread, the recipients it carries (everyone there by default), resolved fresh
+	 * each run, so the director never guesses for it
 	 */
 	async function recipients(threadId, input, signal) {
 		if (input.conversation !== undefined) return {}
@@ -373,7 +377,14 @@ export function server(core) {
 			const name = (await core.homes())[threadId]
 			return name ? { to: [await core.whom(threadId, name, false, signal)] } : null
 		}
-		return core.recipients(threadId, { author: input.by, body: input.instructions })
+		const row = await core.thread(threadId)
+		const names = input.recipients ?? Object.keys(row.agents ?? {})
+		const to = (
+			await Promise.all(
+				names.map((name) => core.whom(threadId, name, false, signal).catch(() => null)),
+			)
+		).filter(Boolean)
+		return { to }
 	}
 
 	/** Posts one run's instructions: where it landed, `{thread, entry}`, or false when there's no one left to ask */
@@ -645,6 +656,20 @@ export function server(core) {
 	})
 
 	/**
+	 * Who a task running in its own thread asks each time, from `body.recipients`: keys into that thread's agents (a
+	 * bot's name, or `agent` for its own); left out, it asks everyone there, worked out fresh each run
+	 */
+	async function recipientsOf(body, threadId) {
+		if (body.recipients === undefined) return {}
+		if (!Array.isArray(body.recipients) || !body.recipients.length)
+			throw new Error('recipients is who it asks there, at least one')
+		const { agents } = await core.thread(threadId)
+		const unknown = body.recipients.find((name) => typeof name !== 'string' || !agents?.[name])
+		if (unknown !== undefined) throw new Error(`${unknown} isn't in thread ${threadId}`)
+		return { recipients: [...new Set(body.recipients)] }
+	}
+
+	/**
 	 * Where a person's task runs, from `bot`, `thread` or `to`: its thread, unless it starts one, and what its input says
 	 * about it
 	 */
@@ -661,7 +686,7 @@ export function server(core) {
 		if (body.thread !== undefined) {
 			const threadId = Number(body.thread)
 			await core.conversation(threadId)
-			return { threadId, input: {} }
+			return { threadId, input: await recipientsOf(body, threadId) }
 		}
 		return { threadId: undefined, input: { to: await core.address(body.to) } }
 	}
@@ -725,11 +750,16 @@ export function server(core) {
 		if (staying && listens === (was.schedule.on !== undefined)) {
 			const to =
 				body.to !== undefined && was.to !== undefined ? await core.address(body.to) : undefined
+			const recipients =
+				was.bot === undefined && was.to === undefined && was.conversation === undefined
+					? (await recipientsOf(body, record.conversationId)).recipients
+					: undefined
 			const edited = await control(threadId, id, {
 				edit: {
 					...(instructions ? { instructions } : {}),
 					...(schedule ? { schedule } : {}),
 					...(to ? { to } : {}),
+					...(recipients ? { recipients } : {}),
 				},
 			})
 			if (schedule?.after !== undefined) settling(schedule.after)
@@ -739,7 +769,11 @@ export function server(core) {
 			? await placed(body)
 			: {
 					threadId: record.conversationId,
-					input: was.bot ? { bot: was.bot } : was.to ? { to: was.to } : {},
+					input: was.bot
+						? { bot: was.bot }
+						: was.to
+							? { to: was.to }
+							: await recipientsOf(body, record.conversationId),
 				}
 		const made = await makeIn(where, {
 			by: was.by,

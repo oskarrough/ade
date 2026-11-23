@@ -15,6 +15,7 @@ import {
 	openThread,
 	runners,
 	server,
+	threadOf,
 	threadRows,
 	titleOf,
 } from './server.js'
@@ -526,6 +527,19 @@ function TaskForm(props) {
 					? `bot ${lastBot().name}`
 					: 'new',
 	)
+	/** Its thread's own agents, as the composer's pick would choose among them */
+	const agentsOf = (threadId) => threadOf(threadId)?.agents ?? []
+	/** The key a run asks it by: a bot's name, or `agent` for the thread's own */
+	const keyOf = (agent) => agent.to?.name ?? 'agent'
+	const labelOf = (agent) => agent.to?.name ?? shortLabel(agent.name)
+	const threadIdOf = () => {
+		const [where, value] = place().split(/ (.*)/)
+		return where === 'thread' ? Number(value) : undefined
+	}
+	/** Its thread's own agents, there's more than one to choose among */
+	const threadAgents = () => agentsOf(threadIdOf())
+	/** Who it asks there: everyone, unless the task already says otherwise */
+	const [who, setWho] = createSignal(task?.recipients ?? threadAgents().map(keyOf))
 	const schedule = task?.schedule ?? {}
 	const zone = schedule.timeZone ?? HERE
 	const [kind, setKind] = createSignal(
@@ -615,7 +629,7 @@ function TaskForm(props) {
 				: where === 'bot'
 					? { bot: value }
 					: where === 'thread'
-						? { thread: Number(value) }
+						? { thread: Number(value), recipients: who() }
 						: { to: chosen() }),
 			...when(),
 		}
@@ -793,7 +807,14 @@ function TaskForm(props) {
 					>
 				</p>`}
 			>
-				<select aria-label="Runs in" onChange=${(event) => setPlace(event.currentTarget.value)}>
+				<select
+					aria-label="Runs in"
+					onChange=${(event) => {
+						setPlace(event.currentTarget.value)
+						const [where, value] = event.currentTarget.value.split(/ (.*)/)
+						setWho(where === 'thread' ? agentsOf(Number(value)).map(keyOf) : [])
+					}}
+				>
 					<${Show} when=${() => bots.length}>
 						<optgroup label="A bot, in her home">
 							<${For} each=${() => bots}
@@ -839,6 +860,27 @@ function TaskForm(props) {
 						<//>
 					</p><//
 				>
+			<//>
+			<${Show} when=${() => threadIdOf() !== undefined && threadAgents().length > 1}>
+				<h3>To</h3>
+				<div class="when recipients" role="group" aria-label="Who it asks">
+					<${For} each=${threadAgents}
+						>${(agent) =>
+							html`<button
+								type="button"
+								class="ghost small"
+								aria-pressed=${() => String(who().includes(keyOf(agent)))}
+								onClick=${(_event) =>
+									setWho((list) =>
+										list.includes(keyOf(agent))
+											? list.filter((key) => key !== keyOf(agent))
+											: [...list, keyOf(agent)],
+									)}
+							>
+								${() => labelOf(agent)}
+							</button>`}<//
+					>
+				</div>
 			<//>
 			<${Show} when=${() => place() === 'new' && !agentTask}>
 				<h3>Model</h3>

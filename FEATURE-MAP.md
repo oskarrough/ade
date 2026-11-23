@@ -69,7 +69,7 @@ modules/
   canvas.js              a tldraw canvas per thread: Canvas doc, rooms, `canvas_look` (look, seen, report, present),
                          `canvas_act` (apply, created, updated), meta.by (authorizeRecord, onCommittedChanges, grew); serve, connect
   inbox.js               `ask_person`, openQuestion, questions, unread; serve (GET /api/inbox, dismissals)
-  schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, current, ScheduledTask (asleep, Control, Hooked,
+  schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, Control, Hooked,
                          Ended), run, scheduleOf, firstRun, settle, pending, cancel, control; serve
   hooks.js               outside events for scheduled tasks: Hook doc, issue, webhook, admit, PROBES, RATE, github,
                          fact, SHAPES, LIFETIME, GENERATION, stale; serve
