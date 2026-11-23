@@ -39,15 +39,83 @@ const finished = () => inbox.filter((item) => item.kind === 'answered')
 const WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
 const count = (number) => WORDS[number] ?? String(number)
 
+const IDLE_WORKING = [
+	'Nothing is waiting on you.',
+	'Nothing needs you right now.',
+	'Your turn can wait.',
+	'The ball is in their court.',
+	'Nobody has asked you anything.',
+	'You are not the bottleneck.',
+	'The work is out of your hands for now.',
+	"You've answered everything.",
+	"They're on it.",
+	"You're caught up.",
+	'Your desk is clear.',
+	"They'll knock when they need you.",
+	'Your silence is holding nothing up.',
+	"The errands are running. You needn't.",
+	'The familiars are at their work.',
+	'Everything is in hand. Not yours, for once.',
+	'The spells are cast. Now they simmer.',
+	'Work proceeds. It does not require supervision, only patience.',
+	'The road goes ever on. Without you, briefly.',
+	'A watched thread never finishes.',
+	"They'll arrive precisely when they mean to.",
+	"Nothing's on fire. I checked.",
+	'Second breakfast is not out of the question.',
+	'Go look out of a window.',
+	'Stand up. Nobody will mind.',
+	'Plenty happening, none of it yours.',
+	'Think your own thoughts for a while.',
+	"Nobody's waiting. Make the most of it.",
+	'All is proceeding as foreseen. Roughly.',
+	'And now for something completely different: nothing.',
+	'Not every hour needs a decision.',
+	'Nothing requires your seal.',
+	'The machinery hums. You may leave it to hum.',
+	'No summons. Carry on.',
+	'Clean slate.',
+]
+
+const IDLE_QUIET = [
+	'Nothing is waiting on you, and nothing is running.',
+	"Everything's done. Even the bots.",
+	'The house is quiet.',
+	'All threads at rest.',
+	'Nothing running. Nothing owed.',
+	'The candles are out. The work is done.',
+	'Even the familiars are asleep.',
+	'This inbox is no more. It has ceased to be. It is empty.',
+	'Calm waters.',
+	'A blank page, if you want one.',
+	'Done is a fine place to be.',
+	'Nothing in, nothing out.',
+	'The fellowship has disbanded for the evening.',
+	'Not all who wander are behind on email.',
+	"Go outside. It'll keep.",
+]
+
+const lastLine = { working: '', quiet: '' }
+/** A line for each kind of empty inbox, new on every visit and never the one before */
+function idleLines() {
+	const pick = (lines, key) => {
+		const options = lines.filter((line) => line !== lastLine[key])
+		return (lastLine[key] = options[Math.floor(Math.random() * options.length)])
+	}
+	return { working: pick(IDLE_WORKING, 'working'), quiet: pick(IDLE_QUIET, 'quiet') }
+}
+
 /** The page in a sentence, as a colleague would say it */
-function brief() {
+function brief(idle) {
 	const waits = waiting().length
 	const done = finished().length
 	const working = threadRows().open.filter((row) => row.status === 'working').length
 	return [
 		waits
 			? `${count(waits)} ${waits === 1 ? 'thing is' : 'things are'} waiting on you.`
-			: 'Nothing is waiting on you.',
+			: working
+				? idle.working
+				: idle.quiet,
 		done ? `${count(done)} finished.` : '',
 		working ? `${count(working)} still working.` : '',
 	]
@@ -56,6 +124,7 @@ function brief() {
 }
 
 export function Inbox() {
+	const idle = idleLines()
 	return html`
 		<article class="thread current inbox" aria-label="Inbox">
 			<header>
@@ -80,7 +149,7 @@ export function Inbox() {
 			</header>
 			<ul>
 				<li class="room"><${Notice} /></li>
-				<li class="brief">${brief}</li>
+				<li class="brief">${() => brief(idle)}</li>
 				<${For} each=${waiting} keyed=${(item) => `${item.kind} ${item.thread}`}>
 					${(item) => html`
 						<${Show}
