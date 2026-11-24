@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
 )
 
 // The house is the ade server and its runner on this machine. When the
@@ -101,7 +102,8 @@ func runHouse(ctx context.Context, action string, h house) (string, error) {
 	} else {
 		dir = shellQuote(dir)
 	}
-	script := "HOUSE_DIR=" + dir + "\nHOUSE_COMMAND=" + shellQuote(h.command()) + "\nHOUSE_SCRIPT=" + shellQuote(houseScript) + "\n" + houseScript
+	script := "HOUSE_DIR=" + dir + "\nHOUSE_COMMAND=" + shellQuote(h.command()) + "\nHOUSE_SHELL=" + shellQuote(mygo.App.Version()) +
+		"\nHOUSE_SCRIPT=" + shellQuote(houseScript) + "\n" + houseScript
 	// The login shell's environment, as in a terminal: PATH with node and ade
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -229,16 +231,43 @@ func houseStopped() bool {
 
 // updateHouse stages ade's newest release beside the one the app keeps,
 // checking every hour; the page then offers Update, which restarts into it.
-// A house running ade you installed is left alone.
+// A house running ade you installed is left alone. A release that needs a
+// newer app than this one isn't staged: the app says so, once a release.
 func updateHouse() {
+	told := ""
 	for {
 		if h := loadHouse(); h.Start != nil && *h.Start && local(origin) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_, _ = runHouse(ctx, "update", h)
+			out, _ := runHouse(ctx, "update", h)
 			cancel()
+			last := out[strings.LastIndex(out, "\n")+1:]
+			if fields := strings.Fields(last); len(fields) == 3 && fields[0] == "needs-shell" && fields[1] != told {
+				told = fields[1]
+				tooOld(fields[1], fields[2])
+			}
 		}
 		time.Sleep(time.Hour)
 	}
+}
+
+// tooOld tells you a release of ade needs a newer arbe desktop, and offers
+// the app's own update; until then the house keeps the release it has.
+func tooOld(release, need string) {
+	mygo.RunOnMain(func() {
+		res, err := mygo.Dialog.Message(mygo.MessageOptions{
+			Parent:  win,
+			Title:   "arbe desktop",
+			Message: "ade " + release + " needs a newer arbe desktop",
+			Detail: fmt.Sprintf("It needs arbe desktop %s or newer, and this is %s. Until arbe desktop updates, ade stays on the release it has.",
+				need, mygo.App.Version()),
+			Buttons:       []string{"Update arbe desktop", "Later"},
+			DefaultButton: 0,
+			CancelButton:  1,
+		})
+		if err == nil && res.Button == 0 {
+			updater.CheckForUpdates()
+		}
+	})
 }
 
 func askToStart() bool {

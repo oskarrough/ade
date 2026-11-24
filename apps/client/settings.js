@@ -157,7 +157,10 @@ export function Settings() {
 						</button>
 					<//>
 					<${Show} when=${desktopVersion}>
-						<p class="mute">${() => `arbe desktop ${desktopVersion()}`}</p>
+						<p class="mute">
+							${() =>
+								`ade ${server().release ?? server().commit?.slice(0, 7) ?? ''} · arbe desktop ${desktopVersion()}`}
+						</p>
 					<//>
 				`}
 				open=${picking}

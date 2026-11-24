@@ -3737,7 +3737,8 @@ const git = (...args) =>
 
 /**
  * An installed ade, as arbe desktop keeps one, runs a release: a tag, named with its commit and notes in `.release`
- * beside bin.js. A newer one staged in the folder beside it, `<folder>.next`, takes over at the next restart. A
+ * beside bin.js. A newer one staged in the folder beside it, `<folder>.next`, takes over at the next restart, and the
+ * one it replaced waits in `<folder>.old` until this one listens, for arbe desktop to go back to if it never does. A
  * checkout has neither and updates from its own files.
  */
 const readRelease = (dir) => {
@@ -3756,7 +3757,6 @@ const release = readRelease(import.meta.dirname)
 const nextDir = `${import.meta.dirname}.next`
 let staged = release && readRelease(nextDir)
 if (release) {
-	rmSync(`${import.meta.dirname}.old`, { recursive: true, force: true })
 	watchFiles(path.dirname(nextDir), (_event, name) => {
 		if (name !== path.basename(nextDir)) return
 		const now = readRelease(nextDir)
@@ -3768,6 +3768,7 @@ if (release) {
 /** Puts the staged release where this one is, for the restart to start it; this one waits beside it to be deleted */
 const takeStaged = () => {
 	if (!staged || readRelease(nextDir)?.tag !== staged.tag) return
+	rmSync(`${import.meta.dirname}.old`, { recursive: true, force: true })
 	renameSync(import.meta.dirname, `${import.meta.dirname}.old`)
 	try {
 		renameSync(nextDir, import.meta.dirname)
@@ -4890,6 +4891,8 @@ for (const host of process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1'])
 		// PORT=0 takes any free port: keep the one it got, for a restart and for runner commands
 		const listening = /** @type {import('node:net').AddressInfo} */ (server.address())
 		port ||= listening.port
+		// This release came up, so the one before it can go
+		if (release) rmSync(`${import.meta.dirname}.old`, { recursive: true, force: true })
 		const addresses =
 			host === '0.0.0.0'
 				? Object.values(os.networkInterfaces())

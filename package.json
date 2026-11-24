@@ -16,7 +16,8 @@
 		"desktop:release": "apps/desktop/release.sh"
 	},
 	"engines": {
-		"node": ">=24"
+		"node": ">=24",
+		"arbe-desktop": ">=0.1.9"
 	},
 	"files": [
 		"bin.js",
