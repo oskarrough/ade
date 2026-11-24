@@ -29,13 +29,14 @@ const DEFAULT_SERVER = {
 	},
 }
 export const url = params.get('server') || location.origin
-/** A link with the owner's key after `#key=` brings this browser in: the server keeps it as a cookie, and the address drops it */
-const ownerKey = new URLSearchParams(location.hash.slice(1)).get('key')
-if (ownerKey) {
+/** A link with a key after `#key=`, the owner's or an invite's, brings this browser in: the server keeps it as a
+ * cookie, and the address drops it */
+const linkKey = new URLSearchParams(location.hash.slice(1)).get('key')
+if (linkKey) {
 	history.replaceState(null, '', location.pathname + location.search)
 	await fetch(`${url}/api/me`, {
 		method: 'POST',
-		headers: { authorization: `Bearer ${ownerKey}` },
+		headers: { authorization: `Bearer ${linkKey}` },
 	}).catch(() => {})
 }
 export const api = (path, body, method = body === undefined ? 'GET' : 'POST') =>

@@ -317,10 +317,10 @@ const dial = (name, key) =>
 		})
 		socket.onclose = ({ code, reason }) => resolve({ code, reason })
 	})
-// Through Serve, as a stranger: on the server's own machine it would make its own key
+// Through Serve, as a stranger with no owner key beside it: on the server's own machine it would make its own key
 const nokey = await runner('stray', {
 	args: ['--server', `http://127.0.0.1:${servePort}`],
-	env: { ADE_KEY: '' },
+	env: { ADE_KEY: '', DB_PATH: path.join(path.dirname(db), 'elsewhere', 'store.sqlite') },
 	wait: false,
 })
 const out = []
@@ -330,12 +330,12 @@ check(out.join('').includes('ade key stray'), 'and is told how to get one', JSON
 const thief = await dial('laptop', 'air_guessed')
 check(thief.code === 4001, 'a wrong key is turned away', JSON.stringify(thief))
 check(await runnerOnline('laptop'), 'and the real laptop stays online: nobody can take its name')
-// A key takes a name's work, and a new one cuts off its holder, so a friend makes and revokes none
+// A key takes a name's work, and a new one cuts off its holder, so a friend gets none for the owner's runner
 const friendMints = await api('POST', '/api/runners', { name: 'laptop' }, 'ana')
 const friendRevokes = await api('DELETE', '/api/runners/laptop', undefined, 'ana')
 check(
 	friendMints.status === 403 && friendRevokes.status === 403,
-	'a login through Serve can’t mint or revoke a runner’s key',
+	'a login through Serve can’t take over or revoke the owner’s runner',
 	JSON.stringify([friendMints.status, friendRevokes.status]),
 )
 check(await runnerOnline('laptop'), 'and the laptop stays online with its own key')

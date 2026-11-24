@@ -168,8 +168,8 @@ const ownerKeyFile = path.join(path.dirname(file), 'owner.key')
 if (!existsSync(ownerKeyFile))
 	writeFileSync(ownerKeyFile, `aok_${randomBytes(24).toString('base64url')}\n`, { mode: 0o600 })
 const ownerKey = readFileSync(ownerKeyFile, 'utf8').trim()
-/** The cookie a browser keeps the owner key in; per port, since cookies ignore ports */
-const ownerCookie = () => `ade_owner_${port}`
+/** The cookie a browser keeps its key in, the owner's or an invite's; per port, since cookies ignore ports */
+const keyCookie = () => `ade_key_${port}`
 const isOwnerKey = (given) =>
 	timingSafeEqual(
 		createHash('sha256').update(given).digest(),
@@ -190,18 +190,24 @@ function answersTo(req, serve) {
 	if (serve) return /\.ts\.net(:\d+)?$/.test(String(req.headers.host))
 	return Boolean(process.env.HOST) && !loopback(process.env.HOST)
 }
+/** The key a request shows, as a bearer or the cookie */
+function keyIn(req) {
+	const cookie = String(req.headers.cookie ?? '')
+		.split(/;\s*/)
+		.find((pair) => pair.startsWith(`${keyCookie()}=`))
+		?.slice(keyCookie().length + 1)
+	return /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? cookie
+}
 /**
  * Who sent a request, from how it arrived, never from a name it gives: the owner's key, as a bearer or the cookie, is
- * the owner anywhere; on Serve's listener, the login Tailscale names; on the main one, a request straight from this
+ * the owner anywhere. With invites on, an invite's key is its name, and nothing else gets in: no login, no localhost.
+ * With them off, on Serve's listener, the login Tailscale names; on the main one, a request straight from this
  * machine, not through a proxy, is the owner. Anyone else is nobody: null.
  */
 function whoSent(req, serve) {
-	const cookie = String(req.headers.cookie ?? '')
-		.split(/;\s*/)
-		.find((pair) => pair.startsWith(`${ownerCookie()}=`))
-		?.slice(ownerCookie().length + 1)
-	const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? cookie
+	const given = keyIn(req)
 	if (given && isOwnerKey(given)) return owner
+	if (invitesOn) return (given && guests.get(sha256(given))) ?? null
 	if (serve) {
 		const login = req.headers['tailscale-user-login']
 		if (typeof login !== 'string' || !login) return null
@@ -283,9 +289,11 @@ function loginList(logins) {
 /** A person a runner names: a tailnet login, `ana@github`, as Serve names them; any other name as it is, the owner's */
 const personal = (name) => (name.includes('@') ? personName(name) : name)
 const nobody = (serve) =>
-	serve
-		? 'Tailscale Serve named nobody: open it from a device logged in to the tailnet'
-		: 'Who are you? Open the link `ade link` prints on the server, or send its owner key as a bearer'
+	invitesOn
+		? 'This house lets in only people with a key: open the invite link you were given, or, as its owner, the one `ade link` prints'
+		: serve
+			? 'Tailscale Serve named nobody: open it from a device logged in to the tailnet'
+			: 'Who are you? Open the link `ade link` prints on the server, or send its owner key as a bearer'
 // ── Docs and tasks ────────────────────────────────────────────────────────
 
 const KIND = 'ade.message'
@@ -315,6 +323,10 @@ const sessionDoc = (kind, initial) =>
 	defineDoc({ kind, version: 1, scope: 'session', checkpointWhen: base, initial })
 const Runners = sessionDoc('ade.runners', () => ({}))
 const Keys = sessionDoc('ade.keys', () => ({}))
+/** Who made each runner a guest made, by its name; one made by the owner isn't here */
+const Makers = sessionDoc('ade.makers', () => ({}))
+/** Each invite, by the name on it: `{key, at}`, `key` the SHA-256 of the key it gave */
+const Invites = sessionDoc('ade.invites', () => ({}))
 /** The name the server's own runner got the first time, kept so a new hostname doesn't make it another runner */
 const Lent = sessionDoc('ade.lent', () => ({ name: '' }))
 /** `agents` holds a {@link Recipient} for the thread's one agent, at `AGENT`, and for each bot, by name */
@@ -3334,6 +3346,15 @@ const owner = ownerName(settings.config.owner ?? os.userInfo().username)
 core.owner = owner
 /** Tailnet logins that are the owner through Serve, `ownerLogins` in ade.json: the owner's own devices */
 const ownerLogins = loginList(settings.config.ownerLogins ?? [])
+/** `invites` in ade.json: only the owner key and invites' keys get in, the owner's own machine and tailnet logins not */
+const invitesOn = settings.config.invites === true
+/** Each invite's name by its key's SHA-256, kept here so a request asks no commit, and changed with the doc */
+const guests = new Map()
+const knowInvites = (all) => {
+	guests.clear()
+	for (const [name, { key }] of Object.entries(all)) guests.set(key, name)
+}
+knowInvites((await harness.snapshot(Invites, context)) ?? {})
 /** The house as SQL tables, before any module starts and work resumes, so they're made from records no commit has yet
  * followed */
 const read = createRead(file)
@@ -3464,6 +3485,7 @@ async function serverInfo(viewer) {
 		settings: {
 			owner,
 			ownerLogins,
+			invites: invitesOn,
 			memory: {
 				model: settings.config.memory?.model ?? '',
 				compactAt: compactAt ?? null,
@@ -3496,15 +3518,27 @@ const routes = /** @type {[string, Function][]} */ ([
 			return restartSoon('updating')
 		},
 		'GET /api/runners': runnerList,
-		// A key lets a runner take a name's work, and a new one cuts off whoever held it, so only the owner mints or revokes
+		// Anyone in the house adds a runner under a name nobody holds; a new key for a held name, which cuts off its
+		// runner, only its maker gets. Its maker or the owner revokes it.
 		'POST /api/runners': async (req) => {
-			ownerOnly(req, 'Only the owner makes runner keys')
 			const body = await input(req)
-			return mintKey(String(body.name ?? ''), origin(req), body.key)
+			return mintKey(String(body.name ?? ''), origin(req), body.key, user(req))
 		},
-		'DELETE /api/runners/:name': (req, name, url) => {
-			ownerOnly(req, 'Only the owner revokes runner keys')
-			return revoke(name, url.searchParams.get('key') ?? undefined)
+		'DELETE /api/runners/:name': (req, name, url) =>
+			revoke(name, url.searchParams.get('key') ?? undefined, user(req)),
+		'GET /api/invites': async (req) => {
+			ownerOnly(req, 'Only the owner sees invites')
+			const all = (await harness.snapshot(Invites, context)) ?? {}
+			return { on: invitesOn, invites: Object.entries(all).map(([name, { at }]) => ({ name, at })) }
+		},
+		'POST /api/invites': async (req) => {
+			ownerOnly(req, 'Only the owner invites')
+			const body = await input(req)
+			return invite(String(body.name ?? '').trim(), origin(req), body.key)
+		},
+		'DELETE /api/invites/:name': (req, name, url) => {
+			ownerOnly(req, 'Only the owner takes an invite back')
+			return uninvite(name, url.searchParams.get('key') ?? undefined)
 		},
 		'GET /api/runners/:name/available': async (req, name) => {
 			if (!runners.isOnline(name)) throw new Error(`${name} is offline`)
@@ -3735,16 +3769,17 @@ async function handleRequest(req, res, serve = false) {
 	}
 	if (!['GET', 'HEAD'].includes(req.method) && fromAgent(req))
 		return send(res, 403, { error: agentRefused })
-	/** A browser brought in with the owner's key keeps it as a cookie its scripts can't read */
+	/** A browser brought in with the owner's key or an invite's keeps it as a cookie its scripts can't read */
 	if (req.method === 'POST' && url.pathname === '/api/me') {
 		const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
-		if (!given || !isOwnerKey(given)) return send(res, 403, { error: 'That is not the owner key' })
+		const me = given && (isOwnerKey(given) ? owner : guests.get(sha256(given)))
+		if (!me) return send(res, 403, { error: 'That key opens nothing here' })
 		const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
 		res.setHeader(
 			'Set-Cookie',
-			`${ownerCookie()}=${given}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`,
+			`${keyCookie()}=${given}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`,
 		)
-		return send(res, 201, { me: owner })
+		return send(res, 201, { me })
 	}
 	if (req.method === 'OPTIONS') {
 		res.writeHead(204)
@@ -3835,6 +3870,7 @@ exec "$run" "$data/runner-updater.js" "${server}" "$@"
 
 async function runnerList() {
 	const [all, last] = [await work(), await known()]
+	const makers = (await harness.snapshot(Makers, context)) ?? {}
 	return Object.keys(await keys()).map((name) => {
 		const { models, offers, ...runner } = last[name] ?? {}
 		const here = all.filter((job) => job.runner === name)
@@ -3846,6 +3882,8 @@ async function runnerList() {
 			name,
 			...runner,
 			...(lent?.name === name && { own: true }),
+			/** The guest who made it; the owner's runners have none */
+			...(makers[name] && { by: makers[name] }),
 			offers: offers ?? [],
 			models: Object.keys(models ?? {}),
 			online: runners.isOnline(name),
@@ -3864,9 +3902,13 @@ feed.define('runners', {
 	match: (change) => {
 		if (change.type === 'task') return isWork(change.value.kind) && runsOnRunner(change.value.kind)
 		if (change.type === 'document')
-			return ['ade.runners', 'ade.keys', 'ade.lent', AgentDoc.definition.kind].includes(
-				change.record.kind,
-			)
+			return [
+				'ade.runners',
+				'ade.keys',
+				'ade.makers',
+				'ade.lent',
+				AgentDoc.definition.kind,
+			].includes(change.record.kind)
 		return false
 	},
 })
@@ -4238,8 +4280,8 @@ const visible = (message) => {
 
 // ── Runner keys ───────────────────────────────────────────────────────────
 
-/** A new key for a runner, replacing its old one, whose runner is cut off */
-async function mintKey(name, server, requestKey) {
+/** A new key for a runner, replacing its old one, whose runner is cut off; only the runner's maker replaces one */
+async function mintKey(name, server, requestKey, by = owner) {
 	if (!/^[\w.-]+$/.test(name))
 		throw new Error('name the runner: letters, digits, dot, dash or underscore')
 	if (process.env.HOST === '0.0.0.0' && loopback(new URL(server).hostname)) {
@@ -4253,8 +4295,19 @@ async function mintKey(name, server, requestKey) {
 		scopedKey(`runner ${name}`, requestKey),
 		`runner ${name}`,
 		async (tx) => {
+			const [all, makers] = [await tx.doc(Keys), await tx.doc(Makers)]
+			const maker = all[name] ? (makers[name] ?? owner) : by
+			if (maker !== by)
+				throw Object.assign(
+					new Error(
+						`${name} is ${maker}'s runner; only ${maker} gives it a new key. Pick another name.`,
+					),
+					{ status: 403 },
+				)
 			const key = `air_${randomBytes(24).toString('base64url')}`
-			;(await tx.doc(Keys))[name] = sha256(key)
+			all[name] = sha256(key)
+			if (by === owner) delete makers[name]
+			else makers[name] = by
 			return {
 				name,
 				key,
@@ -4266,14 +4319,21 @@ async function mintKey(name, server, requestKey) {
 	runners.kick(name, 4001, `${name}'s key was replaced`)
 	return result
 }
-async function revoke(name, requestKey) {
+async function revoke(name, requestKey, by = owner) {
 	const result = await once(
 		scopedKey(`revoke ${name}`, requestKey),
 		`revoke ${name}`,
 		async (tx) => {
-			const all = await tx.doc(Keys)
+			const [all, makers] = [await tx.doc(Keys), await tx.doc(Makers)]
 			if (!all[name]) throw Object.assign(new Error(`No runner named ${name}`), { status: 404 })
+			const maker = makers[name]
+			if (by !== owner && by !== maker)
+				throw Object.assign(
+					new Error(`Only ${maker ? `${maker} or ` : ''}the owner revokes ${name}`),
+					{ status: 403 },
+				)
 			delete all[name]
+			delete makers[name]
 			return { revoked: name }
 		},
 	)
@@ -4281,9 +4341,49 @@ async function revoke(name, requestKey) {
 	return result
 }
 
+// ── Invites ───────────────────────────────────────────────────────────────
+
+/** A key with a name on it, replacing that name's old one; its link brings a browser in under the name */
+async function invite(name, server, requestKey) {
+	if (!/^[\w.-]{1,40}$/.test(name))
+		throw new Error('name who you invite: letters, digits, dot, dash or underscore')
+	if (name === owner) throw new Error(`${name} is the owner`)
+	const result = await once(
+		scopedKey(`invite ${name}`, requestKey),
+		`invite ${name}`,
+		async (tx) => {
+			const key = `aik_${randomBytes(24).toString('base64url')}`
+			;(await tx.doc(Invites))[name] = { key: sha256(key), at: new Date().toISOString() }
+			return { name, key, link: `${server}/#key=${key}`, on: invitesOn }
+		},
+	)
+	knowInvites((await harness.snapshot(Invites, context)) ?? {})
+	return result
+}
+/** Takes an invite back: its key opens nothing from the next request, and its open sockets close */
+async function uninvite(name, requestKey) {
+	const result = await once(
+		scopedKey(`uninvite ${name}`, requestKey),
+		`uninvite ${name}`,
+		async (tx) => {
+			const all = await tx.doc(Invites)
+			if (!all[name])
+				throw Object.assign(new Error(`Nobody named ${name} is invited`), { status: 404 })
+			delete all[name]
+			return { uninvited: name }
+		},
+	)
+	knowInvites((await harness.snapshot(Invites, context)) ?? {})
+	for (const socket of wss.clients)
+		if (personOf.get(socket) === name) socket.close(4001, `${name}'s invite was taken back`)
+	return result
+}
+
 // ── Upgrade: sockets and runner connections ───────────────────────────────
 
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: true })
+/** Whom each person's socket is, so taking an invite back closes theirs */
+const personOf = new WeakMap()
 async function upgrade(req, raw, head, serve = false) {
 	const url = new URL(req.url, 'http://localhost')
 	/** A module's own socket, at /api/<module> or for a thread at /api/threads/:id/<module>: the module's `connect` takes it */
@@ -4300,6 +4400,7 @@ async function upgrade(req, raw, head, serve = false) {
 	// A module's socket writes, the canvas's strokes; the feed's only reads
 	if (taker && fromAgent(req)) return refuse('403 Forbidden')
 	const socket = await new Promise((resolve) => wss.handleUpgrade(req, raw, head, resolve))
+	if (sender) personOf.set(socket, sender)
 	if (taker)
 		return taker.connect(threadId && Number(threadId), socket, url, sender).catch((error) => {
 			console.error(`${named} socket: ${error.message}`)
@@ -4421,6 +4522,7 @@ async function saveSettings({
 	bots,
 	owner: name,
 	ownerLogins: logins,
+	invites,
 }) {
 	const known = [
 		...Object.keys(defaults),
@@ -4484,6 +4586,11 @@ async function saveSettings({
 		if (loginList(logins).length) next.ownerLogins = loginList(logins)
 		else delete next.ownerLogins
 	}
+	if (invites !== undefined) {
+		if (typeof invites !== 'boolean') throw new Error('invites is on or off: true or false')
+		if (invites) next.invites = true
+		else delete next.invites
+	}
 	if (bots !== undefined) {
 		if (typeof bots.voice !== 'string') throw new Error('bots voice is text')
 		put('bots', 'voice', bots.voice, bots.voice === DEFAULT_VOICE)
@@ -4534,7 +4641,12 @@ async function connectSelf(url) {
 		doc.name ||= os.hostname()
 		return doc.name
 	})
-	const { key } = await mintKey(name, url)
+	// A guest who took its name while it was revoked keeps it
+	const minted = await mintKey(name, url).catch((error) =>
+		console.error(`runner ${name}: ${error.message}`),
+	)
+	if (!minted) return
+	const { key } = minted
 	lent = spawn(
 		process.execPath,
 		[

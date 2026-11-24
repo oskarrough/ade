@@ -18,7 +18,7 @@ import {
 	resolveModelScopeWithDiagnostics,
 	SettingsManager,
 } from '@earendil-works/pi-coding-agent'
-import { dataDir, load } from './modules.js'
+import { dataDir, load, ownerKeyHere } from './modules.js'
 import { runnerBundle, serveRunner } from './remote.js'
 
 // Prefer the installed pi's default; an internal path change must not stop the runner.
@@ -160,8 +160,9 @@ async function ready() {
 /** A runner by this name, holding a key, when this one started */
 let taken
 /**
- * A key of its own, which only the server's owner gets: on the server's machine that's whoever runs this. A name that
- * holds a key is another machine's or folder's, offline for now: it takes that over only when named on purpose.
+ * A key of its own, under a name nobody else's runner holds: on the server's machine whoever runs this is the owner,
+ * by the owner key beside the store. A name that holds a key is another machine's or folder's, offline for now: it
+ * takes that over only when named on purpose.
  */
 async function mint() {
 	if (taken && !args.name)
@@ -169,14 +170,20 @@ async function mint() {
 			`A runner named ${name} already exists${taken.dir ? `, in ${taken.dir}` : ''}, offline for now. Give this one its own name:\n  ${again('--name', `${name}-2`)}\nor take its name over, which replaces its key:\n  ${again('--name', name)}`,
 		)
 	if (taken) console.log(`This replaces ${name}'s key: the runner that had it can't connect again.`)
+	const ownerKey = /^https?:\/\/(localhost|127\.[\d.]+|\[::1\])(:\d+)?(\/|$)/.test(server)
+		? ownerKeyHere()
+		: ''
 	const res = await fetch(`${server}/api/runners`, {
 		method: 'POST',
-		headers: { 'content-type': 'application/json' },
+		headers: {
+			'content-type': 'application/json',
+			...(ownerKey && { authorization: `Bearer ${ownerKey}` }),
+		},
 		body: JSON.stringify({ name }),
 	}).catch(() => undefined)
 	if (!res?.ok)
 		stop(
-			`${name} needs a key, and only the server's owner can make one. On the server's machine run\n  ade key ${name}\nthen run the line it prints here.`,
+			`${name} needs a key. Add it under Runners on the house's page, or on the server's machine run\n  ade key ${name}\nthen run the line it prints here.`,
 		)
 	args.key = (await res.json()).key
 	save()

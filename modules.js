@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -17,6 +17,16 @@ export function loadEnvFile() {
 }
 
 /** Default store and log folder: $XDG_DATA_HOME/ade */
+/** The owner key beside this machine's store, or '' where there is none or it can't be read */
+export function ownerKeyHere() {
+	const store = process.env.DB_PATH || path.join(dataDir(), 'ade.sqlite')
+	try {
+		return readFileSync(path.join(path.dirname(store), 'owner.key'), 'utf8').trim()
+	} catch {
+		return ''
+	}
+}
+
 export function dataDir() {
 	const dir = path.join(
 		process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'),

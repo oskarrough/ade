@@ -42,12 +42,13 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   compact, compactingAt             compaction
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once
-  whoSent, answersTo, owner         who sent a request: owner key, Tailscale login, listeners (SERVE_PORT, HOOK_PORT)
+  whoSent, keyIn, answersTo, owner  who sent a request: owner key, invite key, Tailscale login, listeners (SERVE_PORT, HOOK_PORT)
+  Invites, invite, uninvite, guests invites (`invites` in ade.json): keys with names, GET/POST/DELETE /api/invites; cli.js `invite`, `uninvite`, `invites`
   fromAgent, agentPeer              an agent's command on this machine (runner.js sets ADE_AGENT_OF) writes nothing
   exampleShed                       the walkthrough's example thread (POST /api/threads/shed)
   routes                            every HTTP route
   agents/, agentRows, agentRow, liveOf, followLive, cutOf, covers   `agents/<id>` feed view: a thread's agents' turns, cuts and live work
-  mintKey, revoke, upgrade          runner keys and sockets; a module's `connect` socket
+  mintKey, revoke, Makers, upgrade  runner keys, who made a guest's runner, and sockets; a module's `connect` socket
   saveSettings, restartSoon, restart, connectSelf   settings, restart (POST /api/restart), the server's own machine as a runner
   stale                             whether the server's code changed since it started
 echo.js                  echo/try scripted model responses

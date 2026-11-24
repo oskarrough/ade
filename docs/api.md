@@ -1,6 +1,6 @@
 # API and CLI
 
-Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in. From its own machine you're the owner, and anything that names someone else, an `x-user` header or a `?user=`, is ignored. A command an agent runs there reads but writes nothing, even with the owner key: its words go in its answer, and the post tool reaches other threads. Through its Serve port you're the login `Tailscale-User-Login` names, and a request without one is refused. Anywhere else, send the owner key from `owner.key` beside the store as `Authorization: Bearer <key>`. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get. The owner's is `owner` in ade.json, or their login on the server's machine; set it to the name your history has, and it stays yours. A tailnet login listed in ade.json's `ownerLogins`, like `["oskar@github"]`, is the owner; any other is `~` and the login with `@` written as `+`, so it never reads as a bot or an agent.
+Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in. From its own machine you're the owner, and anything that names someone else, an `x-user` header or a `?user=`, is ignored. A command an agent runs there reads but writes nothing, even with the owner key: its words go in its answer, and the post tool reaches other threads. Through its Serve port you're the login `Tailscale-User-Login` names, and a request without one is refused. Anywhere else, send the owner key from `owner.key` beside the store as `Authorization: Bearer <key>`. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get. The owner's is `owner` in ade.json, or their login on the server's machine; set it to the name your history has, and it stays yours. A tailnet login listed in ade.json's `ownerLogins`, like `["oskar@github"]`, is the owner; any other is `~` and the login with `@` written as `+`, so it never reads as a bot or an agent. With `"invites": true` in ade.json, none of that counts: only the owner key or an invite's key gets in, as a bearer or the cookie `POST /api/me` sets.
 
 ```sh
 api() { curl -s -H 'content-type: application/json' "localhost:3000/api/$1" ${2:+-d "$2"}; }
@@ -71,10 +71,14 @@ In `agents/<id>`, each of the thread's agents has three kinds of row, keyed by i
 GET    /api/server                     modules, settings, `me`, who the server takes you for, `client`, what a reload of the page gets,
                                        and `commit`, the checkout's commit (null for an install)
 GET    /api/changes?since=<commit>     {commits}: the subjects of the commits since that one, newest first
-POST   /api/me                         with the owner key as a bearer: keeps it as this browser's cookie
+POST   /api/me                         with the owner key or an invite's as a bearer: keeps it as this browser's cookie
+GET    /api/invites                    the owner's: {on, invites: [{name, at}]}
+POST   /api/invites {name}             the owner's: {name, key, link}, a key with that name on it; again, a new one
+DELETE /api/invites/:name              the owner's: the key opens nothing from the next request
 GET    /api/runners
-POST   /api/runners {name}             a key, and the commands that connect it: `ade` with ade, `connect` without
-DELETE /api/runners/:name
+POST   /api/runners {name}             a key, and the commands that connect it: `ade` with ade, `connect` without; a name another's
+                                       runner holds is refused. A guest's runner lists `by`, them
+DELETE /api/runners/:name              its maker's or the owner's
 GET    /api/runners/:name/available    every model pi is logged in for there; `offers` are its scoped ones
 GET    /api/threads                    each thread's row; its `parent`, or `conversation.parent` for a fork, places it in a family
 POST   /api/threads {title, parent?, tools?, key?, body?, to?, images?, steer?}  with a body, its first message in the same commit

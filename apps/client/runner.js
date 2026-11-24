@@ -3,9 +3,11 @@ import html from '@solidjs/html'
 import { createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
 import {
 	api,
+	me,
 	minted,
 	revokeRunner,
 	runners,
+	server,
 	setMinted,
 	threadOf,
 	threadRows,
@@ -213,18 +215,23 @@ function RunnerItem(props) {
 				<${Show} when=${() => props.runner.dir && summary()}>
 					<small class=${() => ({ doing: props.runner.online })}>${summary}</small>
 				<//>
+				<${Show} when=${() => props.runner.by}>
+					<small>${() => `${props.runner.by}'s machine`}</small>
+				<//>
 			</div>
-			<${Sure}
-				class="small revoke"
-				title=${() =>
-					"Take its key away. It goes offline and can't dial back; threads that asked it wait for the name." +
-					(props.runner.own
-						? " It's the server's own runner, so it's back when the server restarts, unless it starts with --no-runner."
-						: '')}
-				ask="revoke?"
-				onConfirm=${(_event) => revoke()}
-				><${Busy} state=${revoke.state}>revoke<//><//
-			>
+			<${Show} when=${() => me() === server().settings.owner || props.runner.by === me()}>
+				<${Sure}
+					class="small revoke"
+					title=${() =>
+						"Take its key away. It goes offline and can't dial back; threads that asked it wait for the name." +
+						(props.runner.own
+							? " It's the server's own runner, so it's back when the server restarts, unless it starts with --no-runner."
+							: '')}
+					ask="revoke?"
+					onConfirm=${(_event) => revoke()}
+					><${Busy} state=${revoke.state}>revoke<//><//
+				>
+			<//>
 		</li>
 	`
 }
@@ -332,6 +339,10 @@ export function ConnectRunner(props) {
 				</p>
 			<//>
 			<${Show} when=${() => error()}><p class="bad">${() => error()}</p><//>
+			<p class="mute">
+				A runner is shared: everyone in this house can run agents on it, as whoever runs it there.
+				Start it with <code>--owner</code> to keep it to yourself.
+			</p>
 			<${Show} when=${minted}>
 				<p class="mute">On that machine, in the folder agents should start in:</p>
 				<div class="command">

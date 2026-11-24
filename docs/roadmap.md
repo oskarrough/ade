@@ -50,7 +50,7 @@ The director, the part that picks who answers, is now one director made from arb
 
 Someone else runs their own, without my help. The question: is it really portable? The one-command install and the export that writes every thread out as Markdown or JSON, readable without ade installed, are both done.
 
-Left: invites and a public address. Both may get built, but stay switched off until someone needs them. The rename to arbe is parked.
+Left: a public address. Invites are built, switched off until someone needs them. The rename to arbe is parked.
 
 The test: a friend gets the install instructions and their data file and gets running without my help. It passes only if they can also leave: export, shut the server down, and still have their threads.
 

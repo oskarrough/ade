@@ -3,16 +3,16 @@ import { agentTo } from './util.js'
 import { defaultTitle } from './apps/client/title.js'
 import { parseArgs } from 'node:util'
 import { on, once } from 'node:events'
-import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import WebSocket from 'ws'
-import { dataDir } from './modules.js'
+import { ownerKeyHere } from './modules.js'
 
 const usage = `ade [--server url] <command>
 
-  You write as whoever the server takes you for: the owner on its own machine, your login through
-  tailscale serve, or the owner anywhere with ADE_OWNER_KEY set to the key \`link\` shows.
+  You write as whoever the server takes you for: the owner on its own machine, by the key beside its
+  store, your login through tailscale serve, or the owner anywhere with ADE_OWNER_KEY set to the key
+  \`link\` shows.
 
   post <message>   post to a new thread, or --thread N, and print the answers as they land
                    --to agent    model@runner, a runner, a bot's name, or nobody; repeat for bots
@@ -34,6 +34,10 @@ const usage = `ade [--server url] <command>
   revoke <runner>  take its key away: it goes offline and leaves the list
   stop <thread>    stop its agents and commands
   link             on the server's machine: a link that brings a browser in as the owner
+  invite <name>    a key with their name on it, as a link that brings their browser in as them;
+                   inviting again replaces it. It opens the house only with "invites": true in ade.json
+  uninvite <name>  take the invite back: its key opens nothing from the next request
+  invites          whether invites are on, and who holds one
   import <runner> [session]
                    with pi-sessions on: list the pi sessions in the runner's folder (--dir for another),
                    or start a new thread from one, by id or path, and print "thread N"; --title names it
@@ -72,12 +76,11 @@ const {
 	help: { type: 'boolean', short: 'h' },
 })
 
-/** The owner's key goes only to a server elsewhere, and only when given: on the server's own machine it's not needed */
+/** The owner's key: ADE_OWNER_KEY when given; on the server's own machine, the one beside its store, which a house
+ * with invites on needs even there */
 const local = /^https?:\/\/(localhost|127\.[\d.]+|\[::1\])(:\d+)?(\/|$)/.test(flags.server)
-const auth =
-	!local && process.env.ADE_OWNER_KEY
-		? { authorization: `Bearer ${process.env.ADE_OWNER_KEY}` }
-		: {}
+const ownerKey = process.env.ADE_OWNER_KEY || (local ? ownerKeyHere() : '')
+const auth = ownerKey ? { authorization: `Bearer ${ownerKey}` } : {}
 const socketTo = () => new WebSocket(`${flags.server.replace(/^http/, 'ws')}/ws`, { headers: auth })
 
 async function api(method, route, body) {
@@ -280,9 +283,29 @@ const commands = {
 	stop: () => api('POST', `/api/threads/${Number(rest[0])}/stop`),
 	/** The owner's key, from beside this machine's store, in a link's fragment: the page trades it for a cookie and drops it */
 	async link() {
-		const store = process.env.DB_PATH || path.join(dataDir(), 'ade.sqlite')
-		const key = readFileSync(path.join(path.dirname(store), 'owner.key'), 'utf8').trim()
+		const key = ownerKeyHere()
+		if (!key) throw new Error('No owner key here: run this on the server’s machine')
 		console.log(`${flags.server}/#key=${key}`)
+	},
+	/** A key with a name on it, as a link that brings their browser in */
+	async invite() {
+		const name = rest[0]
+		if (!name)
+			throw new Error('ade invite <name>: who you invite, as their messages will be signed')
+		const { link, on } = await api('POST', '/api/invites', { name })
+		console.log(
+			`${name} can use every runner in this house, yours included, and their agents run as you there; start a runner with --owner to keep it to yourself.\n\nSend ${name} this link; it brings their browser in as ${name}:\n  ${link}\nIf they reach this house at another address, put the same #key=… after that one.${on ? '' : '\n\nInvites are off, so it opens nothing yet: set "invites": true in ade.json and restart. Then only keys get in, yours included: open the link `ade link` prints.'}`,
+		)
+	},
+	async uninvite() {
+		await api('DELETE', `/api/invites/${encodeURIComponent(rest[0] ?? '')}`)
+		console.log(`${rest[0]}'s invite is taken back`)
+	},
+	async invites() {
+		const { on, invites } = await api('GET', '/api/invites')
+		console.log(`Invites are ${on ? 'on' : 'off'}.`)
+		for (const { name, at } of invites)
+			console.log(`  ${name}  invited ${at.slice(0, 16).replace('T', ' ')}`)
 	},
 	async import() {
 		const [runner, session] = rest
