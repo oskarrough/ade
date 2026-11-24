@@ -3573,6 +3573,7 @@ const browserPackages = new Map([
 	['@solidjs/signals', new URL('./dist/', import.meta.resolve('@solidjs/signals/package.json'))],
 	['pele', new URL('./', import.meta.resolve('pele'))],
 	['marked', new URL('./', import.meta.resolve('marked'))],
+	['diff', new URL('./libesm/', import.meta.resolve('diff/package.json'))],
 ])
 async function servePackage(res, pathname, head = false) {
 	for (const [name, root] of browserPackages) {

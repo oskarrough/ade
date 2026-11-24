@@ -441,7 +441,7 @@ const afterOf = (step, key) =>
 	step.args[key] ??
 	[step.result.details.before.instructions, step.args.append.trim()].filter(Boolean).join('\n')
 
-/** jsdiff from esm.sh, fetched the first time a change is opened */
+/** jsdiff, loaded the first time a change is opened */
 let jsdiff
 /** Keep the change's own line and the next nonblank one; the rest folds into ⋯. */
 function contextOf(lines) {
@@ -509,12 +509,12 @@ export function Changed(props) {
 		}))
 	const opened = (event) => {
 		if (!event.currentTarget.open || diffWords()) return
-		;(jsdiff ??= import('https://esm.sh/diff@9.0.0').catch((error) => {
+		;(jsdiff ??= import('diff').catch((error) => {
 			jsdiff = undefined
 			throw error
 		})).then(
 			(module) => setDiffWords(() => module.diffWords),
-			(error) => setFailed(`Couldn't load the diff from esm.sh: ${error.message}`),
+			(error) => setFailed(`Couldn't load the diff: ${error.message}`),
 		)
 	}
 	return html`
