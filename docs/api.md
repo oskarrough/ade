@@ -70,7 +70,8 @@ In `agents/<id>`, each of the thread's agents has three kinds of row, keyed by i
 ```
 GET    /api/server                     modules, settings, `me`, who the server takes you for, `client`, what a reload of the page gets,
                                        and `commit`, the checkout's commit (null for an install)
-GET    /api/changes?since=<commit>     {commits}: the subjects of the commits since that one, newest first
+GET    /api/changes?since=<commit>     {commits: [{subject, at}]}: the commits since that one, newest first; without
+                                       `since`, the newest 20
 POST   /api/me                         with the owner key or an invite's as a bearer: keeps it as this browser's cookie
 GET    /api/invites                    the owner's: {on, invites: [{name, at}]}
 POST   /api/invites {name}             the owner's: {name, key, link}, a key with that name on it; again, a new one

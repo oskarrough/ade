@@ -429,7 +429,7 @@ export const {
 		const now = server().client
 		return Boolean(loadedWith && now && now !== loadedWith)
 	})
-	/** The subjects of the commits since the one this page loaded on, newest first; none when the server isn't a checkout */
+	/** The commits since the one this page loaded on, `{subject, at}`, newest first; none when the server isn’t a checkout */
 	const [changes, setChanges] = createSignal([])
 	createEffect(
 		() => (behind() || server().stale) && server().commit,

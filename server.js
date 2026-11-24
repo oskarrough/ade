@@ -3549,10 +3549,20 @@ const routes = /** @type {[string, Function][]} */ ([
 			return runners.call(name, { op: 'available' }, {})
 		},
 		'GET /api/changes': async (_req, _id, url) => {
-			const since = url.searchParams.get('since') ?? ''
-			if (!/^[\da-f]{7,40}$/.test(since)) return { commits: [] }
-			const log = await git('log', '--format=%s', `${since}..HEAD`)
-			return { commits: log ? log.split('\n') : [] }
+			const since = url.searchParams.get('since')
+			if (since !== null && !/^[\da-f]{7,40}$/.test(since)) return { commits: [] }
+			const log = await git(
+				'log',
+				'--format=%cI%x09%s',
+				...(since === null ? ['-n', '20', 'HEAD'] : [`${since}..HEAD`]),
+			)
+			const commits = log ? log.split('\n') : []
+			return {
+				commits: commits.map((line) => ({
+					subject: line.slice(line.indexOf('\t') + 1),
+					at: line.split('\t')[0],
+				})),
+			}
 		},
 		'GET /runner/bundle': () => bundle,
 		'GET /api/threads': (req) => threadList(user(req)),
