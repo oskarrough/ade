@@ -79,7 +79,11 @@ export function People(props) {
 					value=${() => name()}
 					onInput=${(event) => setName(tidyName(event.currentTarget))}
 				/>
-				<button type="submit" aria-busy=${() => add.state() === 'busy'}>
+				<button
+					type="submit"
+					disabled=${() => add.state() === 'busy'}
+					aria-busy=${() => add.state() === 'busy'}
+				>
 					<${Busy} state=${add.state}
 						>${() =>
 							invited().some((person) => person.name === name().trim()) ? 'New link' : 'Invite'}<//
@@ -111,7 +115,12 @@ export function People(props) {
 					<span>Your other devices</span>
 					<small>While invites are on, they need your key too: a link brings one in as you.</small>
 				</div>
-				<button type="button" class="small" onClick=${(_event) => ownerLink()}>
+				<button
+					type="button"
+					class="small"
+					disabled=${() => ownerLink.state() === 'busy'}
+					onClick=${(_event) => ownerLink()}
+				>
 					<${Busy} state=${ownerLink.state}>Open on another device<//>
 				</button>
 			</li>
@@ -142,6 +151,7 @@ function Person(props) {
 				class="small revoke"
 				title="Put them out: their link opens nothing from their next request, and their runners go offline"
 				ask="remove?"
+				disabled=${() => remove.state() === 'busy'}
 				onConfirm=${(_event) => remove()}
 				><${Busy} state=${remove.state}>Remove<//><//
 			>

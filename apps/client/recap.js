@@ -33,6 +33,7 @@ export function Recap(props) {
 					class="ghost small"
 					aria-label=${() => (writing() ? 'Writing the recap' : 'Write it now')}
 					title=${() => (writing() ? 'Writing…' : 'Write the recap now')}
+					disabled=${writing}
 					aria-busy=${() => writing()}
 					onClick=${(_event) => rewrite()}
 				>

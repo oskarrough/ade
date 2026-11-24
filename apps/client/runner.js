@@ -228,6 +228,7 @@ function RunnerItem(props) {
 							? " It's the server's own runner, so it's back when the server restarts, unless it starts with --no-runner."
 							: '')}
 					ask="revoke?"
+					disabled=${() => revoke.state() === 'busy'}
 					onConfirm=${(_event) => revoke()}
 					><${Busy} state=${revoke.state}>revoke<//><//
 				>
@@ -256,6 +257,7 @@ export function LogIn() {
 		type="button"
 		class="small"
 		title="Opens pi in a terminal: type /login and pick a provider"
+		disabled=${() => open.state() === 'busy'}
 		onClick=${(event) => {
 			event.stopPropagation()
 			open()
@@ -322,6 +324,7 @@ export function ConnectRunner(props) {
 				/>
 				<button
 					type="submit"
+					disabled=${() => add.state() === 'busy'}
 					aria-busy=${() => add.state() === 'busy'}
 					onBlur=${(_e) => setCutting(false)}
 				>
