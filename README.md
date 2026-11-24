@@ -8,7 +8,7 @@ Use your Anthropic, ChatGPT or Antigravity subscriptions, or really any model th
 
 Threads live on a server you own, and agents run on the machines you want. Works great for yourself in your own, private Tailscale.
 
-There are two ways to run it: download an run the desktop app (easy), or run `npx --allow-git=all github:oskarrough/ade`.
+There are two ways to run it: download and run the desktop app (easy), or run `npx --allow-git=all github:oskarrough/ade`.
 
 ## Get the desktop app
 
