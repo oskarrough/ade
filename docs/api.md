@@ -74,11 +74,12 @@ GET    /api/changes?since=<commit>     {commits}: the subjects of the commits si
 POST   /api/me                         with the owner key or an invite's as a bearer: keeps it as this browser's cookie
 GET    /api/invites                    the owner's: {on, invites: [{name, at}]}
 POST   /api/invites {name}             the owner's: {name, key, link}, a key with that name on it; again, a new one
-DELETE /api/invites/:name              the owner's: the key opens nothing from the next request
+DELETE /api/invites/:name              the owner's: from the next request the key opens nothing, their sockets close, their runners'
+                                       keys go and the scheduled tasks that run as them end
 GET    /api/runners
 POST   /api/runners {name}             a key, and the commands that connect it: `ade` with ade, `connect` without; a name another's
                                        runner holds is refused. A guest's runner lists `by`, them
-DELETE /api/runners/:name              its maker's or the owner's
+DELETE /api/runners/:name              its maker's or the owner's; the name stays its maker's
 GET    /api/runners/:name/available    every model pi is logged in for there; `offers` are its scoped ones
 GET    /api/threads                    each thread's row; its `parent`, or `conversation.parent` for a fork, places it in a family
 POST   /api/threads {title, parent?, tools?, key?, body?, to?, images?, steer?}  with a body, its first message in the same commit

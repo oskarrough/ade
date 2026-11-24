@@ -27,7 +27,7 @@ With `HOST` set to a network address, the main port answers that network, but on
 
 Invites are a switch of their own, off by default: `"invites": true` in ade.json. Where the house listens doesn't change. With invites on, only keys get in, on every port: the owner key, and invites' keys. A tailnet login alone is nobody, and so is a request from the server's own machine without the owner key; the CLI and `ade runner` there send the key beside the store for you.
 
-`ade invite sam` makes a key with sam's name on it and prints a link with the key after `#key=`. The page trades it for the same cookie the owner's link sets, and drops it from the address. Inviting sam again replaces the key. `ade uninvite sam` takes it back: from the next request it opens nothing, and sam's open sockets close. `ade invites` lists who holds one. Only the owner invites. The server keeps each key's SHA-256, never the key.
+`ade invite sam` makes a key with sam's name on it and prints a link with the key after `#key=`. The page trades it for the same cookie the owner's link sets, and drops it from the address. Inviting sam again replaces the key and closes what the old one had open. `ade uninvite sam` puts sam out, from the next request on: the key opens nothing, sam's open sockets close, the keys of sam's runners go, and the scheduled tasks that run as sam end. An invite under the owner's name, should the owner take sam's, opens nothing. `ade invites` lists who holds one. Only the owner invites. The server keeps each key's SHA-256, never the key; a retried request gets its key again by deriving it from the owner key, not from a stored receipt.
 
 Turn invites on before you put a house where strangers can reach it. The server can't tell a tunnel from localhost, so it can't do that for you.
 
@@ -37,7 +37,7 @@ A guest, by tailnet login or by invite, is nearly the owner. They can't change s
 
 That includes running commands, by design: everyone in your house can run agents on your machines as you. Who you let in, onto your tailnet or by invite, is the trust boundary. A runner takes work from anyone unless it was started with `--owner` (and `--allow`), and the server's own runner never is, so a guest can start a thread on your machine and have its agent run `rm -rf ~` as you. Keep a runner to yourself with `--owner`.
 
-A guest can add a runner of their own, under a name no runner holds; it's shared like the rest, and runs everyone's agents as that guest's user. Only that guest gives it a new key; that guest or the owner revokes it. Nobody, the owner included, takes over a name another runner holds: a new key for a name goes only to whoever made it.
+A guest can add a runner of their own, under a name nobody else's runner has had; it's shared like the rest, and runs everyone's agents as that guest's user. Only that guest gives it a new key; that guest or the owner revokes it. Nobody, the owner included, takes over another's runner name, even once its key is revoked: a new key for a name goes only to whoever made it, and the server's own runner and every runner the owner made are the owner's.
 
 ## Runners
 

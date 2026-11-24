@@ -1327,6 +1327,16 @@ export function server(core) {
 		archiving,
 		start: () => (settling(), waking(already)),
 		ended: settling,
+		/** Someone was put out of the house: the tasks that run as them end */
+		uninvited: async (name) => {
+			const theirs = [
+				...(await sleeping()),
+				...(await sleeping(undefined, 'waiting')),
+				...(await sleeping(undefined, 'pending')),
+			].filter((record) => record.input.conversation === undefined && record.input.by === name)
+			for (const { id } of theirs)
+				if ((await core.abortTask(id)) === 'marked') await core.waitForTask(id)
+		},
 		/** A runner came online or went offline */
 		runner: (name, online) => waking((when) => when[online ? 'online' : 'offline'] === name),
 		/** A run in a thread failed, or an agent there answered, as its trail says */

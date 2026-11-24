@@ -20,7 +20,7 @@ There are no accounts. The server knows who you are by how you came in. On its o
 
 Elsewhere, you're the owner with the owner key, which the server writes beside its data at first start (`owner.key`). `ade link` on the server's machine prints a link that brings a browser in with it; the CLI sends it when `ADE_OWNER_KEY` is set.
 
-To let in people by name instead, wherever the house listens, set `"invites": true` in ade.json and restart. `ade invite sam` prints a link that brings sam's browser in as sam, `ade uninvite sam` shuts them out from their next request, and `ade invites` lists who has one. With invites on, only keys get in: a tailnet login alone doesn't, and neither does your own machine without the owner key, so open the link `ade link` prints. Whoever you invite can use every runner in the house, yours included, as you; [SECURITY.md](../SECURITY.md) says what that means. A guest can add a runner of their own under a free name; only they or you can revoke it.
+To let in people by name instead, wherever the house listens, set `"invites": true` in ade.json and restart. `ade invite sam` prints a link that brings sam's browser in as sam, `ade uninvite sam` shuts them out from their next request, runners and scheduled tasks included, and `ade invites` lists who has one. With invites on, only keys get in: a tailnet login alone doesn't, and neither does your own machine without the owner key, so open the link `ade link` prints. Whoever you invite can use every runner in the house, yours included, as you; [SECURITY.md](../SECURITY.md) says what that means. A guest can add a runner of their own under a free name; only they or you can revoke it.
 
 ## Settings
 

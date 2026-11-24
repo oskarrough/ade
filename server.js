@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFile, spawn } from 'node:child_process'
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -207,7 +207,11 @@ function keyIn(req) {
 function whoSent(req, serve) {
 	const given = keyIn(req)
 	if (given && isOwnerKey(given)) return owner
-	if (invitesOn) return (given && guests.get(sha256(given))) ?? null
+	// An invite under the owner's name, the owner having taken it since, is nobody
+	if (invitesOn) {
+		const guest = given && guests.get(sha256(given))
+		return guest && guest !== owner ? guest : null
+	}
 	if (serve) {
 		const login = req.headers['tailscale-user-login']
 		if (typeof login !== 'string' || !login) return null
@@ -323,7 +327,7 @@ const sessionDoc = (kind, initial) =>
 	defineDoc({ kind, version: 1, scope: 'session', checkpointWhen: base, initial })
 const Runners = sessionDoc('ade.runners', () => ({}))
 const Keys = sessionDoc('ade.keys', () => ({}))
-/** Who made each runner a guest made, by its name; one made by the owner isn't here */
+/** Who made each runner a guest made, by its name, kept after its key is revoked; one made by the owner isn't here */
 const Makers = sessionDoc('ade.makers', () => ({}))
 /** Each invite, by the name on it: `{key, at}`, `key` the SHA-256 of the key it gave */
 const Invites = sessionDoc('ade.invites', () => ({}))
@@ -4032,6 +4036,7 @@ const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
 /** Told when a runner comes online, `true`, or goes offline, `false` */
 const runnerHooks = modules.flatMap((module) => module.runner ?? [])
+const uninvitedHooks = modules.flatMap((module) => module.uninvited ?? [])
 harness.observeCommits({
 	advance: (publication) => {
 		// A throw here would end Pi's telling us of commits at all: a module's trouble stays its own
@@ -4280,7 +4285,23 @@ const visible = (message) => {
 
 // ── Runner keys ───────────────────────────────────────────────────────────
 
-/** A new key for a runner, replacing its old one, whose runner is cut off; only the runner's maker replaces one */
+/**
+ * A new key, `prefix` and 24 random bytes; with a caller's request key, made from it and the owner key instead, so a
+ * retry gets the same key again without the store ever holding it
+ */
+const newKey = (prefix, requestKey, ...about) =>
+	`${prefix}${(requestKey === undefined
+		? randomBytes(24)
+		: createHmac('sha256', ownerKey)
+				.update(JSON.stringify([prefix, ...about, scopedKey('key', requestKey)]))
+				.digest()
+				.subarray(0, 24)
+	).toString('base64url')}`
+/**
+ * A new key for a runner, replacing its old one, whose runner is cut off. A name is its maker's for good, revoked or
+ * not: only they get it a key. A name the owner's runners had before makers were kept, the server's own among them, is
+ * the owner's.
+ */
 async function mintKey(name, server, requestKey, by = owner) {
 	if (!/^[\w.-]+$/.test(name))
 		throw new Error('name the runner: letters, digits, dot, dash or underscore')
@@ -4291,33 +4312,35 @@ async function mintKey(name, server, requestKey, by = owner) {
 		)?.address
 		if (address) server = server.replace(new URL(server).hostname, address)
 	}
-	const result = await once(
-		scopedKey(`runner ${name}`, requestKey),
-		`runner ${name}`,
-		async (tx) => {
-			const [all, makers] = [await tx.doc(Keys), await tx.doc(Makers)]
-			const maker = all[name] ? (makers[name] ?? owner) : by
-			if (maker !== by)
-				throw Object.assign(
-					new Error(
-						`${name} is ${maker}'s runner; only ${maker} gives it a new key. Pick another name.`,
-					),
-					{ status: 403 },
-				)
-			const key = `air_${randomBytes(24).toString('base64url')}`
-			all[name] = sha256(key)
-			if (by === owner) delete makers[name]
-			else makers[name] = by
-			return {
-				name,
-				key,
-				ade: `ADE_KEY=${key} ade runner --server ${server} --name ${name}`,
-				connect: `curl -fsSL ${server}/connect-runner | ADE_KEY=${key} sh -s -- --name ${name} --dir .`,
-			}
-		},
-	)
-	runners.kick(name, 4001, `${name}'s key was replaced`)
-	return result
+	const key = newKey('air_', requestKey, name, by)
+	const replaced = await commit(async (tx) => {
+		const [all, makers, seen, own] = [
+			await tx.doc(Keys),
+			await tx.doc(Makers),
+			await tx.doc(Runners),
+			await tx.doc(Lent),
+		]
+		const maker = makers[name] ?? (all[name] || seen[name] || own.name === name ? owner : by)
+		if (maker !== by)
+			throw Object.assign(
+				new Error(
+					`${name} is ${maker}'s runner; only ${maker} gives it a new key. Pick another name.`,
+				),
+				{ status: 403 },
+			)
+		const was = all[name]
+		all[name] = sha256(key)
+		// The owner's name can change, so a runner without a maker is theirs whatever they're called
+		if (by !== owner) makers[name] = by
+		return was !== all[name]
+	})
+	if (replaced) runners.kick(name, 4001, `${name}'s key was replaced`)
+	return {
+		name,
+		key,
+		ade: `ADE_KEY=${key} ade runner --server ${server} --name ${name}`,
+		connect: `curl -fsSL ${server}/connect-runner | ADE_KEY=${key} sh -s -- --name ${name} --dir .`,
+	}
 }
 async function revoke(name, requestKey, by = owner) {
 	const result = await once(
@@ -4326,14 +4349,13 @@ async function revoke(name, requestKey, by = owner) {
 		async (tx) => {
 			const [all, makers] = [await tx.doc(Keys), await tx.doc(Makers)]
 			if (!all[name]) throw Object.assign(new Error(`No runner named ${name}`), { status: 404 })
-			const maker = makers[name]
+			const maker = makers[name] ?? owner
 			if (by !== owner && by !== maker)
 				throw Object.assign(
-					new Error(`Only ${maker ? `${maker} or ` : ''}the owner revokes ${name}`),
+					new Error(`Only ${maker === owner ? '' : `${maker} or `}the owner revokes ${name}`),
 					{ status: 403 },
 				)
 			delete all[name]
-			delete makers[name]
 			return { revoked: name }
 		},
 	)
@@ -4343,24 +4365,29 @@ async function revoke(name, requestKey, by = owner) {
 
 // ── Invites ───────────────────────────────────────────────────────────────
 
-/** A key with a name on it, replacing that name's old one; its link brings a browser in under the name */
+/**
+ * A key with a name on it, replacing that name's old one, whose sockets close; its link brings a browser in under the
+ * name. A retry with the same request key gets the same key.
+ */
 async function invite(name, server, requestKey) {
 	if (!/^[\w.-]{1,40}$/.test(name))
 		throw new Error('name who you invite: letters, digits, dot, dash or underscore')
 	if (name === owner) throw new Error(`${name} is the owner`)
-	const result = await once(
-		scopedKey(`invite ${name}`, requestKey),
-		`invite ${name}`,
-		async (tx) => {
-			const key = `aik_${randomBytes(24).toString('base64url')}`
-			;(await tx.doc(Invites))[name] = { key: sha256(key), at: new Date().toISOString() }
-			return { name, key, link: `${server}/#key=${key}`, on: invitesOn }
-		},
-	)
+	const key = newKey('aik_', requestKey, name)
+	const replaced = await commit(async (tx) => {
+		const all = await tx.doc(Invites)
+		if (all[name]?.key === sha256(key)) return false
+		all[name] = { key: sha256(key), at: new Date().toISOString() }
+		return true
+	})
 	knowInvites((await harness.snapshot(Invites, context)) ?? {})
-	return result
+	if (replaced) closeSockets(name, `${name} was invited again`)
+	return { name, key, link: `${server}/#key=${key}`, on: invitesOn }
 }
-/** Takes an invite back: its key opens nothing from the next request, and its open sockets close */
+/**
+ * Puts someone out, from the next request on: their key opens nothing, their sockets close, their runners' keys go,
+ * though the names stay theirs, and the scheduled tasks that run as them end
+ */
 async function uninvite(name, requestKey) {
 	const result = await once(
 		scopedKey(`uninvite ${name}`, requestKey),
@@ -4370,13 +4397,20 @@ async function uninvite(name, requestKey) {
 			if (!all[name])
 				throw Object.assign(new Error(`Nobody named ${name} is invited`), { status: 404 })
 			delete all[name]
-			return { uninvited: name }
+			const [keyed, makers] = [await tx.doc(Keys), await tx.doc(Makers)]
+			const theirs = Object.keys(keyed).filter((runner) => makers[runner] === name)
+			for (const runner of theirs) delete keyed[runner]
+			return { uninvited: name, runners: theirs }
 		},
 	)
 	knowInvites((await harness.snapshot(Invites, context)) ?? {})
-	for (const socket of wss.clients)
-		if (personOf.get(socket) === name) socket.close(4001, `${name}'s invite was taken back`)
+	closeSockets(name, `${name}'s invite was taken back`)
+	for (const runner of result.runners) runners.kick(runner, 4001, `${runner} was revoked`)
+	for (const hook of uninvitedHooks) await hook(name)
 	return result
+}
+const closeSockets = (name, why) => {
+	for (const socket of wss.clients) if (personOf.get(socket) === name) socket.close(4001, why)
 }
 
 // ── Upgrade: sockets and runner connections ───────────────────────────────
@@ -4400,6 +4434,9 @@ async function upgrade(req, raw, head, serve = false) {
 	// A module's socket writes, the canvas's strokes; the feed's only reads
 	if (taker && fromAgent(req)) return refuse('403 Forbidden')
 	const socket = await new Promise((resolve) => wss.handleUpgrade(req, raw, head, resolve))
+	// Their invite may have gone while the socket opened
+	if (sender && whoSent(req, serve) !== sender)
+		return socket.close(4001, 'Your key opens nothing here now')
 	if (sender) personOf.set(socket, sender)
 	if (taker)
 		return taker.connect(threadId && Number(threadId), socket, url, sender).catch((error) => {
@@ -4641,12 +4678,7 @@ async function connectSelf(url) {
 		doc.name ||= os.hostname()
 		return doc.name
 	})
-	// A guest who took its name while it was revoked keeps it
-	const minted = await mintKey(name, url).catch((error) =>
-		console.error(`runner ${name}: ${error.message}`),
-	)
-	if (!minted) return
-	const { key } = minted
+	const { key } = await mintKey(name, url)
 	lent = spawn(
 		process.execPath,
 		[

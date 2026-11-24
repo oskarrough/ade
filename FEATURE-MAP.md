@@ -22,7 +22,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   createFeed, feed                  one versioned `/ws` feed (`seq`, `define`, `onCommit`, `touch`, `subscribe`, `sync`)
   shapeMessages, families, familyField   per-viewer message shaping (`speaker`, `showName`, `voice`, `to`, `other*`) and open families
   core.*                            what modules call: trailed, conversations, feed, snapshot, spent, task, tasks, signal, threadRows, threadMatch
-  entryStored, documentStored, endedHooks, runnerHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks, `runner` for runnerHooks)
+  entryStored, documentStored, endedHooks, runnerHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks, `runner` for runnerHooks, `uninvited` for uninvitedHooks)
   committed                         modules' hook of that name: each commit Pi stored, whole, with its seq
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
@@ -43,7 +43,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once
   whoSent, keyIn, answersTo, owner  who sent a request: owner key, invite key, Tailscale login, listeners (SERVE_PORT, HOOK_PORT)
-  Invites, invite, uninvite, guests invites (`invites` in ade.json): keys with names, GET/POST/DELETE /api/invites; cli.js `invite`, `uninvite`, `invites`
+  Invites, invite, uninvite, guests, closeSockets   invites (`invites` in ade.json): keys with names, GET/POST/DELETE /api/invites; cli.js `invite`, `uninvite`, `invites`
+  newKey                            a new runner or invite key; a request key derives it, so a retry gets it again
   fromAgent, agentPeer              an agent's command on this machine (runner.js sets ADE_AGENT_OF) writes nothing
   exampleShed                       the walkthrough's example thread (POST /api/threads/shed)
   routes                            every HTTP route
@@ -80,7 +81,7 @@ modules/
                          `canvas_act` (apply, created, updated), meta.by (authorizeRecord, onCommittedChanges, grew); serve, connect
   inbox.js               `ask_person`, openQuestion, openQuestions (from the `ade_` tables), itemOf, list, the `inbox` feed a thread at a time; serve (GET /api/inbox, dismissals)
   schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, wakeAt, endOf,
-                         onward, Control, Hooked, Ended, Happened), run, scheduleOf, startOf, firstRun, settle, happen, already, runner,
+                         onward, Control, Hooked, Ended, Happened), run, scheduleOf, startOf, firstRun, settle, happen, already, runner, uninvited,
                          entryStored, pending, taskForChange, cancel, control, checker, checkOf, steps (end, next, onward, post), the `checked` phase; serve
   check.js               a scheduled task's check: CheckRun, Said doc, the `scheduled_check` tool (Code Mode with post, done
                          and keep as globals), outcomeOf, the hook that keeps it from `schedule`
