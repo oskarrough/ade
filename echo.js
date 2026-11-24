@@ -159,6 +159,10 @@ export const tryEcho = (request) => {
 	if (bot) return bot
 	const last = request.messages.findLastIndex((m) => m.role === 'user')
 	const asked = text(request.messages[last])
+	// "post show <path>" asks a new thread to answer with the image at that path, as `![](path)`
+	const show = asked.match(/\bshow (\S+)/)?.[1]
+	if (show && latest.role === 'user' && /<message from="[^"]*" agent thread=/.test(asked))
+		return say(`Here it is:\n\n![](${show})`)
 	if (latest.role === 'toolResult' && latest.toolName === 'bot') return say('Instructions changed.')
 	const n = request.messages.slice(last).filter((m) => m.role === 'toolResult').length
 	if (n === 0)
@@ -190,7 +194,7 @@ export const tryEcho = (request) => {
 			...(asked.match(/post to (\d+)/)
 				? { thread: Number(asked.match(/post to (\d+)/)[1]) }
 				: { title: 'side question' }),
-			body: `${asked.includes('slow') ? 'slow: ' : ''}what did you find?`,
+			body: `${asked.includes('slow') ? 'slow: ' : ''}what did you find?${show ? ` show ${show}` : ''}`,
 			// "post bot1" asks the bot bot1 instead
 			to: Object.keys(personas).find((name) => asked.includes(name)) ?? 'echo/try@bot',
 		})

@@ -745,6 +745,11 @@ agent-memory {
 					.whole > p {
 						white-space: pre-wrap;
 					}
+
+					/* Its images stay out of the fold, under its first line */
+					> div.images {
+						padding-left: var(--fold);
+					}
 				}
 
 				/* A crossed row is two lines: the other side, its model and a post's mark; then, indented and grey, the

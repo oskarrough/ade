@@ -1091,7 +1091,7 @@ export function Clamp(props) {
 /**
  * A message that crossed threads, as a step of a run, on two lines: → sent or ← received, "new thread" when a post
  * started it, the other side as a link to its thread, the model it asked and, for a post, a ring while that thread works
- * or a ✓; under it, the message's first line, quieter, which a tap opens to the whole message in ink. Who and where come from its `row`; `sent` overrides its voice, as an
+ * or a ✓; under it, the message's first line, quieter, which a tap opens to the whole message in ink, and its images, always in sight. Who and where come from its `row`; `sent` overrides its voice, as an
  * ask's answer comes back on the ask's own row.
  */
 export function Cross(props) {
@@ -1126,9 +1126,9 @@ export function Cross(props) {
 				</summary>
 				<div class="whole">
 					<${Body} data=${() => props.data} />
-					<${Images} images=${() => props.data.images} />
 				</div>
 			</details>
+			<${Images} images=${() => props.data.images} />
 		</li>
 	`
 }
