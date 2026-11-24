@@ -28,6 +28,7 @@ import { matches } from './model-picker.js'
 import { Dot } from './dot.js'
 import { Icon } from './icons.js'
 import { placePopover } from './popover.js'
+import { listKeys } from './list-keys.js'
 import { marked, showMessage } from './search.js'
 import { setArchivedPage, setCreatingBot } from './thread-list.js'
 import { openTaskForm } from './schedule.js'
@@ -66,7 +67,6 @@ const fit = (text, name) => {
 }
 /** Who wins a tie between sections: a bot, then an action, then threads; there are few of the first two, and their names are what you'd type */
 const TIE = { Bots: 0.5, Actions: 0.25 }
-const idOf = (key) => `jump-${key.replace(/[^\w-]+/g, '-')}`
 /** An open popover that Jump opening would close: any but a manual one, like the @ list */
 const OTHER_OPEN = '[popover]:not([popover="manual"], .jump):popover-open'
 const mac = /Mac|iPhone|iPad/.test(navigator.platform)
@@ -79,18 +79,16 @@ const press = (selector) => () => {
 }
 
 export function Jump() {
-	let input, panel
+	let input, panel, list
 	const [typed, setTyped] = createSignal('')
 	const search = () => typed().trim()
-	const [keyed, setKeyed] = createSignal(0)
 	const [hits, setHits] = createSignal({ for: '', rows: [] })
 	// A second step in the same list, opened by an action like "Choose theme"; null at the first step
 	const [step, setStep] = createSignal(null)
-	const backToFirstStep = () => {
-		setStep(null)
+	const toStep = (next) => {
+		setStep(next)
 		input.value = ''
 		setTyped('')
-		setKeyed(0)
 	}
 
 	createEffect(current, (id) => {
@@ -141,12 +139,7 @@ export function Jump() {
 				note: THEME_LABEL[theme()],
 				// Opens a second step in the same list instead of running something and closing
 				stepInto: true,
-				run: () => {
-					setStep('theme')
-					input.value = ''
-					setTyped('')
-					setKeyed(0)
-				},
+				run: () => toStep('theme'),
 			},
 			on('usage') && { label: 'Usage', run: openUsage },
 		]
@@ -262,25 +255,18 @@ export function Jump() {
 			.filter((section) => section.options.length)
 			.sort((a, b) => best(a) - best(b))
 	})
-	const options = createMemo(() => sections().flatMap((section) => section.options))
-	const highlighted = () => options()[Math.min(keyed(), options().length - 1)]?.key
-
-	createEffect(highlighted, (key) => {
-		panel
-			?.querySelector(`[data-key="${CSS.escape(key ?? '')}"]`)
-			?.scrollIntoView({ block: 'nearest' })
-	})
-
 	const close = () => panel.hidePopover()
 	/** Runs a row; a thread's or bot's, with Ctrl or Cmd held, opens beside; one that opens a second step stays open */
 	const go = (option, event) => {
 		if (!option.stepInto) close()
 		option.run(event)
 	}
-	const walk = (delta) => {
-		const count = options().length
-		if (count) setKeyed((Math.min(keyed(), count - 1) + delta + count) % count)
-	}
+	const keys = listKeys({
+		field: () => input,
+		list: () => list,
+		fresh: () => `${step()} ${typed()}`,
+		escape: () => (step() ? toStep(null) : close()),
+	})
 
 	onSettled(() => {
 		show = () => panel.showPopover()
@@ -312,10 +298,7 @@ export function Jump() {
 					input.focus()
 					return
 				}
-				input.value = ''
-				setTyped('')
-				setKeyed(0)
-				setStep(null)
+				toStep(null)
 			}}
 		>
 			<div class="model-controls">
@@ -325,8 +308,6 @@ export function Jump() {
 						role="combobox"
 						aria-label=${() => (step() === 'theme' ? 'Choose a theme' : 'Jump to a thread, bot or action')}
 						aria-expanded="true"
-						aria-controls="jump-list"
-						aria-activedescendant=${() => (highlighted() ? idOf(highlighted()) : undefined)}
 						placeholder="Jump to…"
 						enterkeyhint="go"
 						autocomplete="off"
@@ -334,34 +315,17 @@ export function Jump() {
 						autocorrect="off"
 						spellcheck="false"
 						ref=${(el) => (input = el)}
-						onInput=${(event) => {
-							setTyped(event.currentTarget.value)
-							setKeyed(0)
-						}}
-						onKeyDown=${(event) => {
-							if (event.isComposing) return
-							if (event.key === 'Escape' && step()) {
-								backToFirstStep()
-								event.preventDefault()
-								return
-							}
-							const delta = { ArrowDown: 1, ArrowUp: -1 }[event.key]
-							if (delta) walk(delta)
-							else if (event.key === 'Enter') {
-								const option = options().find((each) => each.key === highlighted())
-								if (option) go(option, event)
-							} else return
-							event.preventDefault()
-						}}
+						onInput=${(event) => setTyped(event.currentTarget.value)}
+						onKeyDown=${keys.keydown}
 					/>
 					<button type="button" class="ghost small close" aria-label="Close" onClick=${close}>
 						<${Icon} name="close" />
 					</button>
 				</div>
 				<ul
-					class="model-list"
-					id="jump-list"
+					class="list"
 					role="listbox"
+					ref=${(el) => (list = el)}
 					aria-label=${() => (step() === 'theme' ? 'Theme' : 'Threads, bots and actions')}
 				>
 					<${For} each=${sections} keyed=${(section) => section.title}>
@@ -370,13 +334,13 @@ export function Jump() {
 								<h3>${() => section().title}</h3>
 								<div class="models" role="group" aria-label=${() => section().title}>
 									<${For} each=${() => section().options} keyed=${(option) => option.key}>
-										${(option) => JumpRow(option, highlighted, go)}
+										${(option) => JumpRow(option, go)}
 									<//>
 								</div>
 							</li>
 						`}
 					<//>
-					<${Show} when=${() => !options().length}>
+					<${Show} when=${() => !sections().length}>
 						<li class="mute">Nothing matches</li>
 					<//>
 				</ul>
@@ -386,15 +350,12 @@ export function Jump() {
 }
 
 /** A row like a mention's: its dot, its name, what it is at the end; the keys highlight it, a click or Enter goes */
-function JumpRow(option, highlighted, go) {
+function JumpRow(option, go) {
 	return html`
 		<button
 			type="button"
 			role="option"
-			id=${() => idOf(option().key)}
-			data-key=${() => option().key}
 			tabindex="-1"
-			aria-selected=${() => String(highlighted() === option().key)}
 			class="ghost model"
 			onMouseDown=${(event) => event.preventDefault()}
 			onClick=${(event) => go(option(), event)}

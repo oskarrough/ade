@@ -190,9 +190,10 @@ export function Settings() {
 									? chosen()
 									: { runner: runner.name, model: runner.model }}
 							selectedRunner=${() => chosen().runner}
-							before=${html`<li class="models">
+							before=${html`<li class="models" role="presentation">
 								<button
 									type="button"
+									role="option"
 									class="ghost model"
 									aria-pressed=${() => String(!chosen().model)}
 									onClick=${() => choose(agentTo(''))}
@@ -203,6 +204,7 @@ export function Settings() {
 												? 'Haiku or Luna, else each thread’s agent'
 												: 'Each thread’s agent'}</span
 									>
+									<${Show} when=${() => !chosen().model}><${Icon} name="check" /><//>
 								</button>
 							</li>`}
 							onChoose=${(to) => choose(to)}

@@ -46,6 +46,7 @@ import {
 import { agentTo, formatAgent, shortLabel } from './agent.js'
 import { placePopover } from './popover.js'
 import { matches, metered, Metered, ModelPicker } from './model-picker.js'
+import { listKeys } from './list-keys.js'
 import { conversations } from './run.js'
 import { Compaction, Memory } from './agent-memory.js'
 import { Panes } from './panes.js'
@@ -55,7 +56,7 @@ import { Stranded } from './runner.js'
 import { imageContent, imageUrl } from './images.js'
 
 export function Composer(props) {
-	let input, box, picker, button, chooser, anchor, recall, recallButton, mentionList
+	let input, box, picker, button, chooser, anchor, recall, recallButton, mentionList, mentionRows
 	// So appendQuote can reach this thread's box from outside, even when it isn't the active one
 	onSettled(() => {
 		const key = untrack(() => props.thread ?? 'new')
@@ -65,14 +66,12 @@ export function Composer(props) {
 		}
 	})
 	const [mention, setMention] = createSignal(null)
-	const [highlighted, setHighlighted] = createSignal(0)
 	const mentionable = () =>
 		!mention()
 			? []
 			: mention().slash
 				? skillsFor(mention().query, props.thread)
 				: mentionsFor(mention().query, props.thread)
-	const optionId = (option) => `mention-${props.thread ?? 'new'}-${option.key}`
 	/** `@` anywhere lists bots and threads; `/` opening the message lists the skills of the runner it asks */
 	const findMention = () => {
 		const before = input.value.slice(0, input.selectionStart)
@@ -85,12 +84,6 @@ export function Composer(props) {
 				? { start: 0, query: slash[1], slash: true }
 				: null
 		if (slash) loadSkills(props.thread)
-		if (
-			next?.query !== mention()?.query ||
-			next?.start !== mention()?.start ||
-			next?.slash !== mention()?.slash
-		)
-			setHighlighted(0)
 		setMention(next)
 	}
 	/** A bot goes in as `@name` and asks it; a thread as `@"its title"`, which the message shows as a link to it */
@@ -114,6 +107,13 @@ export function Composer(props) {
 		)
 		setPick(null, [...snapshot(kept), botAgent(bot)], props.thread)
 	}
+	const mentionKeys = listKeys({
+		field: () => input,
+		list: () => mentionRows,
+		fresh: () => JSON.stringify(mention()),
+		tab: true,
+		escape: () => setMention(null),
+	})
 	createEffect(
 		() => mentionable().length > 0,
 		(open) => {
@@ -323,7 +323,7 @@ export function Composer(props) {
 		const matching = () => bots.filter((bot) => matches(search, bot.name))
 		return html`
 			<${Show} when=${() => matching().length}
-				><li><h3>Bots</h3></li><//
+				><li role="presentation"><h3>Bots</h3></li><//
 			>
 			<${For} each=${matching}>
 				${(bot) =>
@@ -411,32 +411,14 @@ export function Composer(props) {
 					enterkeyhint=${() => (touch() ? 'enter' : 'send')}
 					role="combobox"
 					aria-autocomplete="list"
-					aria-controls=${() => `mentions-${props.thread ?? 'new'}`}
 					aria-expanded=${() => String(mentionable().length > 0)}
-					aria-activedescendant=${() =>
-						mentionable().length ? optionId(mentionable()[highlighted()]) : undefined}
 					onBlur=${() => setMention(null)}
 					onClick=${findMention}
 					onKeyUp=${(event) => {
 						if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) findMention()
 					}}
 					onKeyDown=${(event) => {
-						const list = mentionable()
-						if (list.length && !event.isComposing) {
-							const step = { ArrowDown: 1, ArrowUp: -1 }[event.key]
-							if (step) {
-								event.preventDefault()
-								return setHighlighted((highlighted() + step + list.length) % list.length)
-							}
-							if (event.key === 'Enter' || event.key === 'Tab') {
-								event.preventDefault()
-								return pickMention(list[highlighted()] ?? list[0])
-							}
-							if (event.key === 'Escape') {
-								event.preventDefault()
-								return setMention(null)
-							}
-						}
+						if (mentionable().length && mentionKeys.keydown(event)) return
 						if (event.key !== 'Enter' || event.isComposing || event.shiftKey || touch()) return
 						submit(event)
 					}}
@@ -582,15 +564,14 @@ export function Composer(props) {
 			<div class="popover model-picker mentions" popover="manual" ref=${(el) => (mentionList = el)}>
 				<div class="model-controls">
 					<ul
+						class="list"
 						role="listbox"
-						id=${() => `mentions-${props.thread ?? 'new'}`}
+						ref=${(el) => (mentionRows = el)}
 						aria-label=${() => (mention()?.slash ? 'Skills' : 'Bots and threads to mention')}
 					>
 						<${For} each=${() => mentionable()} keyed=${(option) => option.key}>
-							${(option, index) =>
+							${(option) =>
 								MentionRow(option, {
-									id: () => optionId(option()),
-									highlighted: () => highlighted() === index(),
 									pick: () => pickMention(option()),
 									note: () =>
 										option().bot
@@ -696,9 +677,10 @@ export function Composer(props) {
 function PickerBot(bot, close, thread) {
 	const selected = () => askedBots(thread()).some((to) => to.name === bot.name)
 	return html`
-		<li>
+		<li role="presentation">
 			<button
 				type="button"
+				role="option"
 				class="ghost model"
 				aria-pressed=${() => String(selected())}
 				onClick=${(event) => {
@@ -713,6 +695,7 @@ function PickerBot(bot, close, thread) {
 			>
 				<span style=${() => colorOf(bot.name)}>${() => bot.name}</span>
 				<small>${() => formatAgent(bot.to)}</small>
+				<${Show} when=${selected}><${Icon} name="check" /><//>
 			</button>
 		</li>
 	`
@@ -725,9 +708,7 @@ function MentionRow(option, mention) {
 			<button
 				type="button"
 				role="option"
-				id=${mention.id}
 				tabindex="-1"
-				aria-selected=${() => String(mention.highlighted())}
 				class="ghost model"
 				onMouseDown=${(event) => event.preventDefault()}
 				onClick=${() => mention.pick()}

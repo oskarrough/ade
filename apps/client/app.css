@@ -1680,7 +1680,7 @@ svg.ring {
 		}
 	}
 
-	.model-list {
+	.list {
 		flex: 1 1 auto;
 		min-height: 0;
 		overflow-y: auto;
@@ -1688,11 +1688,11 @@ svg.ring {
 		scrollbar-width: none;
 		/* The last rows fade while there is more below; scrolled to the end, or with nothing to scroll, they don't. */
 		mask-image: linear-gradient(to top, rgb(0 0 0 / var(--more-below)), #000 var(--space-5));
-		animation: model-list-end linear both;
+		animation: list-end linear both;
 		animation-timeline: scroll(self);
 	}
 
-	.model-list::-webkit-scrollbar {
+	.list::-webkit-scrollbar {
 		display: none;
 	}
 
@@ -1712,15 +1712,14 @@ svg.ring {
 	}
 
 	/* A model is a row; the one asked carries a check, the one Enter would pick a soft fill. */
+	.list .model[aria-pressed='true']:not([aria-selected='true']) {
+		background: none;
+	}
+
 	.model > svg.icon {
 		align-self: center;
 		margin-left: auto;
 		color: var(--pick);
-	}
-
-	.model[data-highlighted] {
-		background: color-mix(in srgb, CanvasText 10%, transparent);
-		color: var(--ink);
 	}
 
 	h3 {
@@ -1759,7 +1758,7 @@ svg.ring {
 	initial-value: 1;
 }
 
-@keyframes model-list-end {
+@keyframes list-end {
 	from {
 		--more-below: 0;
 	}
@@ -1772,7 +1771,7 @@ svg.ring {
 }
 
 /* The picker is its own column: the popover doesn't scroll, its list does. */
-.model-picker:not(.mentions) {
+.model-picker {
 	overflow: hidden;
 
 	&:popover-open {

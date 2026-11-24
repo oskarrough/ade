@@ -1,6 +1,7 @@
 /** Model, thinking and folder controls, without owning a popup or changing a thread themselves. */
 import html from '@solidjs/html'
 import { createEffect, createSignal, For, onSettled, Show } from 'solid-js'
+import { listKeys } from './list-keys.js'
 import { api, runners } from './server.js'
 import { modelsOf, THINKING_LEVELS, thinkingWord } from './agent.js'
 import { Dot } from './dot.js'
@@ -28,32 +29,29 @@ export const Metered = () =>
 
 /**
  * A search on top, each runner's models in one list under it, and the thinking and folder of the runner asked pinned at the bottom.
- * Typing filters the list; the arrows walk it and Enter picks the highlighted row. A line that reads as recipients (an `@` or a comma), or matches nothing, goes to `onRecipients` instead.
+ * Typing filters the list; the keys are every list's. A line that reads as recipients (an `@` or a comma), or matches nothing, goes to `onRecipients` on Enter instead.
  * getTo(runner) supplies each runner's choice; the caller decides when a choice is applied or closes the view.
  * `onClose` puts a close beside the search, which a phone's sheet shows.
- * `before` is rows above the models while nothing is typed; `after(search)` rows under them, filtered by the caller.
+ * `before` is rows above the models while nothing is typed; `after(search)` rows under them, filtered by the caller. Their buttons are `role="option"` to take the keys.
  */
 export function ModelPicker(props) {
 	let input, list
 	const [typed, setTyped] = createSignal('')
 	const search = () => typed().trim()
-	// -1 is none chosen by the keys: then a search highlights its first match, and no search nothing
-	const [keyed, setKeyed] = createSignal(-1)
-	const highlighted = () => (keyed() < 0 && search() ? 0 : keyed())
 	const online = () => runners.filter((runner) => runner.online)
 	/** Online runners first; an offline one shows greyed, so you see where a thread waits, and can't be picked */
 	const listed = () => [...online(), ...runners.filter((runner) => !runner.online && runner.dir)]
 	const askedRunner = () =>
 		runners.find((runner) => runner.name === props.selectedRunner && runner.dir) ?? online()[0]
-	const options = () => [...(list?.querySelectorAll('button.model') ?? [])]
 	const clear = () => {
 		input.value = ''
 		setTyped('')
-		setKeyed(-1)
 	}
-	createEffect(highlighted, (index) => {
-		options().forEach((option, at) => option.toggleAttribute('data-highlighted', at === index))
-		options()[index]?.scrollIntoView({ block: 'nearest' })
+	const keys = listKeys({
+		field: () => input,
+		list: () => list,
+		fresh: typed,
+		escape: () => input.closest('[popover]')?.hidePopover(),
 	})
 	// Closing the popover it sits in starts the next opening on an empty search
 	onSettled(() => {
@@ -62,25 +60,19 @@ export function ModelPicker(props) {
 		popover?.addEventListener('toggle', closed)
 		return () => popover?.removeEventListener('toggle', closed)
 	})
-	const walk = (step) => {
-		const count = options().length
-		if (!count) return
-		if (highlighted() < 0) return setKeyed(step > 0 ? 0 : count - 1)
-		setKeyed((highlighted() + step + count) % count)
-	}
-	const enter = () => {
-		const option = options()[highlighted()]
-		if (props.onRecipients && search() && (/[@,]/.test(search()) || !option))
-			props.onRecipients(search())
-		else if (option) option.click()
-		else return
-		clear()
-	}
+	const recipients = (event) =>
+		event.key === 'Enter' &&
+		!event.isComposing &&
+		props.onRecipients &&
+		search() &&
+		(/[@,]/.test(search()) || !keys.highlighted())
 	return html`
 		<div class="model-controls">
 			<div class="search">
 				<input
 					type="search"
+					role="combobox"
+					aria-expanded="true"
 					aria-label="Search models"
 					placeholder=${() =>
 						props.onRecipients ? 'Search, or type model:thinking@runner' : 'Search models'}
@@ -90,17 +82,12 @@ export function ModelPicker(props) {
 					spellcheck="false"
 					autofocus=${!matchMedia('(pointer: coarse)').matches}
 					ref=${(el) => (input = el)}
-					onInput=${(event) => {
-						setTyped(event.currentTarget.value)
-						setKeyed(-1)
-					}}
+					onInput=${(event) => setTyped(event.currentTarget.value)}
 					onKeyDown=${(event) => {
-						if (event.isComposing) return
-						const step = { ArrowDown: 1, ArrowUp: -1 }[event.key]
-						if (step) walk(step)
-						else if (event.key === 'Enter') enter()
-						else return
+						if (!recipients(event)) return keys.keydown(event)
 						event.preventDefault()
+						props.onRecipients(search())
+						clear()
 					}}
 				/>
 				<${Show} when=${() => props.onClose}>
@@ -114,7 +101,7 @@ export function ModelPicker(props) {
 					</button>
 				<//>
 			</div>
-			<ul class="model-list" ref=${(el) => (list = el)}>
+			<ul class="list" role="listbox" aria-label="Models" ref=${(el) => (list = el)}>
 				<${Show} when=${() => !search()}>${() => props.before}<//>
 				<${For}
 					each=${listed}
@@ -170,6 +157,7 @@ function PickerRunner(runner, props, search) {
 	const choice = (model) => html`
 		<button
 			type="button"
+			role="option"
 			class="ghost model"
 			disabled=${() => !runner.online}
 			aria-pressed=${() => String(selected() && to().model === model)}
@@ -193,7 +181,7 @@ function PickerRunner(runner, props, search) {
 				<div class="models">
 					<${For} each=${scopedFound}>${choice}<//>
 					<${Show} when=${() => !search() && !all() && runner.online}>
-						<button type="button" class="ghost model" onClick=${() => setAll(true)}>
+						<button type="button" role="option" class="ghost model" onClick=${() => setAll(true)}>
 							<span>All models</span>
 						</button>
 					<//>

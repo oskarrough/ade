@@ -166,6 +166,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   tutorial-shed.js       loadShed
   tutorial-shed-memory.js   recorded memory lines for the shed
   panes.js, popover.js, sure.js, busy.js, notice.js, dot.js   Panes, placePopover, Sure, Busy, Notice, Dot
+  list-keys.js           listKeys: one keyboard for the lists you type above (Cmd-K, @ and /, the model picker)
   quote.js               QuoteButton
   images.js, markdown.js image shrinking; markdown, threadMention
   mermaid.js             messageDiagrams, storyDiagram
@@ -220,7 +221,7 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Buttons ("Three buttons"): plain `button` (bordered), `button.ghost`, `button.primary`; `data-danger`, `.small`; `.send` and `.row` look their own. Fields: `input`, `textarea`, `select`, `.bare`, `.draft`.
 - Popover: `div.popover[popover]` placed by `placePopover` (popover.js), a sheet on phones; panes.js `Panes` (`.panes .pane`, "A detail covers") gives header, back, actions and `foot`. Used by settings, runners, context; the model picker and @mentions are the frame without panes.
 - Popover rows: `ul.rows > li` ("One row across").
-- Model controls: model-picker.js `ModelPicker`, `.model-controls`: `.search`, `.model-list`, `.models`, `.foot`, `.thinking`.
+- Model controls: model-picker.js `ModelPicker`, `.model-controls`: `.search`, `.list`, `.models`, `.foot`, `.thinking`. Cmd-K, the @ and / list and the model picker share one `.list` and one keyboard, list-keys.js `listKeys`.
 - Left aside: thread-list.js `ThreadList`, `.thread-list`, `ul.top-row`, `ul.inbox-row`, `li > .row`, `.thread-family`, `.list-foot`, `.foot-toggle`.
 - Side column: `aside.side`, side.js `PageTabs`; `.thread-details`, `.recap`, `.canvas`, `.director`; bot.js `BotSettings`, `.bot`.
 - Thread head: `h2.title > button.ghost.thread-name`, `.close`, the phone's `.app-bar` (its back is server.js `backToList`: a thread opened from the phone's list is a history entry, popstate brings the list back); `.page-head` on list pages.
