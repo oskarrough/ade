@@ -3271,3 +3271,12 @@ body.resizing {
 		margin-top: 0;
 	}
 }
+
+/* A browser the house no longer lets in: why, and nothing else */
+.shut-out {
+	margin: 30vh auto 0;
+	max-width: 28rem;
+	padding: 0 var(--space-4);
+	text-align: center;
+	color: var(--mute);
+}

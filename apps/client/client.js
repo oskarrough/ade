@@ -15,6 +15,7 @@ import {
 	params,
 	server,
 	setChat,
+	shutOut,
 	titleOf,
 	threadOf,
 } from './server.js'
@@ -92,53 +93,59 @@ function Client() {
 			phone.removeEventListener('change', resize)
 		}
 	})
-	return html`
-		<${Show} when=${() => !chat()}>
-			<button class="ghost small mode-toggle" type="button" onClick=${() => setChat(true)}>
-				Just the chat
-			</button>
-		<//>
-		<${Errored}
-			fallback=${(error, retry) => html`
-				<p class="mute">${() => String(error())} <button onClick=${retry}>Retry</button></p>
-			`}
-		>
-			<${Loading}>
-				<header class="app-bar">
-					<button type="button" aria-label="All threads" onClick=${backToList}>
-						<${Icon} name="back" />
-					</button>
-					<button
-						class="ghost thread-name"
-						type="button"
-						aria-pressed=${() => String(sideOf(current())?.key === 'details')}
-						style=${() => colorOf(homeBot(current())?.name ?? '')}
-						onClick=${() => page().kind === 'threads' && toggleSide(current(), 'details')}
-					>
-						<${Dot} state=${() => (page().kind === 'threads' ? threadOf(current())?.status : '')} />
-						<span
-							>${() => {
-								const here = page()
-								if (here.kind === 'inbox')
-									return `Inbox${waiting().length ? ` ${waiting().length}` : ''}`
-								if (here.kind === 'search') return `Search: ${here.query}`
-								if (here.kind === 'usage') return 'Usage'
-								return current() ? titleOf(current()) : 'New thread'
-							}}</span
-						>
-					</button>
-					<${Show} when=${() => server().modules.includes('jump')}>
-						<button type="button" aria-label="Jump to…" onClick=${() => openJump()}>
-							<${Icon} name="search" />
-						</button>
-					<//>
-				</header>
-				<${System} />
-				<${Show} when=${() => server().modules.includes('jump')}><${Jump} /><//>
-				<${Tutorial} story=${() => !chat()} />
+	return html`<${Show}
+		when=${() => !shutOut()}
+		fallback=${html`<p class="shut-out" role="alert">${shutOut}</p>`}
+		>${html`
+			<${Show} when=${() => !chat()}>
+				<button class="ghost small mode-toggle" type="button" onClick=${() => setChat(true)}>
+					Just the chat
+				</button>
 			<//>
-		<//>
-	`
+			<${Errored}
+				fallback=${(error, retry) => html`
+					<p class="mute">${() => String(error())} <button onClick=${retry}>Retry</button></p>
+				`}
+			>
+				<${Loading}>
+					<header class="app-bar">
+						<button type="button" aria-label="All threads" onClick=${backToList}>
+							<${Icon} name="back" />
+						</button>
+						<button
+							class="ghost thread-name"
+							type="button"
+							aria-pressed=${() => String(sideOf(current())?.key === 'details')}
+							style=${() => colorOf(homeBot(current())?.name ?? '')}
+							onClick=${() => page().kind === 'threads' && toggleSide(current(), 'details')}
+						>
+							<${Dot}
+								state=${() => (page().kind === 'threads' ? threadOf(current())?.status : '')}
+							/>
+							<span
+								>${() => {
+									const here = page()
+									if (here.kind === 'inbox')
+										return `Inbox${waiting().length ? ` ${waiting().length}` : ''}`
+									if (here.kind === 'search') return `Search: ${here.query}`
+									if (here.kind === 'usage') return 'Usage'
+									return current() ? titleOf(current()) : 'New thread'
+								}}</span
+							>
+						</button>
+						<${Show} when=${() => server().modules.includes('jump')}>
+							<button type="button" aria-label="Jump to…" onClick=${() => openJump()}>
+								<${Icon} name="search" />
+							</button>
+						<//>
+					</header>
+					<${System} />
+					<${Show} when=${() => server().modules.includes('jump')}><${Jump} /><//>
+					<${Tutorial} story=${() => !chat()} />
+				<//>
+			<//>
+		`}<//
+	>`
 }
 
 render(Client, document.getElementById('stage'))

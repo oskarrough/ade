@@ -32,12 +32,19 @@ export const url = params.get('server') || location.origin
 /** A link with a key after `#key=`, the owner's or an invite's, brings this browser in: the server keeps it as a
  * cookie, and the address drops it */
 const linkKey = new URLSearchParams(location.hash.slice(1)).get('key')
+/** Why this browser can't come in, in the server's words, or a link's key that opens nothing; then it's all the page shows */
+const [shutOut, setShutOut] = createSignal('')
+export { shutOut }
 if (linkKey) {
 	history.replaceState(null, '', location.pathname + location.search)
-	await fetch(`${url}/api/me`, {
+	const response = await fetch(`${url}/api/me`, {
 		method: 'POST',
 		headers: { authorization: `Bearer ${linkKey}` },
-	}).catch(() => {})
+	}).catch(() => null)
+	if (response && !response.ok)
+		setShutOut(
+			'This link doesn’t open this house: its invite was taken back or replaced. Ask whoever sent it for a new one.',
+		)
 }
 export const api = (path, body, method = body === undefined ? 'GET' : 'POST') =>
 	fetch(url + path, {
@@ -54,13 +61,18 @@ export const api = (path, body, method = body === undefined ? 'GET' : 'POST') =>
 			return json
 		})
 
-/** The page's one socket, open again a second after it closes */
+/** The page's one socket, open again a second after it closes, unless the server no longer lets this browser in */
 function connect(receive, opened, closed) {
 	const socket = new WebSocket(`${url.replace(/^http/, 'ws')}/ws`)
 	socket.onopen = () => opened(socket)
 	socket.onmessage = (event) => receive(JSON.parse(event.data))
-	socket.onclose = () => {
+	socket.onclose = async () => {
 		closed()
+		const response = await fetch(`${url}/api/server`).catch(() => null)
+		if (response?.status === 401) {
+			const { error } = await response.json()
+			return setShutOut((already) => already || error)
+		}
 		setTimeout(() => connect(receive, opened, closed), 1000)
 	}
 }

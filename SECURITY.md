@@ -38,7 +38,7 @@ The rest is for whoever changes the code: `whoSent` and `answersTo` in server.js
 - The owner key works on either, as a bearer or the `HttpOnly`, `SameSite=Strict` cookie `POST /api/me` sets, or the settings save that turns invites on. With invites on, only the owner key and invite keys count, on both ports.
 - Both refuse a `Host` they don't answer to (DNS rebinding) and a write whose `Origin` isn't their own page.
 
-An invite link carries its key after `#key=`; the page trades it for the cookie and drops it from the address. Inviting someone again replaces their key and closes what the old one opened. Uninviting works from the next request: the key opens nothing, their sockets close, their runners' keys go and the tasks that run as them end. An invite under the owner's name opens nothing.
+An invite link carries its key after `#key=`; the page trades it for the cookie and drops it from the address. A link whose key opens nothing, or a browser whose invite was taken back, gets a page that says so and nothing else. Inviting someone again replaces their key and closes what the old one opened. Uninviting works from the next request: the key opens nothing, their sockets close, their runners' keys go and the tasks that run as them end. An invite under the owner's name opens nothing.
 
 A runner shows its key, `air_…`, as a bearer, and keeps it in `~/.config/ade/key.<name>` (mode 600); the server's own runner holds its key in memory only. A new key for a name cuts off the old one. The server enforces `--owner` and `--allow`; the runner enforces `--read-only`, which refuses writes and commands.
 

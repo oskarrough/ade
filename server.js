@@ -190,14 +190,14 @@ function answersTo(req, serve) {
 	if (serve) return /\.ts\.net(:\d+)?$/.test(String(req.headers.host))
 	return Boolean(process.env.HOST) && !loopback(process.env.HOST)
 }
-/** The key a request shows, as a bearer or the cookie */
-function keyIn(req) {
-	const cookie = String(req.headers.cookie ?? '')
+/** The key a browser keeps as the cookie */
+const cookieKey = (req) =>
+	String(req.headers.cookie ?? '')
 		.split(/;\s*/)
 		.find((pair) => pair.startsWith(`${keyCookie()}=`))
 		?.slice(keyCookie().length + 1)
-	return /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? cookie
-}
+/** The key a request shows, as a bearer or the cookie */
+const keyIn = (req) => /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? cookieKey(req)
 /**
  * Who sent a request, from how it arrived, never from a name it gives: the owner's key, as a bearer or the cookie, is
  * the owner anywhere. With invites on, an invite's key is its name, and nothing else gets in: no login, no localhost.
@@ -292,12 +292,15 @@ function loginList(logins) {
 }
 /** A person a runner names: a tailnet login, `ana@github`, as Serve names them; any other name as it is, the owner's */
 const personal = (name) => (name.includes('@') ? personName(name) : name)
-const nobody = (serve) =>
-	invitesOn
-		? 'This house lets in only people with a key: open the invite link you were given, or, as its owner, the one `ade link` prints'
-		: serve
-			? 'Tailscale Serve named nobody: open it from a device logged in to the tailnet'
-			: 'Who are you? Open the link `ade link` prints on the server, or send its owner key as a bearer'
+const nobody = (serve, req) =>
+	invitesOn && cookieKey(req)
+		? // Only a key that once opened the house becomes the cookie
+			'Your invite to this house was taken back'
+		: invitesOn
+			? 'This house lets in only people with a key: open the invite link you were given, or, as its owner, the one `ade link` prints'
+			: serve
+				? 'Tailscale Serve named nobody: open it from a device logged in to the tailnet'
+				: 'Who are you? Open the link `ade link` prints on the server, or send its owner key as a bearer'
 // ── Docs and tasks ────────────────────────────────────────────────────────
 
 const KIND = 'ade.message'
@@ -3796,7 +3799,7 @@ async function handleRequest(req, res, serve = false) {
 		return send(res, 403, { error: 'Cross-origin writes are refused; use the server’s own page' })
 	if (url.pathname.startsWith('/api/')) {
 		const sender = whoSent(req, serve)
-		if (!sender) return send(res, 401, { error: nobody(serve) })
+		if (!sender) return send(res, 401, { error: nobody(serve, req) })
 		senders.set(req, sender)
 	}
 	if (!['GET', 'HEAD'].includes(req.method) && fromAgent(req))
