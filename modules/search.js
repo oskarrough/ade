@@ -18,7 +18,7 @@ const LIMIT = 50
 
 /** What someone typed as an FTS5 query: each word or "phrase" quoted, so nothing in it reads as syntax; the last
  * word, still being typed, matches as a prefix */
-export function matchOf(text) {
+function matchOf(text) {
 	const parts = [...text.matchAll(/"([^"]*)"?|[^\s"]+/g)]
 		.map(([whole, phrase]) => ({
 			words: (phrase ?? whole).match(/[\p{L}\p{N}_]+/gu) ?? [],

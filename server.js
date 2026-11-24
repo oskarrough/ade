@@ -1475,7 +1475,7 @@ const messageIds = async (tx, threadId) =>
 		.map((entry) => entry.id)
 
 /** Each agent `to` names gets a Deliver task for all it hasn't seen up to `upTo`; with `turns`, one after another */
-async function ask(tx, row, threadId, upTo, to, { steer = false, prior = [] } = {}) {
+async function ask(tx, row, threadId, upTo, to, { steer, prior }) {
 	let turn
 	for (const one of to) {
 		const key = keyOf(writtenTo(one))
@@ -2511,8 +2511,8 @@ async function withPick(id, result) {
 		}
 	return {
 		...result,
-		to: route?.data.to ?? [],
-		...(route?.data.picked && { picked: route.data.picked }),
+		to: route.data.to ?? [],
+		...(route.data.picked && { picked: route.data.picked }),
 	}
 }
 

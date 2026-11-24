@@ -254,7 +254,7 @@ export function createRunners({ onChange }) {
 				.filter((call) => call.runner === name)
 				.map(({ op, what }) => ({ op, what })),
 		/** A connection that has yet to show its key; `end` closes its socket, with a code or at once */
-		connection: (name, end = (code = undefined, reason = undefined) => {}) => ({
+		connection: (name, end) => ({
 			name,
 			phase: 'authenticating',
 			end,

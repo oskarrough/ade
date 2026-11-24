@@ -191,8 +191,8 @@ async function post() {
 					last = entry.id
 				}
 		}
-		socket.send(JSON.stringify({ sync: `thread/${id}`, seq: posted.seq ?? 0 }))
-		await waitThread(frames, id, posted.seq ?? 0, (row, messages) => {
+		socket.send(JSON.stringify({ sync: `thread/${id}`, seq: posted.seq }))
+		await waitThread(frames, id, posted.seq, (row, messages) => {
 			const blocked = (row.agents ?? [])
 				.filter((agent) => agent.status === 'blocked')
 				.map((agent) => agent.to?.runner)

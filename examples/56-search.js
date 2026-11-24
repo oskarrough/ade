@@ -49,10 +49,13 @@ check(
 	JSON.stringify(found),
 )
 
-const storage = await search('storage')
+const storage =
+	(await until(async () => {
+		const rows = await search('storage')
+		return rows.some((row) => row.thread === shelved && row.archived) && rows
+	})) ?? []
 check(
-	storage.some((row) => row.thread === shelved && row.archived) &&
-		storage.some((row) => row.thread === plans && !row.archived),
+	storage.some((row) => row.thread === plans && !row.archived),
 	"archived threads' messages are found too, and say so",
 	JSON.stringify(storage),
 )

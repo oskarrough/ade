@@ -61,7 +61,7 @@ const EVERY = 60_000
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 /** `90s`, `5m`, `1h30m`, `2d` → milliseconds */
-export function duration(text, name) {
+function duration(text, name) {
 	const parts = String(text)
 		.replace(/\s+/g, '')
 		.match(/^(?:\d+[smhd])+$/)
@@ -155,7 +155,7 @@ const HAPPENINGS = {
 }
 
 /** `when` in words: when vps comes online, when thread 12 fails */
-export const happening = (when) =>
+const happening = (when) =>
 	when.online !== undefined
 		? `when ${when.online} comes online`
 		: when.offline !== undefined
