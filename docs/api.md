@@ -260,7 +260,7 @@ With `export` on:
 
 ```
 GET    /api/export   {files}, every thread's files, archived ones included, as a map of file name to its text:
-                       one Markdown file and one JSON file per thread; nothing is written anywhere
+                       one Markdown file and one JSON file per thread, sent as it's read; nothing is written anywhere
 ```
 
 Each JSON file holds a thread's entries exactly as `GET /api/threads/:id` returns them. Its Markdown file is for a

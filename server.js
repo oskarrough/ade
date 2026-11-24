@@ -15,6 +15,7 @@ import {
 	writeFileSync,
 } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
+import { pipeline } from 'node:stream/promises'
 import { parseArgs } from 'node:util'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
@@ -438,7 +439,7 @@ const Admit = defineTask({
 			const missing = await gone(agent, rt.signal)
 			if (missing) return rt.commit(() => finished('completed', { held, missing }), ctx)
 			// It reads only from the first message it takes on, however long the thread
-			const since = await messagesFrom(threadId, Math.min(...held))
+			const since = await messages(threadId, { after: Math.min(...held) - 1 })
 			const mine = await Promise.all(
 				since
 					.filter((entry) => held.includes(entry.id))
@@ -1247,12 +1248,8 @@ async function entries(id) {
 		? collect((cursor) => handle.entries({ order: 'ascending' }, 500, cursor, context))
 		: []
 }
-async function messages(id) {
-	await conversation(id)
-	return routed(await entries(id))
-}
-/** A thread's messages from `first` on, each with its pick, reading no further back */
-const messagesFrom = async (id, first) => newest(await conversation(id), { after: first - 1 })
+/** A thread's messages with their picks, oldest first: every one, or a window read back from its end, as `newest` takes it */
+const messages = async (id, window) => newest(await conversation(id), window)
 /**
  * A thread's messages among its entries, each with the director's pick for it, once there is one; a withdrawn one keeps
  * its place, so positions hold, but only its author and `withdrawn`
@@ -1656,7 +1653,9 @@ async function outcome(threadId, agent, settled, mine) {
 			: mine,
 	)
 	const held = ids.size
-		? (await messagesFrom(threadId, Math.min(...ids))).filter((entry) => ids.has(entry.id))
+		? (await messages(threadId, { after: Math.min(...ids) - 1 })).filter((entry) =>
+				ids.has(entry.id),
+			)
 		: []
 	/** A thread answers the thread that started it on its own; a post from anywhere else gets an answer only through `post` */
 	const { parent } = await thread(threadId)
@@ -2097,7 +2096,7 @@ async function threadView(id, reader, { after, before, last, all } = {}) {
 		earlier,
 		seed,
 	} = all
-		? { entries: (await messages(id)).filter((entry) => !entry.data.withdrawn) }
+		? { entries: (await newest(handle)).filter((entry) => !entry.data.withdrawn) }
 		: await windowOf(handle, { after, before, last })
 	return { ...(await threadPage(id, reader, raw, seed)), ...(earlier !== undefined && { earlier }) }
 }
@@ -2134,8 +2133,14 @@ async function trail(id, { entry = undefined, last = 200 } = {}) {
 	return entry === undefined ? steps.slice(0, last).reverse() : steps
 }
 
-/** A thread's newest messages, read back from its end: those after `after`, before `before`, or the newest `last`, with their picks */
-async function newest(handle, { after = -1, before = undefined, last = Infinity }) {
+/**
+ * A thread's newest messages, read back from its end: those after `after`, before `before`, or the newest `last` that
+ * `matches`, with their picks
+ */
+async function newest(
+	handle,
+	{ after = -1, before = undefined, last = Infinity, matches = (_) => true } = {},
+) {
 	const routes = new Map()
 	// Picks or withdrawals appended after `before` can target messages before `before`
 	if (before !== undefined) {
@@ -2151,22 +2156,23 @@ async function newest(handle, { after = -1, before = undefined, last = Infinity 
 			if (!(cursor = page.next)) break
 		}
 	}
-	const read = []
-	let count = 0
+	const found = []
 	const query = {
 		order: /** @type {const} */ ('descending'),
 		...(before !== undefined && { maxEntryId: /** @type {any} */ (before - 1) }),
 	}
-	for (let cursor; count < last;) {
+	// A message's pick or withdrawal comes after it, so reading back meets it first
+	read: for (let cursor; found.length < last;) {
 		const page = await handle.entries(query, 200, cursor, context)
-		const ended = page.items.findIndex((entry) => entry.id <= after)
-		for (const entry of ended < 0 ? page.items : page.items.slice(0, ended)) {
-			if (entry.kind === KIND && ++count > last) break
-			read.push(entry)
+		for (const entry of page.items) {
+			if (entry.id <= after) break read
+			if (entry.kind === ROUTE || entry.kind === WITHDRAWAL) routed([entry], routes)
+			const message = entry.kind === KIND && withRoute(entry, routes)
+			if (message && matches(message) && found.push(message) >= last) break read
 		}
-		if (ended >= 0 || !(cursor = page.next)) break
+		if (!(cursor = page.next)) break
 	}
-	return routed(read.reverse(), routes)
+	return found.reverse()
 }
 
 /** An agent's thread owns its conversation, through its Anchor */
@@ -3651,6 +3657,13 @@ async function handleRequest(req, res, serve = false) {
 				match[1] && (/^\d+$/.test(match[1]) ? Number(match[1]) : decodeURIComponent(match[1])),
 				url,
 			)
+			// A body too big to hold comes as pieces, sent as they're made
+			if (result?.[Symbol.asyncIterator]) {
+				res.writeHead(200, { 'Content-Type': 'application/json' })
+				return await pipeline(result, res).catch((error) =>
+					console.error(`${key}: ${error.message}`),
+				)
+			}
 			send(
 				res,
 				req.method === 'POST' ? 201 : 200,

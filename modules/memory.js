@@ -427,7 +427,7 @@ export function server(core) {
 			return reason === 'threshold' && early ? { decline: /** @type {const} */ (true) } : undefined
 		}
 		const newest = Math.max(-1, ...(await core.seenBy(api.conversationId, firstKept - 1)))
-		const T = (await core.messages(home.thread)).findIndex((entry) => entry.id === newest) + 1
+		const T = ((await indexOf(core, home.thread)).positions.get(newest) ?? -1) + 1
 		if (T <= 0) return undefined
 		const most = Math.min(await budget(api.conversationId), PANEL)
 		// Only the lines this cut shows, and those below them; newer messages wait for their own demand
@@ -468,16 +468,14 @@ export function server(core) {
 	}
 
 	async function open(thread, id, n) {
-		const all = await core.messages(thread)
-		if (!Number.isInteger(n) || n < 1 || !Number.isInteger(id) || id < 0 || id >= all.length)
+		const { ids, have } = await indexOf(core, thread)
+		if (!Number.isInteger(n) || n < 1 || !Number.isInteger(id) || id < 0 || id >= ids.length)
 			throw new Error(`No line ${id}+${n}; zoom one from your memory`)
-		if (n === 1) return kept(all[id])
+		const read = async () => (await messagesAt(core, thread, id, id + n)).map(kept)
+		if (n === 1) return (await read())[0]
 		return (
-			halves((await indexOf(core, thread)).have, all.length, id, n) ??
-			all
-				.slice(id, id + n)
-				.map((message, offset) => `${id + offset}|${kept(message)}`)
-				.join('\n\n')
+			halves(have, ids.length, id, n) ??
+			(await read()).map((text, offset) => `${id + offset}|${text}`).join('\n\n')
 		)
 	}
 
@@ -508,7 +506,7 @@ export function server(core) {
 	async function serve(thread, query, body) {
 		if (thread === undefined) throw new Error('Memory is per thread: /api/threads/:id/memory')
 		if (body?.lines) {
-			const total = (await core.messages(thread)).length
+			const total = (await indexOf(core, thread)).ids.length
 			for (const { id, n } of body.lines)
 				if (
 					!Number.isInteger(id) ||
@@ -741,6 +739,21 @@ export async function indexOf(core, threadId) {
 		if (!cursor) index.newest = page.items.at(-1)?.id ?? index.newest
 	} while (cursor)
 	return index
+}
+
+/** The messages at positions from..to-1 as stored, a withdrawn one with only its author */
+export async function messagesAt(core, threadId, from, to) {
+	const { ids, withdrawn } = await indexOf(core, threadId)
+	return core.commit((tx) =>
+		Promise.all(
+			ids.slice(from, to).map(async (id) => {
+				const entry = await tx.entry(id)
+				return withdrawn.has(id)
+					? { ...entry, data: { author: entry.data.author, withdrawn: true } }
+					: entry
+			}),
+		),
+	)
 }
 
 /**

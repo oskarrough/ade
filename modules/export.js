@@ -22,24 +22,44 @@ function foldShell(shell) {
 	return said ? `${code} — ${said}` : code
 }
 
-function toMarkdown(title, people, entries) {
-	const lines = [`# ${title}`, '', `People: ${people.join(', ') || 'none'}`]
+/** A thread's Markdown file, a message at a time */
+function* markdown(title, people, entries) {
+	yield `# ${title}\n\nPeople: ${people.join(', ') || 'none'}`
 	for (const { data: message } of entries) {
-		lines.push('', `**${message.author}** · ${message.createdAt ?? ''}`, '', message.body)
-		if (message.shell) lines.push('', foldShell(message.shell))
+		yield `\n\n**${message.author}** · ${message.createdAt ?? ''}\n\n${message.body}`
+		if (message.shell) yield `\n\n${foldShell(message.shell)}`
 	}
-	return `${lines.join('\n')}\n`
+	yield '\n'
+}
+
+/** A thread's JSON file, as `JSON.stringify(entries, null, 2)` writes it, an entry at a time */
+function* json(entries) {
+	if (!entries.length) return yield '[]\n'
+	for (const [at, entry] of entries.entries())
+		yield `${at ? ',' : '['}\n  ${JSON.stringify(entry, null, 2).replaceAll('\n', '\n  ')}`
+	yield '\n]\n'
+}
+
+/** A file in `{files}`: its name, and its text as a JSON string a piece at a time */
+function* file(name, pieces) {
+	yield `${JSON.stringify(name)}:"`
+	for (const piece of pieces) yield JSON.stringify(piece).slice(1, -1)
+	yield '"'
 }
 
 export function server(core) {
 	async function serve(threadId) {
 		if (threadId !== undefined) throw new Error('Export has nothing per thread')
+		return files()
+	}
+	/** `{files}` as JSON, sent a message at a time, so only one thread's messages are held at once */
+	async function* files() {
 		const rows = [
 			...(await core.threadList(core.owner, false)),
 			...(await core.threadList(core.owner, true)),
 		]
-		const files = {}
-		for (const row of rows) {
+		yield '{"files":{'
+		for (const [at, row] of rows.entries()) {
 			const entries = await core.shapeMessages(row.id, await core.messages(row.id), core.owner)
 			const { reads } = await core.thread(row.id)
 			const wrote = entries
@@ -47,10 +67,12 @@ export function server(core) {
 				.map((entry) => entry.data.author)
 			const people = [...new Set([...wrote, ...Object.keys(reads)])]
 			const base = fileName(row.id, row.title)
-			files[`${base}.json`] = `${JSON.stringify(entries, null, 2)}\n`
-			files[`${base}.md`] = toMarkdown(row.title, people, entries)
+			if (at) yield ','
+			yield* file(`${base}.json`, json(entries))
+			yield ','
+			yield* file(`${base}.md`, markdown(row.title, people, entries))
 		}
-		return { files }
+		yield '}}'
 	}
 
 	return { serve }

@@ -4,6 +4,7 @@ import { defineDoc, defineExtension, defineTask } from '@earendil-works/pi-durab
 import { messageText } from '../remote.js'
 import { complete, AGENT, agentTo, background, finished, smallModel } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
+import { messagesAt } from './memory.js'
 
 export const on = true
 
@@ -37,8 +38,9 @@ Your output must be a single line, at most 36 characters, with no explanation.
 </examples>`
 
 /** The opening and the newest messages, each cut short, so a thread that moved on from "hey hey" is titled for where it is now */
-function recent(messages) {
-	const shown = messages.length > 7 ? [messages[0], ...messages.slice(-6)] : messages
+/** The opening message and the newest six */
+function recent(opening, newest) {
+	const shown = opening?.id === newest[0]?.id ? newest : [opening, ...newest.slice(-6)]
 	return shown
 		.map((message) => `${message.data.author}: ${(message.data.body ?? '').trim().slice(0, 500)}`)
 		.join('\n\n')
@@ -91,8 +93,9 @@ export function server(core) {
 				try {
 					const home = (await core.homes())[threadId]
 					if (home) return rt.commit(() => finished('completed', { title: home }), ctx)
-					const messages = await core.messages(threadId)
-					const opening = messages[0]?.data.body ?? ''
+					const newest = await core.messages(threadId, { last: 7 })
+					const [first] = newest.length ? await messagesAt(core, threadId, 0, 1) : []
+					const opening = first?.data.body ?? ''
 					const row = await core.thread(threadId)
 					// Asked for again, it replaces the title it was asked to replace; otherwise only the default
 					const expected = input.replaces ?? defaultTitle(opening)
@@ -115,7 +118,7 @@ export function server(core) {
 							{ role: 'system', content: SYSTEM_PROMPT, timestamp: Date.now() },
 							{
 								role: 'user',
-								content: `Title this conversation:\n\n${recent(messages)}`,
+								content: `Title this conversation:\n\n${recent(first, newest)}`,
 								timestamp: Date.now(),
 							},
 						],

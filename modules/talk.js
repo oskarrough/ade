@@ -222,13 +222,15 @@ export function server(core) {
 								.filter(Boolean)
 								.join(', '),
 						)
-					: (await core.messages(thread ?? mine))
-							.filter((entry) => !query || said(entry).toLowerCase().includes(query))
-							.slice(-(args.last ?? 20))
-							.map(
-								({ id, data: message }) =>
-									`#${id} ${message.author}${message.from ? ` from thread ${message.from}` : ''}${message.to ? ` to ${message.to.join(', ')}` : ''}: ${message.body.slice(0, 2000)}`,
-							)
+					: (
+							await core.messages(thread ?? mine, {
+								last: args.last ?? 20,
+								matches: query ? (entry) => said(entry).toLowerCase().includes(query) : undefined,
+							})
+						).map(
+							({ id, data: message }) =>
+								`#${id} ${message.author}${message.from ? ` from thread ${message.from}` : ''}${message.to ? ` to ${message.to.join(', ')}` : ''}: ${message.body.slice(0, 2000)}`,
+						)
 			const text = lines.join('\n') || (args.query ? 'No entry contains it.' : 'Nothing yet.')
 			return { output: [{ type: 'text', text }] }
 		},
@@ -252,23 +254,32 @@ export function server(core) {
 			)
 		const [[shownName, , conversation]] = found
 		const lines = []
-		for (const { id, model = [] } of await core.entries(conversation)) {
-			for (const message of model) {
-				if (message.role === 'user') lines.push(`#${id} handed: ${messageText(message)}`)
-				if (message.role === 'toolResult')
-					lines.push(
-						`#${id} ${message.toolName}${message.isError ? ' failed' : ''}: ${messageText(message)}`,
-					)
-				if (message.role === 'assistant')
-					for (const part of message.content) {
-						if (part.type === 'text' && part.text) lines.push(`#${id} said: ${part.text}`)
-						if (part.type === 'toolCall')
-							lines.push(`#${id} called ${part.name} ${JSON.stringify(part.arguments)}`)
-					}
-			}
+		// Its newest work first, read back only as far as `last` lines that match
+		for (let cursor; lines.length < last;) {
+			const page = await core.commit((tx) =>
+				tx.scanEntries({ conversationId: conversation, order: 'descending' }, 100, cursor),
+			)
+			const own = []
+			for (const { id, model = [] } of page.items.toReversed())
+				for (const message of model) {
+					if (message.role === 'user') own.push(`#${id} handed: ${messageText(message)}`)
+					if (message.role === 'toolResult')
+						own.push(
+							`#${id} ${message.toolName}${message.isError ? ' failed' : ''}: ${messageText(message)}`,
+						)
+					if (message.role === 'assistant')
+						for (const part of message.content) {
+							if (part.type === 'text' && part.text) own.push(`#${id} said: ${part.text}`)
+							if (part.type === 'toolCall')
+								own.push(`#${id} called ${part.name} ${JSON.stringify(part.arguments)}`)
+						}
+				}
+			lines.unshift(
+				...own.filter((line) => !query || line.toLowerCase().includes(query.toLowerCase())),
+			)
+			if (!(cursor = page.next)) break
 		}
 		const shown = lines
-			.filter((line) => !query || line.toLowerCase().includes(query.toLowerCase()))
 			.slice(-last)
 			.map((line) =>
 				line.length > 4000

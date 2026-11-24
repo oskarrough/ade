@@ -13,7 +13,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused
   ask, route, ROUTE, routed, fresh  whom a message asks; the director's saved pick
   TRAIL, trailed, trail, nameIn, ranAs   a thread's trail, in a conversation of its own: each step written in its commit, GET /api/threads/:id/trail, `trail/<id>`
-  messagesFrom, firstWrote, authors   a thread's messages from one on, and when each person first wrote, so a run reads no further back
+  messages, firstWrote, authors   a thread's messages, or only the newest, the ones since one or those that match, read back from its end; when each person first wrote
   Draft, saveDraft, draftIn, NEW, spentUnder   a person's unsent draft per thread, and for a new one; `draft/<id>` feed view
   createThread, written, mayAsk     a thread and its first message in one commit
   withdraw, WITHDRAWAL              a message taken back before any agent read it
@@ -61,14 +61,14 @@ modules/
   talk.js                `post` and `threads` tools; resolveThread, reply, member
   auto-title.js          AutoTitle, sanitizeThreadTitle; serve
   memory.js              memory lines (Line task), `zoom`, writerOf, demand, beforeCompact, inTurn, writeLines,
-                         indexOf, checked, remembers, turn, view, opened, views, layOut, render, rendered
+                         indexOf, messagesAt, checked, remembers, turn, view, opened, views, layOut, render, rendered
   bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, requireBotEditor, botKey, renameIn), askedHome,
                          answeredAt, posted, homesOf, DEFAULT_VOICE, voice, section, bot-threads, volatility, withoutProject
   context.js             AGENTS.md, skills and cwd from the runner; expand, skillCommand
   director.js            the `direct` hook and Pick task: directing, picks, typing, beatOf, typingIn, sent, Nudge,
                          pick, decide, covers, turns, botTurns, section
   mermaid.js             nudges agents toward Mermaid diagrams
-  recap.js               a thread's recap: WRITER, Recap doc, Write task, since, misshapen, checklist, looking,
+  recap.js               a thread's recap: WRITER, Recap doc, Write task, walk, since, start, misshapen, checklist, looking,
                          serve, the `recap` tool
   canvas.js              a tldraw canvas per thread: Canvas doc, rooms, `canvas_look` (look, seen, report, present),
                          `canvas_act` (apply, created, updated), meta.by (authorizeRecord, onCommittedChanges, grew); serve, connect
@@ -83,7 +83,7 @@ modules/
   web-search.js          `web_search`
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal: tell and touched (the threads a commit changed), heard
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)
-  export.js              GET /api/export: fileName, toMarkdown, foldShell; cli.js `export <dir>`
+  export.js              GET /api/export, sent a message at a time: fileName, markdown, json, file, foldShell; cli.js `export <dir>`
   search.js              FTS5 index of every message: build, entryStored, search, matchOf; serve, the `search` tool
   jump.js                Cmd-K's switch; the client does the rest
   usage.js               tokens and cost: spend, build, entryStored, settle, spent; serve

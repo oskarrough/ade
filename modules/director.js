@@ -185,15 +185,11 @@ export function server(core) {
 	 * so the task decides again or ends.
 	 */
 	async function pick(threadId, entry, covers, stopped, since, held) {
-		const all = await core.messages(threadId)
-		const at = all.findIndex((one) => one.id === entry)
-		const message = all[at].data
-		const first = Math.min(
-			at,
-			...covers.map((id) => all.findIndex((one) => one.id === id)).filter((i) => i >= 0),
-		)
+		const first = Math.min(entry, ...covers)
+		const latest = await core.messages(threadId, { after: first - 1 })
+		const message = latest.find((one) => one.id === entry).data
 		const fresh = [...covers, entry]
-			.map((id) => all.find((one) => one.id === id)?.data)
+			.map((id) => latest.find((one) => one.id === id)?.data)
 			.filter(Boolean)
 			.map((data) => ({ author: data.author, body: (data.body ?? '').slice(0, SAID) }))
 		const { participants, here: everyone } = await agentsOf(threadId, message.author)
@@ -218,10 +214,11 @@ export function server(core) {
 				}
 			}),
 		)
-		const read = all
-			.slice(0, first)
-			.filter((entry) => !entry.data.shell)
-			.slice(-context)
+		const read = await core.messages(threadId, {
+			before: first,
+			last: context,
+			matches: (one) => !one.data.shell,
+		})
 		const said = read.map(({ data }) => ({
 			author: data.author,
 			body: (data.body ?? '').slice(0, SAID),
@@ -463,7 +460,10 @@ export function server(core) {
 		)
 
 	async function botTurns(threadId) {
-		const said = (await core.messages(threadId)).filter((entry) => !entry.data.shell)
+		const said = await core.messages(threadId, {
+			last: REST,
+			matches: (entry) => !entry.data.shell,
+		})
 		const last = said.findLastIndex((entry) => !entry.data.answer && !entry.data.error)
 		return said.length - 1 - last
 	}

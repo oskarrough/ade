@@ -5,7 +5,7 @@
 import { num, obj, opt } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTask, defineTool } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { indexOf, memory, rendered } from './memory.js'
+import { indexOf, memory, messagesAt, rendered } from './memory.js'
 import {
 	complete,
 	AGENT,
@@ -25,7 +25,8 @@ const NEW = 60 * 1024,
 	MESSAGE = 3000,
 	/** What a first page of a long thread reads of the messages before those, as memory's lines */
 	OLDER = 32 * 1024,
-	CHILDREN = 30
+	CHILDREN = 30,
+	BATCH = 50
 const ITEMS = 6
 
 const WRITER = `# Recap
@@ -89,9 +90,18 @@ export function server(core) {
 		return writer === to ? to : core.address(writer, false, signal)
 	}
 
-	function since(all, through, titles) {
-		const head = (index) => {
-			const { data } = all[index]
+	/** The thread's messages from position `from`, forward or `back`, read a batch at a time */
+	async function* walk(threadId, from, total, back = false) {
+		for (let at = from; back ? at > 0 : at < total; at += back ? -BATCH : BATCH) {
+			const batch = back
+				? (await messagesAt(core, threadId, Math.max(0, at - BATCH), at)).reverse()
+				: await messagesAt(core, threadId, at, Math.min(at + BATCH, total))
+			yield* batch
+		}
+	}
+
+	async function since(threadId, through, total, titles) {
+		const head = (index, data) => {
 			const text = written(data)
 			const cut =
 				text.length > MESSAGE
@@ -105,8 +115,8 @@ export function server(core) {
 		const shown = []
 		let size = 0,
 			end = through
-		while (end < all.length) {
-			const text = head(end)
+		for await (const { data } of walk(threadId, through, total)) {
+			const text = head(end, data)
 			if (size + text.length > NEW && shown.length) break
 			shown.push(text)
 			size += text.length + 2
@@ -115,18 +125,21 @@ export function server(core) {
 		return { text: shown.join('\n\n'), end }
 	}
 
-	function start(all) {
+	async function start(threadId, total) {
 		let size = 0,
-			at = all.length
-		while (at > 0 && size + Math.min(written(all[at - 1].data).length, MESSAGE) < NEW)
-			size += Math.min(written(all[--at].data).length, MESSAGE) + 40
+			at = total
+		for await (const { data } of walk(threadId, total, total, true)) {
+			if (size + Math.min(written(data).length, MESSAGE) >= NEW) break
+			size += Math.min(written(data).length, MESSAGE) + 40
+			at--
+		}
 		return at
 	}
 
 	async function write(threadId, previous, through, signal) {
-		const all = await core.messages(threadId)
+		const total = (await indexOf(core, threadId)).ids.length
 		const rows = await core.threadList()
-		if (all.length <= through) return undefined
+		if (total <= through) return undefined
 		const to = await writerOf(threadId, signal)
 		if (!to) return undefined
 		const row = await core.thread(threadId)
@@ -136,8 +149,8 @@ export function server(core) {
 			.slice(-CHILDREN)
 			.map((other) => `- @"${other.title}": ${other.status}`)
 		// A first page of a long thread starts from the newest messages that fit, and says so
-		const from = previous ? through : Math.max(0, start(all))
-		const { text, end } = since(all, from, titles)
+		const from = previous ? through : Math.max(0, await start(threadId, total))
+		const { text, end } = await since(threadId, from, total, titles)
 		// Older than a first page can read: memory's lines, when the thread has them
 		const older =
 			from > through
@@ -154,7 +167,7 @@ export function server(core) {
 			older.length
 				? `<older>\nMessages 0 to ${from - 1}, as memory lines \`id+n|text\`, each standing for n messages from message id; link one as its id:\n${older.map(rendered).join('\n')}\n</older>`
 				: '',
-			`<messages>\n${from > through && !older.length ? `Messages 0 to ${from - 1} are older than you can read; the page covers what follows. ` : ''}Messages ${from} to ${end - 1}, new since the page${end < all.length ? `; ${all.length - end} more come after these, so write the page as it stood at message ${end - 1}` : ''}:\n\n${text}\n</messages>`,
+			`<messages>\n${from > through && !older.length ? `Messages 0 to ${from - 1} are older than you can read; the page covers what follows. ` : ''}Messages ${from} to ${end - 1}, new since the page${end < total ? `; ${total - end} more come after these, so write the page as it stood at message ${end - 1}` : ''}:\n\n${text}\n</messages>`,
 			'Write the recap again.',
 		]
 			.filter(Boolean)
@@ -188,7 +201,7 @@ export function server(core) {
 		}
 		page = checklist(page ?? '')
 		if (!page) throw new Error('the model wrote no checklist')
-		return { page, through: end, more: end < all.length }
+		return { page, through: end, more: end < total }
 	}
 
 	/** One writer per thread: a rewrite asked for while one runs makes it go round once more */
@@ -246,7 +259,7 @@ export function server(core) {
 			const threadId = Number(param)
 			await core.conversation(threadId)
 			const page = await read(threadId)
-			if (!page.writing && page.through < (await core.messages(threadId)).length)
+			if (!page.writing && page.through < (await indexOf(core, threadId)).ids.length)
 				await core.commit((tx) => ask(tx, threadId))
 			return [{ key: 'recap', ...(await read(threadId)) }]
 		},
@@ -288,7 +301,7 @@ export function server(core) {
 			const before = looked(threadId)
 			looking.set(threadId, Date.now())
 			const page = await read(threadId)
-			if (!before && !page.writing && page.through < (await core.messages(threadId)).length)
+			if (!before && !page.writing && page.through < (await indexOf(core, threadId)).ids.length)
 				await core.commit((tx) => ask(tx, threadId))
 			return read(threadId)
 		}
