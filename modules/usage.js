@@ -10,7 +10,7 @@
  * With the module off, nothing is kept.
  *
  * The cost is the list price, which a subscription login (Claude Code, ChatGPT) never bills, so it's `billed` only
- * where the runner that ran it offers the provider on an API key (its `metered` providers, less its `free` models) or
+ * where the runner that ran it bills the provider per token, an API key or pi's Anthropic login (its `metered` providers, less its `free` models) or
  * the provider reported the cost itself (OpenRouter). Each turn and module call keeps its runner for that. Tokens are the honest number either way.
  *
  * `GET /api/usage?since=&until=&zone=` answers the house's `{total, models, days, threads, by, threadCount}`: days

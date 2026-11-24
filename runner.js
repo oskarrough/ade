@@ -261,9 +261,13 @@ function folders() {
 
 let warnedOffers = false
 
+/** Providers whose OAuth login still bills per token: Anthropic's draws API credits, OpenRouter's is an API key */
+const BILLED = ['anthropic', 'openrouter']
+
 /**
  * Which models are billed per token: their provider is logged in with an API key rather than a subscription's OAuth,
- * and pi lists a cost above zero. Sent as those providers, and their models that cost nothing, which are few.
+ * or is one of `BILLED`, and pi lists a cost above zero. Sent as those providers, and their models that cost nothing,
+ * which are few.
  */
 async function billing() {
 	const available = await models.getAvailable().catch(() => [])
@@ -275,7 +279,9 @@ async function billing() {
 			]),
 		),
 	)
-	const keyed = available.filter(({ provider }) => auths[provider] === 'api_key')
+	const keyed = available.filter(
+		({ provider }) => auths[provider] === 'api_key' || BILLED.includes(provider),
+	)
 	const paid = (model) => Object.values(model.cost ?? {}).some((cost) => cost > 0)
 	return {
 		metered: [...new Set(keyed.filter(paid).map(({ provider }) => provider))],
