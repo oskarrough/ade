@@ -12,6 +12,7 @@
 		"perf": "node scripts/perf.js",
 		"fuzz": "node scripts/fuzz.js",
 		"check": "oxfmt && oxlint --type-aware --type-check",
+		"release": "scripts/release.sh",
 		"desktop:release": "apps/desktop/release.sh"
 	},
 	"engines": {

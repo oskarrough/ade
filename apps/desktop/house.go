@@ -227,8 +227,9 @@ func houseStopped() bool {
 	return true
 }
 
-// updateHouse brings the ade the app keeps up to GitHub's main, every hour;
-// the page then offers Update. A house running ade you installed is left alone.
+// updateHouse stages ade's newest release beside the one the app keeps,
+// checking every hour; the page then offers Update, which restarts into it.
+// A house running ade you installed is left alone.
 func updateHouse() {
 	for {
 		if h := loadHouse(); h.Start != nil && *h.Start && local(origin) {

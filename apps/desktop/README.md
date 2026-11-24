@@ -10,19 +10,19 @@ ade in its own window: the page an ade server serves, in the system's webview (W
 - On plain http over Tailscale, where the page gets no clipboard, copying goes through the app.
 - It updates itself: 10 seconds after launch and every hour, it checks this repo's `desktop-v*` releases and shows the update window when there's a newer one.
 
-Changes to ade itself need none of this: the window loads the client from the server, and the page offers "Update" in the list's foot when ade changed. A new desktop release is only for changes in this folder.
+Changes to ade itself need none of this: the window loads the client from the server, and ade has releases of its own (`pnpm release`). A new desktop release is only for changes in this folder. The update window is the updater's own: it can't check quietly without installing unasked, so a newer app still opens it, and if you put it off, the page's Update opens it again.
 
 ## The house
 
 When the window's address is on this machine (localhost) and nothing answers, arbe desktop can start ade itself: on Windows inside WSL, elsewhere directly, in a login shell, so it finds node and ade as your terminal does. It asks the first time.
 
-If ade isn't installed there, the app keeps its own: the first start fetches GitHub's main and its packages into `~/.local/share/arbe-desktop/ade`, and Node into `~/.local/share/arbe-desktop/node` when the shell has no Node 24 or newer. That takes a minute or so, and the waiting page shows each step. Every hour after, the app brings that copy up to main in place, as a pull would in a checkout, and the page offers Update. Nothing needs installing first.
+If ade isn't installed there, the app keeps its own: the first start fetches ade's newest release (a `v*` tag, never main) and its packages into `~/.local/share/arbe-desktop/ade`, and Node into `~/.local/share/arbe-desktop/node` when the shell has no Node 24 or newer. That takes a minute or so, and the waiting page shows each step. Every hour after, the app looks for a newer release and readies it in `ade.next` beside that copy; the page offers Update, and the restart, or the house's next start, swaps it in. Nothing needs installing first.
 
 Models are pi's: the runner uses the logins pi keeps in `~/.pi/agent/auth.json`. While the house's runner has only echo, the model picker offers "Log in to a model", which opens pi in a terminal (your own pi, or the one that came with ade); type `/login` there, and the picker lists the models once you're back in the window. The server keeps running when you close the window, so agents finish their work. If something already answers, it starts nothing.
 
 The window comes in as the house's owner on this machine, as the CLI does: at launch it reads `owner.key` beside the store (`DB_PATH`'s folder, else `~/.local/share/ade`) and keeps it as the cookie the server reads, which no script on the page can read and which goes only to localhost, until the app quits. With `"invites": true` in ade.json that's the only way in; with invites off, localhost was enough anyway. A server elsewhere, on a tailnet, gets no key; open the link `ade link` prints there.
 
-To update, the page's Update button restarts the server in place when its code changed, wherever it was started, and reloads once it's back. The House menu (in the menu bar on macOS, beside the usual Edit and View; Alt or F10 on Windows) has only the switch, Start house when it's down, which starts it at once if nothing answers, and the house log, with startup crashes: `~/.local/state/arbe-desktop/house.log` (in WSL on Windows). `house.sh` keeps the house's process group and a token in `~/.local/state/arbe-desktop/house.pid`; to stop it, `kill -TERM -- -<pid>` with that file's first word.
+To update, the page's Update button restarts the server in place when its code changed or a newer release is ready, wherever it was started, and reloads once it's back. The House menu (in the menu bar on macOS, beside the usual Edit and View; Alt or F10 on Windows) has only the switch, Start house when it's down, which starts it at once if nothing answers, and the house log, with startup crashes: `~/.local/state/arbe-desktop/house.log` (in WSL on Windows). `house.sh` keeps the house's process group and a token in `~/.local/state/arbe-desktop/house.pid`; to stop it, `kill -TERM -- -<pid>` with that file's first word.
 
 What it runs lives in `house.json` beside the app's settings (`%AppData%\arbe desktop` on Windows): `start`, `dir` (default `~`) and `command` (default `ade`). Or set it once from a terminal:
 

@@ -5,7 +5,6 @@ import { createSignal, createUniqueId, For, Show } from 'solid-js'
 import {
 	archivedThreads,
 	archiveThread,
-	behind,
 	bots,
 	changes,
 	current,
@@ -33,7 +32,7 @@ import { Panes } from './panes.js'
 import { liveOf } from './agent.js'
 import { report } from './notice.js'
 import { busy } from './busy.js'
-import { copyText, nativeMenu } from './desktop.js'
+import { copyText, installShellUpdate, nativeMenu, shellUpdate } from './desktop.js'
 import { openSide } from './side.js'
 import { RunnerList } from './runner.js'
 import { openTaskForm, ScheduledTaskList } from './schedule.js'
@@ -152,38 +151,38 @@ export function ThreadList() {
 }
 
 /**
- * Reloads once ade changed since the page loaded. When the server's own code changed since it started, the owner's
- * restarts it first, as Save and restart does, and reloads once it's back. Up to date, it's a quiet line naming the
- * version, which opens what changed lately.
+ * Update, when ade needs more than the reload a page does by itself: the owner's restarts a server whose code changed,
+ * or that has a newer release staged, and the page reloads once it's back; in arbe desktop, a newer app opens its
+ * update window. Up to date, it's a quiet line naming the version, which opens what changed.
  */
 function Update() {
 	const restarts = () =>
-		server().stale && server().settings?.restarts && me() === server().settings.owner
-	const update = busy(async () => (restarts() ? restart() : location.reload()))
-	const label = () => {
-		if (restarting()) return 'Restarting…'
-		const n = changes().length
-		const countPart = n === 1 ? '1 update' : n > 1 ? `${n} updates` : ''
-		if (restarts()) return countPart ? `${countPart}, restart` : 'Restart'
-		return countPart || 'Update'
+		(server().stale || server().staged) &&
+		server().settings?.restarts &&
+		me() === server().settings.owner
+	const shown = () => restarts() || shellUpdate()
+	const update = busy(async () => (restarts() ? restart() : installShellUpdate()))
+	const title = () => {
+		if (!restarts()) return `arbe desktop ${shellUpdate()} is out`
+		if (server().staged)
+			return `ade ${server().staged} is ready: ade restarts into it and the page reloads`
+		return (
+			changes()
+				.map((commit) => commit.subject)
+				.join('\n') ||
+			'The server changed since it started: it restarts, as Save and restart does, and the page reloads once it’s back'
+		)
 	}
-	return html`<${Show} when=${() => behind() || restarts()} fallback=${html`<${Version} />`}>
+	return html`<${Show} when=${shown} fallback=${html`<${Version} />`}>
 		<button
 			type="button"
 			class="ghost small foot-toggle update-toggle"
 			data-fuzz-skip
 			disabled=${() => update.state() === 'busy' || Boolean(restarting())}
-			aria-label=${label}
-			title=${() =>
-				changes()
-					.map((commit) => commit.subject)
-					.join('\n') ||
-				(restarts()
-					? 'The server changed since it started: it restarts, as Save and restart does, and the page reloads once it’s back'
-					: 'ade changed since this page loaded; reloading keeps your thread and draft')}
+			title=${title}
 			onClick=${(_e) => update()}
 		>
-			<span>${label}</span>
+			<span>Update</span>
 		</button>
 	<//>`
 }
@@ -198,7 +197,8 @@ const dayOfCommit = (at) => {
 	})
 }
 
-/** The checkout's commit, and the newest twenty subjects on a click; nothing for an install, which has no history */
+/** The checkout's commit and its newest twenty subjects, or the installed release and its notes; nothing for an install
+ * that names neither */
 function Version() {
 	let button, panel
 	const id = createUniqueId()
@@ -208,15 +208,16 @@ function Version() {
 			setCommits(commits)
 			placePopover(panel, button)
 		}, report)
-	return html`<${Show} when=${() => server().commit}>
+	const version = () => server().release ?? server().commit?.slice(0, 7)
+	return html`<${Show} when=${version}>
 		<button
 			type="button"
 			class="ghost small foot-toggle version-toggle"
-			title="Up to date. What changed lately"
+			title=${() => (server().release ? `Up to date. What changed in ${version()}` : 'Up to date. What changed lately')}
 			ref=${(el) => (button = el)}
 			popovertarget=${id}
 		>
-			<span>${() => server().commit.slice(0, 7)}</span>
+			<span>${version}</span>
 		</button>
 		<div
 			class="popover version-list"
@@ -237,7 +238,7 @@ function Version() {
 							html`<li>
 								<div>
 									<span>${() => commit.subject}</span>
-									<small>${() => dayOfCommit(commit.at)}</small>
+									<small>${() => (commit.at ? dayOfCommit(commit.at) : '')}</small>
 								</div>
 							</li>`}
 					<//>

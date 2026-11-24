@@ -8,7 +8,7 @@ Use your Anthropic, ChatGPT or Antigravity subscriptions, or really any model th
 
 Threads live on a server you own, and agents run on the machines you want. Works great for yourself in your own, private Tailscale.
 
-There are two ways to run it: download and run the desktop app (easy), or run `npx --allow-git=all github:oskarrough/ade`.
+There are two ways to run it: download and run the desktop app (easy), or run `npx --allow-git=all github:oskarrough/ade#semver:*`.
 
 ## Get the desktop app
 
@@ -22,11 +22,17 @@ They aren't code-signed yet, so Windows and macOS warn the first time; [the app'
 
 ## Browser usage
 
-Run `npx --allow-git=all github:oskarrough/ade` and open the URL it prints. Since npm 12, npx refuses packages from GitHub without that flag; `pnpx` and `bunx` don't need it.
+Run `npx --allow-git=all github:oskarrough/ade#semver:*` and open the URL it prints. Since npm 12, npx refuses packages from GitHub without that flag; `pnpx` and `bunx` don't need it.
 
 It starts the server and connects a runner, so agents can work immediately.
 
 You need Node 24 or newer and [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) logged in to at least one model provider: `npm i -g @earendil-works/pi-coding-agent`, run `pi`, then `/login`.
+
+## Updates
+
+A house you installed, with the desktop app or npx, runs a release: a tag cut with `pnpm release` when main is good, whose notes are the commit subjects since the one before. npx fetches the newest release each time it starts ade. The desktop app checks every hour and gets a newer one ready beside the running one; Update, in the list's foot, restarts into it. Main moving between releases changes nothing there. The version in the list's foot opens that release's notes.
+
+A house running from a checkout you work in updates from its own files. A change to the page reloads open tabs by themselves, once they're hidden or nobody has touched them for a minute; a change to the server shows Update, which restarts it. In arbe desktop, Update also brings a newer app.
 
 ## Connect a runner
 

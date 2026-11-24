@@ -441,6 +441,31 @@ export const {
 		const now = server().client
 		return Boolean(loadedWith && now && now !== loadedWith)
 	})
+	/** Client-only changes reload by themselves, once the tab is hidden or nobody has touched it for a minute; a server
+	 * that changed waits for Update, since its new page may need its new code */
+	createEffect(
+		() => behind() && !server().stale,
+		(due) => {
+			if (!due) return
+			if (document.visibilityState === 'hidden') return location.reload()
+			let timer
+			const reload = () => location.reload()
+			const touched = () => {
+				clearTimeout(timer)
+				timer = setTimeout(reload, 60_000)
+			}
+			const left = () => document.visibilityState === 'hidden' && reload()
+			const inputs = ['pointerdown', 'pointermove', 'keydown', 'wheel']
+			touched()
+			for (const name of inputs) addEventListener(name, touched, { capture: true, passive: true })
+			document.addEventListener('visibilitychange', left)
+			return () => {
+				clearTimeout(timer)
+				for (const name of inputs) removeEventListener(name, touched, { capture: true })
+				document.removeEventListener('visibilitychange', left)
+			}
+		},
+	)
 	/** The commits since the one this page loaded on, `{subject, at}`, newest first; none when the server isn’t a checkout */
 	const [changes, setChanges] = createSignal([])
 	createEffect(

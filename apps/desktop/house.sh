@@ -3,8 +3,9 @@
 # text, above it. The first line it prints is "<WSL distro>:<log file>", the last the state: running, stopped,
 # started, installing or updating; for key, the owner key.
 # It keeps the process group and a token in the pid file; stop it with kill -TERM -- -<pid>, the pid file's first word.
-# Without ade installed, it keeps its own: ade from GitHub's main in $own/ade, and Node from nodejs.org in $own/node
-# when the shell has no Node 24 or newer. update brings that ade up to main in place, so the page offers Update.
+# Without ade installed, it keeps its own: ade's newest release from GitHub in $own/ade, and Node from nodejs.org in
+# $own/node when the shell has no Node 24 or newer. update stages a newer release in $own/ade.next, never main; the
+# page then offers Update, and the server's restart, or the next start here, takes it up.
 set -u
 state="${XDG_STATE_HOME:-$HOME/.local/state}/arbe-desktop"
 own="${XDG_DATA_HOME:-$HOME/.local/share}/arbe-desktop"
@@ -64,20 +65,70 @@ node_on_path() {
 	tar -xzf "$next/$file" -C "$next" --strip-components=1 && rm "$next/$file" && rm -rf "$own/node" && mv "$next" "$own/node"
 }
 
-# GitHub's main into $own/ade.next with its packages, unless $own/ade is already at it (2)
+# The newest release on GitHub, a tag v<major>.<minor>.<patch>: prints its tag and commit, and writes it with its
+# notes, the tag's message, as JSON to $1. ADE_REPO and ADE_TAGS point a rehearsal elsewhere.
+newest_release() {
+	node --input-type=module -e '
+		const [file, repo, prefix] = process.argv.slice(1)
+		const get = async (route) => {
+			const response = await fetch(`https://api.github.com/repos/${repo}/git/${route}`, {
+				headers: { accept: "application/vnd.github+json" },
+			})
+			if (!response.ok) throw new Error(`GitHub answered ${response.status}`)
+			return response.json()
+		}
+		const version = (ref) => ref.slice(`refs/tags/${prefix}`.length).split(".").map(Number)
+		const newer = (a, b) => version(a.ref).reduce((sign, n, i) => sign || Math.sign(n - version(b.ref)[i]), 0) > 0
+		const refs = (await get(`matching-refs/tags/${prefix}`)).filter((ref) => {
+			const parts = version(ref.ref)
+			return parts.length === 3 && parts.every((n) => Number.isInteger(n) && n >= 0)
+		})
+		if (!refs.length) throw new Error(`${repo} has no release yet`)
+		const newest = refs.reduce((best, ref) => (newer(ref, best) ? ref : best))
+		const tag = newest.ref.slice("refs/tags/".length)
+		let commit = newest.object.sha, at = "", notes = []
+		if (newest.object.type === "tag") {
+			const object = await get(`tags/${commit}`)
+			commit = object.object.sha
+			at = object.tagger.date
+			notes = object.message.split("\n").map((line) => line.trim()).filter(Boolean)
+		}
+		;(await import("node:fs")).writeFileSync(file, JSON.stringify({ tag, commit, at, notes }) + "\n")
+		console.log(`${tag} ${commit}`)
+	' "$1" "${ADE_REPO:-oskarrough/ade}" "${ADE_TAGS:-v}"
+}
+
+# The newest release into $own/ade.next with its packages, unless $own/ade runs it or it's already there (2). It's
+# built in ade.staging and moved in whole, so a folder named ade.next is always complete.
 fetch_ade() {
-	commit="$(curl -fsSL -H 'Accept: application/vnd.github.sha' https://api.github.com/repos/oskarrough/ade/commits/main)" || {
-		echo "Couldn't reach GitHub" >&2
+	staging="$own/ade.staging"
+	rm -rf "$staging" && mkdir -p "$staging"
+	found="$(newest_release "$staging/.release.json")" || {
+		echo "Couldn't find ade's newest release" >&2
 		return 1
 	}
-	[ "$(cat "$own/ade/.commit" 2> /dev/null)" = "$commit" ] && return 2
-	next="$own/ade.next"
-	rm -rf "$next" && mkdir -p "$next"
-	echo "Fetching ade $(printf %.12s "$commit")"
-	curl -fsSL "https://codeload.github.com/oskarrough/ade/tar.gz/$commit" | tar -xz -C "$next" --strip-components=1 || return 1
+	tag="${found% *}"
+	commit="${found#* }"
+	for dir in "$own/ade" "$own/ade.next"; do
+		[ "$(release_of "$dir")" = "$tag" ] && rm -rf "$staging" && return 2
+	done
+	echo "Fetching ade $tag"
+	curl -fsSL "https://codeload.github.com/${ADE_REPO:-oskarrough/ade}/tar.gz/$commit" | tar -xz -C "$staging" --strip-components=1 || return 1
 	echo "Installing its packages"
-	(cd "$next" && npm install --omit=dev --no-audit --no-fund --no-update-notifier --loglevel=error) || return 1
-	echo "$commit" > "$next/.commit"
+	(cd "$staging" && npm install --omit=dev --no-audit --no-fund --no-update-notifier --loglevel=error) || return 1
+	mv "$staging/.release.json" "$staging/.release"
+	rm -rf "$own/ade.next" && mv "$staging" "$own/ade.next"
+}
+
+# The release an ade folder runs, from its .release; empty without one
+release_of() { sed -n 's/.*"tag":"\([^"]*\)".*/\1/p' "$1/.release" 2> /dev/null; }
+
+# A release staged beside $own/ade takes its place, as the server does when it restarts
+take_staged() {
+	[ -f "$own/ade.next/.release" ] || return 0
+	rm -rf "$own/ade.old"
+	if [ -d "$own/ade" ]; then mv "$own/ade" "$own/ade.old" || return 1; fi
+	mv "$own/ade.next" "$own/ade" && rm -rf "$own/ade.old"
 }
 
 # This script again, as a process of its own that outlives the app's wait for this one: its arguments go before sh
@@ -125,8 +176,10 @@ run)
 	node_on_path || exit 1
 	if [ ! -f "$own/ade/bin.js" ]; then
 		echo "Setting up ade, the first time only"
-		fetch_ade && mv "$own/ade.next" "$own/ade" || exit 1
+		fetch_ade
+		[ $? -eq 1 ] && exit 1
 	fi
+	take_staged || exit 1
 	exec node "$own/ade/bin.js"
 	;;
 update)
@@ -145,19 +198,10 @@ update)
 	node_on_path || exit 1
 	fetch_ade
 	case $? in
-	0) ;;
+	0) echo "$(date '+%F %T'): staged ade $tag; the page offers Update" ;;
 	2) exit 0 ;;
 	*) exit 1 ;;
 	esac
-	# In place, as a pull in a checkout would: the server sees its files change and the page offers Update
-	rm -rf "$own/ade/node_modules.old"
-	mv "$own/ade/node_modules" "$own/ade/node_modules.old" && mv "$own/ade.next/node_modules" "$own/ade/node_modules"
-	rm -rf "$own/ade/node_modules.old"
-	(cd "$own/ade" && find . -path ./node_modules -prune -o -type f -print) | while read -r file; do
-		[ -e "$own/ade.next/$file" ] || rm -f "$own/ade/$file"
-	done
-	cp -R "$own/ade.next/." "$own/ade/" && rm -rf "$own/ade.next"
-	echo "$(date '+%F %T'): updated ade to $(printf %.12s "$commit")"
 	;;
 key)
 	# The owner key, from beside the store as the CLI reads it, for the window to come in as the owner

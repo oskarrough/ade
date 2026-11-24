@@ -121,6 +121,18 @@ func (Desktop) ReadText() string      { return mygo.Clipboard.ReadText() }
 // Version is this app's version, for the page to show.
 func (Desktop) Version() string { return mygo.App.Version() }
 
+// shellUpdate tells the page the newer version of this app the last check
+// found, "" for none, for its Update button.
+var shellUpdate = mygo.NewEvent[string]("shell-update")
+
+// ShellUpdate is the newer version of this app the last check found, or "".
+func (Desktop) ShellUpdate() string { return updater.AvailableVersion() }
+
+// InstallUpdate opens the update window, which offers the newer version, or
+// relaunches into one already downloaded. The updater has no way to check
+// without that window but to install without asking, so the window stays.
+func (Desktop) InstallUpdate() { updater.CheckForUpdates() }
+
 // Menu shows labels as the system's context menu at the pointer, an empty one
 // as a separator, and answers the index of the item picked, or -1.
 func (Desktop) Menu(ctx context.Context, labels []string) int {
@@ -239,6 +251,11 @@ func main() {
 	mygo.Use(updater.New(updater.Options{Interval: time.Hour}))
 
 	mygo.App.WhenReady(func() {
+		updater.OnChange(func() {
+			if win != nil {
+				_ = shellUpdate.Emit(win, updater.AvailableVersion())
+			}
+		})
 		if *flagHouse != "" {
 			h := loadHouse()
 			on := *flagHouse != "off"

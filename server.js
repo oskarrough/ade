@@ -10,6 +10,7 @@ import {
 	readdirSync,
 	readFileSync,
 	readlinkSync,
+	renameSync,
 	rmSync,
 	watch as watchFiles,
 	writeFileSync,
@@ -3481,6 +3482,9 @@ async function serverInfo(viewer) {
 		stale,
 		/** The commit the server's checkout is on, when it runs from one; null for an install */
 		commit: (await git('rev-parse', 'HEAD')) || null,
+		/** The release an installed server runs, and the newer one staged for its next restart */
+		release: release?.tag ?? null,
+		staged: staged?.tag ?? null,
 		/** Who the server takes the asker to be, for showing; it proves nothing */
 		me: viewer,
 		modules: modules.map((module) => module.name),
@@ -3561,6 +3565,7 @@ const routes = /** @type {[string, Function][]} */ ([
 			return runners.call(name, { op: 'available' }, {})
 		},
 		'GET /api/changes': async (_req, _id, url) => {
+			if (release) return { commits: release.notes.map((subject) => ({ subject, at: release.at })) }
 			const since = url.searchParams.get('since')
 			if (since !== null && !/^[\da-f]{7,40}$/.test(since)) return { commits: [] }
 			const log = await git(
@@ -3729,6 +3734,49 @@ const git = (...args) =>
 			resolve(error ? '' : out.trim()),
 		),
 	)
+
+/**
+ * An installed ade, as arbe desktop keeps one, runs a release: a tag, named with its commit and notes in `.release`
+ * beside bin.js. A newer one staged in the folder beside it, `<folder>.next`, takes over at the next restart. A
+ * checkout has neither and updates from its own files.
+ */
+const readRelease = (dir) => {
+	try {
+		const { tag, at, notes } = JSON.parse(readFileSync(path.join(dir, '.release'), 'utf8'))
+		return {
+			tag: String(tag),
+			at: String(at ?? ''),
+			notes: Array.isArray(notes) ? notes.map(String) : [],
+		}
+	} catch {
+		return null
+	}
+}
+const release = readRelease(import.meta.dirname)
+const nextDir = `${import.meta.dirname}.next`
+let staged = release && readRelease(nextDir)
+if (release) {
+	rmSync(`${import.meta.dirname}.old`, { recursive: true, force: true })
+	watchFiles(path.dirname(nextDir), (_event, name) => {
+		if (name !== path.basename(nextDir)) return
+		const now = readRelease(nextDir)
+		if (now?.tag === staged?.tag) return
+		staged = now
+		feed.touch('server')
+	}).unref()
+}
+/** Puts the staged release where this one is, for the restart to start it; this one waits beside it to be deleted */
+const takeStaged = () => {
+	if (!staged || readRelease(nextDir)?.tag !== staged.tag) return
+	renameSync(import.meta.dirname, `${import.meta.dirname}.old`)
+	try {
+		renameSync(nextDir, import.meta.dirname)
+	} catch (error) {
+		renameSync(`${import.meta.dirname}.old`, import.meta.dirname)
+		throw error
+	}
+	console.log(`restart: from ${release.tag} to ${staged.tag}`)
+}
 
 /** The client: apps/client/client.html at /, and every module and stylesheet beside it */
 const types = {
@@ -4688,6 +4736,11 @@ async function restart(why, again) {
 	if (lent?.kill) lent.kill()
 	await Promise.all([(stopping ??= close()), runnerExit])
 	if (!again) process.exit(0)
+	try {
+		takeStaged()
+	} catch (error) {
+		console.error(`restart: couldn't take up ${staged?.tag}; the same release starts again`, error)
+	}
 	process.execve(process.execPath, process.argv, {
 		...process.env,
 		PORT: String(port),

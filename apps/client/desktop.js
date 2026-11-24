@@ -98,3 +98,10 @@ export const copyText = (text) => navigator.clipboard.writeText(text)
 const [desktopVersion, setDesktopVersion] = createSignal('')
 mygo?.call('Desktop.Version').then(setDesktopVersion, () => {})
 export { desktopVersion }
+
+/** The newer arbe desktop the app's last check found, empty for none; installing it opens the app's update window */
+const [shellUpdate, setShellUpdate] = createSignal('')
+mygo?.call('Desktop.ShellUpdate').then(setShellUpdate, () => {})
+mygo?.on('shell-update', (version) => setShellUpdate(String(version ?? '')))
+export { shellUpdate }
+export const installShellUpdate = () => mygo.call('Desktop.InstallUpdate')
