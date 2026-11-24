@@ -1,13 +1,14 @@
 /**
  * The house as plain SQL tables, in ade's database beside the records Pi Durable keeps there: `ade_threads`,
  * `ade_messages`, `ade_runs`, `ade_turns`, `ade_spend`, `ade_trail`, `ade_schedules`, `ade_bots` and their links, to
- * read with `sqlite3`. Off by default; MODULES=+read turns it on.
+ * read with `sqlite3`, and the threads list reads them too.
  *
- * Pi's records stay the truth. The `ade_` tables are worked out from them and nothing but this module writes them, so
- * they can be dropped at any time: every start makes them again from Pi's records as one transaction sees them (about
- * six seconds for 90,000 entries, in the background), and from then each commit Pi stores is applied whole, in one
- * transaction that also moves `ade_projection.seq`. A commit that fails to apply, or one that doesn't follow the last, marks them `broken`
- * and they're made again. With the module off, the next start drops them. Ids are Pi's own, times ISO text in UTC.
+ * Pi's records stay the truth. The `ade_` tables are worked out from them and nothing but this file writes them, so
+ * they can be dropped at any time. A start keeps them when they're true as of Pi's last commit, as a clean stop leaves
+ * them, and otherwise makes them again from Pi's records as one transaction sees them (about six seconds for 90,000
+ * entries, in the background). From then each commit Pi stores is applied whole, in one transaction that also moves
+ * `ade_projection.seq`. A commit that fails to apply, or one that doesn't follow the last, marks them `broken` and
+ * they're made again. Ids are Pi's own, times ISO text in UTC.
  *
  * One writer at a time is SQLite's rule, and Pi's commits are the ones that matter. So the tables are written by a
  * worker thread on a connection of its own, which waits its turn, never holds the server's thread, and writes seldom
@@ -30,12 +31,10 @@
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads'
-import { stepText } from '../util.js'
-
-export const on = false
+import { stepText } from './util.js'
 
 /** The projector's logic: raise it with any change to what a row holds, so `projection.version` names what wrote the file */
-const LOGIC = 1
+const LOGIC = 2
 /** The one version of Pi's tables this reads */
 const PI_SCHEMA = 2
 const DAY = 86_400_000
@@ -79,6 +78,10 @@ create table ade_agents (
 	conversation_id integer primary key,       -- Pi's conversation: what this agent has read, its tool calls, its answers
 	thread_id      integer not null references ade_threads (id),
 	name           text    not null,
+	runner         text,                       -- where it runs now; none for a model off any runner
+	model          text,                       -- none until Pi holds its settings in its own conversation, as a fork's agent before it changes
+	thinking       text,
+	folder         text,                       -- the whole path, on its runner's machine
 	unique (thread_id, name)
 ) strict;
 
@@ -94,9 +97,12 @@ create table ade_messages (
 	run_id         integer references ade_runs (id),      -- the run that wrote it, for an answer or error
 	schedule_id    integer references ade_schedules (id), -- the scheduled task that posted it
 	picked         text,                       -- the director's reason, once it picked
-	withdrawn      integer not null default 0 check (withdrawn in (0, 1))
+	withdrawn      integer not null default 0 check (withdrawn in (0, 1)),
+	command        text    check (command in ('ran', 'failed', 'stopped'))   -- a $ command someone ran, and how it ended
 ) strict;
 create index ade_messages_by_thread on ade_messages (thread_id, id);
+create index ade_messages_by_kind on ade_messages (thread_id, kind, id, author);
+create index ade_messages_by_command on ade_messages (thread_id, id) where command in ('ran', 'failed');
 create index ade_messages_by_author on ade_messages (author, id);
 create index ade_messages_by_run on ade_messages (run_id) where run_id is not null;
 
@@ -277,6 +283,7 @@ const TRAIL = 'ade.trail'
 const ASSISTANT = 'pi.assistant'
 const THREAD = 'ade.thread'
 const BOTS = 'ade.bots'
+const AGENT = 'pi.agent'
 const USAGE = 'ade.usage'
 const DELIVER = 'ade.deliver'
 const ADMIT = 'ade.admit'
@@ -332,6 +339,8 @@ function projector(db) {
 	const conversations = new Map()
 	const threadOf = (conversation) =>
 		conversations.get(conversation)?.owner?.conversationId ?? conversation
+	/** Each agent's runner, model, thinking and folder, as its pi.agent document has them, whether or not a thread lists it yet */
+	const settings = new Map()
 
 	function thread(id, doc) {
 		const tools = doc.tools ?? []
@@ -365,12 +374,37 @@ function projector(db) {
 		run('delete from ade_agents where thread_id = ?', id)
 		for (const [name, agent] of Object.entries(doc.agents ?? {}))
 			run(
-				'insert into ade_agents (conversation_id, thread_id, name) values (?, ?, ?)',
+				'insert into ade_agents (conversation_id, thread_id, name, runner, model, thinking, folder) values (?, ?, ?, ?, ?, ?, ?)',
 				agent.conversation,
 				id,
 				name,
+				...(settings.get(agent.conversation) ?? [null, null, null, null]),
 			)
 	}
+
+	const settingsOf = (doc) => [
+		doc?.model?.provider?.match(/^runner:(.+)$/)?.[1] ?? null,
+		doc?.model?.modelId ?? null,
+		doc?.thinkingLevel ?? null,
+		doc?.cwd ?? null,
+	]
+	function agent(conversation, doc) {
+		const row = settingsOf(doc)
+		settings.set(conversation, row)
+		run(
+			'update ade_agents set runner = ?, model = ?, thinking = ?, folder = ? where conversation_id = ?',
+			...row,
+			conversation,
+		)
+	}
+	/** A fork's copy of a document carries no value: the one Pi stored for it */
+	const copied = (id) =>
+		JSON.parse(
+			get(
+				'select content from document_revisions where document_id = ? order by seq desc limit 1',
+				id,
+			).content,
+		)
 
 	function bots(doc) {
 		run('delete from ade_bots')
@@ -414,8 +448,8 @@ function projector(db) {
 		const kind = kindOf(data)
 		const runId = (kind === 'answer' || kind === 'error') && byTaskId ? byTaskId : null
 		const { changes } = run(
-			`insert into ade_messages (id, thread_id, at, author, kind, body, images, from_thread_id, run_id, schedule_id, picked)
-			values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (id) do nothing`,
+			`insert into ade_messages (id, thread_id, at, author, kind, body, images, from_thread_id, run_id, schedule_id, picked, command)
+			values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (id) do nothing`,
 			id,
 			conversationId,
 			data.createdAt ?? null,
@@ -427,6 +461,13 @@ function projector(db) {
 			runId,
 			data.scheduledTask ?? data.wake ?? null,
 			data.picked ?? null,
+			!data.shell
+				? null
+				: data.shell.error === 'stopped'
+					? 'stopped'
+					: data.shell.error
+						? 'failed'
+						: 'ran',
 		)
 		// A message seen again changes nothing: its asks may since be the director's
 		if (!changes) return
@@ -643,10 +684,11 @@ function projector(db) {
 		tick = () => {},
 	) {
 		for (const record of made) conversations.set(record.id, record)
-		for (const { kind, owner, value } of documents.toSorted(
+		for (const { kind, owner, value, copy } of documents.toSorted(
 			(a, b) => Number(b.kind === THREAD) - Number(a.kind === THREAD),
 		)) {
 			if (kind === THREAD && value) thread(owner, value)
+			else if (kind === AGENT) agent(owner, copy ? copied(copy) : value)
 			else if (kind === BOTS) bots(value ?? {})
 			else if (kind === USAGE) usage(owner, value)
 			tick()
@@ -673,8 +715,39 @@ function projector(db) {
 			)
 	}
 
-	return { apply }
+	/** What a start that keeps the tables needs to know of Pi's records to go on: every conversation, and each agent's
+	 * settings */
+	function know({ conversations: made, documents }) {
+		for (const record of made) conversations.set(record.id, record)
+		for (const { owner, value } of documents) settings.set(owner, settingsOf(value))
+	}
+
+	return { apply, know }
 }
+
+/** Pi's commit its records are true as of, read in the transaction `pi` is in */
+const piSeq = (pi) => pi.prepare('select next_seq - 1 as seq from durable_metadata').get().seq
+
+/** The current documents of `kinds`, each `{kind, owner, value}`. Ours and Pi's agents' store their whole value on
+ * every change, so the newest revision is the value. */
+const documentsOf = (pi, kinds) =>
+	pi
+		.prepare(
+			`select documents.kind, documents.owner_id as owner, revisions.kind as revision, revisions.content
+			from documents join document_revisions revisions on revisions.document_id = documents.id
+			where documents.kind in (${quoted(kinds)}) and documents.retired_at is null
+				and revisions.seq = (select max(seq) from document_revisions where document_id = documents.id)`,
+		)
+		.all()
+		.map(({ kind, owner, revision, content }) => {
+			if (revision !== 'base') throw new Error(`Pi holds a ${kind} document as changes, not whole`)
+			return { kind: JSON.parse(kind), owner, value: JSON.parse(content) }
+		})
+const conversationsOf = (pi) =>
+	pi
+		.prepare('select record from conversations')
+		.all()
+		.map((row) => JSON.parse(row.record))
 
 /**
  * Everything the read model is made from, as Pi's records stand at one commit: `pi` is a connection inside a
@@ -688,18 +761,9 @@ function snapshot(pi) {
 			throw new Error(
 				`Pi's records are in schema ${stored}; the read model reads schema ${PI_SCHEMA}`,
 			)
-		const seq = pi.prepare('select next_seq - 1 as seq from durable_metadata').get().seq
+		const seq = piSeq(pi)
 		const parsed = (rows) => rows.map((row) => JSON.parse(row.record))
-		// Our documents store their whole value on every change, so the newest revision is the value
-		const documents = all(
-			`select documents.kind, documents.owner_id as owner, revisions.kind as revision, revisions.content
-			from documents join document_revisions revisions on revisions.document_id = documents.id
-			where documents.kind in (${quoted([THREAD, BOTS, USAGE])}) and documents.retired_at is null
-				and revisions.seq = (select max(seq) from document_revisions where document_id = documents.id)`,
-		).map(({ kind, owner, revision, content }) => {
-			if (revision !== 'base') throw new Error(`Pi holds a ${kind} document as changes, not whole`)
-			return { kind: JSON.parse(kind), owner, value: JSON.parse(content) }
-		})
+		const documents = documentsOf(pi, [THREAD, BOTS, USAGE, AGENT])
 		// A turn's record is read for what the read model keeps of it, and an agent's model call for its usage alone: the
 		// rest of either is megabytes
 		const tasks = [
@@ -743,7 +807,7 @@ function snapshot(pi) {
 		return {
 			seq,
 			records: {
-				conversations: parsed(all('select record from conversations')),
+				conversations: conversationsOf(pi),
 				documents,
 				tasks,
 				entries,
@@ -796,6 +860,16 @@ function recordsOf(publication) {
 							: { status: state.status },
 				})
 			else if ([DELIVER, ADMIT, ...SCHEDULED].includes(kind)) records.tasks.push(change.value)
+		} else if (change.record.kind === AGENT) {
+			const owner = /** @type {number} */ (change.conversationId)
+			if (change.type === 'document.copy')
+				records.documents.push({ kind: AGENT, owner, copy: change.record.id })
+			else
+				records.documents.push({
+					kind: AGENT,
+					owner,
+					value: change.kind === 'retire' ? undefined : change.value,
+				})
 		} else if ([THREAD, BOTS, USAGE].includes(change.record.kind)) {
 			// A copy carries no value, and none of these is copied by a fork: one that is means this no longer knows them
 			if (change.type !== 'document') throw new Error(`a ${change.record.kind} document was copied`)
@@ -1047,6 +1121,47 @@ function keep(file) {
 		}
 	}
 
+	/** Goes on from the tables as they are when they're true as of Pi's last commit, as a clean stop leaves them; else
+	 * makes them again */
+	function resume() {
+		const reader = new DatabaseSync(file, { readOnly: true })
+		try {
+			reader.exec('begin')
+			const ours = projectionOf(reader)
+			if (ours?.version === version && ours.state === 'current' && ours.seq === piSeq(reader)) {
+				project = projector(db)
+				project.know({
+					conversations: conversationsOf(reader),
+					documents: documentsOf(reader, [AGENT]),
+				})
+				seq = ours.seq
+			}
+		} catch (error) {
+			tell({ error: `read: could not go on from the tables (${error.message})` })
+		} finally {
+			// Closed before any making, whose checkpoints wait for every reader
+			reader.close()
+		}
+		if (!project) return make()
+		tell({ state: 'current', seq, log: `read: true as of Pi's commit ${seq}; kept as they are` })
+	}
+
+	/**
+	 * Once Pi has closed: the tables true as of its last commit. Its close writes, unpublished, the tasks it stopped back
+	 * as pending, which changes nothing here, where a task that hasn't ended is one that hasn't ended; so the next start
+	 * keeps them.
+	 */
+	function closed() {
+		if (!project) return
+		const reader = new DatabaseSync(file, { readOnly: true })
+		try {
+			const last = piSeq(reader)
+			if (last > seq) db.prepare('update ade_projection set seq = ?').run((seq = last))
+		} finally {
+			reader.close()
+		}
+	}
+
 	/** Stops the tables being taken for current, and makes them again */
 	function fail(why) {
 		tell({ error: `read: ${why}; making the tables again` })
@@ -1120,8 +1235,14 @@ function keep(file) {
 	}
 
 	parentPort.on('message', (message) => {
-		if (message.make) make()
-		else if (message.check) check(message.check)
+		if (message.start) resume()
+		else if (message.make) make()
+		else if (message.flush) {
+			clearTimeout(beat)
+			apply()
+			closed()
+			tell({ flushed: true })
+		} else if (message.check) check(message.check)
 		else if (message.publication) {
 			stored.push(message.publication)
 			beat ??= setTimeout(apply, BEAT)
@@ -1129,27 +1250,21 @@ function keep(file) {
 	})
 }
 
-if (!isMainThread && workerData?.read) {
-	const { file, drop } = workerData.read
-	if (drop) {
-		const db = open(file)
-		dropFrom(db)
-		db.close()
-	} else keep(file)
+if (!isMainThread && workerData?.read) keep(workerData.read.file)
+
+/** The tables' own row, or none before they're first made */
+function projectionOf(db) {
+	try {
+		return /** @type {any} */ (db.prepare('select version, seq, state from ade_projection').get())
+	} catch {
+		return undefined
+	}
 }
 
-const worker = (read) => new Worker(new URL(import.meta.url), { workerData: { read } })
-
-/** With the module off, its tables go: left behind they'd say what the house was when it was last on */
-export function drop(file) {
-	const db = new DatabaseSync(file, { readOnly: true })
-	const there = db.prepare(`select 1 from sqlite_master where name = 'ade_projection'`).get()
-	db.close()
-	if (there) worker({ file, drop: true }).once('error', (error) => console.error(error))
-}
-
-export function server(core) {
-	const { file } = core
+/** The read model, kept by a worker thread; `exact(job)` runs `job(all)` on the server's thread, `all(sql, ...params)`
+ * answering rows, in one transaction that sees the tables true as of Pi's last commit, and answers what it does, or
+ * nothing when they aren't, as while they're made or a twentieth of a second behind a commit */
+export function createRead(file) {
 	let keeper
 	let state = 'not made yet'
 	let seq = null
@@ -1159,7 +1274,7 @@ export function server(core) {
 	/** The worker, started with the tables' making */
 	function kept() {
 		if (keeper) return keeper
-		keeper = worker({ file })
+		keeper = new Worker(new URL(import.meta.url), { workerData: { read: { file } } })
 		keeper.unref()
 		keeper.on('message', (message) => {
 			if (message.log) console.log(message.log)
@@ -1169,14 +1284,42 @@ export function server(core) {
 				checks.get(message.id)?.(message.checked)
 				checks.delete(message.id)
 			}
+			if (message.flushed) flushed?.()
 		})
 		keeper.once('error', (error) => {
 			console.error('read: its worker failed:', error)
 			state = `broken: its worker failed (${error.message})`
 			seq = null
 		})
-		keeper.postMessage({ make: true })
+		keeper.postMessage({ start: true })
 		return keeper
+	}
+
+	/** Once Pi has closed, the commits told so far into the tables, so the next start keeps them */
+	let flushed
+	const flush = () =>
+		new Promise((resolve) => {
+			flushed = resolve
+			kept().postMessage({ flush: true })
+		})
+
+	let reader
+	const statements = new Map()
+	function exact(job) {
+		reader ??= new DatabaseSync(file, { readOnly: true })
+		const all = (sql, ...params) => {
+			if (!statements.has(sql)) statements.set(sql, reader.prepare(sql))
+			return statements.get(sql).all(...params)
+		}
+		reader.exec('begin')
+		try {
+			const ours = projectionOf(reader)
+			if (ours?.version !== version || ours.state !== 'current' || ours.seq !== piSeq(reader))
+				return undefined
+			return job(all)
+		} finally {
+			reader.exec('commit')
+		}
 	}
 
 	function committed(publication) {
@@ -1228,5 +1371,5 @@ export function server(core) {
 
 	// Before any module starts and work resumes, so the tables are made from records no commit has yet followed
 	kept()
-	return { committed, start, serve }
+	return { committed, start, serve, flush, exact }
 }

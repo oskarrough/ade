@@ -1,7 +1,6 @@
-/** MODULES=+read: the house is plain SQL tables in ade's database, beside Pi's records, made again from them at every
- * start and kept commit by commit, so sqlite3 answers who said what, which run answered it and what that cost; a
- * message taken back leaves no words there; the check finds them the same as Pi's records; and with the module off
- * they're gone */
+/** The house is plain SQL tables in ade's database, beside Pi's records, kept commit by commit, so sqlite3 answers who
+ * said what, which run answered it and what that cost; a message taken back leaves no words there; after a kill they're
+ * made again and the check finds them the same as Pi's records; and a clean stop leaves them for the next start */
 import { DatabaseSync } from 'node:sqlite'
 import {
 	answered,
@@ -17,7 +16,7 @@ import {
 	until,
 } from './lib.js'
 
-const modules = { MODULES: '+read,-auto-title,-memory' }
+const modules = { MODULES: '-auto-title,-memory' }
 let srv = await server(modules)
 await scriptedRunner('laptop', () => say('four'))
 const file = db
@@ -95,11 +94,16 @@ check(
 	JSON.stringify(compared),
 )
 
+const made = read('select built_at from ade_projection')[0].built_at
 await kill(srv)
-srv = await server({ MODULES: '-auto-title,-memory' })
-const left = await until(async () => {
-	const tables = read(`select name from sqlite_master where name like 'ade!_%' escape '!'`)
-	return !tables.length
+srv = await server(modules)
+const kept = await until(async () => {
+	const told = (await api('GET', '/api/read')).json
+	return told.state === 'current' && told
 })
-check(left, 'started with the module off, the server drops its tables', '')
+check(
+	read('select built_at from ade_projection')[0].built_at === made,
+	"a clean stop leaves the tables true as of Pi's last commit, and the next start keeps them as they are",
+	JSON.stringify(kept),
+)
 done()

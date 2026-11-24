@@ -135,7 +135,7 @@ where json_extract(record, '$.kind') = 'ade.trail' and json_extract(record, '$.d
 order by id desc limit 20;
 ```
 
-With the `read` module on it's `select at, text from ade_trail where thread_id = 140844 order by id desc limit 20`; see [Modules](modules.md#the-house-as-sql).
+Or `select at, text from ade_trail where thread_id = 140844 order by id desc limit 20`; see [the house as SQL](server.md#the-house-as-sql).
 
 Modules add their own routes under `/api/<module>`. With `bots` on:
 

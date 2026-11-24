@@ -21,7 +21,6 @@ What ade does beyond threads and runners. Each is a module; you can switch any o
 - Cmd-K or Ctrl-K jumps to any thread, archived ones included, any bot, or an action like New thread or Settings, by typing a few letters; with `search` on, matching messages show under them (`jump`, off by default)
 - see the tokens each thread and the whole house spent, and what they'd cost at list price (`usage`, off by default)
 - every thread, archived ones included, exports as Markdown and JSON a person can read without ade installed (`export`, off by default)
-- the house as plain SQL tables in ade's database, to ask with `sqlite3` why a run failed, what's running, when a task fires and what an answer cost (`read`, off by default)
 
 In a group (the thread's agent plus bots, at least two), leave `to` out to let the director choose who answers, or nobody. The same goes for one agent with two or more people writing, so people talking to each other are left alone; one person with one agent skips the director. The message is saved at once; the director's pick comes after and shows on it as its `to` and `picked`. `@name` asks that bot for one message; the next unaddressed message goes to the director again. Solo chats and `$` commands keep the last recipient.
 
@@ -56,69 +55,5 @@ A CI babysitter:
 With `search` on, the sidebar's field searches every message as you type, and the results take the threads' place, best match first: each with its thread, who wrote it, how long ago, and the words around the match, tinted. Every word must match, the last as a prefix, and "quoted words" as a phrase; a word matches its other forms, so decide finds decided. A result opens its thread scrolled to that message, lit for a moment. `GET /api/search?q=<words>` answers the same 50 rows, and agents' `search` tool the same as text. The index is SQLite's full-text search, kept in memory: built from every thread on start, in under half a second for seven thousand messages, then kept as messages land.
 
 With `usage` on, Usage at the foot of the thread list opens the house's usage in the threads' place, over today, the last 7, 14, 30 or 90 days, or all time: what it cost, its tokens, calls and threads; one bar of what those tokens were (cache reads, cache writes, fresh input, output); a bar a day, by cost or tokens; then the threads that cost most, each with its share, which open on a click; who spent it: each bot across its threads, the threads' own agents, and what's done for them, titles, memory, the director, recaps and compaction; and each model. A thread's details show its own, with the same token bar and a row per agent and model where there are several. Tokens are the honest number. Cost is list price, as pi prices each model, since a Claude Code or ChatGPT login bills none of it; the part a runner pays per token on an API key, or that OpenRouter reported, also shows as billed. Agents' turns and compaction summaries are read from what Pi already keeps; the calls modules make for themselves are kept on their thread as they're made, an hour's together, from when the module is on. `GET /api/usage?since=&until=&zone=` (epoch milliseconds; `zone`, what your clock adds to UTC, sets where days start) and `GET /api/threads/:id/usage` answer the same numbers.
-
-## The house as SQL
-
-With `read` on, ade's database also holds the house as ordinary tables, beside the records Pi Durable keeps there: `ade_threads`, `ade_bots`, `ade_agents`, `ade_messages` (with `ade_asks`, `ade_replies` and `ade_reads`), `ade_runs` (with `ade_run_messages`), `ade_turns`, `ade_spend`, `ade_trail` and `ade_schedules`, and a full-text index over the messages. Open it with `sqlite3 ~/.local/share/ade/ade.sqlite` and `.schema ade_runs` says what each column is. Everything of ours starts with `ade_`; the rest is Pi's.
-
-Pi's records stay the truth and nothing reads these tables but you. Every start makes them again from Pi's records, in the background (about six seconds for 90,000 entries), and from then each commit goes into them within a twentieth of a second; if one ever fails to apply, `ade_projection` says `broken` and they're made again. `POST /api/read {"rebuild": true}` drops them and makes them again now, and a start with the module off drops them for good. Ids are Pi's own: a message's id here is its entry id everywhere else. Times are ISO text in UTC, and null where Pi holds none, as for messages older than their timestamps.
-
-SQLite lets one writer in at a time, and Pi's commits come first: the tables are written from a thread of their own, in short transactions a few times a second, so a commit seldom finds them being written and then waits milliseconds.
-
-A run is messages handed to an agent and what came of it: `waiting`, `running`, `answered`, `failed`, `stopped`, or `silent` when it posted nothing itself, usually because its messages joined a turn another run answered. A turn is one stretch of the agent working, and the model calls in `ade_spend` belong to turns. A run names its turn only once Pi's own record of the input says which entry answered it; where that can't be shown, `turn_id` is null rather than a guess.
-
-The tables are what the house is now. What a thread, a bot or a scheduled task used to be is in `ade_trail`, which keeps a step for each change (see [the trail](api.md#the-trail)).
-
-Why did this fail? The failed runs since a date, with what was asked, and one message's whole story:
-
-```sql
-select runs.started_at, threads.title, agents.name as agent, substr(asked.body, 1, 40) as asked, runs.error
-from ade_runs runs
-join ade_threads threads on threads.id = runs.thread_id
-left join ade_agents agents on agents.conversation_id = runs.conversation_id
-left join ade_messages asked on asked.id = (select max(message_id) from ade_run_messages where run_id = runs.id)
-where runs.status = 'failed' and runs.started_at >= '2026-11-22'
-order by runs.id desc;
-
-select at, text from ade_trail where message_id = 194709 order by id;
-```
-
-What's still running, on what, and how many model calls in:
-
-```sql
-select runs.id, threads.title, agents.name as agent, runs.status, runs.started_at, turns.model, turns.runner,
-  (select count(*) from ade_spend where turn_id = turns.id) as calls
-from ade_runs runs
-join ade_threads threads on threads.id = runs.thread_id
-left join ade_agents agents on agents.conversation_id = runs.conversation_id
-left join ade_turns turns on turns.conversation_id = runs.conversation_id and turns.status = 'running'
-where runs.status in ('waiting', 'running')
-order by runs.id;
-```
-
-When will this fire, and when did it last?
-
-```sql
-select schedules.id, schedules.status, schedules.next_run_at, threads.title, schedules.set_by, schedules.schedule,
-  (select max(at) from ade_messages where schedule_id = schedules.id) as last_ran
-from ade_schedules schedules join ade_threads threads on threads.id = schedules.thread_id
-where schedules.status in ('waiting', 'paused')
-order by schedules.next_run_at is null, schedules.next_run_at;
-```
-
-What did that answer cost? Thread 489's last five answers, each with the turn that wrote it; `runs_in_turn` above 1 means the turn, and its cost, answered that many runs:
-
-```sql
-with answer as (select * from ade_messages where thread_id = 489 and kind = 'answer' order by id desc limit 5)
-select answer.id, answer.author, substr(answer.body, 1, 30) as said, turns.model, turns.runner,
-  round((julianday(turns.ended_at) - julianday(turns.started_at)) * 86400) as seconds,
-  (select count(*) from ade_spend where turn_id = turns.id) as calls,
-  (select round(sum(cost), 2) from ade_spend where turn_id = turns.id) as cost,
-  (select count(*) from ade_runs shared where shared.turn_id = turns.id) as runs_in_turn
-from answer join ade_runs runs on runs.id = answer.run_id left join ade_turns turns on turns.id = runs.turn_id
-order by answer.id desc;
-```
-
-`GET /api/read` says whether the tables are current, the commit they're true as of and how many rows each has. `GET /api/read?check` compares them with Pi's records, both as one transaction sees them, off the server's own thread, and answers `{seq, differences}`: each difference `{check, table, id, differs}`, none when they agree. It checks two ways: the tables against ones made afresh, every column of every row (`rebuild`), and their facts and links against Pi's records in SQL that shares nothing with the code that wrote them (`pi`). The same check runs a minute after the server starts and once a day, and writes what it finds to `ade.log`. A bot is its home thread here, its name a label; an agent in a thread goes by the name it has there now. `ade_spend` leaves out what compaction cost, which `usage` counts.
 
 For each module's settings, see the top of its file in [modules/](../modules). A module there with `export const on = true` is on by default; a new file there is a new module.

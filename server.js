@@ -67,7 +67,7 @@ import {
 	PAUSED,
 	stepText,
 } from './util.js'
-import { drop as dropRead } from './modules/read.js'
+import { createRead } from './read.js'
 import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
 
 /**
@@ -832,12 +832,14 @@ harness.closed.then(
  */
 let stopping
 const CLOSE_DEADLINE = 5_000
+/** Pi closed, then the SQL tables told of every commit it published, so the next start keeps them */
+const close = () => harness.close(context).then(() => read.flush())
 for (const signal of ['SIGINT', 'SIGTERM'])
 	process.on(signal, () => {
 		console.error(`stopped by ${signal}`)
 		if (stopping) return process.exit(0)
 		stopping = Promise.race([
-			harness.close(context),
+			close(),
 			new Promise((resolve) => setTimeout(resolve, CLOSE_DEADLINE)).then(() =>
 				console.error(`the harness didn't close within ${CLOSE_DEADLINE}ms; exiting anyway`),
 			),
@@ -1105,16 +1107,26 @@ const folder = (runner, to) => {
 /** `key`, its key in the thread, and `all`, the runners as known, when the caller has them, save looking them up */
 async function agentOf(id, key, tx, all) {
 	const agent = tx ? await tx.doc(AgentDoc, id) : await harness.snapshot(AgentDoc, id, context)
-	const runnerName = agent?.model?.provider?.match(/^runner:(.+)$/)?.[1]
-	if (!runnerName) return null
-	const runner = (tx ? await tx.doc(Runners) : (all ?? (await known())))[runnerName]
-	const rel = runner && agent.cwd ? path.relative(runner.dir, agent.cwd) : ''
-	const dir = rel.startsWith('..') ? agent.cwd : rel
-	const name = key ?? (await home(id))?.key
-	return {
-		runner: runnerName,
+	const runner = agent?.model?.provider?.match(/^runner:(.+)$/)?.[1]
+	if (!runner) return null
+	const runners = tx ? await tx.doc(Runners) : (all ?? (await known()))
+	const settings = {
+		runner,
 		model: agent.model.modelId,
-		...(agent.thinkingLevel ? { thinkingLevel: agent.thinkingLevel } : {}),
+		thinking: agent.thinkingLevel,
+		folder: agent.cwd,
+	}
+	return placedTo(settings, runners, key ?? (await home(id))?.key)
+}
+/** An agent as the page shows it, from its `settings` as `ade_agents` has them: its folder relative to its runner's
+ * first, among the `runners` as known, and its `name` unless it's the thread's own agent */
+function placedTo({ runner, model, thinking, folder }, runners, name) {
+	const rel = runners[runner] && folder ? path.relative(runners[runner].dir, folder) : ''
+	const dir = rel.startsWith('..') ? folder : rel
+	return {
+		runner,
+		model,
+		...(thinking ? { thinkingLevel: thinking } : {}),
 		...(dir ? { dir } : {}),
 		...(name && name !== AGENT ? { name } : {}),
 	}
@@ -1219,10 +1231,14 @@ const isWork = (kind) => runsOnRunner(kind) || moduleWork.includes(kind)
 const busy = async (threadId) => (await work()).some((job) => job.thread === threadId)
 
 /** @returns {Promise<Agent[]>} */
-async function agentsIn(row, busy, all) {
+async function agentsIn(row, busy, all, facts = undefined) {
 	return Promise.all(
 		Object.entries(row.agents).map(async ([key, { conversation }]) => {
-			const to = await agentOf(conversation, key, undefined, all)
+			const settings = facts?.agents.get(conversation)
+			// No model there means Pi holds none in the agent's own conversation yet, as for a fork's: Pi's read finds it
+			const to = !settings?.model
+				? await agentOf(conversation, key, undefined, all)
+				: settings.runner && placedTo(settings, all, key)
 			const status = busiest(
 				busy.filter((job) => job.conversation === conversation).map((job) => job.status),
 			)
@@ -1837,8 +1853,8 @@ async function faulted({ task, reason }) {
 // ── Read views: threads, lists, people ────────────────────────────────────
 
 /** A thread's own status, or when idle, `done` or `error` for an answer its reader hasn't read in a thread they wrote in; with no reader, anyone's read counts */
-async function status(id, row, busy, reader) {
-	if (await openQuestion?.(id, row)) return 'blocked'
+async function status(id, row, busy, reader, facts = undefined) {
+	if (facts ? facts.question : await openQuestion?.(id, row)) return 'blocked'
 	const { reads } = row
 	const now = busiest(busy.map((job) => job.status))
 	if (now !== 'idle') return now
@@ -1850,15 +1866,24 @@ async function status(id, row, busy, reader) {
 		if (entry.data?.answer || entry.data?.error || entry.data?.shell)
 			return entry.data.error || entry.data.shell?.error ? 'error' : 'done'
 	}
-	const found = (await back(id, KIND, said)) ?? 'idle'
+	const found = facts
+		? !facts.said || [...seen].some((read) => read >= facts.said)
+			? 'idle'
+			: facts.failed
+				? 'error'
+				: 'done'
+		: ((await back(id, KIND, said)) ?? 'idle')
 	// An answer or failure is the reader's only where they wrote; in a thread agents keep among themselves, its asker got it
-	return found !== 'idle' && !(await concerns(id, reader)) ? 'idle' : found
+	return found !== 'idle' && !(await concerns(id, reader, facts)) ? 'idle' : found
 }
 /** Whether a thread's failures and answers are `reader`'s to read: they wrote there; with no reader, any person did. The sidebar's dots and the inbox both ask this. */
-async function concerns(id, reader) {
-	const wrote = await authors(id)
+async function concerns(id, reader, facts = undefined) {
+	const wrote = facts ? persons(facts.writers) : await authors(id)
 	return reader ? wrote.includes(reader) : wrote.length > 0
 }
+/** People only, as the server names them: a bot speaking in its own room writes with no agent's mark, and older stores
+ * hold names anyone could claim */
+const persons = (names) => names.filter((name) => name === owner || name.startsWith('~'))
 
 /** Who's in a thread needs no state of its own: the people who wrote there, or read, the owner and tailnet logins. Only an open thread needs it. */
 async function people(id) {
@@ -1885,9 +1910,7 @@ async function authors(id) {
 		wrote.ready.catch(() => writers.get(id) === loading && writers.delete(id))
 	}
 	await wrote.ready
-	/** People only, as the server names them: a bot speaking in its own room writes with no agent's mark, and older
-	 * stores hold names anyone could claim */
-	return [...wrote.authors].filter((name) => name === owner || name.startsWith('~'))
+	return persons([...wrote.authors])
 }
 /** When each one who isn't an agent first wrote in a thread, by name, a stop aside: a message id */
 async function firstWrote(id) {
@@ -1896,11 +1919,11 @@ async function firstWrote(id) {
 }
 
 /** `homes`, each bot's home thread → its name, and the `runners` as known save reading them for every row of a list */
-async function threadRow(id, reader, all, homes, runnersKnown) {
+async function threadRow(id, reader, all, homes, runnersKnown, facts = undefined) {
 	const { reads, hidden, dismissed: _, picks: __, trail: ___, ...row } = await thread(id)
 	const busy = all.filter((job) => job.thread === id)
-	const agents = await agentsIn(row, busy, runnersKnown)
-	const rowStatus = await status(id, { ...row, reads }, busy, reader)
+	const agents = await agentsIn(row, busy, runnersKnown, facts)
+	const rowStatus = await status(id, { ...row, reads }, busy, reader, facts)
 	return {
 		id,
 		...row,
@@ -1918,26 +1941,74 @@ async function threadRow(id, reader, all, homes, runnersKnown) {
 		status: rowStatus,
 		unread: ['done', 'error'].includes(rowStatus),
 		/** The id of its newest message, which sorts threads by latest activity; its own id before it has one */
-		latest: (await back(id, KIND, (entry) => entry.kind === KIND && entry.id)) ?? id,
+		latest:
+			(facts ? facts.latest : await back(id, KIND, (entry) => entry.kind === KIND && entry.id)) ||
+			id,
 		...(!hidden && familyField(id)),
 		conversation: await conversationRecord(id),
 	}
 }
 /** `[id, row]` for each of `ids`, the row null for a thread the list doesn't show: the open ones, or the archived */
-const threadRows = async (ids, reader, archived = false) => {
+const threadRows = async (ids, reader, archived = false, facts = undefined) => {
 	const [busy, homes, runnersKnown] = await Promise.all([work(), homesOf?.() ?? {}, known()])
 	return Promise.all(
 		ids.map(async (id) => [
 			id,
 			placed.get(id)?.hidden === archived
-				? await threadRow(id, reader, busy, homes, runnersKnown)
+				? await threadRow(id, reader, busy, homes, runnersKnown, facts?.get(id))
 				: null,
 		]),
 	)
 }
 /** Each shown thread's row; the client works out families from `parent` and forks */
 const threadList = async (reader, archived = false) =>
-	(await threadRows(threadIds(), reader, archived)).flatMap(([, row]) => row ?? [])
+	(
+		await threadRows(
+			threadIds(),
+			reader,
+			archived,
+			read.exact((all) => listFacts(all, archived)),
+		)
+	).flatMap(([, row]) => row ?? [])
+/**
+ * What a list's rows read of each thread's messages and agents, from the read model's tables in a few queries, for
+ * every thread but a fork, whose messages before it forked are its parent's: `latest`, the newest message; `said` and
+ * `failed`, the newest answer, error or command and whether it failed; `writers`, who wrote there not as an agent;
+ * `question`, whether a question waits; and its `agents`' settings by conversation
+ */
+function listFacts(all, archived) {
+	const agents = new Map(
+		all('select conversation_id, runner, model, thinking, folder from ade_agents').map(
+			({ conversation_id, ...settings }) => [conversation_id, settings],
+		),
+	)
+	const waiting = new Set(openQuestions?.(all))
+	const rows = all(
+		`with facts as (select threads.id,
+			(select max(id) from ade_messages where thread_id = threads.id) as latest,
+			max(
+				coalesce((select max(id) from ade_messages where thread_id = threads.id and kind in ('answer', 'error')), 0),
+				coalesce((select max(id) from ade_messages where thread_id = threads.id and command in ('ran', 'failed')), 0)
+			) as said,
+			(select json_group_array(distinct author) from ade_messages
+				where thread_id = threads.id and kind in ('said', 'scheduled', 'stopped')) as writers
+		from ade_threads threads where forked_from_id is null and archived = ?)
+		select facts.*, (select kind = 'error' or command = 'failed' from ade_messages where id = facts.said) as failed from facts`,
+		archived ? 1 : 0,
+	)
+	return new Map(
+		rows.map(({ id, writers, failed, ...row }) => [
+			id,
+			{
+				...row,
+				failed: Boolean(failed),
+				writers: JSON.parse(writers),
+				question: waiting.has(id),
+				agents,
+			},
+		]),
+	)
+}
 /** Short display label for an author: a model's bare id, a tailnet login without `~` or `+provider`, or a name as is */
 const shortLabel = (author) =>
 	!author
@@ -3224,8 +3295,10 @@ const owner = ownerName(settings.config.owner ?? os.userInfo().username)
 core.owner = owner
 /** Tailnet logins that are the owner through Serve, `ownerLogins` in ade.json: the owner's own devices */
 const ownerLogins = loginList(settings.config.ownerLogins ?? [])
+/** The house as SQL tables, before any module starts and work resumes, so they're made from records no commit has yet
+ * followed */
+const read = createRead(file)
 const modules = await load('server', core, settings)
-if (!core.modulesOn.includes('read')) dropRead(file)
 // The prompt keeps its sections in this order, and a cached prompt survives up to its first change, so the sections
 // that change most go last: a module's `volatility`, 0 unless it says otherwise
 for (const module of modules.toSorted((a, b) => (a.volatility ?? 0) - (b.volatility ?? 0)))
@@ -3267,6 +3340,8 @@ const botNames = hook('botNames')
 const homesOf = hook('homesOf')
 const expand = hook('expand')
 const openQuestion = hook('openQuestion')
+/** Each thread with an open question, from the read model's tables: `all(sql, ...params)` answers rows */
+const openQuestions = hook('openQuestions')
 const spentHooks = modules.flatMap((module) => module.spent ?? [])
 compactAt = hook('compactAt')
 /** An outside service's POST to /hooks/:id, on a listener of its own; none without a module that takes it */
@@ -3451,6 +3526,11 @@ const routes = /** @type {[string, Function][]} */ ([
 		},
 		'POST /api/threads/:id/compact': async (req, id) => ({ compacted: await compact(id) }),
 		'GET /api/conversations/:id': (req, id) => conversationView(id),
+		'GET /api/read': (req, _, url) => read.serve(undefined, url.searchParams),
+		'POST /api/read': async (req) => {
+			ownerOnly(req, 'Only the owner remakes the SQL tables')
+			return read.serve(undefined, new URLSearchParams(), await input(req))
+		},
 	}),
 	...modules.flatMap((module) =>
 		!module.serve
@@ -3862,7 +3942,7 @@ feed.define('server', {
 		(change.type === 'document' && change.record.kind === 'ade.keys'),
 })
 
-const committed = modules.flatMap((module) => module.committed ?? [])
+const committed = [read.committed, ...modules.flatMap((module) => module.committed ?? [])]
 const entryStored = modules.flatMap((module) => module.entryStored ?? [])
 const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])
@@ -3923,6 +4003,7 @@ for (const conv of await conversations()) {
 }
 for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
 harness.resume()
+read.start()
 for (const module of modules) await module.start?.()
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */
@@ -4390,7 +4471,7 @@ async function restart(why, again) {
 			? new Promise((resolve) => lent.once('exit', resolve))
 			: undefined
 	if (lent?.kill) lent.kill()
-	await Promise.all([(stopping ??= harness.close(context)), runnerExit])
+	await Promise.all([(stopping ??= close()), runnerExit])
 	if (!again) process.exit(0)
 	process.execve(process.execPath, process.argv, {
 		...process.env,

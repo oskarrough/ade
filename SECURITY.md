@@ -17,7 +17,7 @@ With `HOST` set to a network address, the main port answers that network, but on
 
 ## What a guest can do
 
-A tailnet guest is nearly the owner. They can't change settings, restart the server, mint or revoke runner keys, or read a hook's secret. They can see, write in, start and archive threads. They can make bots and schedule tasks, but only the owner or the bot's creator can change or forget it, and only the owner or whoever a task runs as can edit, cancel, pause, resume, move or run it early. Archiving a thread still ends its tasks.
+A tailnet guest is nearly the owner. They can't change settings, restart the server, mint or revoke runner keys, remake the SQL tables, or read a hook's secret. They can see, write in, start and archive threads. They can make bots and schedule tasks, but only the owner or the bot's creator can change or forget it, and only the owner or whoever a task runs as can edit, cancel, pause, resume, move or run it early. Archiving a thread still ends its tasks.
 
 That includes running commands, by design: everyone on your tailnet can run agents on your machine as you. Who you let onto your tailnet is the trust boundary. A runner takes work from anyone unless it was started with `--owner` (and `--allow`), and the server's own runner never is, so a guest can start a thread on your machine and have its agent run `rm -rf ~` as you. Keep a runner to yourself with `--owner`.
 

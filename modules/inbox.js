@@ -156,6 +156,16 @@ export function server(core) {
 		since.delete(found.data.author)
 		return since.size ? undefined : found
 	}
+	/** Each thread whose newest question is open, as `openQuestion` finds it, from the read model's tables: no one but
+	 * its asker wrote after it, but to stop */
+	const openQuestions = (all) =>
+		all(
+			`select asked.thread_id as id from ade_messages asked
+			where asked.kind = 'question'
+				and asked.id = (select max(id) from ade_messages where thread_id = asked.thread_id and kind = 'question')
+				and not exists (select 1 from ade_messages later where later.thread_id = asked.thread_id and later.id > asked.id
+					and later.kind != 'stopped' and later.author != asked.author)`,
+		).map((row) => row.id)
 
 	/**
 	 * When someone other than the asker closes a question, the trail says who. Reading the thread's other entries
@@ -191,6 +201,7 @@ export function server(core) {
 		}),
 		serve,
 		openQuestion,
+		openQuestions,
 		posted,
 	}
 }

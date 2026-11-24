@@ -33,6 +33,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   gone                              an agent whose folder no longer exists
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
   threadIds, threadList, threadRows, threadRow, threadPage, threadView, people, newest   GET /api/threads and a thread's view, which `thread/<id>` shares
+  listFacts, placedTo               what a whole list reads of messages and agents, from the `ade_` tables while they're current
   loadEntries                       the shared entry cache
   recent, older, back, conversationRecord   each thread's newest entries, older ones on demand
   anyRunner, mayRun                 `bash` with a `runner`, and the `runners` tool
@@ -52,6 +53,10 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
 echo.js                  echo/try scripted model responses
 runner.js                a runner: offers models and folders, runs agents on its machine
 runner-updater.js        what `curl <server>/connect-runner | sh` starts; keeps the runner up to date
+read.js                  the `ade_` tables, the house as SQL in ade's database: SCHEMA, projector (one function per kind of
+                         Pi record, apply, know), snapshot (Pi's records at one commit), recordsOf, fill; keep, the worker
+                         that writes them (resume, make, apply on a beat, closed, settle, fail, check with againstRebuild
+                         and FACTS); createRead: exact for the list, flush, serve (GET /api/read, ?check, POST {rebuild})
 remote.js                the runner protocol: createRunners (server), serveRunner (runner), runnerProvider, remoteEnv
 cli.js                   the API from a terminal; `link`, the owner's browser link
 util.js                  shared helpers: personName, agentTo, writtenTo, smallModel, mentioned, keyOf, speaker, said,
@@ -72,7 +77,7 @@ modules/
                          serve, the `recap` tool
   canvas.js              a tldraw canvas per thread: Canvas doc, rooms, `canvas_look` (look, seen, report, present),
                          `canvas_act` (apply, created, updated), meta.by (authorizeRecord, onCommittedChanges, grew); serve, connect
-  inbox.js               `ask_person`, openQuestion, itemOf, list, the `inbox` feed a thread at a time; serve (GET /api/inbox, dismissals)
+  inbox.js               `ask_person`, openQuestion, openQuestions (from the `ade_` tables), itemOf, list, the `inbox` feed a thread at a time; serve (GET /api/inbox, dismissals)
   schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, wakeAt, endOf,
                          onward, Control, Hooked, Ended, Happened), run, scheduleOf, startOf, firstRun, settle, happen, already, runner,
                          entryStored, pending, taskForChange, cancel, control, checker, checkOf, steps (end, next, onward, post), the `checked` phase; serve
@@ -87,10 +92,6 @@ modules/
   search.js              FTS5 index of every message: build, entryStored, search, matchOf; serve, the `search` tool
   jump.js                Cmd-K's switch; the client does the rest
   usage.js               tokens and cost: spend, build, entryStored, settle, spent; serve
-  read.js                the `ade_` tables, the house as SQL in ade's database: SCHEMA, projector (one function per kind of
-                         Pi record, apply), snapshot (Pi's records at one commit), recordsOf, fill; keep, the worker that
-                         writes them (make, apply on a beat, settle, fail, check with againstRebuild and FACTS); drop;
-                         serve (GET /api/read, ?check, POST {rebuild})
   pi-sessions.js         threads as pi session files (push, sync, changed, writePiSession) and back (bring);
                          serve, listPiSessions, readPiSession
 apps/desktop/            arbe desktop, a Go app on mygo (main.go, preload.js, offline.html, release.sh; README.md there); .github/workflows/desktop-release.yml builds its releases
@@ -203,7 +204,7 @@ Where a feature lives:
 - Threads side by side: client server.js followThread/besideKey/openBeside, `columns`.
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
 - What happened in a thread: server.js trailed (writes, in each step's commit) and trail (reads), util.js stepText, cli.js `trail`, client trail.js. What changes about a thread, a bot or a scheduled task is a step written where it changes: startThread, setTitleIn, archiveIn, setPaused, setTools, setUp, reconfigure, forkThread, bots.js write and remove, schedule.js make, fire and abort.
-- The house as SQL: modules/read.js, server.js `committed`, `core.file` and dropRead, docs/modules.md.
+- The house as SQL: read.js, server.js `read`, `committed`, listFacts and the stop's flush, docs/server.md.
 - A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js.
 - The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log; without ade installed, its own ade and Node, fetched on first start and updated hourly in place by updateHouse; login, pi in a terminal for Desktop.Login, which the model picker's LogIn in apps/client/runner.js calls).
 - The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js; releases: release.sh tags, .github/workflows/desktop-release.yml builds and publishes.
