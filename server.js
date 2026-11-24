@@ -840,6 +840,8 @@ const harness = await Harness.open(
 	},
 	context,
 )
+/** The house as SQL tables, told of every commit from the moment Pi opens: tasks it resumes commit at once */
+const read = createRead(file, harness)
 harness.closed.then(
 	(end) =>
 		end.kind === 'failed' &&
@@ -853,7 +855,7 @@ harness.closed.then(
 let stopping
 const CLOSE_DEADLINE = 5_000
 /** Pi closed, then the SQL tables told of every commit it published, so the next start keeps them */
-const close = () => harness.close(context).then(() => read.flush())
+const close = () => read.stop(() => harness.close(context))
 for (const signal of ['SIGINT', 'SIGTERM'])
 	process.on(signal, () => {
 		console.error(`stopped by ${signal}`)
@@ -3363,9 +3365,6 @@ const knowInvites = (all) => {
 	for (const [name, { key }] of Object.entries(all)) guests.set(key, name)
 }
 knowInvites((await harness.snapshot(Invites, context)) ?? {})
-/** The house as SQL tables, before any module starts and work resumes, so they're made from records no commit has yet
- * followed */
-const read = createRead(file)
 /** `job(all)` on the read model's tables as of Pi's last commit or a beat before, `all(sql, ...params)` answering
  * rows; it waits while they're being made, and answers nothing if they couldn't be */
 core.recent = read.recent
@@ -4156,7 +4155,7 @@ feed.define('server', {
 		(change.type === 'document' && change.record.kind === 'ade.keys'),
 })
 
-const committed = [read.committed, ...modules.flatMap((module) => module.committed ?? [])]
+const committed = modules.flatMap((module) => module.committed ?? [])
 const entryStored = modules.flatMap((module) => module.entryStored ?? [])
 const documentStored = modules.flatMap((module) => module.documentStored ?? [])
 const endedHooks = modules.flatMap((module) => module.ended ?? [])

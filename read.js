@@ -1124,14 +1124,14 @@ function keep(file) {
 		}
 	}
 
-	/** Goes on from the tables as they are when they're true as of Pi's last commit, as a clean stop leaves them; else
-	 * makes them again */
-	function resume() {
+	/** Goes on from the tables as they are when they're true as of `at`, Pi's last commit as it opened, as a clean stop
+	 * leaves them; else makes them again */
+	function resume(at) {
 		const reader = new DatabaseSync(file, { readOnly: true })
 		try {
 			reader.exec('begin')
 			const ours = projectionOf(reader)
-			if (ours?.version === version && ours.state === 'current' && ours.seq === piSeq(reader)) {
+			if (ours?.version === version && ours.state === 'current' && ours.seq === at) {
 				project = projector(db)
 				project.know({
 					conversations: conversationsOf(reader),
@@ -1151,8 +1151,8 @@ function keep(file) {
 
 	/**
 	 * Once Pi has closed: the tables true as of its last commit. Its close writes, unpublished, the tasks it stopped back
-	 * as pending, which changes nothing here, where a task that hasn't ended is one that hasn't ended; so the next start
-	 * keeps them.
+	 * as pending, which changes nothing here, where a task that hasn't ended is one that hasn't ended, and commits it
+	 * tells may follow them; so the next start keeps them.
 	 */
 	function closed() {
 		if (!project) return
@@ -1180,6 +1180,9 @@ function keep(file) {
 	/** The commits Pi stored since the last beat, each with its records and the commit they're true as of */
 	let stored = []
 	let beat
+	/** The last commit told before Pi began to close: after it, a commit missing between two is one of the writes Pi's
+	 * close makes without telling, the tasks it stopped back as pending */
+	let closing
 
 	/** Those commits into the tables, and the commit they're now true as of, in one transaction or not at all */
 	function apply() {
@@ -1189,7 +1192,10 @@ function keep(file) {
 		// Not made, or already in what they were made from
 		const next = publications.filter((publication) => project && publication.seq > seq)
 		if (!next.length) return
-		const gap = next.find((publication, at) => publication.seq !== (next[at - 1]?.seq ?? seq) + 1)
+		const gap = next.find((publication, at) => {
+			const before = next[at - 1]?.seq ?? seq
+			return publication.seq !== before + 1 && !(closing !== undefined && before >= closing)
+		})
 		if (gap) return fail(`commit ${gap.seq} did not follow the one before it`)
 		try {
 			db.exec('begin immediate')
@@ -1238,8 +1244,9 @@ function keep(file) {
 	}
 
 	parentPort.on('message', (message) => {
-		if (message.start) resume()
+		if (message.start) resume(message.start.at)
 		else if (message.make) make()
+		else if (message.closing) closing = stored.at(-1)?.seq ?? seq
 		else if (message.flush) {
 			clearTimeout(beat)
 			apply()
@@ -1269,7 +1276,7 @@ function projectionOf(db) {
  * nothing when they aren't, as while they're made or a twentieth of a second behind a commit. `recent(job)` is for a
  * read that can be a beat behind, as search: it also answers in that twentieth, and while the tables are made it waits
  * for them, answering nothing only if they couldn't be */
-export function createRead(file) {
+export function createRead(file, harness) {
 	let keeper
 	let state = 'not made yet'
 	let seq = null
@@ -1303,17 +1310,19 @@ export function createRead(file) {
 			seq = null
 			for (const resolve of waiting.splice(0)) resolve()
 		})
-		keeper.postMessage({ start: true })
 		return keeper
 	}
 
-	/** Once Pi has closed, the commits told so far into the tables, so the next start keeps them */
+	/** Pi's `close`, then every commit it told into the tables, so the next start keeps them */
 	let flushed
-	const flush = () =>
-		new Promise((resolve) => {
+	async function stop(close) {
+		kept().postMessage({ closing: true })
+		await close()
+		return new Promise((resolve) => {
 			flushed = resolve
 			kept().postMessage({ flush: true })
 		})
+	}
 
 	let reader
 	const statements = new Map()
@@ -1385,13 +1394,26 @@ export function createRead(file) {
 		return { file, state, seq, version, rows }
 	}
 
-	// Before any module starts and work resumes, so the tables are made from records no commit has yet followed
-	kept()
+	// Told of every commit from here, then Pi's last commit read in the same turn, so none falls between the two
+	harness.observeCommits({
+		advance: (publication) => {
+			// A throw here would end Pi's telling the tables of commits
+			try {
+				committed(publication)
+			} catch (error) {
+				console.error(error)
+			}
+		},
+		end: () => {},
+	})
+	reader = new DatabaseSync(file, { readOnly: true })
+	kept().postMessage({ start: { at: piSeq(reader) } })
+
 	async function recent(job) {
 		if (state === 'not made yet' || state === 'being made')
 			await new Promise((resolve) => waiting.push(resolve))
 		return exact(job, true)
 	}
 
-	return { committed, start, serve, flush, exact, recent }
+	return { start, serve, stop, exact, recent }
 }
