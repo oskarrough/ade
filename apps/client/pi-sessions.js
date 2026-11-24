@@ -5,7 +5,7 @@ import { api, openThread, runners } from './server.js'
 import { report } from './notice.js'
 import { EditInPlace } from './edit-in-place.js'
 
-/** A folder and its pi sessions; picking one starts a thread from it and calls `onStarted`. `onLoaded` hears the list change height. */
+/** A folder and its pi sessions; picking one starts a thread from it and calls `onStarted`. */
 export function PiSessionList(props) {
 	const id = createUniqueId()
 	const [where, setWhere] = createSignal('')
@@ -47,7 +47,6 @@ export function PiSessionList(props) {
 		} catch (failure) {
 			if (current()) setError(failure.message)
 		}
-		props.onLoaded?.()
 	}
 	const start = async (session) => {
 		setStarting(session.path)
@@ -88,28 +87,29 @@ export function PiSessionList(props) {
 			<ul class="rows">
 				<${For} each=${found}
 					>${(session) => html`
-						<li
-							role="button"
-							tabindex="0"
-							title=${() => session.firstMessage}
-							onClick=${() => !starting() && start(session)}
-							onKeyDown=${(event) => event.key === 'Enter' && !starting() && start(session)}
-						>
-							<div>
-								<span class="first"
-									>${() => session.name || session.firstMessage || session.id}</span
-								>
-								<${Show}
-									when=${() => session.lastMessage && session.lastMessage !== session.firstMessage}
-									><span class="last">${() => session.lastMessage}</span><//
-								>
-								<small
-									>${() =>
-										starting() === session.path
-											? 'Starting a thread…'
-											: `${session.messageCount} messages, ${new Date(session.modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}</small
-								>
-							</div>
+						<li>
+							<button
+								type="button"
+								class="row"
+								title=${() => session.firstMessage}
+								onClick=${() => !starting() && start(session)}
+							>
+								<div>
+									<span class="first"
+										>${() => session.name || session.firstMessage || session.id}</span
+									>
+									<${Show}
+										when=${() => session.lastMessage && session.lastMessage !== session.firstMessage}
+										><span class="last">${() => session.lastMessage}</span><//
+									>
+									<small
+										>${() =>
+											starting() === session.path
+												? 'Starting a thread…'
+												: `${session.messageCount} messages, ${new Date(session.modified).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}</small
+									>
+								</div>
+							</button>
 						</li>
 					`}<//
 				>

@@ -1,7 +1,7 @@
 /** The same thread row in the list, its family, and a bot's other threads; with search on, its field above them; its foot opens the inbox, and offers a reload once ade has changed since the page loaded. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
-import { createSignal, createUniqueId, For, Show } from 'solid-js'
+import { createSignal, For, Show } from 'solid-js'
 import {
 	archivedThreads,
 	archiveThread,
@@ -27,7 +27,7 @@ import {
 	threadRows,
 } from './server.js'
 import { Dot } from './dot.js'
-import { placePopover } from './popover.js'
+import { Popover } from './popover.js'
 import { Panes } from './panes.js'
 import { liveOf } from './agent.js'
 import { report } from './notice.js'
@@ -201,35 +201,27 @@ const dayOfCommit = (at) => {
 /** The checkout's commit and its newest twenty subjects, or the installed release and its notes; nothing for an install
  * that names neither */
 function Version() {
-	let button, panel
-	const id = createUniqueId()
+	let panel
 	const [commits, setCommits] = createSignal([])
-	const open = () =>
-		api('/api/changes').then(({ commits }) => {
-			setCommits(commits)
-			placePopover(panel, button)
-		}, report)
 	const version = () => server().release ?? server().commit?.slice(0, 7)
 	return html`<${Show} when=${version}>
-		<button
-			type="button"
-			class="ghost small foot-toggle version-toggle"
-			title=${() => (server().release ? `Up to date. What changed in ${version()}` : 'Up to date. What changed lately')}
-			ref=${(el) => (button = el)}
-			popovertarget=${id}
-		>
-			<span>${version}</span>
-		</button>
-		<div
-			class="popover version-list"
-			id=${id}
-			popover
+		<${Popover}
+			class="version-list"
+			button=${() =>
+				html`<button
+					type="button"
+					class="ghost small foot-toggle version-toggle"
+					title=${() =>
+						server().release
+							? `Up to date. What changed in ${version()}`
+							: 'Up to date. What changed lately'}
+				>
+					<span>${version}</span>
+				</button>`}
 			ref=${(el) => (panel = el)}
 			onToggle=${(event) => {
-				if (event.newState === 'open') {
-					placePopover(panel, button)
-					open()
-				}
+				if (event.newState === 'open')
+					api('/api/changes').then(({ commits }) => setCommits(commits), report)
 			}}
 		>
 			<${Panes} title="What changed" open=${() => false} onClose=${(_event) => panel.hidePopover()}>
@@ -245,7 +237,7 @@ function Version() {
 					<//>
 				</ul>
 			<//>
-		</div>
+		<//>
 	<//>`
 }
 
@@ -370,7 +362,10 @@ export const threadMenu = (id, { archived = false, open = true, onRename } = {})
 				if (last) await fork(id, last.id)
 			},
 		},
-		{ label: 'Copy link', run: () => copyText(new URL(hrefOf(id), location.href).href) },
+		{
+			label: 'Copy link',
+			run: () => copyText(new URL(hrefOf(id), location.href).href),
+		},
 		server().modules.includes('schedule') && {
 			label: 'Schedule a task…',
 			run: () => openTaskForm(id),
@@ -383,7 +378,10 @@ export const threadMenu = (id, { archived = false, open = true, onRename } = {})
 			? []
 			: [
 					null,
-					{ label: archived ? 'Unarchive' : 'Archive', run: () => archiveThread(id, !archived) },
+					{
+						label: archived ? 'Unarchive' : 'Archive',
+						run: () => archiveThread(id, !archived),
+					},
 				]),
 	]
 }

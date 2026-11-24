@@ -1827,7 +1827,7 @@ svg.ring {
 		}
 	}
 
-	.rows > li.off .about > span {
+	.rows > li.off .about > button {
 		color: var(--mute);
 	}
 
@@ -1842,8 +1842,13 @@ svg.ring {
 			gap: var(--space-2);
 			cursor: pointer;
 
-			> span {
+			> button {
 				flex: none;
+				padding: 0;
+				border: 0;
+				background: none;
+				color: inherit;
+				font: inherit;
 			}
 
 			> small {
@@ -2515,11 +2520,6 @@ body.resizing {
 	}
 }
 
-/* A row that opens or goes somewhere, like Context's Inspect memory. */
-.popover .rows > li[role='button'] {
-	cursor: pointer;
-}
-
 /* The thread as a tape: before the cut faint, a segment per memory line; after it solid, read word for word. */
 .tape {
 	display: grid;
@@ -3003,7 +3003,8 @@ body.resizing {
 }
 
 /* A usage row is one plain line: its name, then its numbers muted after it, or under it once they don't fit. */
-.rows.usage > li > div {
+.rows.usage > li > div,
+.rows.usage > li > .row > div {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: baseline;

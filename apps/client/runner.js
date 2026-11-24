@@ -1,6 +1,6 @@
 /** Runners show their agents and choose whom the composer asks. */
 import html from '@solidjs/html'
-import { createMemo, createSignal, createUniqueId, For, Show } from 'solid-js'
+import { createMemo, createSignal, For, Show } from 'solid-js'
 import {
 	api,
 	me,
@@ -15,7 +15,7 @@ import {
 } from './server.js'
 import { rowOf, lastToolCall, modelsOf, thinkingWord } from './agent.js'
 import { choose, configure, recipients, toFor } from './composer.js'
-import { placePopover } from './popover.js'
+import { Popover } from './popover.js'
 import { Panes } from './panes.js'
 import { report } from './notice.js'
 import { Sure } from './sure.js'
@@ -24,7 +24,7 @@ import { Dot } from './dot.js'
 import { ModelPicker } from './model-picker.js'
 
 export function Runner(props) {
-	let pickButton, pickPanel
+	let pickPanel
 	const runner = () => props.runner
 	const to = () => toFor(runner())
 	const agents = () => props.agents.filter((agent) => agent.to.runner === runner().name)
@@ -67,31 +67,24 @@ export function Runner(props) {
 			<ul class="models">
 				<${Show} when=${() => models().length}>
 					<${AgentRow} to=${() => to()} runner=${() => runner()} agents=${() => agents()}>
-						<button
-							type="button"
-							class="ghost small pick"
-							aria-label="Model"
-							aria-expanded="false"
-							ref=${(el) => (pickButton = el)}
-							onClick=${(event) => {
-								stop(event)
-								pickPanel.togglePopover()
-							}}
-						>
-							<span>${() => to().model?.split('/').pop() ?? 'Pick a model'}</span
-							><${Show} when=${() => to().thinkingLevel}
-								><span class="thinking-word">:${() => thinkingWord(to().thinkingLevel)}</span><//
-							>
-						</button>
-						<div
-							class="popover model-picker"
-							popover
+						<${Popover}
+							class="model-picker"
+							button=${() =>
+								html`<button
+									type="button"
+									class="ghost small pick"
+									aria-label="Model"
+									onClick=${stop}
+								>
+									<span>${() => to().model?.split('/').pop() ?? 'Pick a model'}</span
+									><${Show} when=${() => to().thinkingLevel}
+										><span class="thinking-word"
+											>:${() => thinkingWord(to().thinkingLevel)}</span
+										><//
+									>
+								</button>`}
 							ref=${(el) => (pickPanel = el)}
 							onClick=${stop}
-							onToggle=${(event) => {
-								pickButton.setAttribute('aria-expanded', String(event.newState === 'open'))
-								if (event.newState === 'open') placePopover(pickPanel, pickButton)
-							}}
 						>
 							<${ModelPicker}
 								getTo=${(other) => toFor(other)}
@@ -103,7 +96,7 @@ export function Runner(props) {
 								onConfigure=${(next) => configure(next)}
 								onClose=${(_e) => pickPanel.hidePopover()}
 							/>
-						</div>
+						<//>
 					<//>
 				<//>
 				<${For} each=${() => others()}
@@ -137,8 +130,7 @@ function AgentRow(props) {
 }
 
 export function RunnerList() {
-	let button, panel
-	const id = createUniqueId()
+	let panel
 	const online = () => runners.filter((runner) => runner.online).length
 	/** Agents working or waiting, read once for every row: a thread's status turns with its agents', so idle threads are skipped whole */
 	const active = createMemo(() =>
@@ -155,25 +147,19 @@ export function RunnerList() {
 			),
 	)
 	return html`
-		<button
-			class="ghost small foot-toggle runner-toggle"
-			type="button"
-			aria-label=${() => `Runners, ${online()} online`}
-			title=${() => `${online()} runner${online() === 1 ? '' : 's'} online`}
-			ref=${(el) => (button = el)}
-			popovertarget=${id}
-		>
-			<span>Runners</span>
-			<small class="count" aria-hidden="true">${() => online()}</small>
-		</button>
-		<div
-			class="popover runner-list"
-			id=${id}
-			popover
+		<${Popover}
+			class="runner-list"
+			button=${() =>
+				html`<button
+					class="ghost small foot-toggle runner-toggle"
+					type="button"
+					aria-label=${() => `Runners, ${online()} online`}
+					title=${() => `${online()} runner${online() === 1 ? '' : 's'} online`}
+				>
+					<span>Runners</span>
+					<small class="count" aria-hidden="true">${() => online()}</small>
+				</button>`}
 			ref=${(el) => (panel = el)}
-			onToggle=${(event) => {
-				if (event.newState === 'open') placePopover(panel, button)
-			}}
 		>
 			<${Panes} title="Runners" open=${() => false} onClose=${(_event) => panel.hidePopover()}>
 				<ul class="rows">
@@ -183,7 +169,7 @@ export function RunnerList() {
 				</ul>
 				<${ConnectRunner} />
 			<//>
-		</div>
+		<//>
 	`
 }
 

@@ -44,7 +44,7 @@ import {
 	url,
 } from './server.js'
 import { agentTo, formatAgent, shortLabel } from './agent.js'
-import { placePopover } from './popover.js'
+import { placePopover, Popover } from './popover.js'
 import { matches, metered, Metered, ModelPicker } from './model-picker.js'
 import { listKeys } from './list-keys.js'
 import { conversations } from './run.js'
@@ -56,7 +56,7 @@ import { Stranded } from './runner.js'
 import { imageContent, imageUrl } from './images.js'
 
 export function Composer(props) {
-	let input, box, picker, button, chooser, anchor, recall, recallButton, mentionList, mentionRows
+	let input, box, picker, chooser, anchor, recall, mentionList, mentionRows
 	// So appendQuote can reach this thread's box from outside, even when it isn't the active one
 	onSettled(() => {
 		const key = untrack(() => props.thread ?? 'new')
@@ -276,7 +276,11 @@ export function Composer(props) {
 		try {
 			if (id) {
 				if (!/^\$\s/.test(body))
-					sentRow = sending(id, { key: sent, body, ...(images.length && { images }) })
+					sentRow = sending(id, {
+						key: sent,
+						body,
+						...(images.length && { images }),
+					})
 				const posted = await api(`/api/threads/${id}/entries`, {
 					body,
 					...(toDirector ? {} : { to }),
@@ -301,7 +305,12 @@ export function Composer(props) {
 			changeDraft(
 				(draft) => {
 					if (draft.text || draft.images.length) return
-					Object.assign(draft, { text: body, images, key: sent, restored: body })
+					Object.assign(draft, {
+						text: body,
+						images,
+						key: sent,
+						restored: body,
+					})
 				},
 				id ?? key,
 				['text', 'images'],
@@ -504,62 +513,133 @@ export function Composer(props) {
 					</button>
 				<//>
 				<${Show} when=${() => filled()}>
-					<button
-						type="button"
-						class="ghost small pick"
-						aria-label="Context"
-						title="How full the agent's context is"
-						ref=${(el) => (recallButton = el)}
-						onClick=${() => {
-							enter()
-							recall.togglePopover()
+					<${Popover}
+						class="recall"
+						button=${() =>
+							html`<button
+								type="button"
+								class="ghost small pick"
+								aria-label="Context"
+								title="How full the agent's context is"
+								onClick=${(_event) => enter()}
+							>
+								<span>${() => `${filled().share}%, ${Math.round(filled().used / 1000)}k`}</span>
+							</button>`}
+						ref=${(el) => (recall = el)}
+						onToggle=${(event) => {
+							// The tape counts the thread's messages from its first, so opening it brings them all
+							if (event.newState === 'open') loadEarlier(props.thread, true)
+							else setLines(false)
 						}}
 					>
-						<span>${() => `${filled().share}%, ${Math.round(filled().used / 1000)}k`}</span>
-					</button>
+						<${Show} when=${() => active()}>
+							<${Panes}
+								title="Context"
+								onClose=${(_event) => recall.hidePopover()}
+								detailTitle="Memory’s lines"
+								open=${() => lines()}
+								onBack=${(_event) => setLines(false)}
+								detail=${html`<${Show} when=${() => lines()}><${Memory} /><//>`}
+							>
+								<${Compaction} />
+								<${Show} when=${() => server().modules?.includes('memory')}>
+									<ul class="rows">
+										<li>
+											<button type="button" class="row" onClick=${(_event) => setLines(true)}>
+												<div>
+													<span>Inspect memory</span>
+													<small>The lines the agent reads instead of its old messages.</small>
+												</div>
+												<${Icon} name="next" />
+											</button>
+										</li>
+									</ul>
+								<//>
+								<button
+									type="button"
+									class="save"
+									disabled=${() => compacting()}
+									title=${() =>
+										server().modules?.includes('memory')
+											? 'The agent reads the memory lines instead of the old messages'
+											: 'Pi summarises the old messages, which costs a model call'}
+									onClick=${compactNow}
+								>
+									${() => (compacting() ? 'Compacting…' : 'Compact now')}
+								</button>
+							<//>
+						<//>
+					<//>
 				<//>
-				<button
-					type="button"
-					class="ghost small pick"
-					aria-label=${() =>
-						`${asking() ? `Asks ${asking()}` : members().group ? 'Pick someone for one message' : 'Asks no one yet; pick a model'}${folderOf(props.thread) ? ` in ${folderOf(props.thread)}` : ''}`}
-					ref=${(el) => (button = el)}
-					aria-expanded="false"
-					title=${() =>
-						(homeBot(props.thread)
-							? `The model ${homeBot(props.thread).name} runs as`
-							: free()
-								? 'The director picks the agent, bots, or nobody; pick one here to choose'
-								: whom().map(formatAgent).join(', ')) +
-						(folderOf(props.thread) ? `, in ${folderOf(props.thread)}` : '')}
-					onClick=${() => {
-						enter()
-						anchor = box
-						picker.togglePopover()
+				<${Popover}
+					class="model-picker"
+					button=${() =>
+						html`<button
+							type="button"
+							class="ghost small pick"
+							aria-label=${() =>
+								`${asking() ? `Asks ${asking()}` : members().group ? 'Pick someone for one message' : 'Asks no one yet; pick a model'}${folderOf(props.thread) ? ` in ${folderOf(props.thread)}` : ''}`}
+							title=${() =>
+								(homeBot(props.thread)
+									? `The model ${homeBot(props.thread).name} runs as`
+									: free()
+										? 'The director picks the agent, bots, or nobody; pick one here to choose'
+										: whom().map(formatAgent).join(', ')) +
+								(folderOf(props.thread) ? `, in ${folderOf(props.thread)}` : '')}
+							onClick=${(_event) => enter()}
+						>
+							<span
+								><${Show}
+									when=${() => asking() && !free() && whom().length}
+									fallback=${() =>
+										members().group
+											? `${where(props.thread)}pick someone`
+											: asking() || 'Pick a model'}
+									><${For} each=${() => whom()}
+										>${(to, index) => [
+											() => (index() ? ' + ' : agent(props.thread) ? where(props.thread) : ''),
+											() => recipientWords(to, props.thread)[0],
+											html`<${Show} when=${() => recipientWords(to, props.thread)[1]}
+												><span class="thinking-word"
+													>:${() => recipientWords(to, props.thread)[1]}</span
+												><//
+											>`,
+											html`<${Show} when=${() => !to.name && metered(to.runner, to.model)}
+												>${' '}<${Metered}
+											/><//>`,
+										]}<//
+									><//
+								></span
+							>
+						</button>`}
+					ref=${(el) => (picker = el)}
+					anchor=${() => anchor ?? box}
+					end=${() => !anchor}
+					onToggle=${(event) => {
+						if (event.newState === 'closed') anchor = undefined
 					}}
 				>
-					<span
-						><${Show}
-							when=${() => asking() && !free() && whom().length}
-							fallback=${() =>
-								members().group ? `${where(props.thread)}pick someone` : asking() || 'Pick a model'}
-							><${For} each=${() => whom()}
-								>${(to, index) => [
-									() => (index() ? ' + ' : agent(props.thread) ? where(props.thread) : ''),
-									() => recipientWords(to, props.thread)[0],
-									html`<${Show} when=${() => recipientWords(to, props.thread)[1]}
-										><span class="thinking-word"
-											>:${() => recipientWords(to, props.thread)[1]}</span
-										><//
-									>`,
-									html`<${Show} when=${() => !to.name && metered(to.runner, to.model)}
-										>${' '}<${Metered}
-									/><//>`,
-								]}<//
-							><//
-						></span
-					>
-				</button>
+					<${ModelPicker}
+						getTo=${(runner) => toFor(runner, props.thread)}
+						selectedRunner=${() => agent(props.thread)?.runner}
+						fromRunner=${() => here(props.thread).find((one) => one.to && !one.to.name)?.to.runner}
+						onChoose=${(to) => {
+							choose(to, true, props.thread)
+							picker.hidePopover()
+						}}
+						onConfigure=${(to) => configure(to, props.thread)}
+						onRecipients=${() =>
+							homeBot(props.thread)
+								? undefined
+								: (text) => {
+										pickRecipients(text)
+										picker.hidePopover()
+									}}
+						folders=${true}
+						onClose=${(_e) => picker.hidePopover()}
+						after=${(search) => (homeBot(props.thread) ? null : pickerBots(search))}
+					/>
+				<//>
 			</div>
 			<div class="popover model-picker mentions" popover="manual" ref=${(el) => (mentionList = el)}>
 				<div class="model-controls">
@@ -583,91 +663,6 @@ export function Composer(props) {
 						<//>
 					</ul>
 				</div>
-			</div>
-			<div
-				class="popover recall"
-				popover
-				ref=${(el) => (recall = el)}
-				onToggle=${(event) => {
-					// The tape counts the thread's messages from its first, so opening it brings them all
-					if (event.newState === 'open') {
-						placePopover(recall, recallButton)
-						loadEarlier(props.thread, true)
-					} else setLines(false)
-				}}
-			>
-				<${Show} when=${() => active()}>
-					<${Panes}
-						title="Context"
-						onClose=${(_event) => recall.hidePopover()}
-						detailTitle="Memory’s lines"
-						open=${() => lines()}
-						onBack=${(_event) => setLines(false)}
-						detail=${html`<${Show} when=${() => lines()}><${Memory} /><//>`}
-					>
-						<${Compaction} />
-						<${Show} when=${() => server().modules?.includes('memory')}>
-							<ul class="rows">
-								<li
-									role="button"
-									tabindex="0"
-									onClick=${() => setLines(true)}
-									onKeyDown=${(event) => event.key === 'Enter' && setLines(true)}
-								>
-									<div>
-										<span>Inspect memory</span>
-										<small>The lines the agent reads instead of its old messages.</small>
-									</div>
-									<${Icon} name="next" />
-								</li>
-							</ul>
-						<//>
-						<button
-							type="button"
-							class="save"
-							disabled=${() => compacting()}
-							title=${() =>
-								server().modules?.includes('memory')
-									? 'The agent reads the memory lines instead of the old messages'
-									: 'Pi summarises the old messages, which costs a model call'}
-							onClick=${compactNow}
-						>
-							${() => (compacting() ? 'Compacting…' : 'Compact now')}
-						</button>
-					<//>
-				<//>
-			</div>
-			<div
-				class="popover model-picker"
-				popover
-				ref=${(el) => (picker = el)}
-				onToggle=${(event) => {
-					button.setAttribute('aria-expanded', String(event.newState === 'open'))
-					if (event.newState === 'open')
-						placePopover(picker, anchor ?? box, true, (anchor ?? box) === box)
-					else anchor = box
-				}}
-			>
-				<${ModelPicker}
-					getTo=${(runner) => toFor(runner, props.thread)}
-					selectedRunner=${() => agent(props.thread)?.runner}
-					fromRunner=${() => here(props.thread).find((one) => one.to && !one.to.name)?.to.runner}
-					onChoose=${(to) => {
-						choose(to, true, props.thread)
-						picker.hidePopover()
-					}}
-					onConfigure=${(to) => configure(to, props.thread)}
-					onRecipients=${() =>
-						homeBot(props.thread)
-							? undefined
-							: (text) => {
-									pickRecipients(text)
-									picker.hidePopover()
-								}}
-					folders=${true}
-					onClose=${(_e) => picker.hidePopover()}
-					after=${(search) => (homeBot(props.thread) ? null : pickerBots(search))}
-				/>
 			</div>
 		</form>
 	`
@@ -723,7 +718,11 @@ function MentionRow(option, mention) {
 	`
 }
 
-const [compose, setCompose] = createStore({ drafts: {}, picks: {}, settings: {} })
+const [compose, setCompose] = createStore({
+	drafts: {},
+	picks: {},
+	settings: {},
+})
 /** A draft as this page holds it: `key` is what its message posts under; `restored`, a failed send's text put back */
 const emptyDraft = { text: '', images: [], key: '', sending: false }
 /**
@@ -777,7 +776,9 @@ function save(thread, keepalive = false) {
 		page,
 		...(waiting.fields.has('text') && { text: draft.text }),
 		...(waiting.fields.has('images') && !keepalive && { images: snapshot(draft.images) }),
-		...(waiting.fields.has('pick') && { pick: chosen && !chosen.held ? snapshot(chosen) : null }),
+		...(waiting.fields.has('pick') && {
+			pick: chosen && !chosen.held ? snapshot(chosen) : null,
+		}),
 	}
 	if (keepalive)
 		return void fetch(`${url}${draftPath(thread)}`, {
@@ -923,7 +924,12 @@ const mentionsFor = (query, thread) => {
 		...matching.filter((bot) => isHere(bot, thread)),
 		...matching.filter((bot) => !isHere(bot, thread)),
 	]
-		.map((bot) => ({ key: bot.name, label: bot.name, written: `@${bot.name}`, bot }))
+		.map((bot) => ({
+			key: bot.name,
+			label: bot.name,
+			written: `@${bot.name}`,
+			bot,
+		}))
 		.concat(
 			titled.map((row) => ({
 				key: `thread-${row.id}`,

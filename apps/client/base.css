@@ -559,11 +559,7 @@ button[data-danger]:focus-visible:not(:disabled) {
 }
 
 .model-controls > ul,
-.popover .rows,
-.recap .rows,
-.trail .rows,
-.thread-details .rows,
-.rows.usage {
+.rows {
 	list-style: none;
 	margin: 0;
 	padding: 0;
@@ -571,15 +567,8 @@ button[data-danger]:focus-visible:not(:disabled) {
 	gap: var(--space-1);
 }
 
-/* One row across models, runners, modules, a recap's topics and the trail's steps, also inside the phone sheets. */
-:is(
-	.model-controls .who,
-	.popover .rows > li,
-	.recap .rows > li,
-	.trail .rows > li,
-	.thread-details .rows > li,
-	.rows.usage > li
-) {
+/* One row across models, runners, modules, a recap's topics and the trail's steps, also inside the phone sheets. A row you press is a button filling it. */
+:is(.model-controls li > .who, .rows > li, .rows > li > :where(.row:only-child)) {
 	display: flex;
 	align-items: start;
 	gap: var(--space-2);
@@ -615,7 +604,16 @@ button[data-danger]:focus-visible:not(:disabled) {
 	}
 }
 
-:where(.popover .rows > li, .thread-details .rows > li, .rows.usage > li) small {
+.rows > li:has(> .row:only-child) {
+	padding: 0;
+
+	> .row {
+		flex: 1;
+	}
+}
+
+/* A row's note sits under its title; a recap topic's links and a trail step's time keep their own line. */
+:where(.rows > li:not(.recap *, .trail *)) small {
 	display: block;
 	overflow-wrap: anywhere;
 }

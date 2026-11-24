@@ -4,7 +4,7 @@
  * schedule call leaves in the chat, and a run's own line.
  */
 import html from '@solidjs/html'
-import { createEffect, createSignal, createUniqueId, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, Show } from 'solid-js'
 import { Icon } from './icons.js'
 import {
 	api,
@@ -19,7 +19,7 @@ import {
 	threadRows,
 	titleOf,
 } from './server.js'
-import { placePopover } from './popover.js'
+import { Popover } from './popover.js'
 import { Panes } from './panes.js'
 import { shortLabel, thinkingWord } from './agent.js'
 import { ModelPicker } from './model-picker.js'
@@ -420,8 +420,7 @@ export const openTaskForm = (thread, task = undefined) => setAsked({ thread, tas
  * task opens the form over it. Fetched when it opens and, while open, on each change.
  */
 export function ScheduledTaskList() {
-	let button, panel
-	const id = createUniqueId()
+	let panel
 	const [open, setOpen] = createSignal(false)
 	const [form, setForm] = createSignal(null)
 	const tasks = feedView(() => (open() ? 'schedule' : null), {
@@ -431,13 +430,6 @@ export function ScheduledTaskList() {
 		setForm({ thread, task })
 		if (!panel.matches(':popover-open')) panel.showPopover()
 	}
-	// The form is taller than the list it covers: place the popover again once either shows
-	createEffect(form, () => {
-		if (panel?.matches(':popover-open')) setTimeout(() => placePopover(panel, button))
-	})
-	createEffect(tasks, () => {
-		if (panel?.matches(':popover-open')) setTimeout(() => placePopover(panel, button))
-	})
 	// The thread's details or the jump list ask for the form
 	createEffect(asked, (wish) => {
 		if (!wish) return
@@ -445,25 +437,21 @@ export function ScheduledTaskList() {
 		openForm(wish.thread, wish.task)
 	})
 	return html`
-		<button
-			class="ghost small foot-toggle schedule-toggle"
-			type="button"
-			aria-label="Scheduled tasks"
-			title="Every scheduled task in the house"
-			ref=${(el) => (button = el)}
-			popovertarget=${id}
-		>
-			<span>Scheduled</span>
-		</button>
-		<div
-			class="popover schedule-list"
-			id=${id}
-			popover
+		<${Popover}
+			class="schedule-list"
+			button=${() =>
+				html`<button
+					class="ghost small foot-toggle schedule-toggle"
+					type="button"
+					aria-label="Scheduled tasks"
+					title="Every scheduled task in the house"
+				>
+					<span>Scheduled</span>
+				</button>`}
 			ref=${(el) => (panel = el)}
 			onToggle=${(event) => {
 				const opening = event.newState === 'open'
-				if (opening) placePopover(panel, button)
-				else setForm(null)
+				if (!opening) setForm(null)
 				setOpen(opening)
 			}}
 		>
@@ -506,7 +494,7 @@ export function ScheduledTaskList() {
 					<${Show} when=${() => tasks().length === 0}><p class="mute">Nothing scheduled.</p><//>
 				<//>
 			<//>
-		</div>
+		<//>
 	`
 }
 
@@ -574,7 +562,7 @@ const atNight = (ms, timeZone = HERE) => {
  * list, with the bot used last.
  */
 function TaskForm(props) {
-	let pickButton, pickPanel
+	let pickPanel
 	const task = props.task
 	const hooks = () => server().modules.includes('hooks')
 	const checks = () => server().modules.includes('check') || Boolean(task?.check)
@@ -1108,25 +1096,16 @@ ${() =>
 			<//>
 			<${Show} when=${() => place() === 'new' && !agentTask}>
 				<h3>Model</h3>
-				<button
-					type="button"
-					class="bot-model"
-					aria-haspopup="true"
-					ref=${(el) => (pickButton = el)}
-					onClick=${(_event) => pickPanel.togglePopover()}
-				>
-					${() =>
-						chosen().model
-							? `${chosen().model.split('/').pop()}${chosen().thinkingLevel ? `:${thinkingWord(chosen().thinkingLevel)}` : ''}@${chosen().runner}`
-							: 'Pick a model'}
-				</button>
-				<div
-					class="popover model-picker"
-					popover
+				<${Popover}
+					class="model-picker"
+					button=${() =>
+						html`<button type="button" class="bot-model" aria-haspopup="true">
+							${() =>
+								chosen().model
+									? `${chosen().model.split('/').pop()}${chosen().thinkingLevel ? `:${thinkingWord(chosen().thinkingLevel)}` : ''}@${chosen().runner}`
+									: 'Pick a model'}
+						</button>`}
 					ref=${(el) => (pickPanel = el)}
-					onToggle=${(event) => {
-						if (event.newState === 'open') placePopover(pickPanel, pickButton)
-					}}
 				>
 					<${ModelPicker}
 						getTo=${(runner) =>
@@ -1141,7 +1120,7 @@ ${() =>
 						onConfigure=${(next) => setTo(next)}
 						onClose=${(_e) => pickPanel.hidePopover()}
 					/>
-				</div>
+				<//>
 			<//>
 			<div class="actions">
 				<button type="submit" disabled=${saving}>${task ? 'Save' : 'Schedule'}</button>

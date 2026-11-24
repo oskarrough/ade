@@ -165,7 +165,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   tutorial.js            walkthrough buttons
   tutorial-shed.js       loadShed
   tutorial-shed-memory.js   recorded memory lines for the shed
-  panes.js, popover.js, sure.js, busy.js, notice.js, dot.js   Panes, placePopover, Sure, Busy, Notice, Dot
+  panes.js, popover.js, sure.js, busy.js, notice.js, dot.js   Panes, Popover, placePopover, Sure, Busy, Notice, Dot
   list-keys.js           listKeys: one keyboard for the lists you type above (Cmd-K, @ and /, the model picker)
   edit-in-place.js       EditInPlace, every field that renames or sets a value where it's shown
   quote.js               QuoteButton
@@ -220,8 +220,8 @@ Where a feature lives:
 Build from these; a new panel, row or button takes its sibling's markup and class and adds no CSS of its own. A control gets its look only in base.css; a rule for a place sets layout only. Quoted names are the CSS files' section comments.
 
 - Buttons ("Three buttons"): plain `button` (bordered), `button.ghost`, `button.primary`; `data-danger`, `.small`; `.send` and `.row` look their own. Fields: `input`, `textarea`, `select`, `.bare`, `.draft`.
-- Popover: `div.popover[popover]` placed by `placePopover` (popover.js), a sheet on phones; panes.js `Panes` (`.panes .pane`, "A detail covers") gives header, back, actions and `foot`. Used by settings, runners, context; the model picker and @mentions are the frame without panes.
-- Popover rows: `ul.rows > li` ("One row across").
+- Popover: `Popover` (popover.js) takes a button and opens `div.popover[popover]` from it, placed by `placePopover` and again as it resizes, a sheet on phones; jump.js and the @mentions place theirs by hand; panes.js `Panes` (`.panes .pane`, "A detail covers") gives header, back, actions and `foot`. Used by settings, runners, context; the model picker and @mentions are the frame without panes.
+- Popover rows: `ul.rows > li` ("One row across"); a row you press holds one `button.row`.
 - Model controls: model-picker.js `ModelPicker`, `.model-controls`: `.search`, `.list`, `.models`, `.foot`, `.thinking`. Cmd-K, the @ and / list and the model picker share one `.list` and one keyboard, list-keys.js `listKeys`.
 - Left aside: thread-list.js `ThreadList`, `.thread-list`, `ul.top-row`, `ul.inbox-row`, `li > .row`, `.thread-family`, `.list-foot`, `.foot-toggle`.
 - Side column: `aside.side`, side.js `PageTabs`; `.thread-details`, `.recap`, `.canvas`, `.director`; bot.js `BotSettings`, `.bot`.

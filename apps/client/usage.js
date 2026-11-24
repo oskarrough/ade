@@ -26,7 +26,10 @@ const sinceOf = (key) => {
 /** What this clock adds to UTC, so the server's days start at our midnight */
 const zone = () => -new Date().getTimezoneOffset() * 60_000
 
-const number = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 })
+const number = new Intl.NumberFormat(undefined, {
+	notation: 'compact',
+	maximumFractionDigits: 1,
+})
 const dollars = (value) => `$${value.toFixed(2)}`
 const tokensOf = (count) => count.input + count.output + count.cacheRead + count.cacheWrite
 const cachedOf = (count) => {
@@ -187,7 +190,9 @@ export function Usage() {
 				</button>
 			</header>
 			<ul>
-				<li class="usage-range"><${Range} range=${range} onPick=${setRange} /></li>
+				<li class="usage-range">
+					<${Range} range=${range} onPick=${setRange} />
+				</li>
 				<${Show} when=${usage} fallback=${html`<li class="mute">Counting…</li>`}
 					>${(found) => html`
 						<${Show}
@@ -223,24 +228,22 @@ export function Usage() {
 								<ul class="rows usage">
 									<${For} each=${() => found().threads}
 										>${(row) => html`
-											<li
-												role="button"
-												tabindex="0"
-												onClick=${(_event) => openThread(row.thread)}
-												onKeyDown=${(event) =>
-													event.key === 'Enter' &&
-													event.target === event.currentTarget &&
-													openThread(row.thread)}
-											>
-												<div>
-													<span
-														>${() => (threadOf(row.thread) ? titleOf(row.thread) : row.title)}</span
-													>
-													<small
-														>${() =>
-															`${percent(row.cost, found().total.cost)}, ${cost(row)}, ${calls(row)}, ${tokens(row)}${row.archived ? ', archived' : ''}`}</small
-													>
-												</div>
+											<li>
+												<button
+													type="button"
+													class="row"
+													onClick=${(_event) => openThread(row.thread)}
+												>
+													<div>
+														<span
+															>${() => (threadOf(row.thread) ? titleOf(row.thread) : row.title)}</span
+														>
+														<small
+															>${() =>
+																`${percent(row.cost, found().total.cost)}, ${cost(row)}, ${calls(row)}, ${tokens(row)}${row.archived ? ', archived' : ''}`}</small
+														>
+													</div>
+												</button>
 											</li>
 										`}<//
 									>

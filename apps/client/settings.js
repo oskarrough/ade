@@ -1,13 +1,13 @@
 /** The server's settings: its modules, on or off, and memory's and the director's options. Saving restarts it. */
 import html from '@solidjs/html'
-import { createSignal, createStore, createUniqueId, For, Show, snapshot } from 'solid-js'
+import { createSignal, createStore, For, Show, snapshot } from 'solid-js'
 import { me, openUsage, restart, restarting, server, setChat } from './server.js'
 import { forgetLink, loadInvites, People } from './people.js'
 import { ModelPicker } from './model-picker.js'
 import { Panes } from './panes.js'
 import { agentTo, formatAgent, writtenTo } from './agent.js'
 import { busy, Busy } from './busy.js'
-import { placePopover } from './popover.js'
+import { Popover } from './popover.js'
 import { Switch } from './dot.js'
 import { markdown } from './markdown.js'
 import { Icon } from './icons.js'
@@ -15,8 +15,7 @@ import { PiSessionList } from './pi-sessions.js'
 import { desktopVersion } from './desktop.js'
 
 export function Settings() {
-	let button, panel
-	const id = createUniqueId()
+	let panel
 	// The page over the settings: '', a model for 'memory' or 'director', or 'pi-sessions' to import one
 	const [picking, setPicking] = createSignal('')
 	// One module open at a time: its whole description and its options
@@ -80,24 +79,20 @@ export function Settings() {
 		),
 	)
 	return html`
-		<button
-			class="ghost small foot-toggle settings-toggle"
-			type="button"
-			aria-label="Settings"
-			title="Settings"
-			ref=${(el) => (button = el)}
-			popovertarget=${id}
-		>
-			<${Icon} name="settings" />
-		</button>
-		<div
-			class="popover settings"
-			id=${id}
-			popover
+		<${Popover}
+			class="settings"
+			button=${() =>
+				html`<button
+					class="ghost small foot-toggle settings-toggle"
+					type="button"
+					aria-label="Settings"
+					title="Settings"
+				>
+					<${Icon} name="settings" />
+				</button>`}
 			ref=${(el) => (panel = el)}
 			onToggle=${(event) => {
 				if (event.newState === 'open') {
-					placePopover(panel, button)
 					if (owns()) loadInvites()
 				} else {
 					setPicking('')
@@ -210,31 +205,26 @@ export function Settings() {
 							onChoose=${(to) => choose(to)}
 							onConfigure=${(to) => choose(to)}
 						/>`}
-					><${PiSessionList}
-						onLoaded=${() => setTimeout(() => placePopover(panel, button))}
-						onStarted=${() => panel.hidePopover()}
+					><${PiSessionList} onStarted=${() => panel.hidePopover()}
 				/><//>`}
 			>
 				<${Show} when=${() => server().modules.includes('usage')}>
 					<ul class="rows">
-						<li
-							role="button"
-							tabindex="0"
-							onClick=${() => {
-								panel.hidePopover()
-								openUsage()
-							}}
-							onKeyDown=${(event) => {
-								if (event.key !== 'Enter') return
-								panel.hidePopover()
-								openUsage()
-							}}
-						>
-							<div>
-								<span>Usage</span>
-								<small>Tokens and cost across the house.</small>
-							</div>
-							<${Icon} name="next" />
+						<li>
+							<button
+								type="button"
+								class="row"
+								onClick=${() => {
+									panel.hidePopover()
+									openUsage()
+								}}
+							>
+								<div>
+									<span>Usage</span>
+									<small>Tokens and cost across the house.</small>
+								</div>
+								<${Icon} name="next" />
+							</button>
 						</li>
 					</ul>
 				<//>
@@ -244,21 +234,14 @@ export function Settings() {
 							<li class=${() => ({ off: !on(module), open: expanded() === module.name })}>
 								<div
 									class="about"
-									role="button"
-									tabindex="0"
-									aria-expanded=${() => String(expanded() === module.name)}
 									onClick=${(event) => {
-										// A link in the description opens itself, not the row
+										// A link in the description opens itself, not the row; the name is the button for keys
 										if (!event.target.closest('a')) expand(module)
 									}}
-									onKeyDown=${(event) => {
-										if (event.target !== event.currentTarget) return
-										if (event.key !== 'Enter' && event.key !== ' ') return
-										event.preventDefault()
-										expand(module)
-									}}
 								>
-									<span>${() => module.name}</span>
+									<button type="button" aria-expanded=${() => String(expanded() === module.name)}>
+										${() => module.name}
+									</button>
 									${
 										// Its own template: the markdown it fills in would throw off the walk to what follows
 										html`<small
@@ -383,7 +366,7 @@ export function Settings() {
 					/>
 				<//>
 			<//>
-		</div>
+		<//>
 	`
 }
 
@@ -404,7 +387,11 @@ const [draft, setDraft] = createStore({
 })
 const SECTIONS = ['memory', 'director', 'bots']
 /** What the server runs for a field it may leave unset */
-const DEFAULTS = { memory: { model: '', compactAt: 100000 }, director: {}, bots: { voice: '' } }
+const DEFAULTS = {
+	memory: { model: '', compactAt: 100000 },
+	director: {},
+	bots: { voice: '' },
+}
 const running = (section, field) =>
 	server().settings?.[section]?.[field] ?? DEFAULTS[section][field]
 /** A field as it will be saved: the draft's, else the server's */
