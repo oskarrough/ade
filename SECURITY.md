@@ -17,7 +17,7 @@ With invites off, the default:
 - You, the owner, on the server's own machine, or anywhere with the owner key.
 - Anyone on your tailnet, through `tailscale serve`, as their tailnet login. A login listed in ade.json's `ownerLogins` is you.
 
-With invites on (`"invites": true` in ade.json), it's invite-only: everyone needs a key, tailnet friends included. You use the owner key; the desktop app and the CLI on the server's machine send it for you, `ADE_OWNER_KEY` carries it elsewhere, and `ade link` prints a link that brings a browser in with it. `ade invite sam` gives sam a key, `ade uninvite sam` takes it back, `ade invites` lists them.
+With invites on (`"invites": true` in ade.json), it's invite-only: everyone needs a key, tailnet friends included. You use the owner key; the desktop app and the CLI on the server's machine send it for you, `ADE_OWNER_KEY` carries it elsewhere, and `ade link` prints a link that brings a browser in with it. `ade invite sam` gives sam a key, `ade uninvite sam` takes it back, `ade invites` lists them. Settings' People does the same from the page: turning invites on there keeps the owner key in that browser, and it gives the owner link for your other devices.
 
 A public address, or a tunnel other than Tailscale, isn't built or supported.
 
@@ -35,7 +35,7 @@ The rest is for whoever changes the code: `whoSent` and `answersTo` in server.js
 
 - The main port, 3000 unless taken, lets in the owner: a request straight from this machine, to a localhost name, with no `X-Forwarded-For`, `Forwarded` or `Tailscale-User-Login`. Anything through a proxy is nobody here. With `HOST` set to a network address, only the owner key gets past it.
 - The Serve port, the next free one or `SERVE_PORT`, takes the login in `Tailscale-User-Login`. No login, no entry.
-- The owner key works on either, as a bearer or the `HttpOnly`, `SameSite=Strict` cookie `POST /api/me` sets. With invites on, only the owner key and invite keys count, on both ports.
+- The owner key works on either, as a bearer or the `HttpOnly`, `SameSite=Strict` cookie `POST /api/me` sets, or the settings save that turns invites on. With invites on, only the owner key and invite keys count, on both ports.
 - Both refuse a `Host` they don't answer to (DNS rebinding) and a write whose `Origin` isn't their own page.
 
 An invite link carries its key after `#key=`; the page trades it for the cookie and drops it from the address. Inviting someone again replaces their key and closes what the old one opened. Uninviting works from the next request: the key opens nothing, their sockets close, their runners' keys go and the tasks that run as them end. An invite under the owner's name opens nothing.

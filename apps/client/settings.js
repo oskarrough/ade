@@ -1,7 +1,8 @@
 /** The server's settings: its modules, on or off, and memory's and the director's options. Saving restarts it. */
 import html from '@solidjs/html'
 import { createSignal, createStore, createUniqueId, For, Show, snapshot } from 'solid-js'
-import { openUsage, restart, restarting, server, setChat } from './server.js'
+import { me, openUsage, restart, restarting, server, setChat } from './server.js'
+import { forgetLink, loadInvites, People } from './people.js'
 import { ModelPicker } from './model-picker.js'
 import { Panes } from './panes.js'
 import { agentTo, formatAgent, writtenTo } from './agent.js'
@@ -25,6 +26,8 @@ export function Settings() {
 		...server().modules.map((name) => ({ name, on: true })),
 		...(server().off ?? []).map((name) => ({ name, on: false })),
 	]
+	const owns = () => me() === server().settings?.owner
+	const invitesOn = () => draft.invites ?? Boolean(server().settings?.invites)
 	const overridden = (name) => server().settings?.overrides.includes(name)
 	const editable = () => !restarting() && save.state() !== 'busy'
 	const on = (module) => draft.modules[module.name] ?? module.on
@@ -66,6 +69,7 @@ export function Settings() {
 			changes()
 				? {
 						modules: snapshot(draft.modules),
+						...(draft.invites !== undefined && { invites: draft.invites }),
 						...Object.fromEntries(
 							SECTIONS.map((section) => [section, changesIn(section)]).filter(
 								([, changed]) => Object.keys(changed).length,
@@ -92,8 +96,13 @@ export function Settings() {
 			popover
 			ref=${(el) => (panel = el)}
 			onToggle=${(event) => {
-				if (event.newState === 'open') placePopover(panel, button)
-				else setPicking('')
+				if (event.newState === 'open') {
+					placePopover(panel, button)
+					if (owns()) loadInvites()
+				} else {
+					setPicking('')
+					forgetLink()
+				}
 			}}
 		>
 			<${Panes}
@@ -357,6 +366,17 @@ export function Settings() {
 						`}<//
 					>
 				</ul>
+				<${Show} when=${owns}>
+					<${People}
+						on=${invitesOn}
+						disabled=${() => !editable()}
+						onToggle=${() =>
+							setDraft((store) => {
+								if (store.invites === undefined) store.invites = !invitesOn()
+								else delete store.invites
+							})}
+					/>
+				<//>
 			<//>
 		</div>
 	`
@@ -371,6 +391,8 @@ const shown = (text) => {
 /** Changes not saved yet, kept if the settings close before saving: module switches, then each section's fields */
 const [draft, setDraft] = createStore({
 	modules: {},
+	/** Invites on or off, while it differs from what the server runs */
+	invites: undefined,
 	memory: {},
 	director: {},
 	bots: {},
@@ -390,4 +412,5 @@ const changesIn = (section) =>
 /** How many switches and fields differ from what the server runs */
 const changes = () =>
 	Object.keys(draft.modules).length +
+	Number(draft.invites !== undefined) +
 	SECTIONS.reduce((count, section) => count + Object.keys(changesIn(section)).length, 0)

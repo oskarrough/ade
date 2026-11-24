@@ -1225,7 +1225,7 @@ agent-memory {
 }
 
 /* A sheet's own headings, and a bot's parts within it, read as one kind of small label. */
-:is(.thread-details, .thread-list, .task-form) {
+:is(.thread-details, .thread-list, .task-form, .settings .pane-body) {
 	:is(h2, h3) {
 		font-size: var(--text-small);
 		font-weight: 500;
@@ -1964,6 +1964,16 @@ svg.ring {
 	&:focus-within .revoke,
 	.armed .revoke {
 		visibility: visible;
+	}
+}
+
+/* Settings' People: the invite form under the invited, its link once with its copy in the corner. */
+.settings .invite {
+	margin: var(--space-2) var(--space-2) var(--space-1);
+
+	p {
+		font-size: var(--text-small);
+		color: var(--mute);
 	}
 }
 

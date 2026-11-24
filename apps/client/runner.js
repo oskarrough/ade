@@ -265,6 +265,19 @@ export function LogIn() {
 	</button>`
 }
 
+/** A name is letters, digits, dot, dash or underscore: a space becomes a dash as you type, the caret staying put */
+export function tidyName(input) {
+	const typed = input.value
+	const caret = input.selectionStart ?? typed.length
+	const tidy = (text) => text.replace(/\s/g, '-').replace(/[^\w.-]/g, '')
+	if (tidy(typed) !== typed) {
+		input.value = tidy(typed)
+		const at = tidy(typed.slice(0, caret)).length
+		input.setSelectionRange(at, at)
+	}
+	return input.value
+}
+
 export function ConnectRunner(props) {
 	const [name, setName] = createSignal(props.name ?? '')
 	const [error, setError] = createSignal('')
@@ -303,17 +316,7 @@ export function ConnectRunner(props) {
 					required
 					value=${() => name()}
 					onInput=${(event) => {
-						// A name is letters, digits, dot, dash or underscore: a space becomes a dash as you type.
-						const input = event.currentTarget
-						const typed = input.value
-						const caret = input.selectionStart ?? typed.length
-						const tidy = (text) => text.replace(/\s/g, '-').replace(/[^\w.-]/g, '')
-						if (tidy(typed) !== typed) {
-							input.value = tidy(typed)
-							const at = tidy(typed.slice(0, caret)).length
-							input.setSelectionRange(at, at)
-						}
-						setName(input.value)
+						setName(tidyName(event.currentTarget))
 						setCutting(false)
 					}}
 				/>
