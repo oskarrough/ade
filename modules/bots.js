@@ -189,7 +189,19 @@ export function server(core) {
 	const askedHome = (ids, viewer) =>
 		Promise.all(
 			ids.map(async (thread) => {
-				const messages = await core.shapeMessages(thread, await core.messages(thread), viewer)
+				await core.conversation(thread)
+				// The question opens the thread and its answer follows: read from the start only until it's there
+				const read = []
+				for (let cursor; ;) {
+					const page = await core.commit((tx) =>
+						tx.scanEntries({ conversationId: thread, order: 'ascending' }, 50, cursor),
+					)
+					read.push(...page.items)
+					const first = read.find((entry) => entry.kind === 'ade.message')
+					if (first && read.some((entry) => entry.data?.re?.includes(first.id))) break
+					if (!(cursor = page.next)) break
+				}
+				const messages = await core.shapeMessages(thread, core.routed(read), viewer)
 				const question = messages[0] ?? null
 				const answer =
 					(question && messages.find((entry) => entry.data.re?.includes(question.id))) ?? null

@@ -82,9 +82,16 @@ export async function server(core) {
 				),
 			)
 			const entries = page.items.filter(sendable)
-			const said = entries.some((entry) => entry.kind === DELIVERY)
-				? new Map((await core.messages(state.thread)).map((entry) => [entry.id, entry.data]))
-				: undefined
+			// Only the messages these deliveries handed over, read back from the thread's end to the first
+			const held = entries.flatMap((entry) => (entry.kind === DELIVERY ? entry.data.held : []))
+			const said = new Map(
+				held.length
+					? (await core.messages(state.thread, { after: Math.min(...held) - 1 })).map((entry) => [
+							entry.id,
+							entry.data,
+						])
+					: [],
+			)
 			if (entries.length) {
 				state.last = (
 					await send(

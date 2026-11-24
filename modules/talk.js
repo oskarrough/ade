@@ -26,11 +26,21 @@ export function server(core) {
 			)
 		return matches[0].id
 	}
-	const answered = async (thread, by) =>
+	/** Which of `posts`, questions from `thread`, thread `by` answered there: an answer comes after its question, so it reads back only that far */
+	const answered = async (thread, by, posts) =>
 		new Set(
-			(await core.messages(thread))
-				.filter((entry) => entry.data.from === by)
-				.flatMap((entry) => entry.data.re ?? []),
+			posts.length
+				? (
+						await core.messages(thread, {
+							since:
+								posts.reduce(
+									(first, post) => (post.data.createdAt < first ? post.data.createdAt : first),
+									posts[0].data.createdAt,
+								) ?? '',
+							matches: (entry) => entry.data.from === by,
+						})
+					).flatMap((entry) => entry.data.re ?? [])
+				: [],
 		)
 
 	/**
@@ -113,12 +123,16 @@ export function server(core) {
 			].filter((bot) => bot && bot !== name)
 			const opening = new Set(named).size > 1 && (args.to === undefined || botNamed(args.to))
 			const opener = opening ? await core.botAgent(name) : undefined
-			const done = !fresh && !member && (await answered(thread, from))
-			const asked =
-				done &&
-				(await core.messages(from)).findLast(
-					(entry) => entry.data.from === thread && !entry.data.re && !done.has(entry.id),
-				)
+			// What that thread asked here and wasn't answered yet, none of it older than the thread
+			const questions =
+				fresh || member
+					? []
+					: await core.messages(from, {
+							since: row.createdAt,
+							matches: (entry) => entry.data.from === thread && !entry.data.re,
+						})
+			const done = await answered(thread, from, questions)
+			const asked = questions.findLast((entry) => !done.has(entry.id))
 			const askerKey = asked && keyOf(asked.data.author)
 			const asker = asked && (await agentOf(row.agents[askerKey]?.conversation, askerKey))
 			/** An answer goes back to its asker; any other post to a thread asks the bots it @mentions there, or with no `to`, whom the director picks */
@@ -302,8 +316,9 @@ export function server(core) {
 	async function reply(posts, answeredIn, agent, body, images) {
 		const replies = []
 		for (const from of new Set(posts.map((post) => post.data.from))) {
-			const done = await answered(from, answeredIn)
-			const mine = posts.filter((post) => post.data.from === from && !done.has(post.id))
+			const theirs = posts.filter((post) => post.data.from === from)
+			const done = await answered(from, answeredIn, theirs)
+			const mine = theirs.filter((post) => !done.has(post.id))
 			if (!mine.length) continue
 			const { agents } = await core.thread(from)
 			const askers = (

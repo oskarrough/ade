@@ -13,7 +13,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused
   ask, route, ROUTE, routed, fresh  whom a message asks; the director's saved pick
   TRAIL, trailed, trail, nameIn, ranAs   a thread's trail, in a conversation of its own: each step written in its commit, GET /api/threads/:id/trail, `trail/<id>`
-  messages, firstWrote, authors   a thread's messages, or only the newest, the ones since one or those that match, read back from its end; when each person first wrote
+  messages, firstWrote, authors   a thread's messages, or only the newest, the ones since one or a time, or those that match, read back from its end; when each person first wrote
   Draft, saveDraft, draftIn, NEW, spentUnder   a person's unsent draft per thread, and for a new one; `draft/<id>` feed view
   createThread, written, mayAsk     a thread and its first message in one commit
   withdraw, WITHDRAWAL              a message taken back before any agent read it
@@ -38,7 +38,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   recent, older, back, conversationRecord   each thread's newest entries, older ones on demand
   anyRunner, mayRun                 `bash` with a `runner`, and the `runners` tool
   harnessSettings, provide          Pi's settings; a runner's models as Pi's provider
-  forkThread, seenBy                forks
+  forkThread, seenBy, unseenAt      forks
   compact, compactingAt             compaction
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once

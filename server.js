@@ -2203,12 +2203,12 @@ async function trail(id, { entry = undefined, last = 200 } = {}) {
 }
 
 /**
- * A thread's newest messages, read back from its end: those after `after`, before `before`, or the newest `last` that
- * `matches`, with their picks
+ * A thread's newest messages, read back from its end: those after `after`, before `before`, written since the time
+ * `since`, or the newest `last` that `matches`, with their picks
  */
 async function newest(
 	handle,
-	{ after = -1, before = undefined, last = Infinity, matches = (_) => true } = {},
+	{ after = -1, before = undefined, since = '', last = Infinity, matches = (_) => true } = {},
 ) {
 	const routes = new Map()
 	// Picks or withdrawals appended after `before` can target messages before `before`
@@ -2234,7 +2234,7 @@ async function newest(
 	read: for (let cursor; found.length < last;) {
 		const page = await handle.entries(query, 200, cursor, context)
 		for (const entry of page.items) {
-			if (entry.id <= after) break read
+			if (entry.id <= after || (entry.kind === KIND && entry.data.createdAt < since)) break read
 			if (entry.kind === ROUTE || entry.kind === WITHDRAWAL) routed([entry], routes)
 			const message = entry.kind === KIND && withRoute(entry, routes)
 			if (message && matches(message) && found.push(message) >= last) break read
@@ -2679,6 +2679,24 @@ async function seenBy(id, cut) {
 	return entries.filter((entry) => entry.kind === DELIVERY).flatMap((entry) => entry.data.held)
 }
 
+/**
+ * The thread messages up to `at` an agent hadn't seen by its `answer`: those it still hasn't, and those it was handed
+ * since, placed or still queued. Only its own conversation's few newest entries are read, not all it ever saw.
+ */
+async function unseenAt(agent, answer, at) {
+	const handle = await harness.conversation(answer.conversation, context)
+	const since = await collect((cursor) =>
+		handle.entries({ minEntryId: answer.entry + 1, order: 'ascending' }, 200, cursor, context),
+	)
+	const queued = (await harness.snapshot(InboxDoc, answer.conversation, context))?.items ?? []
+	const handed = [...since, ...queued.map((item) => item.entry)]
+		.filter((entry) => entry?.kind === DELIVERY)
+		.flatMap((entry) => entry.data.held)
+	return [...new Set([...agent.unseen, ...handed])]
+		.filter((message) => message <= at)
+		.sort((left, right) => left - right)
+}
+
 async function setTitle(id, { title, key }) {
 	await conversation(id)
 	title = field(title, 'title')
@@ -2725,17 +2743,37 @@ async function setPaused(id, { paused }) {
 
 /** Forks history, the agent and bots at `at`, but keeps the source's current thread-wide tools */
 async function forkThread(id, { at, title }, person) {
-	await conversation(id)
+	const handle = await conversation(id)
 	const pick = (await harness.snapshot(Draft, draftOf(id, person), context))?.pick
+	const source = await thread(id)
+	const keys = Object.keys(source.agents)
+	// Back from the fork point only until each of its agents' newest answer, given in the conversation it has now; one
+	// that never answered hears the whole thread anew, so then it reads all of it
+	const read = []
+	const latest = {}
+	for (let cursor; ;) {
+		const page = await handle.entries(
+			{ order: 'descending', maxEntryId: /** @type {any} */ (Number(at)) },
+			200,
+			cursor,
+			context,
+		)
+		for (const entry of page.items) {
+			read.push(entry)
+			const message = /** @type {Message} */ (entry.data)
+			if (entry.kind === KIND && message.answer) latest[keyOf(message.author)] ??= message.answer
+		}
+		if (keys.every((key) => latest[key]?.conversation === source.agents[key].conversation)) break
+		if (!(cursor = page.next)) break
+	}
 	// Picks made after the fork point stay behind with it
-	const shown = routed((await entries(id)).filter((entry) => entry.id <= Number(at)))
+	const shown = routed(read.reverse())
 	const answers = {}
 	const asked = new Set()
 	for (const { data } of shown) {
-		if (data.answer) answers[keyOf(data.author)] = data.answer
+		if (data.answer && source.agents[keyOf(data.author)]) answers[keyOf(data.author)] = data.answer
 		for (const name of data.to ?? []) asked.add(keyOf(name))
 	}
-	const source = await thread(id)
 	/** Asked but not answered by then: made anew, as the source's is now */
 	const fresh = await Promise.all(
 		[...asked]
@@ -2744,6 +2782,8 @@ async function forkThread(id, { at, title }, person) {
 	)
 	const agents = await Promise.all(
 		Object.entries(answers).map(async ([key, answer]) => {
+			if (answer.conversation === source.agents[key].conversation)
+				return { key, answer, unseen: await unseenAt(source.agents[key], answer, Number(at)) }
 			const seen = new Set(await seenBy(answer.conversation, answer.entry))
 			return {
 				key,
@@ -2755,9 +2795,7 @@ async function forkThread(id, { at, title }, person) {
 		}),
 	)
 	const forkTitle = title?.trim() || `${source.title} (fork)`
-	const fork = await (
-		await conversation(id)
-	).fork(
+	const fork = await handle.fork(
 		/** @type {import("@earendil-works/pi-durable").EntryId} */ (Number(at)),
 		{
 			...ownerless,
@@ -3240,6 +3278,7 @@ const core = {
 	threadMatch: (change) => threadMatch(change),
 	entries,
 	messages,
+	routed,
 	shapeMessages,
 	latestMessage,
 	/** A document's value as stored, read without a commit: a thread's or an agent's by `id`, the house's without */
