@@ -431,7 +431,15 @@ export const lastingOf = (steps) =>
 	steps.filter((step) => step.result && !step.result.error && LASTING[step.name]?.(step))
 
 /** What a bot call changed of its bot, as the words its row names */
-const changedOf = (step) => ['instructions', 'model'].filter((key) => step.args[key] !== undefined)
+const changedOf = (step) =>
+	['instructions', 'model'].filter(
+		(key) =>
+			step.args[key] !== undefined || (key === 'instructions' && step.args.append !== undefined),
+	)
+/** What a bot call left in place of `key`: an `append` adds its line to the instructions before */
+const afterOf = (step, key) =>
+	step.args[key] ??
+	[step.result.details.before.instructions, step.args.append.trim()].filter(Boolean).join('\n')
 
 /** jsdiff from esm.sh, fetched the first time a change is opened */
 let jsdiff
@@ -497,7 +505,7 @@ export function Changed(props) {
 		changedOf(props.step).map((key) => ({
 			key,
 			before: props.step.result.details.before[key] ?? '',
-			after: props.step.args[key],
+			after: afterOf(props.step, key),
 		}))
 	const opened = (event) => {
 		if (!event.currentTarget.open || diffWords()) return

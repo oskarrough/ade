@@ -279,7 +279,7 @@ const commands = {
 	},
 	stop: () => api('POST', `/api/threads/${Number(rest[0])}/stop`),
 	/** The owner's key, from beside this machine's store, in a link's fragment: the page trades it for a cookie and drops it */
-	link() {
+	async link() {
 		const store = process.env.DB_PATH || path.join(dataDir(), 'ade.sqlite')
 		const key = readFileSync(path.join(path.dirname(store), 'owner.key'), 'utf8').trim()
 		console.log(`${flags.server}/#key=${key}`)
