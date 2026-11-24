@@ -3512,10 +3512,19 @@ const ownerOnly = (req, refusal) => {
 const routes = /** @type {[string, Function][]} */ ([
 	...Object.entries({
 		'GET /api/server': (req) => serverInfo(user(req)),
-		'POST /api/settings': async (req) => {
+		'POST /api/settings': async (req, _id, _url, res) => {
 			// Settings name the owner and their logins, so only the owner changes them
 			ownerOnly(req, 'Only the owner changes settings')
-			return saveSettings(await input(req))
+			const body = await input(req)
+			const saved = await saveSettings(body)
+			// With invites on only keys get in, so the browser that turned them on keeps the owner's
+			if (body.invites === true) keepKey(req, res, ownerKey)
+			return saved
+		},
+		/** The owner's key as a link, to bring another device in while invites are on */
+		'POST /api/link': (req) => {
+			ownerOnly(req, 'Only the owner has the owner link')
+			return { link: `${origin(req)}/#key=${ownerKey}` }
 		},
 		'POST /api/restart': (req) => {
 			ownerOnly(req, 'Only the owner restarts the server')
@@ -3761,6 +3770,15 @@ async function servePackage(res, pathname, head = false) {
 	return send(res, 404, { error: 'Not found' })
 }
 
+/** Keeps a key as this browser's cookie, one its scripts can't read */
+function keepKey(req, res, key) {
+	const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
+	res.setHeader(
+		'Set-Cookie',
+		`${keyCookie()}=${key}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`,
+	)
+}
+
 function send(res, status, value) {
 	res.writeHead(status, { 'Content-Type': 'application/json' })
 	res.end(JSON.stringify(value))
@@ -3788,11 +3806,7 @@ async function handleRequest(req, res, serve = false) {
 		const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
 		const me = given && (isOwnerKey(given) ? owner : guests.get(sha256(given)))
 		if (!me) return send(res, 403, { error: 'That key opens nothing here' })
-		const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
-		res.setHeader(
-			'Set-Cookie',
-			`${keyCookie()}=${given}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`,
-		)
+		keepKey(req, res, given)
 		return send(res, 201, { me })
 	}
 	if (req.method === 'OPTIONS') {
@@ -3826,6 +3840,7 @@ async function handleRequest(req, res, serve = false) {
 				req,
 				match[1] && (/^\d+$/.test(match[1]) ? Number(match[1]) : decodeURIComponent(match[1])),
 				url,
+				res,
 			)
 			// A body too big to hold comes as pieces, sent as they're made
 			if (result?.[Symbol.asyncIterator]) {

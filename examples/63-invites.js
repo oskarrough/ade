@@ -33,7 +33,8 @@ check(
 	'while invites are off, an invite’s key opens nothing of its own: this machine is still the owner',
 )
 
-await as(ownerKey, 'POST', '/api/settings', { invites: true })
+const turnedOn = await as(ownerKey, 'POST', '/api/settings', { invites: true })
+const ownerCookie = String(turnedOn.cookie).split(';')[0]
 await until(
 	async () => (await as(ownerKey, 'GET', '/api/server')).json.settings?.invites === true,
 	15000,
@@ -48,6 +49,13 @@ check(
 	'and a tailnet login alone is nobody',
 )
 check((await as(ownerKey, 'GET', '/api/server')).json.me === owner, 'the owner key is the owner')
+check(
+	(await as(undefined, 'GET', '/api/server', undefined, { cookie: ownerCookie })).json.me === owner,
+	'the browser that turned invites on keeps the owner key, so it isn’t locked out',
+)
+const { link } = (await as(ownerKey, 'POST', '/api/link')).json
+check(link.endsWith(`#key=${ownerKey}`), 'the owner link brings another device in as the owner')
+check((await as(sam.key, 'POST', '/api/link')).status === 403, 'and only the owner gets it')
 
 const kept = await as(sam.key, 'POST', '/api/me')
 const cookie = String(kept.cookie).split(';')[0]

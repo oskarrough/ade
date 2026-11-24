@@ -73,6 +73,7 @@ GET    /api/server                     modules, settings, `me`, who the server t
 GET    /api/changes?since=<commit>     {commits: [{subject, at}]}: the commits since that one, newest first; without
                                        `since`, the newest 20
 POST   /api/me                         with the owner key or an invite's as a bearer: keeps it as this browser's cookie
+POST   /api/link                       the owner's: {link}, the owner key as a link, to bring another device in
 GET    /api/invites                    the owner's: {on, invites: [{name, at}]}
 POST   /api/invites {name}             the owner's: {name, key, link}, a key with that name on it; again, a new one
 DELETE /api/invites/:name              the owner's: from the next request the key opens nothing, their sockets close, their runners'
@@ -307,7 +308,7 @@ PORT=3001 npx --allow-git=all github:oskarrough/ade     # a fixed port; otherwis
 DB_PATH=other.sqlite npx --allow-git=all github:oskarrough/ade
 ```
 
-These win over the file; leave them unset to choose from the page. Only the owner changes settings: `POST /api/settings` from anyone else is refused with 403, since settings name the owner and the tailnet logins that count as them.
+These win over the file; leave them unset to choose from the page. Only the owner changes settings: `POST /api/settings` from anyone else is refused with 403, since settings name the owner and the tailnet logins that count as them. A save that sets `invites: true` also keeps the owner key as the asking browser's cookie, so turning invites on from the page doesn't lock that page out.
 
 ```sh
 MODULES=+web-search,-talk npx --allow-git=all github:oskarrough/ade
