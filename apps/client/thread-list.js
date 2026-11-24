@@ -462,8 +462,10 @@ export function ThreadItem(props) {
 					/>
 				<//>
 			</a>
-			<${HoverCard} content=${() => html`<${ThreadCard} thread=${() => props.thread} />`} />
-			<${Show} when=${() => !homeBot(props.thread.id)}>
+			<${Show} when=${() => !editing()}>
+				<${HoverCard} content=${() => html`<${ThreadCard} thread=${() => props.thread} />`} />
+			<//>
+			<${Show} when=${() => !homeBot(props.thread.id) && !editing()}>
 				<button
 					type="button"
 					class="small archive"
