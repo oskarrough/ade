@@ -9,10 +9,10 @@ AGENTS.md has the rules; this is the how.
 
 ## Workspace and landing
 
-- `jj workspace add .work/<name> -r main`, then `pnpm install --frozen-lockfile`. Workspaces have no `.git`: use `jj status`, `jj file list`, `jj log -r main@origin`. Scratch files and screenshots go in `~/sites/ade/.work/<name>-shots/`, a sibling folder, not inside `.work/<name>/` itself — that's the workspace, and it's deleted, screenshots and all, when you forget it.
+- `jj workspace add .work/<name> -r main`, then `pnpm install --frozen-lockfile`. Workspaces have no `.git`: use `jj status`, `jj file list`, `jj log -r main@origin`. **Screenshots always go in `~/sites/ade/.work/<name>-shots/`, a sibling folder — never `/tmp`, never inside `.work/<name>/` itself**, which is the workspace and is deleted, screenshots and all, when you forget it; after cleanup, check the file is still there before you post it.
 - `main` can be behind `main@origin` even right after a fetch; check `jj log -r @-` against `main@origin` and `jj rebase -s @- -o main@origin` before starting.
 - Run `set -o pipefail; pnpm check` once, uncut (piping it through `tail` hides a failure), and add `&& pnpm examples` unless the change is client-only (apps/client: CSS, copy, markup, client JS); then commit only your paths: `jj commit -m … <paths>`, and keep the id it prints. Check `jj diff -r <id> --git` holds only your lines.
-- `jj git fetch`, `jj rebase -s <id> -o main@origin` (`-s`, not `-r`, or the commit stays behind), `jj bookmark set main -r <id>`, `jj git push`. If SSH is refused, push over HTTPS with the GitHub CLI login.
+- `jj git fetch`, `jj rebase -s <id> -o main@origin` (`-s`, not `-r`, or the commit stays behind; with a stack, `<id>` is its first commit), `jj bookmark set main -r <id>`, and check `jj log -r 'main@origin..@'` holds every commit in the stack before `jj git push`. If SSH is refused, push over HTTPS with the GitHub CLI login.
 - A refused push ("stale info", a conflicted bookmark) means main moved: fetch, rebase onto `main@origin`, set the bookmark, push again. Never `--allow-backwards`, `--ignore-immutable` or a forced push; that's how main has lost commits before. If it won't converge because of a real conflict, stop and report.
 - Then bring Oskar's checkout up: in `~/sites/ade`, `jj rebase -s default@ -o main`, and `jj workspace update-stale` if it says stale. Conflicts in files you didn't touch are his. Finally `jj workspace forget` yours and delete its folder.
 - A long run can leave your workspace stale when main moves; copy your changed files aside before `jj workspace update-stale`, and check `jj status` still has them.
@@ -53,7 +53,7 @@ A change to how transcript rows, sidebar dots or reply labels render gets checke
 
 ## Real data, a real model, measuring
 
-- Real data: copy `${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite` and run `PORT=<free> DB_PATH=<copy> node server.js --no-runner` (without the flag it starts a runner called "oskar" that competes with the real one). `DB_PATH` doesn't move settings; point `XDG_CONFIG_HOME` at a scratch folder for that.
+- Real data: copy it with SQLite's `.backup`, never a plain file copy (`sqlite3 ${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite ".backup <copy>"`), and run `PORT=<free> DB_PATH=<copy> node server.js --no-runner` (without the flag it starts a runner called "oskar" that competes with the real one). `DB_PATH` doesn't move settings; point `XDG_CONFIG_HOME` at a scratch folder for that. For a UI check, default to a fresh try.js house instead; reach for real data only when the check needs its scale or shape.
 - A real model: `POST /api/runners {"name":"oskar"}` for a key, then `ADE_KEY=<key> node runner.js --server <url> --name oskar --dir <folder>`, and use `gpt-6-luna:low@oskar`.
 - A run's tool calls and token usage: `GET /api/conversations/:id`, the agent's `conversation` from `GET /api/threads/N`.
 - `pnpm perf` copies the real store into `.work/perf/` and times the lists, the biggest thread, the socket and page load; `--why` names the costly statements. Its `typing in N meanwhile` line is the one for drafts and typing.

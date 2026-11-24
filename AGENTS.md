@@ -4,7 +4,7 @@
 
 - [FEATURE-MAP.md](FEATURE-MAP.md) says which file and function a task touches; update it when you add or move one. [GLOSSARY.md](GLOSSARY.md) defines the terms.
 - Load `.agents/skills/ade-workbench/SKILL.md` before you start a server, open a browser or land: it's how to run, check, measure and push.
-- Land only from your own jj workspace (`jj workspace add .work/<name> -r main`), even a one-line fix. `~/sites/ade` is Oskar's checkout, shared with other workers; its `@-` can be someone else's commit. Scratch files go in `.work/<your-name>/`, never `/tmp`.
+- Land only from your own jj workspace (`jj workspace add .work/<name> -r main`), made before your first edit, not just before landing, even a one-line fix. `~/sites/ade` is Oskar's checkout, shared with other workers; its `@-` can be someone else's commit, and it's never where you edit. Scratch files go in `.work/<your-name>/`, never `/tmp`.
 - Commit only your own paths and push `main` yourself. If the push is refused, fetch, rebase and push again; never force it or move main backwards. Report a commit id only once `main@origin` has it. While a sprint holds pushes, stop before `jj git push`. After pushing, bring `~/sites/ade` up to main without touching Oskar's uncommitted edits.
 - Commit subjects are the changelog, shown in the app: one plain sentence for the person using ade, benefit first ("Forking a long thread is instant", not "fork: read only needed entries"); internal work says so ("Server code is simpler, nothing changes for you"). The why and how go in the body. Voice: `~/.agents/skills/arbe-changelog/SKILL.md`.
 - Never abandon, restore or revert someone else's work. If you need lines someone else is changing, agree in their thread who goes first.
