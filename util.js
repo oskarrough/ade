@@ -64,11 +64,16 @@ export const agentTo = (name) => {
 }
 /**
  * A model for side work, like memory's lines or the director's picks: Haiku for Anthropic or Claude Code agents, Luna
- * otherwise, on `to`'s runner when it offers it, else `to` itself. With `to`'s runner offline (`online` says), any online
- * runner offering a small model, Haiku or Luna, so side work never waits for one machine. `runners` is what each runner
- * lists: the models it offers and those it has run.
+ * otherwise, then Claude Code's Haiku and Luna, on `to`'s runner, else `to` itself. With `to`'s runner offline (`online`
+ * says), any online runner, so side work never waits for one machine. `runners` is what each runner lists: the models it
+ * offers, those it has run and its `metered` providers. The house never picks a metered provider, or one the runner
+ * merely ran once, on its own: only `to`'s own provider, which someone chose, may be either.
  */
-export function smallModel(
+export function smallModel(to, runners, thinkingLevel, online, preferred) {
+	return smallModels(to, runners, thinkingLevel, online, preferred)[0] ?? to
+}
+/** Every small model `smallModel` could pick, best first, for a caller that moves on when one fails */
+export function smallModels(
 	to,
 	runners,
 	thinkingLevel,
@@ -80,23 +85,21 @@ export function smallModel(
 		provider === 'anthropic' || provider === 'claude-code'
 			? `${provider}/claude-haiku-5-5`
 			: 'openai-codex/gpt-6-luna'
-	const offers = (name, model) =>
-		Boolean(runners[name]?.models?.[model] || runners[name]?.offers?.includes(model))
-	const local = online(to.runner)
-	const names = local ? [to.runner] : Object.keys(runners).filter(online)
-	const models =
-		preferred ??
-		(local
-			? [own]
-			: [
-					own,
-					'claude-code/claude-haiku-5-5',
-					'anthropic/claude-haiku-5-5',
-					'openai-codex/gpt-6-luna',
-				])
-	for (const model of models)
-		for (const name of names) if (offers(name, model)) return { runner: name, model, thinkingLevel }
-	return to
+	const offers = (name, model) => {
+		const runner = runners[name]
+		const chosen = model.split('/')[0] === provider
+		if (chosen && runner?.models?.[model]) return true
+		return Boolean(
+			runner?.offers?.includes(model) && (chosen || !runner.metered?.includes(model.split('/')[0])),
+		)
+	}
+	const names = online(to.runner) ? [to.runner] : Object.keys(runners).filter(online)
+	const models = preferred ?? [
+		...new Set([own, 'claude-code/claude-haiku-5-5', 'openai-codex/gpt-6-luna']),
+	]
+	return models.flatMap((model) =>
+		names.filter((name) => offers(name, model)).map((runner) => ({ runner, model, thinkingLevel })),
+	)
 }
 /** The director's numbers in ade.json, in seconds there, as whole milliseconds; out of range throws, so a typo never
  * makes a timer fire at once. Left out, each takes its default. */
@@ -223,11 +226,48 @@ export async function complete(core, to, messages, { signal, retry = undefined, 
 				...(to.thinkingLevel && to.thinkingLevel !== 'off' ? { reasoning: to.thinkingLevel } : {}),
 			},
 		)
-	const reply = await (retry ? retryAssistantCall(call, retry, signal) : call())
+	let reply
+	try {
+		reply = await (retry ? retryAssistantCall(call, retry, signal) : call())
+	} catch (error) {
+		if (signal?.aborted) throw error
+		throw plainError(error.stack ?? error.message, to, purpose, thread)
+	}
 	if (reply.usage) await core.spent(thread, purpose, reply)
-	if (reply.stopReason === 'error' || reply.stopReason === 'aborted')
-		throw new Error(reply.errorMessage ?? reply.stopReason)
+	if (reply.stopReason === 'aborted') throw new Error(reply.errorMessage ?? 'aborted')
+	if (reply.stopReason === 'error')
+		throw plainError(reply.errorMessage ?? 'the model failed', to, purpose, thread)
 	return reply
+}
+
+const LOGINS = {
+	anthropic: ["pi's Anthropic login", 'Run pi, then /login.'],
+	'openai-codex': ["pi's ChatGPT login", 'Run pi, then /login.'],
+	'claude-code': ['The Claude Code login', 'Run claude, then /login.'],
+}
+/** A failed model call as one plain line people can act on, `auth` when it was a login; the whole detail goes to the
+ * server log */
+export function plainError(detail, to, purpose, thread) {
+	console.error(
+		`${purpose ?? 'model call'}: thread ${thread} on ${to.model}@${to.runner}: ${detail}`,
+	)
+	const provider = to.model.split('/')[0]
+	const [login, fix] = LOGINS[provider] ?? [`The ${provider} login`, 'Run pi, then /login.']
+	const expired = /OAuth refresh|token expired|invalid_grant/i.test(detail)
+	const auth =
+		expired ||
+		/OAuth auth derivation|API key auth failed|No API key|not configured|authentication_error|invalid.{0,10}api.?key|\b401\b|unauthori[sz]ed|not logged in|\/login/i.test(
+			detail,
+		)
+	const line = auth
+		? `${login} ${expired ? 'expired' : 'failed'} on ${to.runner}. ${fix}`
+		: `${to.model} failed: ${
+				detail
+					.split(/\r?\n|; (?:details|stack)=|: (?=\w*Error\b)/)[0]
+					.trim()
+					.slice(0, 200) || 'no reason given'
+			}`
+	return Object.assign(new Error(line), { auth })
 }
 
 const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`

@@ -2,7 +2,7 @@
  */
 import { defineDoc, defineExtension, defineTask } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { complete, AGENT, agentTo, background, finished, smallModel } from '../util.js'
+import { complete, AGENT, agentTo, background, finished, smallModels } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
 import { messagesAt } from './memory.js'
 
@@ -102,28 +102,36 @@ export function server(core) {
 					if (row.title !== expected)
 						return rt.commit(() => finished('completed', { title: row.title }), ctx)
 					const own = await core.agentOf(row.agents[AGENT]?.conversation ?? input.conversation)
-					const choice = modelName
-						? agentTo(modelName.includes('@') ? modelName : `${modelName}@${own.runner}`)
-						: smallModel(own, await core.known(), 'low', core.runners.isOnline, [
-								'anthropic/claude-sonnet-5-5',
+					// Sonnet low on Claude Code's subscription, else Luna on ChatGPT's; a failed login moves on to the next
+					const choices = modelName
+						? [agentTo(modelName.includes('@') ? modelName : `${modelName}@${own.runner}`)]
+						: smallModels(own, await core.known(), 'low', core.runners.isOnline, [
 								'claude-code/claude-sonnet-5-5',
 								'openai-codex/gpt-6-luna',
 							])
-					await core.runners.online(choice.runner, rt.signal)
-					const to = await core.address(choice, false, rt.signal)
-					const reply = await complete(
-						core,
-						to,
-						[
-							{ role: 'system', content: SYSTEM_PROMPT, timestamp: Date.now() },
-							{
-								role: 'user',
-								content: `Title this conversation:\n\n${recent(first, newest)}`,
-								timestamp: Date.now(),
-							},
-						],
-						{ signal: rt.signal, thread: threadId, purpose: 'titles' },
-					)
+					if (!choices.length) choices.push(own)
+					let reply
+					for (const [index, choice] of choices.entries()) {
+						try {
+							await core.runners.online(choice.runner, rt.signal)
+							reply = await complete(
+								core,
+								await core.address(choice, false, rt.signal),
+								[
+									{ role: 'system', content: SYSTEM_PROMPT, timestamp: Date.now() },
+									{
+										role: 'user',
+										content: `Title this conversation:\n\n${recent(first, newest)}`,
+										timestamp: Date.now(),
+									},
+								],
+								{ signal: rt.signal, thread: threadId, purpose: 'titles' },
+							)
+							break
+						} catch (error) {
+							if (!error.auth || index === choices.length - 1) throw error
+						}
+					}
 					const title = sanitizeThreadTitle(messageText(reply))
 					if (!title) throw new Error('model returned no usable title')
 					return rt.commit(async (tx) => {
