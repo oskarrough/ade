@@ -924,7 +924,6 @@ const heardAuthor = (entry, wrote = writers.get(entry.conversationId)) => {
 		wrote.authors.add(author)
 		if (!stopped) wrote.first.set(author, Math.min(wrote.first.get(author) ?? Infinity, entry.id))
 	}
-	wrote.after = Math.max(wrote.after, entry.id)
 }
 harness.observeCommits({
 	advance: ({ changes }) => {
@@ -1874,15 +1873,14 @@ async function people(id) {
 async function authors(id) {
 	let wrote = writers.get(id)
 	if (!wrote) {
-		wrote = { after: 0, authors: new Set(), first: new Map(), ready: undefined }
+		wrote = { authors: new Set(), first: new Map(), ready: undefined }
 		writers.set(id, wrote)
 		const loading = wrote
 		wrote.ready = (async () => {
-			const handle = await conversation(id)
-			const read = await collect((cursor) =>
-				handle.entries({ order: 'ascending', minEntryId: loading.after + 1 }, 500, cursor, context),
-			)
-			for (const record of read) heardAuthor(record, loading)
+			// A thread all in its newest, as most are, needs no read of its own
+			const tail = await recent(id)
+			for (const record of tail.whole ? tail.entries : await entries(id))
+				heardAuthor(record, loading)
 		})()
 		wrote.ready.catch(() => writers.get(id) === loading && writers.delete(id))
 	}
