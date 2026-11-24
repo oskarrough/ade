@@ -4,6 +4,7 @@
  * The tab needs the internet the first time it opens, to load tldraw from esm.sh. On localhost or plain http tldraw runs
  * without a licence key and shows its watermark; served over https at a domain it would need a key.
  */
+import { errorLine } from '../util.js'
 import { readFileSync } from 'node:fs'
 import { arr, num, obj, opt } from '@earendil-works/pi-schema'
 import { defineDoc, defineExtension, defineTool } from '@earendil-works/pi-durable'
@@ -176,7 +177,7 @@ export function server(core) {
 						else touched.add((all[record.id] = record).id)
 					return { _type: type, ok: true }
 				} catch (error) {
-					return { _type: type, skipped: error.message }
+					return { _type: type, skipped: errorLine(error, `canvas ${threadId}`) }
 				}
 			})
 			const gone = Object.keys(records).filter((id) => !all[id])

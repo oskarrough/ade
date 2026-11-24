@@ -292,8 +292,10 @@ export function createRunners({ onChange }) {
 			const pending = calls.get(message.id)
 			if (!pending) return
 			if ('result' in message) pending.resolve(message.result)
-			else if ('error' in message) pending.reject(new Error(message.error))
-			else pending.onMessage?.(message)
+			else if ('error' in message) {
+				if (message.stack) console.error('runner:', message.stack)
+				pending.reject(new Error(message.error))
+			} else pending.onMessage?.(message)
 		},
 	}
 }
@@ -615,7 +617,7 @@ export function serveRunner({
 					(result) => reply({ id: message.id, result: result ?? null }),
 					(error) => {
 						if (error instanceof FileError) reply({ id: message.id, result: { ok: false, error } })
-						else reply({ id: message.id, error: error.message })
+						else reply({ id: message.id, error: error.message, stack: error.stack })
 					},
 				)
 				.finally(() => running.delete(message.id))

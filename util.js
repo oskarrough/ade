@@ -240,6 +240,18 @@ export async function complete(core, to, messages, { signal, retry = undefined, 
 	return reply
 }
 
+/** One line for the person; callers keep the original error in their log. */
+export function errorLine(error, where = undefined) {
+	if (where) console.error(`${where}:`, error)
+	const message = String(error?.message ?? error ?? '').trim()
+	return (
+		message
+			.split(/[\r\n\u2028\u2029]|; (?:stack|details)=/)[0]
+			.replace(/^(?:\w*Error):\s*/, '')
+			.slice(0, 300) || 'No reason was given.'
+	)
+}
+
 const LOGINS = {
 	anthropic: ["pi's Anthropic login", 'Run pi, then /login.'],
 	'openai-codex': ["pi's ChatGPT login", 'Run pi, then /login.'],

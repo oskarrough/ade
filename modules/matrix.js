@@ -13,7 +13,7 @@
 //      ROOMS and USERS take several, comma-separated. AGENT is model@runner, or a runner for its default model.
 //   4. Write `@BOT …` in the room. Its thread shows up in the client, titled `matrix #room:matrix.org: …`.
 import { defineDoc, defineExtension, defineTask } from '@earendil-works/pi-durable'
-import { agentTo, speaker, finished, background } from '../util.js'
+import { agentTo, speaker, errorLine, finished, background } from '../util.js'
 
 // `threads` keys a room by its id and a Matrix thread by its root event; `last` is each room's newest send.
 const MatrixBridge = defineDoc({
@@ -112,18 +112,18 @@ export function server(core) {
 					)
 				} catch (error) {
 					if (rt.signal.aborted) return
-					console.error(`matrix send: ${error.message}`)
+					console.error('matrix send:', error)
 					if (refused(error))
 						return rt.commit(async (tx) => {
 							await core.post(tx, rt.conversationId, {
 								author: 'matrix',
-								body: `Could not deliver to Matrix room ${room}: ${error.message}`,
+								body: `Could not deliver to Matrix room ${room}: ${errorLine(error)}`,
 								re: [entry],
 								error: true,
 							})
 							return {
 								status: 'terminal',
-								outcome: { status: 'failed', error: { message: error.message } },
+								outcome: { status: 'failed', error: { message: errorLine(error) } },
 							}
 						}, ctx)
 					return rt.sleepUntil(

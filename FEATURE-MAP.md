@@ -61,7 +61,7 @@ read.js                  the `ade_` tables, the house as SQL in ade's database: 
                          and FACTS); createRead: told of every commit from when Pi opens, exact for the list, recent for search (core.recent), stop, serve (GET /api/read, ?check, POST {rebuild})
 remote.js                the runner protocol: createRunners (server), serveRunner (runner), runnerProvider, remoteEnv
 cli.js                   the API from a terminal; `link`, the owner's browser link; `update` (POST /api/update); `runners`
-util.js                  shared helpers: personName, agentTo, writtenTo, smallModel, mentioned, keyOf, speaker, said,
+util.js                  shared helpers: errorLine, plainError, personName, agentTo, writtenTo, smallModel, mentioned, keyOf, speaker, said,
                          written, byAgent, finished, background, collect, firstIn, complete (module model calls), stepText
 modules.js               builtIn, dataDir, ade.json, MODULES; loads each module's server and runner half
 modules/

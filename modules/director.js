@@ -34,6 +34,7 @@ import {
 	directorTimes,
 	finished,
 	PAUSED,
+	errorLine,
 } from '../util.js'
 
 export const on = true
@@ -260,13 +261,13 @@ export function server(core) {
 			)
 		} catch (error) {
 			if (stopped.aborted) throw error
-			console.error(`director: thread ${threadId}: ${error.message}`)
+			console.error(`director: thread ${threadId}:`, error)
 			const agent = here.find((agent) => !agent.name)
 			return {
 				to: agent ? [agent] : [],
 				picked: `Pick failed: ${timeout.aborted ? 'the chooser timed out' : 'the chooser could not choose'}. ${agent ? "The thread's agent answers." : 'No thread agent to answer; @mention a bot.'}`,
 				chose: chose(timeout.aborted ? 'timeout' : 'error', {
-					error: error.message,
+					error: errorLine(error),
 				}),
 			}
 		}

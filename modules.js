@@ -48,7 +48,7 @@ export async function readConfig() {
 	try {
 		return { file, config: JSON.parse(text) }
 	} catch (error) {
-		throw new Error(`${file}: ${error.message}`, { cause: error })
+		throw new Error(`Invalid JSON in ${file}. Fix the file and start ade again.`, { cause: error })
 	}
 }
 

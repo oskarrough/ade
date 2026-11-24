@@ -1,5 +1,5 @@
 /** The API from a terminal */
-import { agentTo } from './util.js'
+import { agentTo, errorLine } from './util.js'
 import { defaultTitle } from './apps/client/title.js'
 import { parseArgs } from 'node:util'
 import { on, once } from 'node:events'
@@ -53,7 +53,9 @@ const parse = (options) => {
 	try {
 		return parseArgs({ allowPositionals: true, options })
 	} catch (error) {
-		console.error(`${error.message}\n\n${usage}`)
+		console.error(
+			`${errorLine(error).split('. To specify a positional argument')[0]}. See ade --help.`,
+		)
 		process.exit(1)
 	}
 }
@@ -380,6 +382,10 @@ if (flags.help || !commands[command]) {
 	process.exit(flags.help ? 0 : 1)
 }
 await commands[command]().catch((error) => {
-	console.error(error.message)
+	console.error(
+		error.message === 'fetch failed'
+			? `Cannot reach the ade server. Check --server and that ade is running.`
+			: errorLine(error),
+	)
 	process.exit(1)
 })

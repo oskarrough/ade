@@ -67,6 +67,8 @@ import {
 	directorTimes,
 	PAUSED,
 	stepText,
+	errorLine,
+	plainError,
 } from './util.js'
 import { createRead } from './read.js'
 import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
@@ -658,7 +660,9 @@ const Shell = defineTask({
 				ctx,
 			)
 			const output =
-				result.ok === true ? { code: result.value.exitCode } : { error: result.error.message }
+				result.ok === true
+					? { code: result.value.exitCode }
+					: { error: errorLine(result.error, `shell ${id}`) }
 			await finishShell(task, rt, ctx, { ...run, ...output })
 			shells.delete(id)
 		},
@@ -1529,7 +1533,7 @@ async function route(
 	try {
 		await reach(to, data.author, await tx.doc(Runners))
 	} catch (error) {
-		;[to, picked] = [[], `Pick failed: ${error.message}`]
+		;[to, picked] = [[], `Pick failed: ${errorLine(error, 'director')}`]
 	}
 	const prior = to.some((one) => !row.agents[keyOf(writtenTo(one))])
 		? await messageIds(tx, threadId)
@@ -1702,10 +1706,22 @@ async function outcome(threadId, agent, settled, mine) {
 		.filter((entry) => !asks.includes(entry) || posts.includes(entry))
 		.filter((entry) => entry.data.to?.some((name) => keyOf(name) === key))
 		.map((entry) => entry.id)
+	let failure = settled.said
+	if (!done && !failure) {
+		const settings = settled.reason === 'model_error' && (await agentOf(agent, key))
+		const detail =
+			settled.detail?.message ??
+			(typeof settled.detail === 'string' ? settled.detail : settled.reason)
+		if (settings)
+			failure = `gave no answer: ${plainError(detail, settings, 'run', threadId).message}`
+		else {
+			console.error(`thread ${threadId} run:`, settled.reason, settled.detail)
+			failure = `gave no answer: ${errorLine(detail)}`
+		}
+	}
 	const body = done
 		? messageText((await commit((tx) => tx.entry(settled.answer)))?.model?.[0])
-		: (settled.said ??
-			`gave no answer: ${settled.reason}${settled.detail ? ` (${JSON.stringify(settled.detail)})` : ''}`)
+		: failure
 	const { words, images } = done ? await shown(agent, body) : { words: body, images: null }
 	if (done && !words.trim() && !images) return []
 	const result = done ? { answer: { conversation: agent, entry: settled.answer } } : { error: true }
@@ -1794,16 +1810,16 @@ async function shown(agent, body) {
 			if (!mimeType) return 'not a png, jpeg, gif, webp or bmp'
 			if (images.length === 8) return 'a message holds 8 images'
 			const info = await env.fileInfo(file, context)
-			if (info.ok !== true) return info.error.message
+			if (info.ok !== true) return errorLine(info.error, 'show image')
 			if (info.value.size > 64 * 1024 * 1024) return 'over 64 MB'
 			const bytes = await env.readBinaryFile(file, context)
-			if (bytes.ok !== true) return bytes.error.message
+			if (bytes.ok !== true) return errorLine(bytes.error, 'show image')
 			photon ??= createNodePhotonImages()
 			const prepared = await (await photon).prepare(bytes.value, mimeType, DEFAULT_IMAGE_LIMITS)
 			return prepared
 				? { type: /** @type {const} */ ('image'), mimeType: prepared.mimeType, data: prepared.data }
 				: "it doesn't decode, or can't be shrunk to fit"
-		})().catch((error) => error.message)
+		})().catch((error) => errorLine(error, 'show image'))
 		if (typeof image !== 'string') images.push(image)
 		said.set(whole, typeof image === 'string' ? `(couldn't show ${at}: ${image})` : '')
 	}
@@ -1838,8 +1854,7 @@ async function tell(tx, threadId, agent, settled, submitted, told, upTo, run) {
 				? {}
 				: {
 						reason:
-							settled.said ??
-							`${settled.reason}${settled.detail ? ` (${JSON.stringify(settled.detail)})` : ''}`,
+							told.find((one) => one.thread === threadId)?.data.body ?? errorLine(settled.reason),
 					}),
 		},
 	)
@@ -2507,7 +2522,7 @@ async function withPick(id, result) {
 		return {
 			...result,
 			to: [],
-			picked: `Pick failed: the director's pick ${state.outcome.status}${state.outcome.error ? ` (${state.outcome.error.message})` : ''}.`,
+			picked: `Pick failed: the director's pick ${state.outcome.status}${state.outcome.error ? ` (${errorLine(state.outcome.error, 'director')})` : ''}.`,
 		}
 	return {
 		...result,
@@ -3429,7 +3444,11 @@ async function input(req) {
 		body += chunk
 		if (body.length > 8 * IMAGE_BYTES + 200000) throw new Error('Request too large')
 	}
-	return JSON.parse(body || '{}')
+	try {
+		return JSON.parse(body || '{}')
+	} catch (cause) {
+		throw new Error('The request body is not valid JSON.', { cause })
+	}
 }
 
 /** Archives a thread inside the commit `tx`, ending what modules keep running in it; one may refuse by throwing */
@@ -3952,7 +3971,8 @@ async function handleRequest(req, res, serve = false) {
 					: result,
 			)
 		} catch (error) {
-			send(res, error.status ?? 400, { error: error.message })
+			console.error(key, error)
+			send(res, error.status ?? 400, { error: errorLine(error) })
 		}
 		return
 	}
@@ -4565,8 +4585,14 @@ async function upgrade(req, raw, head, serve = false) {
 	if (sender) personOf.set(socket, sender)
 	if (taker)
 		return taker.connect(threadId && Number(threadId), socket, url, sender).catch((error) => {
-			console.error(`${named} socket: ${error.message}`)
-			socket.close(4004, error.message.slice(0, 120))
+			console.error(`${named} socket:`, error)
+			socket.close(
+				4004,
+				Buffer.from(errorLine(error))
+					.subarray(0, 119)
+					.toString()
+					.replace(/\uFFFD$/, ''),
+			)
 		})
 	/** A runner's connection: once closed, by its socket or by a newer one for its name, it stops wherever it is */
 	const connection =
@@ -4916,7 +4942,8 @@ if (webhook) {
 				}
 				send(res, 200, await webhook(Number(id), { headers: req.headers, body }))
 			} catch (error) {
-				refuse(res, error.status ?? 400, error.message)
+				console.error('hook request:', error)
+				refuse(res, error.status ?? 400, errorLine(error))
 			} finally {
 				inFlight--
 				clearTimeout(late)

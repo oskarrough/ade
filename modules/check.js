@@ -26,7 +26,7 @@ import {
 	ToolTask,
 } from '@earendil-works/pi-durable'
 import { createCodemodeTool } from '@earendil-works/pi-durable/codemode'
-import { finished } from '../util.js'
+import { finished, errorLine } from '../util.js'
 
 export const on = true
 
@@ -134,9 +134,10 @@ export const CheckRun = defineTask({
 					.join('\n')
 				const output = [text.trim(), calls].filter(Boolean).join('\n').slice(0, OUTPUT)
 				if (!result || result.isError) {
+					console.error(`scheduled check ${id}:`, text, calls)
 					const error = /Script error:\n([^\n]*)/.exec(text)?.[1] ?? 'its script failed'
 					return finished('completed', {
-						failed: error.replace(/^Error: /, '').slice(0, 300),
+						failed: errorLine(error),
 						output: output.replace(/\n?Script error:[\s\S]*?(?=\n\w+ (ok|error)|$)/, ''),
 					})
 				}
@@ -150,7 +151,8 @@ export const CheckRun = defineTask({
 export const outcomeOf = (record) => {
 	const outcome = /** @type {any} */ (record?.state)?.outcome
 	if (outcome?.status === 'completed') return outcome.result
-	return { failed: outcome?.error?.message ?? 'its check ended without an answer', output: '' }
+	if (outcome?.error) console.error('scheduled check:', outcome.error)
+	return { failed: errorLine(outcome?.error ?? 'its check ended without an answer'), output: '' }
 }
 
 export function server(core) {

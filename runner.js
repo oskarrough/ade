@@ -87,7 +87,7 @@ const again = (...more) => {
 	return ['ade runner', ...[...kept, ...more].map(quoted)].join(' ')
 }
 const stop = (message) => {
-	console.log(message)
+	console.log(message.replace(/\n\s*/g, ' '))
 	process.exit(1)
 }
 const config = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'ade')
@@ -209,7 +209,13 @@ function resolve(pattern) {
 		? { cliModel: pattern }
 		: { cliProvider: settings.getDefaultProvider(), cliModel: settings.getDefaultModel() }
 	const found = resolveCliModel({ ...asked, modelRuntime: models })
-	if (!found.model) throw new Error(found.error ?? `${name} has no default model in pi; name one`)
+	if (!found.model)
+		throw new Error(
+			found.error?.replace(
+				'Use --list-models to see available models.',
+				'Choose a model listed under Runners.',
+			) ?? `${name} has no default model in pi; name one`,
+		)
 	return {
 		model: found.model,
 		...(found.thinkingLevel ? { thinkingLevel: found.thinkingLevel } : {}),
