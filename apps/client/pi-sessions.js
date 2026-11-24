@@ -3,6 +3,7 @@ import html from '@solidjs/html'
 import { createSignal, createUniqueId, For, Show } from 'solid-js'
 import { api, openThread, runners } from './server.js'
 import { report } from './notice.js'
+import { EditInPlace } from './edit-in-place.js'
 
 /** A folder and its pi sessions; picking one starts a thread from it and calls `onStarted`. `onLoaded` hears the list change height. */
 export function PiSessionList(props) {
@@ -66,18 +67,13 @@ export function PiSessionList(props) {
 	load()
 	return html`
 		<div class="pi-sessions">
-			<input
+			<${EditInPlace}
 				aria-label="Folder"
 				list=${`${id}-folders`}
 				value=${() => (place() ? said(place()) : '')}
-				onKeyDown=${(event) => {
-					if (event.key !== 'Enter') return
-					event.preventDefault()
-					event.currentTarget.blur()
-				}}
-				onChange=${(event) => {
-					setWhere(event.currentTarget.value)
-					load(placeOf(event.currentTarget.value))
+				onSave=${(next) => {
+					setWhere(next)
+					load(placeOf(next))
 				}}
 			/>
 			<datalist id=${`${id}-folders`}>

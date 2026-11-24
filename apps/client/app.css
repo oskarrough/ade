@@ -334,6 +334,13 @@ agent-memory {
 		min-width: 0;
 	}
 
+	/* Renamed in place, the title's field sits where the title did, its padding and border hung over the row's own. */
+	> .row > input {
+		flex: 1;
+		min-width: 0;
+		margin: calc(-2px - var(--space-1)) calc(-1px - var(--space-1));
+	}
+
 	/* A new bot is named in the row its + made: a field where a row's title sits, and Create at its quiet end. */
 	> form.row {
 		padding-block: var(--space-1);

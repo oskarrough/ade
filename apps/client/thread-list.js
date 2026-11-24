@@ -31,6 +31,7 @@ import { placePopover } from './popover.js'
 import { Panes } from './panes.js'
 import { liveOf } from './agent.js'
 import { report } from './notice.js'
+import { EditInPlace } from './edit-in-place.js'
 import { busy } from './busy.js'
 import { copyText, installShellUpdate, nativeMenu, shellUpdate } from './desktop.js'
 import { openSide } from './side.js'
@@ -402,21 +403,6 @@ export const rename = (id) => {
 export function ThreadItem(props) {
 	/** Whether this row's own title is open for editing, right where it sits; the row keeps its size either way */
 	const [editing, setEditing] = createSignal(false)
-	const [error, setError] = createSignal('')
-	const title = () => props.thread.title
-	const save = async (field) => {
-		const next = field.value.trim()
-		if (next === title()) return setEditing(false)
-		setError('')
-		try {
-			await renameThread(props.thread.id, next)
-			setEditing(false)
-		} catch (failure) {
-			setError(failure.message)
-			field.value = title()
-			field.focus()
-		}
-	}
 	return html`
 		<li
 			title=${() => (cards ? undefined : props.thread.title)}
@@ -441,25 +427,14 @@ export function ThreadItem(props) {
 			>
 				<${Dot} state=${() => props.thread.status} />
 				<${Show} when=${editing} fallback=${html`<span>${() => props.thread.title}</span>`}>
-					<input
-						class=${() => ['bare', { bad: !!error() }]}
+					<${EditInPlace}
+						class="bare"
 						aria-label="Thread title"
-						title=${() => error() || 'Rename this thread'}
-						value=${title}
-						ref=${(el) =>
-							requestAnimationFrame(() => {
-								el.focus()
-								el.select()
-							})}
-						onClick=${(event) => event.preventDefault()}
-						onBlur=${(event) => save(event.currentTarget)}
-						onKeyDown=${(event) => {
-							if (event.key === 'Enter') event.currentTarget.blur()
-							if (event.key === 'Escape') {
-								event.currentTarget.value = title()
-								setEditing(false)
-							}
-						}}
+						title="Rename this thread"
+						focused
+						value=${() => props.thread.title}
+						onSave=${(next) => renameThread(props.thread.id, next)}
+						onDone=${() => setEditing(false)}
 					/>
 				<//>
 			</a>

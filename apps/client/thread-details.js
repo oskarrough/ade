@@ -1,6 +1,6 @@
 /** Details and tools for the thread on screen, or the one about to start. */
 import html from '@solidjs/html'
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { createMemo, createSignal, For, Show } from 'solid-js'
 import { Icon } from './icons.js'
 import { Panes } from './panes.js'
 import { openSide, PageTabs } from './side.js'
@@ -30,6 +30,7 @@ import { ThreadUsage } from './usage.js'
 import { ThreadTasks } from './schedule.js'
 import { agent, folderOf, openPicker } from './composer.js'
 import { report } from './notice.js'
+import { EditInPlace } from './edit-in-place.js'
 import { Sure } from './sure.js'
 
 /** A thread that's live whatever its inbox says: running, waiting on a person, or failed */
@@ -240,23 +241,10 @@ export function DetailsPage(props) {
 
 function Title(props) {
 	const title = () => threadOf(props.thread)?.title ?? ''
-	const [error, setError] = createSignal('')
-	const save = async (field) => {
-		const next = field.value.trim()
-		if (next === title()) return
-		setError('')
-		try {
-			await renameThread(props.thread, next)
-		} catch (failure) {
-			setError(failure.message)
-			field.value = title()
-		}
-	}
 	// The model writes a new one, and the request answers once it's written or why it wasn't; till then the button blinks
 	const [asking, setAsking] = createSignal(false)
 	const [failed, setFailed] = createSignal('')
 	const regenerate = async () => {
-		setError('')
 		setFailed('')
 		setAsking(true)
 		try {
@@ -268,19 +256,12 @@ function Title(props) {
 		}
 	}
 	return html`<h2 class="thread-title">
-			<input
-				class=${() => ['bare', { bad: !!error() }]}
+			<${EditInPlace}
+				class="bare"
 				aria-label="Thread title"
-				title=${() => error() || 'Rename this thread'}
+				title="Rename this thread"
 				value=${title}
-				onChange=${(event) => save(event.currentTarget)}
-				onKeyDown=${(event) => {
-					if (event.key === 'Enter') event.currentTarget.blur()
-					if (event.key === 'Escape') {
-						event.currentTarget.value = title()
-						event.currentTarget.blur()
-					}
-				}}
+				onSave=${(next) => renameThread(props.thread, next)}
 			/>
 			<${Show} when=${() => server().modules.includes('auto-title') && !homeBot(props.thread)}>
 				<button
@@ -304,27 +285,10 @@ function Title(props) {
 
 function Tools(props) {
 	const tools = () => (props.thread ? threadOf(props.thread)?.tools : newThreadTools())
-	let field
-	const [text, setText] = createSignal('')
-	createEffect(
-		() => (tools() ?? []).join(','),
-		(value) => {
-			if (document.activeElement !== field) setText(value)
-		},
-	)
-	const [error, setError] = createSignal('')
-	const save = async (path, body) => {
-		setError('')
-		try {
-			await api(`/api/threads/${props.thread}/${path}`, body)
-		} catch (failure) {
-			setError(failure.message)
-		}
-	}
-	const apply = (list) => {
+	const save = (path, body) => api(`/api/threads/${props.thread}/${path}`, body)
+	const apply = async (list) => {
 		const tools = list?.length ? list : null
 		if (props.thread) return save('tools', { tools })
-		setError('')
 		setNewThreadTools(tools)
 	}
 	const here = () => props.thread && threadOf(props.thread)
@@ -333,29 +297,17 @@ function Tools(props) {
 			<${Switch}
 				on=${() => !!tools()}
 				title="Its agents can look things up, but every change has to go through a thread"
-				onToggle=${(on) => apply(on ? HANDS_OFF : null)}
+				onToggle=${(on) => apply(on ? HANDS_OFF : null).catch(report)}
 				><span>Hands off</span><//
 			>
-			<input
+			<${EditInPlace}
 				placeholder="every tool"
 				aria-label="Thread tools"
-				ref=${(el) => {
-					field = el
-				}}
 				spellcheck="false"
-				class=${() => ['tools', { bad: !!error() }]}
-				title=${() => error() || 'tools, as pi --tools takes them: read,post or -write,-edit,-bash'}
-				value=${() => text()}
-				onInput=${(event) => setText(event.currentTarget.value)}
-				onChange=${() =>
-					apply(
-						text()
-							.split(/[\s,]+/)
-							.filter(Boolean),
-					)}
-				onKeyDown=${(event) => {
-					if (event.key === 'Enter') event.currentTarget.blur()
-				}}
+				class="tools"
+				title="tools, as pi --tools takes them: read,post or -write,-edit,-bash"
+				value=${() => (tools() ?? []).join(',')}
+				onSave=${(next) => apply(next.split(/[\s,]+/).filter(Boolean))}
 			/>
 		</div>
 		<${Show} when=${() => here()}>
@@ -363,7 +315,7 @@ function Tools(props) {
 				<${Switch}
 					on=${() => !!here().paused}
 					title="Only @mentions and named recipients get an answer; replies already on their way finish"
-					onToggle=${(on) => save('pause', { paused: on })}
+					onToggle=${(on) => save('pause', { paused: on }).catch(report)}
 					><span>Paused</span><//
 				>
 			</div>
@@ -373,7 +325,7 @@ function Tools(props) {
 				<${Switch}
 					on=${() => here().memory}
 					title="Memory writes a line for each message, so its agents remember the whole thread"
-					onToggle=${(on) => save('memory', { on })}
+					onToggle=${(on) => save('memory', { on }).catch(report)}
 					><span>Memory</span><//
 				>
 			</div>

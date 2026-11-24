@@ -25,6 +25,7 @@ import { agent, openPicker } from './composer.js'
 import { copyText, nativeMenu } from './desktop.js'
 import { Dot, Switch } from './dot.js'
 import { report } from './notice.js'
+import { EditInPlace } from './edit-in-place.js'
 import { openTaskForm } from './schedule.js'
 import { openSide } from './side.js'
 import { Sure } from './sure.js'
@@ -97,16 +98,9 @@ export function BotSettings(props) {
 		},
 	)
 	/** A new name keeps everything else; the old one stays in messages already written */
-	const rename = async (field) => {
-		const next = field.value.trim()
-		if (next === props.bot.name) return
-		try {
-			if (bots.some((bot) => bot.name === next)) throw new Error(`${next} is another bot`)
-			await saveBot(props.bot.name, { rename: next })
-		} catch (failure) {
-			field.value = props.bot.name
-			report(failure)
-		}
+	const rename = async (next) => {
+		if (bots.some((bot) => bot.name === next)) throw new Error(`${next} is another bot`)
+		await saveBot(props.bot.name, { rename: next })
 	}
 	const holder = (hue) =>
 		bots.find((bot) => bot.name !== props.bot.name && hueOf(bot.name) === hue)?.name
@@ -114,7 +108,7 @@ export function BotSettings(props) {
 	return html`
 		<div class="bot">
 			<h3>Name</h3>
-			<input
+			<${EditInPlace}
 				class="bot-name"
 				aria-label="Bot name"
 				title="How anyone asks it, in any thread"
@@ -122,14 +116,7 @@ export function BotSettings(props) {
 				autocapitalize="none"
 				spellcheck="false"
 				value=${() => props.bot.name}
-				onChange=${(event) => rename(event.currentTarget)}
-				onKeyDown=${(event) => {
-					if (event.key === 'Enter') event.currentTarget.blur()
-					if (event.key === 'Escape') {
-						event.currentTarget.value = props.bot.name
-						event.currentTarget.blur()
-					}
-				}}
+				onSave=${rename}
 			/>
 			<h3>Instructions</h3>
 			<textarea

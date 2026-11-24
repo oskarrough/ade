@@ -167,6 +167,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   tutorial-shed-memory.js   recorded memory lines for the shed
   panes.js, popover.js, sure.js, busy.js, notice.js, dot.js   Panes, placePopover, Sure, Busy, Notice, Dot
   list-keys.js           listKeys: one keyboard for the lists you type above (Cmd-K, @ and /, the model picker)
+  edit-in-place.js       EditInPlace, every field that renames or sets a value where it's shown
   quote.js               QuoteButton
   images.js, markdown.js image shrinking; markdown, threadMention
   mermaid.js             messageDiagrams, storyDiagram
@@ -229,4 +230,4 @@ Build from these; a new panel, row or button takes its sibling's markup and clas
 - Quoting: quote.js, composer.js `appendQuote`, app.css `.quote-anchor`/`.quote`.
 - Tool calls: run.js `Turn`, `Exchange`, `Step`, `Call`; `li.turn`, `.steps`, `.tool`, `.said`, `.exchange`, `li.sent`, `li.received`.
 - Composer: composer.js `Composer`, `.thread form`, `.bar`, `.icon`, `.pick`, `.stop`, `ul.images`.
-- Small parts: sure.js `Sure`, busy.js `Busy`, notice.js `Notice`, dot.js `Dot`.
+- Small parts: sure.js `Sure`, busy.js `Busy`, notice.js `Notice`, dot.js `Dot`, edit-in-place.js `EditInPlace`.
