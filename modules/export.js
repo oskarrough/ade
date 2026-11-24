@@ -48,19 +48,24 @@ function* file(name, pieces) {
 }
 
 export function server(core) {
-	async function serve(threadId) {
+	async function serve(threadId, _query, body, viewer) {
 		if (threadId !== undefined) throw new Error('Export has nothing per thread')
-		return files()
+		if (body !== undefined) throw new Error('Export is GET /api/export')
+		return files(viewer)
 	}
 	/** `{files}` as JSON, sent a message at a time, so only one thread's messages are held at once */
-	async function* files() {
+	async function* files(viewer) {
 		const rows = [
-			...(await core.threadList(core.owner, false)),
-			...(await core.threadList(core.owner, true)),
+			...(await core.threadList(viewer, false)),
+			...(await core.threadList(viewer, true)),
 		]
 		yield '{"files":{'
 		for (const [at, row] of rows.entries()) {
-			const entries = await core.shapeMessages(row.id, await core.messages(row.id), core.owner)
+			const entries = await core.shapeMessages(
+				row.id,
+				await core.messages(row.id, { matches: (entry) => !entry.data.withdrawn }),
+				viewer,
+			)
 			const { reads } = await core.thread(row.id)
 			const wrote = entries
 				.filter((entry) => !byAgent(entry.data))

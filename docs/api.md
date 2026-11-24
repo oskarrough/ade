@@ -1,6 +1,6 @@
 # API and CLI
 
-Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in ([SECURITY.md](../SECURITY.md)), and ignores an `x-user` header or a `?user=`. On its own machine you're the owner. Through the Serve port you're the login in `Tailscale-User-Login`. Anywhere else, or with invites on, send a key, the owner's from `owner.key` beside the store or an invite's, as `Authorization: Bearer <key>`. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get. The owner's is `owner` in ade.json, or their login on the server's machine; set it to the name your history has, and it stays yours. A tailnet login that isn't the owner's is `~` and the login with `@` written as `+`, so it never reads as a bot or an agent.
+Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in ([SECURITY.md](../SECURITY.md)), and ignores an `x-user` header or a `?user=`. On its own machine you're the owner. Through the Serve port you're the login in `Tailscale-User-Login`. The owner's `owner.key` beside the store works anywhere as `Authorization: Bearer <key>`. With invites on, only that key or an invite's gets you in. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get. The owner's is `owner` in ade.json, or their login on the server's machine; set it to the name your history has, and it stays yours. A tailnet login that isn't the owner's is `~` and the login with `@` written as `+`, so it never reads as a bot or an agent.
 
 ```sh
 api() { curl -s -H 'content-type: application/json' "localhost:3000/api/$1" ${2:+-d "$2"}; }
@@ -21,13 +21,13 @@ A message's `key`, 1 to 100 characters, dedupes it within its thread: a repeat w
 
 What you're writing in a thread is a draft on the server, yours alone: `{key, text, images, pick}`, where `pick` is whatever the page chose to ask next (an object, or `null`) and `key` is the key its message will be posted with. `POST /api/threads/:id/draft {key, text?, images?, pick?, page?}` saves it as you type: the fields you send replace the ones kept, so a page sends its text half a second after the typing pauses and its images only when they change. Posting the message with the draft's `key` empties the draft in the same commit, so a reload right after Send, or another device, never finds it again. A save under a key that was already sent changes nothing and answers `{draft: null, sent: true}`, so a save that was on its way when Send went can't bring it back, and posting again under that key returns the first message. The feed's `draft/<id>` (and `draft/new`) is yours alone, one row: `{draft, page}` after a save, with the `page` you sent so the one that saved can skip its own, and `{draft: null, sent: key}` once a message went under that key. A fork starts you with the pick you had in the thread you forked. `GET /api/threads/:id/draft` answers `{draft}`, `null` once it holds nothing.
 
-A thread you haven't started has a draft too, one per person, at `GET` and `POST /api/draft`, the same way; every page of yours hears it change as `{thread: "new", draft, page}`. Sending it makes the thread and its first message in one step: `POST /api/threads {title, key, body, to?, images?, steer?}` creates the thread and posts the message in one commit, answering `{id, entry, to}`, so there's never a thread without the message it was made for. The message asks whom `to` names and any bots it @mentions; a body starting `$ ` runs that command. Under the new-thread draft's key, the same commit empties that draft but for its pick, kept under no key for the next thread, and its pages hear `{thread: "new", sent: key}`. A save under a key a thread was already made with does nothing and answers `sent`, and sending again under it returns the first thread and message.
+A thread you haven't started has a draft too, one per person, at `GET` and `POST /api/draft`, the same way; every page of yours hears it change on `draft/new` as `{draft, page}`. Sending it makes the thread and its first message in one step: `POST /api/threads {title, key, body, to?, images?, steer?}` creates the thread and posts the message in one commit, answering `{id, entry, to}`, so there's never a thread without the message it was made for. The message asks whom `to` names and any bots it @mentions; a body starting `$ ` runs that command. Under the new-thread draft's key, the same commit empties that draft but for its pick, kept under no key for the next thread, and its pages hear `{draft, sent: key}` on `draft/new`. A save under a key a thread was already made with does nothing and answers `sent`, and sending again under it returns the first thread and message.
 
 An agent's answer shows images the way a person's message does. Each `![](path)` in it, a png, jpeg, gif, webp or bmp on the agent's machine (`~` is the runner's home, a relative path its folder), is read through its runner, shrunk to pi's 2000×2000 and 4.5 MB like the read tool's, and becomes one of the message's `images`, up to 8; the body keeps the words around it. One it can't show stays in the body as `(couldn't show path: why)`. An answer back to an asking thread carries the images too, so the asker sees them.
 
 A bot that posts with its `post` tool into a thread it's in, or one it opens for other bots, speaks there as itself: its message carries `posted: true`, which marks it as an agent's, as `answer` does, so it never counts as a person's.
 
-A message its author takes back leaves a withdrawal entry (`ade.withdrawal`, `{message}`). Reads leave the message out; the socket sends it again as `{author, createdAt, body: '', withdrawn: true}`, so a page drops it, and an agent's memory keeps its place as "(took back a message)".
+A message its author takes back leaves a withdrawal entry (`ade.withdrawal`, `{message}`). Reads leave the message out; the feed removes its message id with `del`, and an agent's memory keeps its place as "(took back a message)".
 
 Every message carries `createdAt`, the ISO time the server wrote it; one brought in from a pi session keeps pi's time.
 
@@ -40,7 +40,7 @@ Every message returned by `GET /api/threads/:id`, `GET /api/export` or the `/ws`
 - `otherAuthor`, `otherThread`, `otherLabel`: for `sent` and `received` rows, the far side's author, thread id and display label
 - `clamp`: true when written by a person or by the viewer; `failed`: true on an error; `picked` and `pickedNobody`: the director's pick summary when present
 
-Write routes (`POST` and `DELETE`) include `seq` and `boot` in their JSON response: the feed's version and boot id once that write's commit was published. Passing `key` (or `?key=` on `DELETE`) on runners, bots, archive, title and inbox dismiss makes those writes idempotent, the same way posting and thread creation are.
+Successful API writes (`POST` and `DELETE`), except the cookie exchange at `/api/me`, include `seq` and `boot` in their JSON response: the feed's version and boot id once that write's commit was published. Passing `key` (or `?key=` on `DELETE`) on runners, bots, archive, title and inbox dismiss makes those writes idempotent, the same way posting and thread creation are.
 
 With the `inbox` module on, the agent's `ask_person({body})` tool posts a message with `waitingOnPerson: true`. Thread views and lists return `status: "blocked"` until a person's next message, even if agents keep writing. This takes precedence over live work and unread-answer status. It is derived from messages, not stored separately. The tool returns at once, so the agent may carry on or end its turn; the CLI's `post` and `wait` stop waiting once only the question is left. A thread's `busy` says whether it has work whatever its status shows: an agent answering or waiting for its runner, a `$` command, a director pick. With a question open and a command running, it's `blocked` and `busy`, and `wait` waits for the command.
 
@@ -71,20 +71,25 @@ In `agents/<id>`, each of the thread's agents has three kinds of row, keyed by i
 GET    /api/server                     modules, settings, `me`, who the server takes you for, `client`, what a reload of the page gets,
                                        and `commit`, the checkout's commit (null for an install)
 GET    /api/changes?since=<commit>     {commits: [{subject, at}]}: the commits since that one, newest first; without
-                                       `since`, the newest 20
-POST   /api/me                         with the owner key or an invite's as a bearer: keeps it as this browser's cookie
+                                       `since`, the newest 20; an installed release gives its release notes instead
+POST   /api/me                         with the owner key or an invite's as a bearer: answers {me} and keeps it as this browser's cookie
 POST   /api/link                       the owner's: {link}, the owner key as a link, to bring another device in
 GET    /api/invites                    the owner's: {on, invites: [{name, at}]}
-POST   /api/invites {name}             the owner's: {name, key, link}, a key with that name on it; again, a new one
+POST   /api/invites {name}             the owner's: {name, key, link, on}, a key with that name on it; again, a new one
 DELETE /api/invites/:name              the owner's: from the next request the key opens nothing, their sockets close, their runners'
                                        keys go and the scheduled tasks that run as them end
+POST   /api/restart                    the owner’s: {restarts}, whether the server starts again in place or stops
+POST   /api/update                     the owner’s: stages the newest release and restarts if one is staged; 409 from a checkout
+GET    /api/read                       the SQL tables’ state and row counts; `?check` compares them with the store
+POST   /api/read {rebuild: true}       the owner’s: starts rebuilding those tables
 GET    /api/runners
 POST   /api/runners {name}             a key, and the commands that connect it: `ade` with ade, `connect` without; a name another's
                                        runner holds is refused. A guest's runner lists `by`, them
 DELETE /api/runners/:name              its maker's or the owner's; the name stays its maker's
-GET    /api/runners/:name/available    every model pi is logged in for there; `offers` are its scoped ones
+GET    /api/runners/:name/available    every model pi is logged in for there, as a list of names; the runner row’s `offers` are its scoped ones
 GET    /api/threads                    each thread's row; its `parent`, or `conversation.parent` for a fork, places it in a family
 POST   /api/threads {title, parent?, tools?, key?, body?, to?, images?, steer?}  with a body, its first message in the same commit
+POST   /api/threads/shed {key?}        makes the walkthrough’s thread and messages: {id}
 GET    /api/draft                      {draft}: yours for a thread not started yet, or null
 POST   /api/draft {key, text?, images?, pick?, page?}  saves it, as a thread's draft saves
 GET    /api/threads/:id                its row, people and its newest 50 shaped messages, with `earlier` when there are more; `?last=n` newest n, `?before=id&last=n` the page before one, `?after=id` those after one, `?all` every message
@@ -96,7 +101,7 @@ POST   /api/threads/:id/fork {at, title?}  your pick from this thread comes with
 GET    /api/threads/:id/draft          {draft}: yours, or null
 POST   /api/threads/:id/draft {key, text?, images?, pick?, page?}  saves what you're writing; {draft}, or {draft: null, sent: true} once its key was sent
 POST   /api/threads/:id/title {title}
-POST   /api/threads/:id/tools {tools}  as pi --tools takes them
+POST   /api/threads/:id/tools {tools}  a nonempty list of tool names, or null to reset
 POST   /api/threads/:id/pause {paused}  only @mentions and named recipients get an answer while paused
 POST   /api/threads/:id/move {conversation, runner}  moves that agent in place to another runner: its model and thinking there, its folder starting over; what it waits to answer goes with it
 POST   /api/threads/:id/typing {typing}  you're typing (a beat lasts 6 s) or stopped; the director's picks wait for it
@@ -144,7 +149,22 @@ order by id desc limit 20;
 
 Or `select at, text from ade_trail where thread_id = 140844 order by id desc limit 20`; see [the house as SQL](server.md#the-house-as-sql).
 
-Modules add their own routes under `/api/<module>`. With `bots` on:
+Modules add routes under their own names. Each of these needs its module on:
+
+```
+GET    /api/context?runner=name&dir=folder    the skills there; leave out dir for the runner’s folder
+GET    /api/search?q=words                    matching messages across threads, best first
+GET    /api/usage?since=ms&until=ms&zone=ms   tokens and cost across the house; zone is the offset from UTC
+GET    /api/threads/:id/usage                 this thread’s totals by model; since and until narrow either read
+POST   /api/threads/:id/auto-title            asks for a fresh title: {title}, or an error if none comes back
+GET    /api/pi-sessions?runner=name&dir=folder   pi sessions there
+POST   /api/pi-sessions {runner, dir?, session, title?}   brings one in by id or path: {id}
+GET    /api/threads/:id/pi-sessions           {from}, null unless the thread came from pi
+GET    /api/threads/:id/canvas                {shapes, tldraw}; its socket at the same path takes ?sessionId=…
+POST   /api/threads/:id/canvas                {actions} edits shapes, {look} reads them, {seen} reports the viewer’s selection and view
+```
+
+With `bots` on:
 
 ```
 GET    /api/bots
@@ -180,6 +200,8 @@ It never says whether something is running right now; a thread's `status` does.
 With `memory` on:
 
 ```
+POST   /api/threads/:id/memory {on}      turns memory on or off; {lines: [{id, n, text}]} adds missing lines and turns it on
+GET    /api/threads/:id/memory           {lines}; ?budget=n limits their bytes
 GET    /api/threads/:id/memory?room=30   the memory view: bounds, the cut, and the lines above it, in one read
 GET    /api/threads/:id/memory?zoom=id,n opens one line, as the agent's `zoom` does: {lines} or {message}
 ```
@@ -275,7 +297,7 @@ person: the title, who wrote in it, then each message as "**author** · time" wi
 shell result folds into one line. Both read without ade installed, and the route reaches a server anywhere, not
 only its own machine; `ade export <dir>` fetches it and writes the files.
 
-The routes are in `server.js`, the runner protocol in [remote.js](../remote.js).
+Outside the API, `/` serves the page, its assets alongside it and its dependencies under `/packages/`. Runners fetch `/connect-runner`, `/runner/updater.js` and `/runner/bundle`, then connect to `/ws?runner=name` ([runner protocol](../remote.js)).
 
 The CLI is the same API from a terminal:
 
@@ -308,7 +330,7 @@ PORT=3001 npx --allow-git=all github:oskarrough/ade     # a fixed port; otherwis
 DB_PATH=other.sqlite npx --allow-git=all github:oskarrough/ade
 ```
 
-These win over the file; leave them unset to choose from the page. Only the owner changes settings: `POST /api/settings` from anyone else is refused with 403, since settings name the owner and the tailnet logins that count as them. A save that sets `invites: true` also keeps the owner key as the asking browser's cookie, so turning invites on from the page doesn't lock that page out.
+These win over the file; leave them unset to choose from the page. Only the owner changes settings: `POST /api/settings` from anyone else is refused with 403, since settings name the owner and the tailnet logins that count as them. Saving answers `{saved, restarts}` and restarts the server or stops it. A save that sets `invites: true` also keeps the owner key as the asking browser's cookie, so turning invites on from the page doesn't lock that page out.
 
 ```sh
 MODULES=+web-search,-talk npx --allow-git=all github:oskarrough/ade
