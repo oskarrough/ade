@@ -219,6 +219,8 @@ func waitForServer(target string) {
 	offline.waiting = false
 	target = offline.target
 	offline.Unlock()
+	// A house started just now wrote its owner key on the way up
+	ownerKey()
 	mygo.RunOnMain(func() { _ = win.Page().LoadURL(target) })
 }
 
@@ -259,6 +261,7 @@ func main() {
 			start, found = "http://localhost:3000", "http://localhost:3000"
 		}
 		origin = found
+		ownerKey()
 
 		win = mygo.NewWindow(mygo.WindowOptions{
 			Title:           "arbe desktop",

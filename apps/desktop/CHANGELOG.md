@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9
+
+- Comes in as the owner of a house on this machine when its invites are on, with the owner key from beside its store, as the CLI does; before, the window got "Who are you?".
+
 ## 0.1.8
 
 - "Log in to a model" in the model picker, while only echo answers: it opens pi in a terminal, where `/login` logs you in, and the picker lists the models when you're back.

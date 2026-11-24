@@ -267,6 +267,36 @@ func (Desktop) Login() error {
 	return err
 }
 
+// ownerKey lets the window in as the owner of a house on this machine, as
+// the CLI comes in: the owner key from beside the store goes into the cookie
+// the server reads, HTTPOnly so no script on the page sees it, and only until
+// the app quits. With invites on, only a key gets in, localhost included.
+func ownerKey() {
+	u, err := url.Parse(origin)
+	if err != nil || !local(origin) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := runHouse(ctx, "key", loadHouse())
+	key := out[strings.LastIndex(out, "\n")+1:]
+	if err != nil || !strings.HasPrefix(key, "aok_") {
+		return
+	}
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
+	}
+	_ = mygo.Cookies.Set(mygo.Cookie{
+		Name:     "ade_key_" + port,
+		Value:    key,
+		Domain:   u.Hostname(),
+		Secure:   u.Scheme == "https",
+		HTTPOnly: true,
+		SameSite: mygo.CookieSameSiteStrict,
+	})
+}
+
 // findLog learns where the log is before anything starts, for Open house log.
 func findLog() {
 	go func() {

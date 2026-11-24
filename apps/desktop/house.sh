@@ -1,7 +1,7 @@
 # arbe desktop's house: starts, updates or tells the state of the ade server and runner it started, in a login shell
 # on the machine (inside WSL on Windows). main.go puts HOUSE_DIR, HOUSE_COMMAND and HOUSE_SCRIPT, this script's own
 # text, above it. The first line it prints is "<WSL distro>:<log file>", the last the state: running, stopped,
-# started, installing or updating.
+# started, installing or updating; for key, the owner key.
 # It keeps the process group and a token in the pid file; stop it with kill -TERM -- -<pid>, the pid file's first word.
 # Without ade installed, it keeps its own: ade from GitHub's main in $own/ade, and Node from nodejs.org in $own/node
 # when the shell has no Node 24 or newer. update brings that ade up to main in place, so the page offers Update.
@@ -158,6 +158,11 @@ update)
 	done
 	cp -R "$own/ade.next/." "$own/ade/" && rm -rf "$own/ade.next"
 	echo "$(date '+%F %T'): updated ade to $(printf %.12s "$commit")"
+	;;
+key)
+	# The owner key, from beside the store as the CLI reads it, for the window to come in as the owner
+	store="${DB_PATH:-${XDG_DATA_HOME:-$HOME/.local/share}/ade/ade.sqlite}"
+	cat "$(dirname "$store")/owner.key" 2> /dev/null
 	;;
 login)
 	# pi in a terminal of its own, where you log in to a model with /login; the runner reads its logins as they change
