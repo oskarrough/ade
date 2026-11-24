@@ -1,8 +1,9 @@
 /**
  * Jump: Cmd-K or Ctrl-K (and -O) opens one field over everything, the model picker's frame. Empty, it lists the threads
  * you opened last, then the actions; typed, the threads whose title has every word (archived ones too), the bots, the
- * actions, and with search on, the messages that match. The arrows walk the rows, Enter goes, Escape closes. On a phone
- * it's a sheet, opened from the bar's search button.
+ * actions, and with search on, the messages that match. The arrows walk the rows, Enter goes, Escape closes. An action
+ * can open a second step in the same list, like "Choose theme"'s three choices; Escape there goes back to the first
+ * step instead of closing. On a phone it's a sheet, opened from the bar's search button.
  */
 import html from '@solidjs/html'
 import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
@@ -30,7 +31,7 @@ import { placePopover } from './popover.js'
 import { marked, showMessage } from './search.js'
 import { setArchivedPage, setCreatingBot } from './thread-list.js'
 import { openTaskForm } from './schedule.js'
-import { openThemeMenu, theme, ThemeMenu } from './theme.js'
+import { chooseTheme, LABEL as THEME_LABEL, theme, THEMES } from './theme.js'
 
 const RECENT = 'ade.recent'
 const readRecent = () => {
@@ -83,6 +84,14 @@ export function Jump() {
 	const search = () => typed().trim()
 	const [keyed, setKeyed] = createSignal(0)
 	const [hits, setHits] = createSignal({ for: '', rows: [] })
+	// A second step in the same list, opened by an action like "Choose theme"; null at the first step
+	const [step, setStep] = createSignal(null)
+	const backToFirstStep = () => {
+		setStep(null)
+		input.value = ''
+		setTyped('')
+		setKeyed(0)
+	}
 
 	createEffect(current, (id) => {
 		if (!id) return
@@ -129,8 +138,15 @@ export function Jump() {
 			},
 			{
 				label: 'Choose theme',
-				note: { auto: 'Auto', light: 'Light', dark: 'Dark' }[theme()],
-				run: openThemeMenu,
+				note: THEME_LABEL[theme()],
+				// Opens a second step in the same list instead of running something and closing
+				stepInto: true,
+				run: () => {
+					setStep('theme')
+					input.value = ''
+					setTyped('')
+					setKeyed(0)
+				},
 			},
 			on('usage') && { label: 'Usage', run: openUsage },
 		]
@@ -144,6 +160,16 @@ export function Jump() {
 		note: row.archived ? 'archived' : '',
 		run: (event) => (besideKey(event) ? openBeside : openThread)(row.id),
 	})
+
+	/** Choose theme's second step: the three choices, the one that's on noted as such, filtered like any other row */
+	const themeOptions = () =>
+		THEMES.filter((value) => matches(search(), THEME_LABEL[value])).map((value) => ({
+			key: `theme ${value}`,
+			label: THEME_LABEL[value],
+			note: theme() === value ? 'current' : '',
+			fit: fit(search(), THEME_LABEL[value]),
+			run: () => chooseTheme(value),
+		}))
 
 	/** Best first: the title starting with what's typed, then a word of it, then anywhere; open before archived; opened lately before the rest */
 	const found = () => {
@@ -164,6 +190,7 @@ export function Jump() {
 	}
 
 	const sections = createMemo(() => {
+		if (step() === 'theme') return [{ title: 'Theme', options: themeOptions() }]
 		if (!search()) {
 			const homes = new Set(bots.map((bot) => bot.home))
 			const lately = recent()
@@ -245,14 +272,14 @@ export function Jump() {
 	})
 
 	const close = () => panel.hidePopover()
-	/** Runs a row; a thread's or bot's, with Ctrl or Cmd held, opens beside */
+	/** Runs a row; a thread's or bot's, with Ctrl or Cmd held, opens beside; one that opens a second step stays open */
 	const go = (option, event) => {
-		close()
+		if (!option.stepInto) close()
 		option.run(event)
 	}
-	const walk = (step) => {
+	const walk = (delta) => {
 		const count = options().length
-		if (count) setKeyed((Math.min(keyed(), count - 1) + step + count) % count)
+		if (count) setKeyed((Math.min(keyed(), count - 1) + delta + count) % count)
 	}
 
 	onSettled(() => {
@@ -288,6 +315,7 @@ export function Jump() {
 				input.value = ''
 				setTyped('')
 				setKeyed(0)
+				setStep(null)
 			}}
 		>
 			<div class="model-controls">
@@ -295,7 +323,7 @@ export function Jump() {
 					<input
 						type="search"
 						role="combobox"
-						aria-label="Jump to a thread, bot or action"
+						aria-label=${() => (step() === 'theme' ? 'Choose a theme' : 'Jump to a thread, bot or action')}
 						aria-expanded="true"
 						aria-controls="jump-list"
 						aria-activedescendant=${() => (highlighted() ? idOf(highlighted()) : undefined)}
@@ -312,8 +340,13 @@ export function Jump() {
 						}}
 						onKeyDown=${(event) => {
 							if (event.isComposing) return
-							const step = { ArrowDown: 1, ArrowUp: -1 }[event.key]
-							if (step) walk(step)
+							if (event.key === 'Escape' && step()) {
+								backToFirstStep()
+								event.preventDefault()
+								return
+							}
+							const delta = { ArrowDown: 1, ArrowUp: -1 }[event.key]
+							if (delta) walk(delta)
 							else if (event.key === 'Enter') {
 								const option = options().find((each) => each.key === highlighted())
 								if (option) go(option, event)
@@ -325,7 +358,12 @@ export function Jump() {
 						<${Icon} name="close" />
 					</button>
 				</div>
-				<ul class="model-list" id="jump-list" role="listbox" aria-label="Threads, bots and actions">
+				<ul
+					class="model-list"
+					id="jump-list"
+					role="listbox"
+					aria-label=${() => (step() === 'theme' ? 'Theme' : 'Threads, bots and actions')}
+				>
 					<${For} each=${sections} keyed=${(section) => section.title}>
 						${(section) => html`
 							<li role="presentation">
@@ -344,7 +382,6 @@ export function Jump() {
 				</ul>
 			</div>
 		</div>
-		<${ThemeMenu} />
 	`
 }
 

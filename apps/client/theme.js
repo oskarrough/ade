@@ -1,16 +1,15 @@
 /**
  * Theme: Auto follows the system (how the page always worked, in `light-dark()` and system colours like CanvasText);
- * Light and Dark pin it regardless. Chosen from Cmd-K's "Choose theme", applied at once, kept per device in
- * localStorage — nothing asks the server, so it's the same choice in arbe desktop's webview as in a browser tab.
+ * Light and Dark pin it regardless. Chosen from Cmd-K's "Choose theme", a second step in the same list, applied at
+ * once, kept per device in localStorage — nothing asks the server, so it's the same choice in arbe desktop's webview
+ * as in a browser tab.
  */
-import html from '@solidjs/html'
-import { createEffect, createSignal, For, Show } from 'solid-js'
-import { Icon } from './icons.js'
-import { placePopover } from './popover.js'
+import { createEffect, createSignal } from 'solid-js'
 
 const KEY = 'ade.theme'
-const THEMES = ['auto', 'light', 'dark']
-const LABEL = { auto: 'Auto', light: 'Light', dark: 'Dark' }
+/** The three choices Cmd-K's "Choose theme" step offers, and their labels */
+export const THEMES = ['auto', 'light', 'dark']
+export const LABEL = { auto: 'Auto', light: 'Light', dark: 'Dark' }
 const META_COLOR = { light: '#ffffff', dark: '#121212' }
 
 const read = () => {
@@ -50,51 +49,3 @@ createEffect(theme, (value) => {
 	}
 	override.content = META_COLOR[value]
 })
-
-const [asked, setAsked] = createSignal(false)
-/** Opens the theme menu, from Cmd-K's "Choose theme" */
-export const openThemeMenu = () => setAsked(true)
-
-/** The theme menu: a small popover, centred, with the three choices and a check on the one that's on */
-export function ThemeMenu() {
-	let panel
-	createEffect(asked, (wish) => {
-		if (!wish) return
-		setAsked(false)
-		panel.showPopover()
-	})
-	return html`
-		<div
-			class="popover model-picker theme-menu"
-			popover
-			ref=${(el) => (panel = el)}
-			onToggle=${(event) => event.newState === 'open' && placePopover(panel)}
-		>
-			<div class="model-controls">
-				<ul class="model-list">
-					<li role="presentation">
-						<h3>Theme</h3>
-						<div class="models" role="group" aria-label="Theme">
-							<${For} each=${() => THEMES}
-								>${(value) => html`
-									<button
-										type="button"
-										class="ghost model"
-										aria-pressed=${() => String(theme() === value)}
-										onClick=${() => {
-											chooseTheme(value)
-											panel.hidePopover()
-										}}
-									>
-										<span>${() => LABEL[value]}</span>
-										<${Show} when=${() => theme() === value}><${Icon} name="check" /><//>
-									</button>
-								`}
-							<//>
-						</div>
-					</li>
-				</ul>
-			</div>
-		</div>
-	`
-}
