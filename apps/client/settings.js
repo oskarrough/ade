@@ -159,7 +159,7 @@ export function Settings() {
 					<${Show} when=${desktopVersion}>
 						<p class="mute">
 							${() =>
-								`ade ${server().release ?? server().commit?.slice(0, 7) ?? ''} · arbe desktop ${desktopVersion()}`}
+								`ade ${server().release ?? server().commit?.slice(0, 7) ?? ''}, arbe desktop ${desktopVersion()}`}
 						</p>
 					<//>
 				`}
