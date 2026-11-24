@@ -1263,13 +1263,17 @@ function projectionOf(db) {
 
 /** The read model, kept by a worker thread; `exact(job)` runs `job(all)` on the server's thread, `all(sql, ...params)`
  * answering rows, in one transaction that sees the tables true as of Pi's last commit, and answers what it does, or
- * nothing when they aren't, as while they're made or a twentieth of a second behind a commit */
+ * nothing when they aren't, as while they're made or a twentieth of a second behind a commit. `recent(job)` is for a
+ * read that can be a beat behind, as search: it also answers in that twentieth, and while the tables are made it waits
+ * for them, answering nothing only if they couldn't be */
 export function createRead(file) {
 	let keeper
 	let state = 'not made yet'
 	let seq = null
 	let asked = 0
 	const checks = new Map()
+	/** What waits for the tables while they're made */
+	const waiting = []
 
 	/** The worker, started with the tables' making */
 	function kept() {
@@ -1279,7 +1283,11 @@ export function createRead(file) {
 		keeper.on('message', (message) => {
 			if (message.log) console.log(message.log)
 			if (message.error) console.error(message.error)
-			if (message.state) ({ state, seq } = message)
+			if (message.state) {
+				state = message.state
+				seq = message.seq
+				if (state !== 'being made') for (const resolve of waiting.splice(0)) resolve()
+			}
 			if (message.checked) {
 				checks.get(message.id)?.(message.checked)
 				checks.delete(message.id)
@@ -1290,6 +1298,7 @@ export function createRead(file) {
 			console.error('read: its worker failed:', error)
 			state = `broken: its worker failed (${error.message})`
 			seq = null
+			for (const resolve of waiting.splice(0)) resolve()
 		})
 		keeper.postMessage({ start: true })
 		return keeper
@@ -1305,7 +1314,7 @@ export function createRead(file) {
 
 	let reader
 	const statements = new Map()
-	function exact(job) {
+	function exact(job, behind = false) {
 		reader ??= new DatabaseSync(file, { readOnly: true })
 		const all = (sql, ...params) => {
 			if (!statements.has(sql)) statements.set(sql, reader.prepare(sql))
@@ -1314,7 +1323,11 @@ export function createRead(file) {
 		reader.exec('begin')
 		try {
 			const ours = projectionOf(reader)
-			if (ours?.version !== version || ours.state !== 'current' || ours.seq !== piSeq(reader))
+			if (
+				ours?.version !== version ||
+				ours.state !== 'current' ||
+				(!behind && ours.seq !== piSeq(reader))
+			)
 				return undefined
 			return job(all)
 		} finally {
@@ -1371,5 +1384,11 @@ export function createRead(file) {
 
 	// Before any module starts and work resumes, so the tables are made from records no commit has yet followed
 	kept()
-	return { committed, start, serve, flush, exact }
+	async function recent(job) {
+		if (state === 'not made yet' || state === 'being made')
+			await new Promise((resolve) => waiting.push(resolve))
+		return exact(job, true)
+	}
+
+	return { committed, start, serve, flush, exact, recent }
 }

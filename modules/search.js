@@ -5,17 +5,15 @@
  * `GET /api/search?q=<words>` answers up to 50 matches, best first: `[{thread, title, archived, message, author,
  * createdAt, snippet}]`, `message` being the entry id and `snippet` the words around the match, each matched word
  * between `\u0001` and `\u0002`. Every word must match, the last one as a prefix; "quoted words" match as a phrase. Agents get
- * the same results as text through the `search` tool. The index is SQLite's full-text search, in memory: built from
- * every thread on start, in the background (about 0.4 s for 7,000 messages), and kept as Pi stores each entry after.
+ * the same results as text through the `search` tool. The index is the read model's (read.js): SQLite's full-text search
+ * over `ade_messages`, kept with the tables, so a start builds nothing. While the tables are being made, a search waits
+ * for them; if they can't be, it answers 503.
  */
-import { DatabaseSync } from 'node:sqlite'
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
 
 export const on = false
 
-const MESSAGE = 'ade.message'
-const WITHDRAWAL = 'ade.withdrawal'
 const LIMIT = 50
 
 /** What someone typed as an FTS5 query: each word or "phrase" quoted, so nothing in it reads as syntax; the last
@@ -47,78 +45,31 @@ const ago = (createdAt) => {
 }
 
 export function server(core) {
-	const db = new DatabaseSync(':memory:')
-	db.exec(`
-		create virtual table messages using fts5(
-			body, author unindexed, thread unindexed, at unindexed,
-			tokenize = 'porter unicode61 remove_diacritics 2'
-		)
-	`)
-	const has = db.prepare('select 1 from messages where rowid = ?')
-	const insert = db.prepare(
-		'insert into messages (rowid, body, author, thread, at) values (?, ?, ?, ?, ?)',
-	)
-	const remove = db.prepare('delete from messages where rowid = ?')
-	const find = db.prepare(`
-		select rowid as message, thread, author, at,
-			snippet(messages, 0, char(1), char(2), '…', 24) as snippet
-		from messages where messages match :match order by rank limit :limit
-	`)
+	const FIND = `
+		select found.rowid as message, ade_messages.thread_id as thread, ade_threads.title, ade_threads.archived,
+			ade_messages.author, ade_messages.at, found.snippet
+		from (
+			select rowid, rank, snippet(ade_messages_fts, 0, char(1), char(2), '…', 24) as snippet
+			from ade_messages_fts where ade_messages_fts match ? order by rank limit ?
+		) as found
+		join ade_messages on ade_messages.id = found.rowid
+		join ade_threads on ade_threads.id = ade_messages.thread_id
+		order by found.rank`
 
-	/** Messages taken back; one the start's read of its thread brings after its withdrawal was stored stays out */
-	const withdrawn = new Set()
-	/** One stored entry into the index: a message once, under the thread that wrote it (a fork reads its parent's too),
-	 * and out again when withdrawn */
-	function entryStored(entry) {
-		if (entry.kind === MESSAGE) {
-			const { body, author, createdAt } = entry.data
-			if (!body?.trim() || withdrawn.has(entry.id) || has.get(entry.id)) return
-			insert.run(entry.id, body, author ?? '', entry.conversationId, createdAt ?? '')
-		} else if (entry.kind === WITHDRAWAL) {
-			withdrawn.add(entry.data.message)
-			remove.run(entry.data.message)
-		}
-	}
-
-	/** Every thread's messages, read on start while entries stored meanwhile go in as they come; a search waits for it */
-	let ready
-	async function build() {
-		// Oldest first, so a fork's parent is read before the fork that reads its messages too
-		for (const thread of core.threadIds().reverse()) {
-			// A turn of the event loop a thread, so the server answers meanwhile
-			await new Promise(setImmediate)
-			const found = await core.entries(thread)
-			db.exec('begin')
-			try {
-				for (const entry of found) entryStored(entry)
-				db.exec('commit')
-			} catch (error) {
-				db.exec('rollback')
-				throw error
-			}
-		}
-	}
-	function start() {
-		ready = build()
-		ready.catch((error) => console.error('search: building the index failed:', error))
-	}
-
-	/** The best matches for what someone typed, newest titles and archived state as the threads have them now */
+	/** The best matches for what someone typed, from the read model's index */
 	async function search(text, limit = LIMIT) {
 		const match = matchOf(String(text ?? ''))
 		if (!match) return []
-		await ready
-		const rows = /** @type {any[]} */ (find.all({ match, limit }))
-		const ids = [...new Set(rows.map((row) => row.thread))]
-		const found = await Promise.all(ids.map((id) => core.thread(id)))
-		const threads = new Map(ids.map((id, index) => [id, found[index]]))
+		const rows = await core.recent((all) => all(FIND, match, limit))
+		if (!rows)
+			throw Object.assign(new Error('Search is down with the read tables'), { status: 503 })
 		return rows.map((row) => ({
 			thread: row.thread,
-			title: threads.get(row.thread)?.title ?? '',
-			archived: Boolean(threads.get(row.thread)?.hidden),
+			title: row.title,
+			archived: Boolean(row.archived),
 			message: row.message,
 			author: row.author,
-			createdAt: row.at,
+			createdAt: row.at ?? '',
 			snippet: row.snippet,
 		}))
 	}
@@ -154,8 +105,6 @@ export function server(core) {
 
 	return {
 		extension: defineExtension({ name: 'ade.search', tools: [searchTool] }),
-		start,
-		entryStored,
 		serve,
 	}
 }

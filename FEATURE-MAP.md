@@ -56,7 +56,7 @@ runner-updater.js        what `curl <server>/connect-runner | sh` starts; keeps 
 read.js                  the `ade_` tables, the house as SQL in ade's database: SCHEMA, projector (one function per kind of
                          Pi record, apply, know), snapshot (Pi's records at one commit), recordsOf, fill; keep, the worker
                          that writes them (resume, make, apply on a beat, closed, settle, fail, check with againstRebuild
-                         and FACTS); createRead: exact for the list, flush, serve (GET /api/read, ?check, POST {rebuild})
+                         and FACTS); createRead: exact for the list, recent for search (core.recent), flush, serve (GET /api/read, ?check, POST {rebuild})
 remote.js                the runner protocol: createRunners (server), serveRunner (runner), runnerProvider, remoteEnv
 cli.js                   the API from a terminal; `link`, the owner's browser link
 util.js                  shared helpers: personName, agentTo, writtenTo, smallModel, mentioned, keyOf, speaker, said,
@@ -89,7 +89,7 @@ modules/
   status.js              Program Status Protocol (OSC 7501) on the runner's terminal: tell and touched (the threads a commit changed), heard
   matrix.js              Matrix rooms as threads (MatrixSend, relay, sync)
   export.js              GET /api/export, sent a message at a time: fileName, markdown, json, file, foldShell; cli.js `export <dir>`
-  search.js              FTS5 index of every message: build, entryStored, search, matchOf; serve, the `search` tool
+  search.js              search over the read model's FTS5 index of messages (read.js): search, matchOf; serve, the `search` tool
   jump.js                Cmd-K's switch; the client does the rest
   usage.js               tokens and cost: spend, build, entryStored, settle, spent; serve
   pi-sessions.js         threads as pi session files (push, sync, changed, writePiSession) and back (bring);

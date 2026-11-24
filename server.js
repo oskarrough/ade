@@ -3337,6 +3337,9 @@ const ownerLogins = loginList(settings.config.ownerLogins ?? [])
 /** The house as SQL tables, before any module starts and work resumes, so they're made from records no commit has yet
  * followed */
 const read = createRead(file)
+/** `job(all)` on the read model's tables as of Pi's last commit or a beat before, `all(sql, ...params)` answering
+ * rows; it waits while they're being made, and answers nothing if they couldn't be */
+core.recent = read.recent
 const modules = await load('server', core, settings)
 // The prompt keeps its sections in this order, and a cached prompt survives up to its first change, so the sections
 // that change most go last: a module's `volatility`, 0 unless it says otherwise
