@@ -413,11 +413,9 @@ export function Stranded(props) {
 					},
 				})
 			: Promise.resolve()
+		).then(() =>
+			api(`/api/threads/${props.thread}/move`, { conversation: agent.conversation, runner }),
 		)
-			.then(() =>
-				api(`/api/threads/${props.thread}/move`, { conversation: agent.conversation, runner }),
-			)
-			.catch(report)
 	return html`
 		<${For} each=${waiting}
 			>${(agent) => html`
@@ -427,17 +425,21 @@ export function Stranded(props) {
 							`${agent.to.runner} is offline${agent.to.name ? `, so ${agent.to.name} waits` : ''}.${runnersWith(agent.to.model).length ? ' Run on' : ' No runner online has its model.'}`}</span
 					>
 					<${For} each=${() => runnersWith(agent.to.model)}
-						>${(runner) => html`
-							<button
-								type="button"
-								class="ghost small"
-								title=${() =>
-									`${agent.to.name ? `Moves ${agent.to.name} to ${runner.name}, here and wherever it's asked` : `Moves this thread's agent to ${runner.name}`}; its folder starts over in ${runner.dir}`}
-								onClick=${(_event) => move(agent, runner.name)}
-							>
-								${() => runner.name}
-							</button>
-						`}<//
+						>${(runner) => {
+							const moving = busy(() => move(agent, runner.name))
+							return html`
+								<button
+									type="button"
+									class="ghost small"
+									title=${() =>
+										`${agent.to.name ? `Moves ${agent.to.name} to ${runner.name}, here and wherever it's asked` : `Moves this thread's agent to ${runner.name}`}; its folder starts over in ${runner.dir}`}
+									disabled=${() => moving.state() === 'busy'}
+									onClick=${(_event) => moving()}
+								>
+									<${Busy} state=${moving.state}>${() => runner.name}<//>
+								</button>
+							`
+						}}<//
 					>
 				</p>
 			`}<//

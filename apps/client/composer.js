@@ -51,6 +51,7 @@ import { conversations } from './run.js'
 import { Compaction, Memory } from './agent-memory.js'
 import { Panes } from './panes.js'
 import { Notice, report } from './notice.js'
+import { Busy, busy } from './busy.js'
 import { ScheduledTasks } from './schedule.js'
 import { Stranded } from './runner.js'
 import { imageContent, imageUrl } from './images.js'
@@ -152,7 +153,6 @@ export function Composer(props) {
 					.map((to) => recipientWords(to, props.thread).filter(Boolean).join(':'))
 					.join(' + ')
 	const [lines, setLines] = createSignal(false)
-	const [compacting, setCompacting] = createSignal(false)
 	const filled = () => {
 		const agent = here(props.thread).find((agent) => agent.contextWindow)
 		const used = (conversations[agent?.conversation] ?? []).findLast(
@@ -160,16 +160,8 @@ export function Composer(props) {
 		)?.model?.[0]?.usage?.totalTokens
 		return used && { used, share: Math.round((used / agent.contextWindow) * 100) }
 	}
-	const compactNow = async () => {
-		setCompacting(true)
-		try {
-			await api(`/api/threads/${props.thread}/compact`, {})
-		} catch (error) {
-			report(error)
-		} finally {
-			setCompacting(false)
-		}
-	}
+	const compactNow = busy(() => api(`/api/threads/${props.thread}/compact`, {}))
+	const stop = busy(() => api(`/api/threads/${props.thread}/stop`, {}))
 	const draft = () => compose.drafts[props.thread ?? 'new'] ?? emptyDraft
 	const changeDraft = (change, key = props.thread ?? 'new', fields = ['text']) =>
 		changeDraftFor(key, change, fields)
@@ -507,9 +499,10 @@ export function Composer(props) {
 						class="ghost small stop"
 						aria-label="Stop"
 						title="Stop this thread"
-						onClick=${() => api(`/api/threads/${props.thread}/stop`, {}).catch(report)}
+						disabled=${() => stop.state() === 'busy'}
+						onClick=${(_event) => stop()}
 					>
-						Stop
+						<${Busy} state=${stop.state}>Stop<//>
 					</button>
 				<//>
 				<${Show} when=${() => filled()}>
@@ -558,14 +551,14 @@ export function Composer(props) {
 								<button
 									type="button"
 									class="save"
-									disabled=${() => compacting()}
+									disabled=${() => compactNow.state() === 'busy'}
 									title=${() =>
 										server().modules?.includes('memory')
 											? 'The agent reads the memory lines instead of the old messages'
 											: 'Pi summarises the old messages, which costs a model call'}
-									onClick=${compactNow}
+									onClick=${(_event) => compactNow()}
 								>
-									${() => (compacting() ? 'Compacting…' : 'Compact now')}
+									<${Busy} state=${compactNow.state}>Compact now<//>
 								</button>
 							<//>
 						<//>

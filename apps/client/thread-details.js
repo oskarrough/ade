@@ -7,6 +7,7 @@ import { openSide, PageTabs } from './side.js'
 import {
 	api,
 	archiveThread,
+	pauseThread,
 	colorOf,
 	family,
 	familyOf,
@@ -24,14 +25,14 @@ import {
 import { formatAgent, shortLabel } from './agent.js'
 import { BotSettings, botThreads, ForgetBot } from './bot.js'
 import { ThreadItem } from './thread-list.js'
-import { Dot, Switch } from './dot.js'
+import { Switch } from './dot.js'
 import { PiSource } from './pi-sessions.js'
 import { ThreadUsage } from './usage.js'
 import { ThreadTasks } from './schedule.js'
 import { agent, folderOf, openPicker } from './composer.js'
-import { report } from './notice.js'
 import { EditInPlace } from './edit-in-place.js'
 import { Sure } from './sure.js'
+import { Busy, busy } from './busy.js'
 
 /** A thread that's live whatever its inbox says: running, waiting on a person, or failed */
 const LIVE = ['working', 'blocked', 'error']
@@ -45,6 +46,7 @@ export function DetailsPage(props) {
 	const id = () => props.id
 	const here = () => threadOf(id())
 	const bot = () => homeBot(id())
+	const archive = busy(() => archiveThread(id(), !here()?.archived))
 	// A bot's home is named for it already, so only who else is there; each once, as an ask's line names them
 	const members = () => [
 		...new Map(
@@ -224,8 +226,11 @@ export function DetailsPage(props) {
 								class="archive"
 								title=${() =>
 									here()?.archived ? 'Bring this thread back' : 'Move it out of the list'}
-								onConfirm=${(_event) => archiveThread(id(), !here()?.archived).catch(report)}
-								>${() => (here()?.archived ? 'Unarchive this thread' : 'Archive this thread')}<//
+								disabled=${() => archive.state() === 'busy'}
+								onConfirm=${(_event) => archive()}
+								><${Busy} state=${archive.state}
+									>${() => (here()?.archived ? 'Unarchive this thread' : 'Archive this thread')}<//
+								><//
 							>
 						<//>
 						<${Show} when=${bot} keyed>${(found) => html`<${ForgetBot} bot=${() => found} />`}<//>
@@ -241,20 +246,16 @@ export function DetailsPage(props) {
 
 function Title(props) {
 	const title = () => threadOf(props.thread)?.title ?? ''
-	// The model writes a new one, and the request answers once it's written or why it wasn't; till then the button blinks
-	const [asking, setAsking] = createSignal(false)
+	// The model writes a new one, and the request answers once it's written or why it wasn't; till then the button turns
 	const [failed, setFailed] = createSignal('')
-	const regenerate = async () => {
-		setFailed('')
-		setAsking(true)
-		try {
-			await api(`/api/threads/${props.thread}/auto-title`, {})
-		} catch (failure) {
-			setFailed(`No new title: ${failure.message}`)
-		} finally {
-			setAsking(false)
-		}
-	}
+	const regenerate = busy(
+		() => {
+			setFailed('')
+			return api(`/api/threads/${props.thread}/auto-title`, {})
+		},
+		{ onError: (failure) => setFailed(`No new title: ${failure.message}`) },
+	)
+	const asking = () => regenerate.state() === 'busy'
 	return html`<h2 class="thread-title">
 			<${EditInPlace}
 				class="bare"
@@ -272,9 +273,7 @@ function Title(props) {
 					disabled=${asking}
 					onClick=${(_event) => regenerate()}
 				>
-					<${Show} when=${asking} fallback=${html`<${Icon} name="again" />`}>
-						<${Dot} state="working" />
-					<//>
+					<${Busy} state=${regenerate.state}><${Icon} name="again" /><//>
 				</button>
 			<//>
 		</h2>
@@ -286,7 +285,7 @@ function Title(props) {
 function Tools(props) {
 	const tools = () => (props.thread ? threadOf(props.thread)?.tools : newThreadTools())
 	const save = (path, body) => api(`/api/threads/${props.thread}/${path}`, body)
-	const apply = async (list) => {
+	const apply = (list) => {
 		const tools = list?.length ? list : null
 		if (props.thread) return save('tools', { tools })
 		setNewThreadTools(tools)
@@ -297,7 +296,7 @@ function Tools(props) {
 			<${Switch}
 				on=${() => !!tools()}
 				title="Its agents can look things up, but every change has to go through a thread"
-				onToggle=${(on) => apply(on ? HANDS_OFF : null).catch(report)}
+				onToggle=${(on) => apply(on ? HANDS_OFF : null)}
 				><span>Hands off</span><//
 			>
 			<${EditInPlace}
@@ -315,7 +314,7 @@ function Tools(props) {
 				<${Switch}
 					on=${() => !!here().paused}
 					title="Only @mentions and named recipients get an answer; replies already on their way finish"
-					onToggle=${(on) => save('pause', { paused: on }).catch(report)}
+					onToggle=${(on) => pauseThread(props.thread, on)}
 					><span>Paused</span><//
 				>
 			</div>
@@ -325,7 +324,7 @@ function Tools(props) {
 				<${Switch}
 					on=${() => here().memory}
 					title="Memory writes a line for each message, so its agents remember the whole thread"
-					onToggle=${(on) => save('memory', { on }).catch(report)}
+					onToggle=${(on) => save('memory', { on })}
 					><span>Memory</span><//
 				>
 			</div>

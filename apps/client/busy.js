@@ -5,7 +5,7 @@
  * inside the button around what it says, and keeps it as wide as before.
  */
 import html from '@solidjs/html'
-import { createSignal } from 'solid-js'
+import { createSignal, flush } from 'solid-js'
 import { Icon } from './icons.js'
 import { report } from './notice.js'
 
@@ -20,6 +20,8 @@ export function busy(action, { onError = report } = {}) {
 		if (state() === 'busy') return
 		clearTimeout(timer)
 		setState('busy')
+		// Shown now: an action's own writes would otherwise hold this back until it ends
+		flush()
 		const least = new Promise((resolve) => setTimeout(resolve, LEAST))
 		try {
 			await Promise.all([action(...args), least])

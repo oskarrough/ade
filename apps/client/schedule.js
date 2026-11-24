@@ -201,22 +201,25 @@ function OfflineRunner(props) {
 				${() =>
 					`${to().runner} is offline.${runnersWith(to().model).length ? ' Run on' : ' No runner online has its model.'}`}
 				<${For} each=${() => runnersWith(to().model)}
-					>${(runner) => html`
-						<button
-							type="button"
-							class="ghost small"
-							title=${() => `Its runs start on ${runner.name} from now on, in ${runner.dir}`}
-							onClick=${(event) => {
-								event.stopPropagation()
-								api('/api/schedule', {
-									move: props.task.id,
-									runner: runner.name,
-								}).catch(report)
-							}}
-						>
-							${() => runner.name}
-						</button>
-					`}<//
+					>${(runner) => {
+						const moving = busy(() =>
+							api('/api/schedule', { move: props.task.id, runner: runner.name }),
+						)
+						return html`
+							<button
+								type="button"
+								class="ghost small"
+								title=${() => `Its runs start on ${runner.name} from now on, in ${runner.dir}`}
+								disabled=${() => moving.state() === 'busy'}
+								onClick=${(event) => {
+									event.stopPropagation()
+									moving()
+								}}
+							>
+								<${Busy} state=${moving.state}>${() => runner.name}<//>
+							</button>
+						`
+					}}<//
 				>
 			</small>
 		<//>
@@ -732,6 +735,7 @@ function TaskForm(props) {
 	}
 	const submit = async (event) => {
 		event.preventDefault()
+		if (saving()) return
 		const fields = new FormData(event.currentTarget)
 		const [where, value] = place().split(/ (.*)/)
 		const body = {
@@ -1133,7 +1137,9 @@ ${() =>
 				<//>
 			<//>
 			<div class="actions">
-				<button type="submit" disabled=${saving}>${task ? 'Save' : 'Schedule'}</button>
+				<button type="submit" disabled=${saving} aria-busy=${() => (saving() ? 'true' : undefined)}>
+					<${Busy} state=${() => (saving() ? 'busy' : '')}>${task ? 'Save' : 'Schedule'}<//>
+				</button>
 			</div>
 		</form>
 	`

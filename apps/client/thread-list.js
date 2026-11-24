@@ -5,6 +5,7 @@ import { createSignal, For, Show } from 'solid-js'
 import {
 	archivedThreads,
 	archiveThread,
+	pauseThread,
 	bots,
 	changes,
 	current,
@@ -372,7 +373,7 @@ export const threadMenu = (id, { archived = false, open = true, onRename } = {})
 		},
 		!archived && {
 			label: paused ? 'Resume' : 'Pause',
-			run: () => api(`/api/threads/${id}/pause`, { paused: !paused }),
+			run: () => pauseThread(id, !paused),
 		},
 		...(homeBot(id)
 			? []

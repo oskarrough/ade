@@ -69,6 +69,7 @@ import { copyText, nativeMenu, selectedIn } from './desktop.js'
 import { threadMenu } from './thread-list.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
+import { Busy, busy } from './busy.js'
 import { imageUrl } from './images.js'
 import { markdown } from './markdown.js'
 import { messageDiagrams } from './mermaid.js'
@@ -958,6 +959,10 @@ function Message(props) {
 		() => props.entry.sentAt != null && performance.now() - props.entry.sentAt < 1000,
 	)
 	const data = () => props.entry.data
+	const forkHere = busy(() => fork(props.thread, props.entry.id))
+	const withdraw = busy(() =>
+		api(`/api/threads/${props.thread}/withdraw`, { entry: props.entry.id }),
+	)
 	/** Its right-click menu in arbe desktop: the selection, else the whole message, quoted or copied, its fork, and its story */
 	const messageMenu = (element) => {
 		const text = selectedIn(element) || data().body || ''
@@ -971,7 +976,7 @@ function Message(props) {
 			null,
 			props.entry.sending || props.waiting
 				? null
-				: { label: 'Fork from here', run: () => fork(props.thread, props.entry.id) },
+				: { label: 'Fork from here', run: () => forkHere() },
 			props.entry.sending
 				? null
 				: { label: 'What happened', run: () => whatHappened(props.thread, props.entry.id) },
@@ -1037,10 +1042,10 @@ function Message(props) {
 					class="ghost small fork withdraw"
 					aria-label="Take back this message"
 					title="Take it back: no agent has read it yet"
-					onClick=${(_e) =>
-						api(`/api/threads/${props.thread}/withdraw`, { entry: props.entry.id }).catch(report)}
+					disabled=${() => withdraw.state() === 'busy'}
+					onClick=${(_e) => withdraw()}
 				>
-					<${Icon} name="close" />
+					<${Busy} state=${withdraw.state}><${Icon} name="close" /><//>
 				</button>
 			<//>
 			<div class="foot">
@@ -1049,9 +1054,10 @@ function Message(props) {
 					<button
 						class="ghost small fork"
 						title="A new thread from this message"
-						onClick=${() => fork(props.thread, props.entry.id).catch(report)}
+						disabled=${() => forkHere.state() === 'busy'}
+						onClick=${(_e) => forkHere()}
 					>
-						fork
+						<${Busy} state=${forkHere.state}>fork<//>
 					</button>
 				<//>
 			</div>

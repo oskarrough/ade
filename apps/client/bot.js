@@ -29,6 +29,7 @@ import { EditInPlace } from './edit-in-place.js'
 import { openTaskForm } from './schedule.js'
 import { openSide } from './side.js'
 import { Sure } from './sure.js'
+import { Busy, busy } from './busy.js'
 import { rename } from './thread-list.js'
 import { cards, HoverCard } from './hover-card.js'
 
@@ -144,7 +145,7 @@ export function BotSettings(props) {
 				<${Switch}
 					on=${() => props.bot.projectContext !== false}
 					title="Its agents read the AGENTS.md files in their folder; off leaves them out, and skills stay"
-					onToggle=${(on) => saveBot(props.bot.name, { projectContext: on }).catch(report)}
+					onToggle=${(on) => saveBot(props.bot.name, { projectContext: on })}
 					><span>AGENTS.md</span><//
 				>
 			</div>
@@ -179,22 +180,20 @@ export function BotSettings(props) {
 }
 
 /** Forget: the bot's instructions go and its home is archived; every other thread stays */
-export const ForgetBot = (props) => html`
-	<${Sure}
-		class="forget"
-		title="Its home is archived and every other thread stays; agents of its name stop reading its instructions"
-		ask=${() => `Forget ${props.bot.name}?`}
-		why="Its instructions go and its home is archived; every other thread stays."
-		onConfirm=${async (_e) => {
-			try {
-				await forgetBot(props.bot.name)
-			} catch (failure) {
-				report(failure)
-			}
-		}}
-		>Forget this bot<//
-	>
-`
+export function ForgetBot(props) {
+	const forget = busy(() => forgetBot(props.bot.name))
+	return html`
+		<${Sure}
+			class="forget"
+			title="Its home is archived and every other thread stays; agents of its name stop reading its instructions"
+			ask=${() => `Forget ${props.bot.name}?`}
+			why="Its instructions go and its home is archived; every other thread stays."
+			disabled=${() => forget.state() === 'busy'}
+			onConfirm=${(_e) => forget()}
+			><${Busy} state=${forget.state}>Forget this bot<//><//
+		>
+	`
+}
 
 export function NewBot(props) {
 	let input
@@ -253,7 +252,14 @@ export function NewBot(props) {
 						if (event.key === 'Escape') props.onDone()
 					}}
 				/>
-				<button type="submit" class="ghost small" disabled=${() => saving()}>Create</button>
+				<button
+					type="submit"
+					class="ghost small"
+					disabled=${() => saving()}
+					aria-busy=${() => (saving() ? 'true' : undefined)}
+				>
+					<${Busy} state=${() => (saving() ? 'busy' : '')}>Create<//>
+				</button>
 				<${Show} when=${() => error()}>
 					<small role="alert">${() => error()}</small>
 				<//>

@@ -92,6 +92,8 @@ export function PiSessionList(props) {
 								type="button"
 								class="row"
 								title=${() => session.firstMessage}
+								disabled=${() => !!starting()}
+								aria-busy=${() => (starting() === session.path ? 'true' : undefined)}
 								onClick=${() => !starting() && start(session)}
 							>
 								<div>

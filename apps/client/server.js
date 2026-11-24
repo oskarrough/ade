@@ -298,6 +298,8 @@ export const {
 	setBeside,
 	archiveThread,
 	renameThread,
+	pauseThread,
+	saveBot,
 	forgetBot,
 	revokeRunner,
 	subscribeView,
@@ -543,6 +545,34 @@ export const {
 		setOptimisticArchived(patch)
 		yield bothLists(yield write(`/api/threads/${id}/title`, { title }))
 	})
+	/** Pausing shows on the row at once; the server's answer settles it */
+	const pauseThread = action(function* (id, paused) {
+		const patch = (rows) => rows.map((row) => (row.id === id ? { ...row, paused } : row))
+		setOptimisticThreads(patch)
+		setOptimisticArchived(patch)
+		yield bothLists(yield write(`/api/threads/${id}/pause`, { paused }))
+	})
+	/** Changes a bot, shown on its row at once; a rename waits for the server, since the name is the row's key */
+	const saveBot = action(function* (name, change) {
+		if (!change.rename)
+			setOptimisticBots((rows) =>
+				rows.map((row) =>
+					row.name !== name
+						? row
+						: {
+								...row,
+								...change,
+								...('color' in change && {
+									customColor: change.color !== null,
+									color: change.color ?? row.defaultColor,
+								}),
+							},
+				),
+			)
+		const saved = yield write('/api/bots', { name, ...change })
+		yield caughtUp('bots', saved.seq, saved.boot)
+		return saved
+	})
 	/** Forgetting a bot archives its home too */
 	const forgetBot = action(function* (name) {
 		const home = bots.find((row) => row.name === name)?.home
@@ -669,6 +699,8 @@ export const {
 		setBeside,
 		archiveThread,
 		renameThread,
+		pauseThread,
+		saveBot,
 		forgetBot,
 		revokeRunner,
 		subscribeView,
@@ -708,8 +740,6 @@ export async function createThread(title, first = {}) {
 	if (!latest(current)) openThread(id)
 	return id
 }
-/** Changes a bot; the feed updates the row */
-export const saveBot = (name, change) => write('/api/bots', { name, ...change })
 
 export const fork = async (id, at) => openThread((await api(`/api/threads/${id}/fork`, { at })).id)
 
