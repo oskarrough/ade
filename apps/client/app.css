@@ -1976,6 +1976,10 @@ svg.ring {
 	.armed .revoke {
 		visibility: visible;
 	}
+
+	.outdated {
+		color: var(--wait);
+	}
 }
 
 /* Settings' People: the invite form under the invited, its link once with its copy in the corner. */

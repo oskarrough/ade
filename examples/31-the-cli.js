@@ -166,6 +166,10 @@ check(
 	'runners lists both',
 	runners,
 )
+check(
+	(await cli('update')).trim() === 'this runs from your checkout; pull to update',
+	'update on a checkout only says to pull',
+)
 const asAgent = await promisify(execFile)(
 	process.execPath,
 	['cli.js', '--server', base, 'post', '--to', 'echo/echo@laptop', 'from an agent shell'],

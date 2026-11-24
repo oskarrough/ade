@@ -28,7 +28,10 @@ const usage = `ade [--server url] <command>
   read <thread>    a thread's newest 50 messages, or its --last N, those --after id, or --all
   trail <thread>   what happened in it, step by step, or only to one --message id
   wait <thread>    wait until its agents are done, then print the answers to the latest ask, or all --after id
-  runners          every runner holding a key, online or not, and its models
+  runners          every runner holding a key: online, offline, outdated or updating, its machine,
+                   runner version and models. An outdated runner updates itself once it's idle
+  update           the owner, on a house that runs a release: fetch the newest, restart into it and
+                   say which one came up. A checkout updates with a pull
   key <name>       a new key for the runner of that name, replacing its old one, and the line that
                    connects it; the name is yours to pick, and threads address that machine by it
   revoke <runner>  take its key away: it goes offline and leaves the list
@@ -255,13 +258,48 @@ const commands = {
 	},
 	async runners() {
 		for (const runner of await api('GET', '/api/runners')) {
+			const state = [
+				runner.updating ? 'updating' : runner.online ? 'online' : 'offline',
+				runner.outdated && !runner.updating && 'outdated',
+				runner.busy && `busy in ${runner.busy}`,
+			]
+				.filter(Boolean)
+				.join(', ')
 			console.log(
 				!runner.dir
 					? `${runner.name} waiting for it to dial in`
-					: `${runner.name} ${runner.online ? 'online' : 'offline'}${runner.busy ? `, busy in ${runner.busy}` : ''}  ${runner.dir}${runner.readOnly ? ' (read-only)' : ''}  default ${runner.model || `none${runner.modelError ? `: ${runner.modelError}` : ''}`}`,
+					: `${runner.name} ${state}  on ${runner.host || 'an unknown machine'}  runner ${runner.version || 'unknown'}  ${runner.dir}${runner.readOnly ? ' (read-only)' : ''}  default ${runner.model || `none${runner.modelError ? `: ${runner.modelError}` : ''}`}`,
 			)
 			for (const folder of (runner.folders ?? []).slice(1)) console.log(`  folder ${folder}`)
 			for (const model of runner.offers) console.log(`  ${model}@${runner.name}`)
+		}
+	},
+	/** The newest release, and the server restarted into it; the socket closing is the restart starting */
+	async update() {
+		const { release } = await api('GET', '/api/server')
+		if (!release) return console.log('this runs from your checkout; pull to update')
+		console.log(`on ${release}; looking for a newer release…`)
+		const socket = socketTo()
+		await once(socket, 'open')
+		const closed = once(socket, 'close')
+		const { staged, restarts } = await api('POST', '/api/update').catch((error) => {
+			socket.close()
+			throw error
+		})
+		if (!staged) {
+			socket.close()
+			return console.log(`${release} is the newest release`)
+		}
+		if (!restarts)
+			return console.log(`${staged} is ready; the server stopped, start it again to run it`)
+		console.log(`restarting into ${staged}…`)
+		await closed
+		for (let tries = 0; ; tries++) {
+			const now = await api('GET', '/api/server').catch(() => null)
+			if (now?.release === staged) return console.log(`now on ${staged}`)
+			if (now) throw new Error(`${staged} didn't come up; back on ${now.release}`)
+			if (tries === 240) throw new Error(`the server isn't back after two minutes`)
+			await new Promise((resolve) => setTimeout(resolve, 500))
 		}
 	},
 	async key() {

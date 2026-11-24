@@ -30,15 +30,15 @@ You need Node 24 or newer and [pi](https://www.npmjs.com/package/@earendil-works
 
 ## Updates
 
-A house you installed, with the desktop app or npx, runs a release: a tag cut with `pnpm release` when main is good, whose notes are the commit subjects since the one before. npx fetches the newest release each time it starts ade. The desktop app checks every hour and gets a newer one ready beside the running one; Update, in the list's foot, restarts into it. It takes only a release signed with its update key, which `pnpm release` signs with, and only one it's new enough for: `engines["arbe-desktop"]` in package.json names the oldest app a release works in, and raising it is how a release says it needs something new from the app. A release that doesn't come up makes way for the one before it. Main moving between releases changes nothing there. The version in the list's foot opens that release's notes.
+A house you installed, with the desktop app or npx, runs a release: a tag cut with `pnpm release` when main is good, whose notes are the commit subjects since the one before. npx fetches the newest release each time it starts ade. The desktop app checks every hour and gets a newer one ready beside the running one; Update, in the list's foot, restarts into it. It takes only a release signed with its update key, which `pnpm release` signs with, and only one it's new enough for: `engines["arbe-desktop"]` in package.json names the oldest app a release works in, and raising it is how a release says it needs something new from the app. A release that doesn't come up makes way for the one before it. Main moving between releases changes nothing there. The version in the list's foot opens that release's notes. From a terminal, the owner's `ade update` does what Update does, fetching the newest release first if the hourly check hasn't, and says which release came up.
 
-A house running from a checkout you work in updates from its own files. A change to the page reloads open tabs by themselves, once they're hidden or nobody has touched them for a minute; a change to the server shows Update, which restarts it. In arbe desktop, Update also brings a newer app.
+A house running from a checkout you work in updates from its own files. `ade update` there only tells you to pull. A change to the page reloads open tabs by themselves, once they're hidden or nobody has touched them for a minute; a change to the server shows Update, which restarts it. In arbe desktop, Update also brings a newer app.
 
 ## Connect a runner
 
 Ade can let agents work on any device. It works by creating a "runner" on that machine. A runner lends a machine's folders and model logins to your server. To let agents work on your laptop too, open "Runners" and follow the command. You get one, private line run on the laptop.
 
-Every runner shows up in the model picker, so `sonnet:low@laptop` is Sonnet working on the laptop.
+Every runner shows up in the model picker, so `sonnet:low@laptop` is Sonnet working on the laptop. When the server has a newer runner than one connected, that runner updates itself once it's idle; Runners and `ade runners` show each one's machine and version, and whether it's outdated or updating, so one that never updates stands out.
 
 ## The first thread
 

@@ -218,6 +218,18 @@ function RunnerItem(props) {
 				<${Show} when=${() => props.runner.by}>
 					<small>${() => `${props.runner.by}'s machine`}</small>
 				<//>
+				<${Show} when=${() => props.runner.version}>
+					<small
+						>${() => `${props.runner.host ? `${props.runner.host}, ` : ''}runner ${props.runner.version}`}</small
+					>
+				<//>
+				<${Show} when=${() => props.runner.updating || props.runner.outdated}>
+					<small
+						class="outdated"
+						title="The server runs a newer runner. One its updater started updates once it's idle; one started by hand updates when you start it again."
+						>${() => (props.runner.updating ? 'Updating' : 'Outdated')}</small
+					>
+				<//>
 			</div>
 			<${Show} when=${() => me() === server().settings.owner || props.runner.by === me()}>
 				<${Sure}

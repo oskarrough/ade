@@ -3537,6 +3537,20 @@ const routes = /** @type {[string, Function][]} */ ([
 			ownerOnly(req, 'Only the owner restarts the server')
 			return restartSoon('updating')
 		},
+		/** Stages the newest release, as arbe desktop's hourly check does, and restarts into it */
+		'POST /api/update': async (req) => {
+			ownerOnly(req, 'Only the owner updates the server')
+			if (!release)
+				throw Object.assign(new Error('this runs from your checkout; pull to update'), {
+					status: 409,
+				})
+			await stageNewest()
+			return {
+				release: release.tag,
+				staged: staged?.tag ?? null,
+				...(staged && restartSoon(`updating to ${staged.tag}`)),
+			}
+		},
 		'GET /api/runners': runnerList,
 		// Anyone in the house adds a runner under a name nobody holds; a new key for a held name, which cuts off its
 		// runner, only its maker gets. Its maker or the owner revokes it.
@@ -3765,6 +3779,36 @@ if (release) {
 		feed.touch('server')
 	}).unref()
 }
+/**
+ * The newest release into `<folder>.next`, through the house.sh this release came with: arbe desktop keeps its own ade
+ * in `<data>/arbe-desktop/ade`, and the same script checks the signature and whether the app is new enough
+ */
+const stageNewest = () =>
+	new Promise((resolve, reject) =>
+		execFile(
+			'sh',
+			[path.join(import.meta.dirname, 'apps', 'desktop', 'house.sh'), 'update'],
+			{
+				env: {
+					...process.env,
+					HOUSE_SCRIPT: '',
+					XDG_DATA_HOME: path.dirname(path.dirname(import.meta.dirname)),
+				},
+				timeout: 10 * 60_000,
+			},
+			(error, _out, err) => {
+				if (error)
+					return reject(
+						Object.assign(new Error(err.trim().split(/\n/).at(-1) || error.message), {
+							status: 502,
+						}),
+					)
+				staged = readRelease(nextDir)
+				feed.touch('server')
+				resolve(staged)
+			},
+		),
+	)
 /** Puts the staged release where this one is, for the restart to start it; this one waits beside it to be deleted */
 const takeStaged = () => {
 	if (!staged || readRelease(nextDir)?.tag !== staged.tag) return
@@ -3973,6 +4017,8 @@ async function runnerList() {
 			agents,
 			busy: new Set(here.filter((job) => job.status === 'working').map((job) => job.thread)).size,
 			outdated: Boolean(runner.version) && runner.version !== bundle.version,
+			/** Told to update, and gone to do it */
+			updating: updating.has(name) && !runners.isOnline(name),
 		}
 	})
 }
@@ -3996,11 +4042,14 @@ feed.define('runners', {
 
 /** A launched runner whose version differs is asked to update once per connection, when it has no calls open, so nothing it's doing is cut off */
 const outdated = new Set()
+/** The names of runners told to update, until they connect again */
+const updating = new Set()
 function nudge() {
 	for (const connection of outdated) {
 		if (connection.phase !== 'online') outdated.delete(connection)
 		else if (!runners.working(connection.name).length) {
 			outdated.delete(connection)
+			updating.add(connection.name)
 			runners.tell(connection.name, { op: 'update' })
 		}
 	}
@@ -4571,6 +4620,7 @@ async function upgrade(req, raw, head, serve = false) {
 		)
 	}
 	runners.register(connection)
+	updating.delete(name)
 	const query = (param) => url.searchParams.get(param) || ''
 	const resolved = (await known())[name]?.models ?? {}
 	if (connection.phase === 'closed') return
@@ -4609,6 +4659,7 @@ async function upgrade(req, raw, head, serve = false) {
 	socket.send(JSON.stringify({ op: 'ready' }))
 	if (runner.version && runner.version !== bundle.version) {
 		outdated.add(connection)
+		nudge()
 		feed.touch('runners')
 	}
 	console.log(
