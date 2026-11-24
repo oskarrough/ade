@@ -1,7 +1,7 @@
 /** The same thread row in the list, its family, and a bot's other threads; with search on, its field above them; its foot opens the inbox, and offers a reload once ade has changed since the page loaded. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
-import { createSignal, For, Show } from 'solid-js'
+import { createSignal, createUniqueId, For, Show } from 'solid-js'
 import {
 	archivedThreads,
 	archiveThread,
@@ -27,6 +27,8 @@ import {
 	threadRows,
 } from './server.js'
 import { Dot } from './dot.js'
+import { placePopover } from './popover.js'
+import { Panes } from './panes.js'
 import { liveOf } from './agent.js'
 import { report } from './notice.js'
 import { busy } from './busy.js'
@@ -150,7 +152,8 @@ export function ThreadList() {
 
 /**
  * Reloads once ade changed since the page loaded. When the server's own code changed since it started, the owner's
- * restarts it first, as Save and restart does, and reloads once it's back.
+ * restarts it first, as Save and restart does, and reloads once it's back. Up to date, it's a quiet line naming the
+ * version, which opens what changed lately.
  */
 function Update() {
 	const restarts = () =>
@@ -163,7 +166,7 @@ function Update() {
 		if (restarts()) return countPart ? `${countPart}, restart` : 'Restart'
 		return countPart || 'Update'
 	}
-	return html`<${Show} when=${() => behind() || restarts()}>
+	return html`<${Show} when=${() => behind() || restarts()} fallback=${html`<${Version} />`}>
 		<button
 			type="button"
 			class="ghost small foot-toggle update-toggle"
@@ -171,7 +174,9 @@ function Update() {
 			disabled=${() => Boolean(restarting())}
 			aria-label=${label}
 			title=${() =>
-				changes().join('\n') ||
+				changes()
+					.map((commit) => commit.subject)
+					.join('\n') ||
 				(restarts()
 					? 'The server changed since it started: it restarts, as Save and restart does, and the page reloads once it’s back'
 					: 'ade changed since this page loaded; reloading keeps your thread and draft')}
@@ -179,6 +184,65 @@ function Update() {
 		>
 			<span>${label}</span>
 		</button>
+	<//>`
+}
+
+/** 24 Nov, with the year when it isn't this one */
+const dayOfCommit = (at) => {
+	const date = new Date(at)
+	return date.toLocaleDateString('en-GB', {
+		day: 'numeric',
+		month: 'short',
+		...(date.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }),
+	})
+}
+
+/** The checkout's commit, and the newest twenty subjects on a click; nothing for an install, which has no history */
+function Version() {
+	let button, panel
+	const id = createUniqueId()
+	const [commits, setCommits] = createSignal([])
+	const open = () =>
+		api('/api/changes').then(({ commits }) => {
+			setCommits(commits)
+			placePopover(panel, button)
+		}, report)
+	return html`<${Show} when=${() => server().commit}>
+		<button
+			type="button"
+			class="ghost small foot-toggle version-toggle"
+			title="Up to date. What changed lately"
+			ref=${(el) => (button = el)}
+			popovertarget=${id}
+		>
+			<span>${() => server().commit.slice(0, 7)}</span>
+		</button>
+		<div
+			class="popover version-list"
+			id=${id}
+			popover
+			ref=${(el) => (panel = el)}
+			onToggle=${(event) => {
+				if (event.newState === 'open') {
+					placePopover(panel, button)
+					open()
+				}
+			}}
+		>
+			<${Panes} title="What changed" open=${() => false} onClose=${(_event) => panel.hidePopover()}>
+				<ul class="rows">
+					<${For} each=${commits}>
+						${(commit) =>
+							html`<li>
+								<div>
+									<span>${() => commit.subject}</span>
+									<small>${() => dayOfCommit(commit.at)}</small>
+								</div>
+							</li>`}
+					<//>
+				</ul>
+			<//>
+		</div>
 	<//>`
 }
 

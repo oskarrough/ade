@@ -207,7 +207,7 @@ Where a feature lives:
 - Right-click menus: desktop.js nativeMenu, thread-list.js threadMenu, thread.js messageMenu, bot.js botMenu.
 - What happened in a thread: server.js trailed (writes, in each step's commit) and trail (reads), util.js stepText, cli.js `trail`, client trail.js. What changes about a thread, a bot or a scheduled task is a step written where it changes: startThread, setTitleIn, archiveIn, setPaused, setTools, setUp, reconfigure, forkThread, bots.js write and remove, schedule.js make, fire and abort.
 - The house as SQL: read.js, server.js `read`, `committed`, listFacts and the stop's flush, docs/server.md.
-- A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js.
+- A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind`/`changes`, thread-list.js `Update`; up to date, its `Version` line and the newest twenty commits.
 - The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log; without ade installed, its own ade and Node, fetched on first start and updated hourly in place by updateHouse; login, pi in a terminal for Desktop.Login, which the model picker's LogIn in apps/client/runner.js calls; key, the owner key ownerKey puts in the window's cookie).
 - The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js; releases: release.sh tags, .github/workflows/desktop-release.yml builds and publishes.
 

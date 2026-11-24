@@ -2049,6 +2049,11 @@ button.foot-toggle {
 		font-variant-numeric: tabular-nums;
 	}
 
+	&.version-toggle {
+		margin-inline-start: auto;
+		font-variant-numeric: tabular-nums;
+	}
+
 	&.update-toggle {
 		margin-inline-start: auto;
 
