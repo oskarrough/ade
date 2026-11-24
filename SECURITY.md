@@ -8,67 +8,55 @@ Owner-only controls are about who runs the settings. They're not a security line
 
 A machine that holds things you won't share gets `--owner`, which keeps its runner to yourself, or runs its runner as a separate OS user, or lives on a VPS.
 
-Ade has no accounts and no hosted platform. You run it yourself, as the desktop app or as a Node server, and it trusts how a request arrived, never a name the request gives. There are two ways to have more than one person in a house: friends join your tailnet under their own login, or you invite them, each with a key of their own.
-
-Ade has no sandbox. An agent runs commands as the user its runner runs as, so anyone who can give an agent work can do what that user can. Read the rest with that in mind.
+Ade has no accounts and no hosted platform. You run it yourself, as the desktop app or as a Node server, and it trusts how a request arrived, never a name the request gives. Ade has no sandbox.
 
 ## Who gets in
 
-The server listens on two ports, both on this machine alone unless you set `HOST`. With invites off:
+With invites off, the default:
 
-- The main port, 3000 unless taken. A request that comes straight from this machine, to a localhost name, with no proxy headers (`X-Forwarded-For`, `Forwarded`, `Tailscale-User-Login`), is the owner. Anything else here is nobody, so pointing Serve, a tunnel or a proxy at this port gets you turned away.
-- The Serve port, the next free one, for `tailscale serve`. Whoever comes through it is the login Tailscale names in `Tailscale-User-Login`. No login, no entry. A login listed in ade.json's `ownerLogins` is the owner; any other is a guest under their own name.
+- You, the owner, on the server's own machine, or anywhere with the owner key.
+- Anyone on your tailnet, through `tailscale serve`, as their tailnet login. A login listed in ade.json's `ownerLogins` is you.
 
-The owner key works on either port, as a bearer token or the `HttpOnly`, `SameSite=Strict` cookie `ade link` sets up. Both listeners refuse a `Host` they don't answer to (DNS rebinding) and a write whose `Origin` isn't their own page. That's all of it: `whoSent` and `answersTo` in server.js.
+With invites on (`"invites": true` in ade.json), it's invite-only: everyone needs a key, tailnet friends included. You use the owner key; the desktop app and the CLI on the server's machine send it for you, `ADE_OWNER_KEY` carries it elsewhere, and `ade link` prints a link that brings a browser in with it. `ade invite sam` gives sam a key, `ade uninvite sam` takes it back, `ade invites` lists them.
 
-With `HOST` set to a network address, the main port answers that network, but only the owner key gets anyone past it.
+A public address, or a tunnel other than Tailscale, isn't built or supported.
 
-### Invites
+## What they can do
 
-Invites are a switch of their own, off by default: `"invites": true` in ade.json. Where the house listens doesn't change. With invites on, only keys get in, on every port: the owner key, and invites' keys. A tailnet login alone is nobody, and so is a request from the server's own machine without the owner key; the CLI and `ade runner` there send the key beside the store for you.
+Everyone in the house, owner and guests alike, shares every runner, the server's own included, and can read whatever that runner's user can, the owner key too. Start a runner with `--owner` to keep it to yourself.
 
-`ade invite sam` makes a key with sam's name on it and prints a link with the key after `#key=`. The page trades it for the same cookie the owner's link sets, and drops it from the address. Inviting sam again replaces the key and closes what the old one had open. `ade uninvite sam` puts sam out, from the next request on: the key opens nothing, sam's open sockets close, the keys of sam's runners go, and the scheduled tasks that run as sam end. An invite under the owner's name, should the owner take sam's, opens nothing. `ade invites` lists who holds one. Only the owner invites. The server keeps each key's SHA-256, never the key; a retried request gets its key again by deriving it from the owner key, not from a stored receipt.
+Guests can't change settings, restart the server, remake the SQL tables, see invites or read a hook's secret. Anyone can make bots and scheduled tasks; only the owner or a bot's maker changes or forgets it, and only the owner or whoever a task runs as edits, cancels, pauses, resumes, moves or runs it early. Archiving a thread ends its tasks.
 
-Turn invites on before you put a house where strangers can reach it. The server can't tell a tunnel from localhost, so it can't do that for you.
+A guest can add a runner of their own, under a name no runner has had. It's shared like the rest and runs everyone's agents as that guest's user. Only its maker gives it a new key; its maker or the owner revokes it. Names never change hands, even once revoked, and the server's own runner and every runner the owner made are the owner's.
 
-## What a guest can do
+## How the server decides
 
-A guest, by tailnet login or by invite, is nearly the owner. They can't change settings, restart the server, remake the SQL tables, read a hook's secret, or see invites. They can see, write in, start and archive threads. They can make bots and schedule tasks, but only the owner or the bot's creator can change or forget it, and only the owner or whoever a task runs as can edit, cancel, pause, resume, move or run it early. Archiving a thread still ends its tasks.
+The rest is for whoever changes the code: `whoSent` and `answersTo` in server.js.
 
-That includes running commands, by design: everyone in your house can run agents on your machines as you. Who you let in, onto your tailnet or by invite, is the trust boundary. A runner takes work from anyone unless it was started with `--owner` (and `--allow`), and the server's own runner never is, so a guest can start a thread on your machine and have its agent run `rm -rf ~` as you. Keep a runner to yourself with `--owner`.
+- The main port, 3000 unless taken, lets in the owner: a request straight from this machine, to a localhost name, with no `X-Forwarded-For`, `Forwarded` or `Tailscale-User-Login`. Anything through a proxy is nobody here. With `HOST` set to a network address, only the owner key gets past it.
+- The Serve port, the next free one or `SERVE_PORT`, takes the login in `Tailscale-User-Login`. No login, no entry.
+- The owner key works on either, as a bearer or the `HttpOnly`, `SameSite=Strict` cookie `POST /api/me` sets. With invites on, only the owner key and invite keys count, on both ports.
+- Both refuse a `Host` they don't answer to (DNS rebinding) and a write whose `Origin` isn't their own page.
 
-A guest can add a runner of their own, under a name nobody else's runner has had; it's shared like the rest, and runs everyone's agents as that guest's user. Only that guest gives it a new key; that guest or the owner revokes it. Nobody, the owner included, takes over another's runner name, even once its key is revoked: a new key for a name goes only to whoever made it, and the server's own runner and every runner the owner made are the owner's.
+An invite link carries its key after `#key=`; the page trades it for the cookie and drops it from the address. Inviting someone again replaces their key and closes what the old one opened. Uninviting works from the next request: the key opens nothing, their sockets close, their runners' keys go and the tasks that run as them end. An invite under the owner's name opens nothing.
 
-## Runners
+A runner shows its key, `air_…`, as a bearer, and keeps it in `~/.config/ade/key.<name>` (mode 600); the server's own runner holds its key in memory only. A new key for a name cuts off the old one. The server enforces `--owner` and `--allow`; the runner enforces `--read-only`, which refuses writes and commands.
 
-A runner dials the server's socket and shows its key, `air_…`, as a bearer. The server keeps only the key's SHA-256, and turns away a wrong or revoked one. The runner saves its key in `~/.config/ade/key.<name>` (mode 600); the server's own runner gets its key from the server and keeps it in memory only. A new key for a name cuts off the runner that held the old one.
+An agent's commands get their runner's environment minus `ADE_KEY`, plus `ADE_AGENT_OF`, the server they work for. On Linux the server finds the process behind each write from its own machine in `/proc`; one marked `ADE_AGENT_OF` may read but not write, owner key or not, and module sockets refuse it. Agents post, ask and schedule through their tools instead. A bot can change itself in its home thread, including when a guest asks it to.
 
-At connect, a runner says whom it takes work from (`--owner`, `--allow`) and whether it's `--read-only`, which refuses writes and commands. The server enforces the first; the runner enforces the second.
-
-## Agents
-
-An agent's commands inherit its runner's environment, minus `ADE_KEY`: the runner deletes it before any agent runs. Instead they carry `ADE_AGENT_OF`, the server they work for.
-
-Since 6d4cc800, the server looks up who's on the other end of every write that arrives from this machine: it finds the process holding the socket in `/proc` and reads its environment. A process marked `ADE_AGENT_OF` for this server may read but not write, owner key or not, and is told to answer or use the post tool instead. Module sockets (the canvas) are refused to it outright. Agents still post, ask and schedule through their own tools, which the server runs for them. An agent can cancel tasks it set in that thread. A bot can change itself in its home thread, including when a guest asks it to.
-
-## Off by default
-
-- Invites, above. A public address is planned, not built ([roadmap](docs/roadmap.md)). Without invites, don't put a house on the open internet: anyone who reaches it could run commands on your runners.
-- Hooks (`+hooks`) open a third listener, the only one meant for the internet: `POST /hooks/<task id>` and nothing else, with a secret per task, a size cap, a deadline and a cap on requests at once. Publishing it is yours to do, with `tailscale funnel` on a port of its own; ade never turns Funnel on.
-- Matrix (`+matrix`) lets the people in `MATRIX_USERS` ask an agent from a Matrix room.
+Hooks (`+hooks`, off by default) open a third listener, the only one meant for the internet: `POST /hooks/<task id>` and nothing else, with a secret per task and caps on size, time and load. Publishing it with `tailscale funnel` is yours to do; ade never turns Funnel on. Matrix (`+matrix`, off by default) lets the people in `MATRIX_USERS` ask an agent from a room.
 
 ## Where secrets live
 
-- `owner.key`, beside the store (`~/.local/share/ade/`), mode 600. Whoever reads the data folder is the owner, so a runner on the server's own machine lets anyone in the house make themselves owner.
-- Invites and runner keys, as SHA-256 only, in the store.
-- `~/.config/ade/.env`: server secrets like `TYPESAFE_API_KEY` and `MATRIX_TOKEN`, loaded at start-up.
-- `~/.config/ade/key.<name>`: each runner's key, on the runner's machine.
-- Model logins stay where pi keeps them, on each runner's machine. They never pass through the server.
+- `owner.key`, beside the store (`~/.local/share/ade/`), mode 600.
+- Invite and runner keys, as SHA-256 only, in the store. A retried request gets its key again by deriving it from the owner key.
+- `~/.config/ade/.env`: server secrets like `TYPESAFE_API_KEY` and `MATRIX_TOKEN`.
+- `~/.config/ade/key.<name>`: each runner's key, on its machine.
+- Model logins stay where pi keeps them, on each runner's machine, and never pass through the server.
 
 ## Known gaps
 
-- The agent-write check is skin-deep. `env -u ADE_AGENT_OF curl -X POST …` from an agent's shell writes as the owner; so does any process the agent starts without the mark.
-- It only exists on Linux. On macOS there's no `/proc`, and an agent's writes from the server's machine count as the owner's.
-- It only sees this machine. An agent on another runner reaches the server through Serve as that machine's tailnet login, which is the owner if it's in `ownerLogins`.
-- Agents run as their runner's user, so they can read `owner.key`, `.env`, runner key files and pi's logins on their machine. The `ADE_KEY` strip keeps the key out of their environment, not off the disk.
-- Anything running as you on the server's machine is the owner, by design.
+- The agent-write check is skin-deep: `env -u ADE_AGENT_OF curl -X POST …` from an agent's shell writes as the owner.
+- It only exists on Linux; on macOS an agent's writes from the server's machine count as the owner's.
+- It only sees this machine. An agent on another runner comes through Serve as that machine's tailnet login, the owner if it's in `ownerLogins`.
+- Stripping `ADE_KEY` keeps keys out of an agent's environment, not off the disk.

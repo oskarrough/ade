@@ -6,24 +6,13 @@ ade and arbe become one app, with ade's code. arbe stops where it is: nothing mi
 
 A house is one server and the runners connected to it. Everyone inside is trusted. That one rule is what keeps everything else simple: no locks inside, no per-person permissions, no sandboxes. Anyone in the house can ask any agent to run commands on any runner, same as you.
 
-So the protection is the door, and where you put the house:
-
-- Localhost: only you get in.
-- Your tailnet: your devices, and whoever you share it with.
-- A public address, through a tunnel or a VPS: anyone who has it.
-
-Invites are a switch any house can turn on, wherever it stands: an invite is a key with their name on it that you can take back. Turn it on before you go public; the server can't tell a tunnel from localhost, so it can't do that for you. A public house without invites lets anyone on the internet run commands on your runners. That's yours to choose, say for a demo whose runners hold nothing.
-
-The owner is whoever can read the server's data folder. At first start the server writes an owner key there, beside the runner keys; anything run on that box reads it, so `arbe invite sam` just works, and `arbe open` prints a link that brings your browser in with it. Localhost counts as the owner only while invites are off. Once they're on, everyone comes in with a key, you too.
-
-A runner is a machine you hand to everyone in the house. Put one on the laptop with your notes and SSH keys only in a house that's just yours. A runner on the server's own box can read the owner key, so anyone in the house can make themselves owner through it: keep runners off that box, or accept it.
+[SECURITY.md](../SECURITY.md) says who gets in and what they can do.
 
 The rest follows:
 
-- arbe is `node server.js` on your own box: a laptop, a laptop with a tunnel, or a VPS. We never hold anyone's stuff. If arbe ever offers a service, it's a door, never a house: a relay that gives your laptop a public address, or a button that puts arbe on your own server.
+- arbe is `node server.js` on your own box: a laptop or a VPS. We never hold anyone's stuff. If arbe ever offers a service, it's a door, never a house: a relay that gives your laptop a public address, or a button that puts arbe on your own server.
 - No accounts, not even for whoever pays.
 - One server is one house. Want two? Run two servers. Moving a server moves the house: stop, copy, start. Nothing syncs between places.
-- Owner-only controls are about who runs the settings, not safety.
 - It's for someone who runs a server and the friends they bring. That's a choice of audience, and it's not free: a team that just wants it to work isn't served.
 
 ## Steps
@@ -38,7 +27,7 @@ What we have. I live in it.
 
 Friends in my house. The question: does steering agents together in one thread work when several people are in it, who's talking, who the director answers, nobody stepping on anyone?
 
-The smallest thing it needs is the server knowing who's talking: a message's author comes from how the request arrived (the owner key, or localhost while invites are off; the tailnet login), never from a name the client sends. Friends join through the tailnet: Tailscale's node sharing lets me add people from outside my own, and the server knows who's who from their login. Done apart from the test with a real friend, not a simulation.
+The smallest thing it needs is the server knowing who's talking: a message's author comes from how the request arrived, never from a name the client sends. Friends join through the tailnet: Tailscale's node sharing lets me add people from outside my own, and the server knows who's who from their login. Done apart from the test with a real friend, not a simulation.
 
 Inviting someone shows every runner in the house and whose machine each one is. Guests see the same list. No runner-side setting: a runner only joins a house its owner gave it the key to.
 
@@ -50,7 +39,7 @@ The director, the part that picks who answers, is now one director made from arb
 
 Someone else runs their own, without my help. The question: is it really portable? The one-command install and the export that writes every thread out as Markdown or JSON, readable without ade installed, are both done.
 
-Left: a public address. Invites are built, switched off until someone needs them. The rename to arbe is parked.
+Left: the rename to arbe, parked.
 
 The test: a friend gets the install instructions and their data file and gets running without my help. It passes only if they can also leave: export, shut the server down, and still have their threads.
 

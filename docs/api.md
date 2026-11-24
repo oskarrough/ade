@@ -1,6 +1,6 @@
 # API and CLI
 
-Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in. From its own machine you're the owner, and anything that names someone else, an `x-user` header or a `?user=`, is ignored. A command an agent runs there reads but writes nothing, even with the owner key: its words go in its answer, and the post tool reaches other threads. Through its Serve port you're the login `Tailscale-User-Login` names, and a request without one is refused. Anywhere else, send the owner key from `owner.key` beside the store as `Authorization: Bearer <key>`. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get. The owner's is `owner` in ade.json, or their login on the server's machine; set it to the name your history has, and it stays yours. A tailnet login listed in ade.json's `ownerLogins`, like `["oskar@github"]`, is the owner; any other is `~` and the login with `@` written as `+`, so it never reads as a bot or an agent. With `"invites": true` in ade.json, none of that counts: only the owner key or an invite's key gets in, as a bearer or the cookie `POST /api/me` sets.
+Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in ([SECURITY.md](../SECURITY.md)), and ignores an `x-user` header or a `?user=`. On its own machine you're the owner. Through the Serve port you're the login in `Tailscale-User-Login`. Anywhere else, or with invites on, send a key, the owner's from `owner.key` beside the store or an invite's, as `Authorization: Bearer <key>`. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get. The owner's is `owner` in ade.json, or their login on the server's machine; set it to the name your history has, and it stays yours. A tailnet login that isn't the owner's is `~` and the login with `@` written as `+`, so it never reads as a bot or an agent.
 
 ```sh
 api() { curl -s -H 'content-type: application/json' "localhost:3000/api/$1" ${2:+-d "$2"}; }
@@ -287,7 +287,7 @@ ade stop 3
 ade export ~/backup                    # with export on: every thread as Markdown and JSON
 ```
 
-It writes as whoever the server takes it for: on the server's machine, the owner, an agent's shell there included. Against a server elsewhere (`--server` or `ADE_SERVER`), set `ADE_OWNER_KEY` to write as the owner; through a Serve address you're your tailnet login without it. `ade link`, on the server's machine, prints a link that brings a browser in as the owner.
+It writes as whoever the server takes it for: on the server's machine, the owner, though an agent's shell there only reads. Against a server elsewhere (`--server` or `ADE_SERVER`), set `ADE_OWNER_KEY` to write as the owner; through a Serve address you're your tailnet login without it. `ade link`, on the server's machine, prints a link that brings a browser in as the owner.
 
 A new thread prints `thread N` on stdout, followed by any answers; progress and errors go to stderr. To capture just its id without waiting:
 

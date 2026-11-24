@@ -38,7 +38,7 @@ Every runner shows up in the model picker, so `sonnet:low@laptop` is Sonnet work
 
 Click New thread, pick a model and runner below the composer, and write what you want done. The agent works in that runner's folder, and you watch it read, run and edit as it goes. When it wants you to see a screenshot, it puts the picture in its answer. Change the model or runner mid-thread and it keeps the conversation. Tell it to spawn other threads, any model combination. Instruct them to communicate with each other, if you want.
 
-From there: [running the server](docs/server.md) for other devices, friends, settings and where your data lives; [modules](docs/modules.md) for bots, scheduled tasks, search and the rest; [the API and CLI](docs/api.md) to script it; [security](SECURITY.md) for who gets in and who can change bots and scheduled tasks.
+From there: [running the server](docs/server.md) for other devices, friends, settings and where your data lives; [modules](docs/modules.md) for bots, scheduled tasks, search and the rest; [the API and CLI](docs/api.md) to script it; [security](SECURITY.md) for who gets in and what they can do.
 
 ## Claude Code and Antigravity in pi
 

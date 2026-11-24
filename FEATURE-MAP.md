@@ -42,7 +42,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   compact, compactingAt             compaction
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once
-  whoSent, keyIn, answersTo, owner  who sent a request: owner key, invite key, Tailscale login, listeners (SERVE_PORT, HOOK_PORT)
+  whoSent, keyIn, answersTo, owner  who sent a request: owner key, invite key, Tailscale login, listeners (SERVE_PORT, HOOK_PORT); the rules are SECURITY.md
   Invites, invite, uninvite, guests, closeSockets   invites (`invites` in ade.json): keys with names, GET/POST/DELETE /api/invites; cli.js `invite`, `uninvite`, `invites`
   newKey                            a new runner or invite key; a request key derives it, so a retry gets it again
   fromAgent, agentPeer              an agent's command on this machine (runner.js sets ADE_AGENT_OF) writes nothing

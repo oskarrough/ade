@@ -14,13 +14,9 @@ Agents start in the folder you run ade from. Add shortcuts with `--dir ~/sites -
 
 To update, stop the server and run the same `npx` line: npx fetches the newest commit when there is one, and runners on other machines follow the server on their own. `pnpm dlx` and `bunx` work just as well, or fork/clone the repo and `npm link` (or `pnpm link`) it to get an `ade` command.
 
-## Who you are
+## Who gets in
 
-There are no accounts. The server knows who you are by how you came in. On its own machine, at the address it prints, you're its owner, signing as `owner` in ade.json or else your login there. To let in your other devices and friends, point `tailscale serve` at the second port it prints, the one marked `serve`: everyone who comes through it is their tailnet login, and nobody gets in without one. Everyone in a thread sees who wrote each message, and who pressed Stop. List your own login in ade.json's `ownerLogins` (`["you@github"]`) and you're the owner on every device. Don't point Serve, a tunnel or a proxy at the first port; it turns away anything that came through one. An agent's commands run on a runner's machine too, but they never speak for you: on Linux the server sees what an agent ran on its own machine and lets it read, not write, owner key or not, and points it to its answer and the post tool. That's it.
-
-Elsewhere, you're the owner with the owner key, which the server writes beside its data at first start (`owner.key`). `ade link` on the server's machine prints a link that brings a browser in with it; the CLI sends it when `ADE_OWNER_KEY` is set.
-
-To let in people by name instead, wherever the house listens, set `"invites": true` in ade.json and restart. `ade invite sam` prints a link that brings sam's browser in as sam, `ade uninvite sam` shuts them out from their next request, runners and scheduled tasks included, and `ade invites` lists who has one. With invites on, only keys get in: a tailnet login alone doesn't, and neither does your own machine without the owner key, so open the link `ade link` prints. Whoever you invite can use every runner in the house, yours included, as you; [SECURITY.md](../SECURITY.md) says what that means. A guest can add a runner of their own under a free name; only they or you can revoke it.
+[SECURITY.md](../SECURITY.md) says who gets in and what they can do. To let in your other devices and friends, point `tailscale serve` at the port the server prints marked `serve`, never the first one, and list your own login in ade.json's `ownerLogins` (`["you@github"]`). Your name is `owner` in ade.json, or else your login on the server's machine. For invite-only, set `"invites": true` and restart.
 
 ## Settings
 
