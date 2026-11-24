@@ -4314,7 +4314,7 @@ async function upgrade(req, raw, head, serve = false) {
 	const close = () => {
 		feed.disconnect(socket)
 		if (connection && runners.disconnect(connection)) {
-			say('runner', `${name} offline`)
+			console.log(`runner ${name} offline`)
 			feed.touch(['runners', 'bots', 'threads', 'archived', 'thread'])
 			for (const hook of runnerHooks) hook(name, false)
 		}
@@ -4347,7 +4347,7 @@ async function upgrade(req, raw, head, serve = false) {
 	const held = (await keys())[name]
 	if (connection.phase === 'closed') return
 	if (!given || held !== sha256(given)) {
-		say('runner', `${name} turned away: ${given ? 'wrong or revoked key' : 'no key'}`)
+		console.log(`runner ${name} turned away: ${given ? 'wrong or revoked key' : 'no key'}`)
 		return socket.close(
 			4001,
 			given
@@ -4396,10 +4396,9 @@ async function upgrade(req, raw, head, serve = false) {
 		outdated.add(connection)
 		feed.touch('runners')
 	}
-	say(
-		'runner',
+	console.log(
 		[
-			name,
+			`runner ${name} online`,
 			tilde(runner.dir) + (runner.readOnly ? ' (read-only)' : ''),
 			runner.model || `no default model: ${runner.modelError || 'none set'}`,
 			...(runner.owner ? [`work from ${[runner.owner, ...runner.allow].join(', ')}`] : []),
@@ -4506,7 +4505,9 @@ function restartSoon(why) {
  * In place: the same process, so its terminal, its process group and arbe desktop's house token stay.
  */
 async function restart(why, again) {
-	say('restart', again ? `${why}; restarting` : `${why}; stopped, start it again to take it up`)
+	console.log(
+		`restart: ${again ? `${why}; restarting` : `${why}; stopped, start it again to take it up`}`,
+	)
 	// Waits for its runner, so the process after the restart isn't left a zombie it can't reap
 	const runnerExit =
 		lent?.kill && lent.exitCode === null && lent.signalCode === null
@@ -4556,6 +4557,15 @@ async function connectSelf(url) {
 	for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => lent.kill(signal))
 }
 
+const wrap = (items, width = 60) => {
+	const lines = []
+	for (const item of items) {
+		const last = lines.at(-1)
+		if (last && `${last}, ${item}`.length <= width) lines[lines.length - 1] = `${last}, ${item}`
+		else lines.push(item)
+	}
+	return lines
+}
 // A list of names alone replaces the defaults, so say which of them it left out.
 const off = (on) =>
 	Object.keys(defaults).filter(
@@ -4665,26 +4675,23 @@ for (const host of process.env.HOST ? [process.env.HOST] : ['127.0.0.1', '::1'])
 		// Keep listening on IPv6 localhost without printing a second local URL.
 		if (process.env.HOST || host !== '::1') {
 			const urls = addresses.map((address) => `http://${address}:${listening.port}`)
-			console.log(`${'ade'.padEnd(11)}${urls.join('\n           ')}`)
+			console.log(`ade  ${urls.join('\n     ')}`)
+			console.log()
+			say('config', tilde(settings.file))
 			say('data', tilde(file))
 			if (envFile) say('env', tilde(envFile))
-			say(
-				'modules',
-				[
-					modules.map((module) => module.name).join(' ') || 'none',
-					...(off(false).length ? [`off: ${off(false).join(' ')}`] : []),
-					...(off(true).length ? [`defaults left out: ${off(true).join(' ')}`] : []),
-				].join(' · '),
-			)
-			say(
-				'serve',
-				`http://127.0.0.1:${servePort} for tailscale serve: people come in by their login`,
-			)
+			say('serve', `http://127.0.0.1:${servePort}  (point tailscale serve here)`)
 			if (hookPort)
-				say(
-					'hooks',
-					`http://127.0.0.1:${hookPort}/hooks/<task id>, the only part to publish, on an outside port of its own: tailscale funnel --bg --https=8443 --set-path /hooks http://127.0.0.1:${hookPort}/hooks`,
-				)
+				say('hooks', `http://127.0.0.1:${hookPort}/hooks/<task-id>  (point tailscale funnel here)`)
+			const onNames = modules.map((module) => module.name)
+			const offCount = off(false).length + off(true).length
+			const offNote = offCount
+				? `(${offCount} off${off(true).length ? `; defaults off: ${off(true).join(', ')}` : ''})`
+				: ''
+			const lines = onNames.length ? wrap(onNames) : ['none']
+			if (offNote) lines[lines.length - 1] = `${lines.at(-1)} ${offNote}`
+			say('modules', lines.join(',\n           '))
+			console.log()
 		}
 		connectSelf(
 			`http://${host === '0.0.0.0' ? '127.0.0.1' : addresses[0]}:${listening.port}`,

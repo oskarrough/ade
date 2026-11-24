@@ -1105,10 +1105,13 @@ function keep(file) {
 			db.exec('commit')
 			settle()
 			seq = at.seq
+			const elapsed = Math.round(performance.now() - begun)
 			tell({
 				state: 'current',
 				seq,
-				log: `read: made from Pi's records at commit ${seq} in ${Math.round(performance.now() - begun)} ms`,
+				...(elapsed >= 500 && {
+					log: `read: made from Pi's records at commit ${seq} in ${elapsed} ms`,
+				}),
 			})
 		} catch (error) {
 			if (db.isTransaction) db.exec('rollback')
