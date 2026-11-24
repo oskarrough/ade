@@ -6,6 +6,7 @@
 import html from '@solidjs/html'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 import { Icon } from './icons.js'
+import { Busy, busy } from './busy.js'
 import {
 	api,
 	bots,
@@ -265,15 +266,19 @@ function LastRun(props) {
  */
 function Controls(props) {
 	const [asking, setAsking] = createSignal(false)
-	const act = (body) => api(props.path, body).catch(report)
 	const stop = (event) => event.stopPropagation()
-	const pause = (note) => {
+	const run = busy(() => api(props.path, { run: props.task.id }))
+	const toggle = busy(() =>
+		api(props.path, props.task.paused ? { resume: props.task.id } : { pause: props.task.id }),
+	)
+	const cancel = busy(() => api(props.path, { cancel: props.task.id }))
+	const pause = busy((note) => {
 		setAsking(false)
-		act({
+		return api(props.path, {
 			pause: props.task.id,
 			...(note.trim() ? { note: note.trim() } : {}),
 		})
-	}
+	})
 	return html`
 		<${Show}
 			when=${asking}
@@ -282,37 +287,40 @@ function Controls(props) {
 					type="button"
 					class="ghost small"
 					title="Run it once now, outside its schedule"
+					disabled=${() => run.state() === 'busy'}
 					onClick=${(event) => {
 						stop(event)
-						act({ run: props.task.id })
+						run()
 					}}
 				>
-					run now
+					<${Busy} state=${run.state}>run now<//>
 				</button>
 				<button
 					type="button"
 					class="ghost small"
 					aria-label=${() => (props.task.paused ? 'Resume this task' : 'Pause this task')}
 					title=${() => (props.task.paused ? 'Resume this task' : 'Pause this task')}
+					disabled=${() => toggle.state() === 'busy'}
 					onClick=${(event) => {
 						stop(event)
-						if (props.task.paused) act({ resume: props.task.id })
+						if (props.task.paused) toggle()
 						else setAsking(true)
 					}}
 				>
-					${() => (props.task.paused ? 'resume' : 'pause')}
+					<${Busy} state=${toggle.state}>${() => (props.task.paused ? 'resume' : 'pause')}<//>
 				</button>
 				<button
 					type="button"
 					class="ghost small"
 					aria-label="Cancel this task"
 					title="Cancel this task"
+					disabled=${() => cancel.state() === 'busy'}
 					onClick=${(event) => {
 						stop(event)
-						act({ cancel: props.task.id })
+						cancel()
 					}}
 				>
-					<${Icon} name="close" />
+					<${Busy} state=${cancel.state}><${Icon} name="close" /><//>
 				</button>
 			`}
 		>
@@ -334,7 +342,9 @@ function Controls(props) {
 					placeholder="Why? (optional)"
 					ref=${(el) => queueMicrotask(() => el.focus())}
 				/>
-				<button type="submit" class="ghost small">pause</button>
+				<button type="submit" class="ghost small" disabled=${() => pause.state() === 'busy'}>
+					<${Busy} state=${pause.state}>pause<//>
+				</button>
 			</form>
 		<//>
 	`
