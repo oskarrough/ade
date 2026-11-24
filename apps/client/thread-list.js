@@ -19,6 +19,7 @@ import {
 	openInbox,
 	openThread,
 	page,
+	renameThread,
 	restart,
 	restarting,
 	runners,
@@ -171,7 +172,7 @@ function Update() {
 			type="button"
 			class="ghost small foot-toggle update-toggle"
 			data-fuzz-skip
-			disabled=${() => Boolean(restarting())}
+			disabled=${() => update.state() === 'busy' || Boolean(restarting())}
 			aria-label=${label}
 			title=${() =>
 				changes()
@@ -347,12 +348,12 @@ function NewRow(props) {
 	`
 }
 
-/** A thread's right-click menu in arbe desktop: used by thread rows and the thread header pill */
-export const threadMenu = (id, { archived = false, open = true } = {}) => {
+/** A thread's right-click menu in arbe desktop: used by thread rows and the thread header pill. A row passes its own onRename to edit itself in place; without one, Rename opens the thread details and focuses its title field there. */
+export const threadMenu = (id, { archived = false, open = true, onRename } = {}) => {
 	const paused = !!threadOf(id)?.paused
 	return [
 		open && { label: 'Open', run: () => openThread(id) },
-		{ label: 'Rename…', run: () => rename(id) },
+		{ label: 'Rename…', run: onRename ?? (() => rename(id)) },
 		// The details' Regenerate: the model writes a new title, over one set by hand too
 		server().modules.includes('auto-title') &&
 			!homeBot(id) && {
@@ -398,6 +399,23 @@ export const rename = (id) => {
 }
 
 export function ThreadItem(props) {
+	/** Whether this row's own title is open for editing, right where it sits; the row keeps its size either way */
+	const [editing, setEditing] = createSignal(false)
+	const [error, setError] = createSignal('')
+	const title = () => props.thread.title
+	const save = async (field) => {
+		const next = field.value.trim()
+		if (next === title()) return setEditing(false)
+		setError('')
+		try {
+			await renameThread(props.thread.id, next)
+			setEditing(false)
+		} catch (failure) {
+			setError(failure.message)
+			field.value = title()
+			field.focus()
+		}
+	}
 	return html`
 		<li
 			title=${() => (cards ? undefined : props.thread.title)}
@@ -410,12 +428,39 @@ export function ThreadItem(props) {
 			<a
 				class="row"
 				href=${() => hrefOf(props.thread.id)}
-				onClick=${(event) => followThread(event, props.thread.id)}
+				onClick=${(event) => (editing() ? event.preventDefault() : followThread(event, props.thread.id))}
 				onContextMenu=${(event) =>
-					nativeMenu(event, threadMenu(props.thread.id, { archived: props.archived }))}
+					nativeMenu(
+						event,
+						threadMenu(props.thread.id, {
+							archived: props.archived,
+							onRename: () => setEditing(true),
+						}),
+					)}
 			>
 				<${Dot} state=${() => props.thread.status} />
-				<span>${() => props.thread.title}</span>
+				<${Show} when=${editing} fallback=${html`<span>${() => props.thread.title}</span>`}>
+					<input
+						class=${() => ['bare', { bad: !!error() }]}
+						aria-label="Thread title"
+						title=${() => error() || 'Rename this thread'}
+						value=${title}
+						ref=${(el) =>
+							requestAnimationFrame(() => {
+								el.focus()
+								el.select()
+							})}
+						onClick=${(event) => event.preventDefault()}
+						onBlur=${(event) => save(event.currentTarget)}
+						onKeyDown=${(event) => {
+							if (event.key === 'Enter') event.currentTarget.blur()
+							if (event.key === 'Escape') {
+								event.currentTarget.value = title()
+								setEditing(false)
+							}
+						}}
+					/>
+				<//>
 			</a>
 			<${HoverCard} content=${() => html`<${ThreadCard} thread=${() => props.thread} />`} />
 			<${Show} when=${() => !homeBot(props.thread.id)}>
