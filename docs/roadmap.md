@@ -10,9 +10,10 @@ A house is one server and the runners connected to it. Everyone inside is truste
 
 The rest follows:
 
-- arbe is `node server.js` on your own box: a laptop or a VPS. We never hold anyone's stuff. If arbe ever offers a service, it's a door, never a house: a relay that gives your laptop a public address, or a button that puts arbe on your own server.
+- ade is `node server.js` on your own box: a laptop, a laptop with a tunnel, or a VPS. We never hold anyone's stuff. If ade ever offers a service, it's a door, never a house: a relay that gives your laptop a public address, or a button that puts ade on your own server.
 - No accounts, not even for whoever pays.
 - One server is one house. Want two? Run two servers. Moving a server moves the house: stop, copy, start. Nothing syncs between places.
+- Owner-only controls are about who runs the settings, not safety. Bots and scheduled tasks belong to whoever made them: anyone can make one, but only its creator or the owner changes, moves or forgets it.
 - It's for someone who runs a server and the friends they bring. That's a choice of audience, and it's not free: a team that just wants it to work isn't served.
 
 ## Steps
@@ -27,9 +28,9 @@ What we have. I live in it.
 
 Friends in my house. The question: does steering agents together in one thread work when several people are in it, who's talking, who the director answers, nobody stepping on anyone?
 
-The smallest thing it needs is the server knowing who's talking: a message's author comes from how the request arrived, never from a name the client sends. Friends join through the tailnet: Tailscale's node sharing lets me add people from outside my own, and the server knows who's who from their login. Done apart from the test with a real friend, not a simulation.
+The server knows who's talking: a message's author comes from how the request arrived (the owner key, an invite's key, localhost while invites are off, or the tailnet login), never from a name the client sends. Friends join through the tailnet, where Tailscale's node sharing lets me add people from outside my own and the server knows who's who from their login, or by invite: `"invites": true` in ade.json, then `ade invite sam` prints sam's link and `ade uninvite sam` takes it back. Done apart from the test with a real friend, not a simulation.
 
-Inviting someone shows every runner in the house and whose machine each one is. Guests see the same list. No runner-side setting: a runner only joins a house its owner gave it the key to.
+Guests can add runners of their own, shared like the rest; only whoever made a runner gives it a new key. Still to come: inviting someone shows every runner in the house and whose machine each one is, and guests see the same list. No runner-side setting: a runner only joins a house its owner gave it the key to.
 
 Later, once a second person's machine is in the house: when someone new joins, that machine's owner gets a note with one click to take their machine out.
 
@@ -39,7 +40,7 @@ The director, the part that picks who answers, is now one director made from arb
 
 Someone else runs their own, without my help. The question: is it really portable? The one-command install and the export that writes every thread out as Markdown or JSON, readable without ade installed, are both done.
 
-Left: the rename to arbe, parked.
+Invites are built, switched off until someone needs them. A public address is planned, not built. An installed house now updates only to tagged releases, with that release's notes, instead of tracking main.
 
 The test: a friend gets the install instructions and their data file and gets running without my help. It passes only if they can also leave: export, shut the server down, and still have their threads.
 
@@ -53,6 +54,6 @@ All three have landed. A time and another thread finishing are the `schedule` mo
 
 ## Parts bin
 
-From arbe, each as a module when a step misses it, not before: limits per thread ([capabilities](https://arbe.0sk.ar/docs/thinking/capabilities/)), shared files ([files](https://arbe.0sk.ar/docs/files/)), secrets kept out of the model's context ([secrets](https://arbe.0sk.ar/docs/system/access/secrets/)), rented sandboxes as runners ([environments](https://arbe.0sk.ar/docs/system/sandboxes/environments/)), usage ([usage & cost](https://arbe.0sk.ar/docs/usage-cost/)), teams ([teams](https://arbe.0sk.ar/docs/system/access/teams/)), and the CLI's best commands ([CLI](https://arbe.0sk.ar/docs/cli/)).
+From arbe, each as a module when a step misses it, not before: limits per thread ([capabilities](https://arbe.0sk.ar/docs/thinking/capabilities/)), shared files ([files](https://arbe.0sk.ar/docs/files/)), secrets kept out of the model's context ([secrets](https://arbe.0sk.ar/docs/system/access/secrets/)), rented sandboxes as runners ([environments](https://arbe.0sk.ar/docs/system/sandboxes/environments/)), teams ([teams](https://arbe.0sk.ar/docs/system/access/teams/)), and the CLI's best commands ([CLI](https://arbe.0sk.ar/docs/cli/)).
 
-Search has landed ([thread search](https://arbe.0sk.ar/docs/system/chat/thread-search/)). Workflows ([workflows](https://arbe.0sk.ar/docs/workflows/)) start as bot recipes on scheduled tasks — Lens, Dawn, Sitter — and the house-wide Scheduled tasks list.
+Landed: search ([thread search](https://arbe.0sk.ar/docs/system/chat/thread-search/)), usage and cost ([usage & cost](https://arbe.0sk.ar/docs/usage-cost/)), and the house as plain SQL tables in core, which `sqlite3` reads and search queries. Workflows ([workflows](https://arbe.0sk.ar/docs/workflows/)) start as bot recipes on scheduled tasks — Lens, Dawn, Sitter — and the house-wide Scheduled tasks list.
