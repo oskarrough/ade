@@ -539,7 +539,12 @@ button[data-danger]:focus-visible:not(:disabled) {
 	}
 }
 
-/* The model picker and settings: popovers on desktop, bottom sheets on phones. */
+/* The model picker and settings: popovers on desktop, bottom sheets on phones. One opened from Cmd-K shows even when
+ * the sidebar it lives in is hidden, as on a phone in a thread. */
+.popover:popover-open {
+	visibility: visible;
+}
+
 .popover {
 	position: fixed;
 	line-height: var(--text-ui-line);

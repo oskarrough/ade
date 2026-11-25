@@ -86,16 +86,29 @@ export const openVersion = () => panel?.showPopover()
 function restartUpdate() {
 	return busy(async () => (restarts() ? restart() : installShellUpdate()))
 }
-const restartTitle = () => {
+/** What a waiting update brings, in the head beside Restart: how many commits since the server started, the staged
+ * release, or arbe desktop's newer app */
+const updateHead = () => {
 	if (!restarts()) return `arbe desktop ${shellUpdate()} is out`
-	if (server().staged)
-		return `ade ${server().staged} is ready: ade restarts into it and the page reloads`
-	return (
-		changes()
-			.map((commit) => commit.subject)
-			.join('\n') ||
-		'The server changed since it started: it restarts, as Save and restart does, and the page reloads once it’s back'
-	)
+	if (server().staged) return `ade ${server().staged} is ready`
+	const count = changes().length
+	if (!count) return 'ade changed since it started'
+	return `${count} change${count === 1 ? '' : 's'} since you restarted`
+}
+
+/** Where a subject's headline ends and the quieter line under it starts: a colon or semicolon, or a comma before "and"
+ * or "but" opening a clause of its own ("…, and Restart sits in What changed"), the joining word dropped */
+const SPLIT = /[:;] |, (?:and|but) (?=[A-Z]|(?:a|an|the|its|each|every|your|any|one|so) )/
+
+/** A subject as a headline and the quieter line under it, or all headline when it reads as one thought */
+const splitSubject = (subject) => {
+	const at = SPLIT.exec(subject)
+	if (!at) return { headline: subject, detail: '' }
+	const detail = subject.slice(at.index + at[0].length)
+	return {
+		headline: subject.slice(0, at.index),
+		detail: detail[0].toUpperCase() + detail.slice(1),
+	}
 }
 
 /**
@@ -108,6 +121,10 @@ export function FootNews() {
 	const [isNews, setIsNews] = createSignal(false)
 	const update = restartUpdate()
 	const groups = () => groupChanges(commits(), server().release)
+	/** A commit the waiting restart brings: in the server's checkout, not yet running */
+	const waiting = (commit) =>
+		Boolean(restarts()) &&
+		changes().some((change) => change.at === commit.at && change.subject === commit.subject)
 	// The first version this browser ever sees is read as caught up, not as news
 	createEffect(version, (v) => {
 		if (v && seen() === null) markSeen()
@@ -148,52 +165,48 @@ export function FootNews() {
 		}}
 	>
 		<${Panes}
-			title="What changed"
+			title=${() => (updateShown() ? updateHead() : 'What changed')}
 			actions=${html`<${Show} when=${updateShown}>
 				<button
 					type="button"
 					class="small"
 					data-fuzz-skip
 					disabled=${() => update.state() === 'busy' || Boolean(restarting())}
-					title=${restartTitle}
 					onClick=${(_e) => update()}
 				>
 					<${Busy} state=${() => (restarting() ? 'busy' : update.state())}>Restart<//>
 				</button>
 			<//>`}
-			foot=${html`<p class="mute">
-				<${Show} when=${version}
-					><a href=${sourceHref} target="_blank" rel="noopener noreferrer"
-						>ade ${shortVersion}</a
-					><//
-				>${() => (version() && desktopVersion() ? ', ' : '')}${() =>
-					desktopVersion() ? `arbe desktop ${desktopVersion()}` : ''}
-			</p>`}
 			open=${() => false}
 			onClose=${(_event) => panel.hidePopover()}
 		>
-			<ul class="rows change-groups">
+			<ol class="change-groups">
 				<${For} each=${groups}>
 					${(group) =>
-						html`<li class="group">
-							<h4>${() => group.label}</h4>
-							<ul class="rows">
+						html`<li>
+							<h3>${() => group.label}</h3>
+							<ul>
 								<${For} each=${() => group.items}>
 									${(commit) =>
-										html`<li class=${() => ({ new: isNews() })}>
-											<span>${() => commit.subject}</span>
+										html`<li class=${() => ({ new: isNews() || waiting(commit) })}>
+											<span>${() => splitSubject(commit.subject).headline}</span>
+											<${Show} when=${() => splitSubject(commit.subject).detail}>
+												<small>${() => splitSubject(commit.subject).detail}</small>
+											<//>
 										</li>`}
 								<//>
 								<${Show} when=${() => group.folded > 0}>
-									<li class="mute folded">
-										plus ${() => group.folded} internal
-										change${() => (group.folded === 1 ? '' : 's')}
+									<li class="folded">
+										<small
+											>Plus ${() => group.folded} internal
+											change${() => (group.folded === 1 ? '' : 's')}</small
+										>
 									</li>
 								<//>
 							</ul>
 						</li>`}
 				<//>
-			</ul>
+			</ol>
 		<//>
 	<//>`
 }

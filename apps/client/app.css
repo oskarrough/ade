@@ -1,23 +1,27 @@
 /* The app: the chat fills the window. The walkthrough, when it's on, lays its story over this. */
 
-/* The two lists that scroll: a thin bar, quiet until you touch it. */
-:is(.thread-list, .thread) > ul {
+/* The lists that scroll: a thin bar, quiet until you touch it. */
+:is(.thread-list, .thread) > ul,
+.version-list .pane-body {
 	overscroll-behavior: contain;
 	scrollbar-width: thin;
 	scrollbar-color: var(--edge) transparent;
 }
 
-:is(.thread-list, .thread) > ul::-webkit-scrollbar {
+:is(.thread-list, .thread) > ul::-webkit-scrollbar,
+.version-list .pane-body::-webkit-scrollbar {
 	width: 6px;
 	height: 6px;
 }
 
-:is(.thread-list, .thread) > ul::-webkit-scrollbar-thumb {
+:is(.thread-list, .thread) > ul::-webkit-scrollbar-thumb,
+.version-list .pane-body::-webkit-scrollbar-thumb {
 	background: var(--edge);
 	border-radius: 99px;
 }
 
-:is(.thread-list, .thread) > ul::-webkit-scrollbar-track {
+:is(.thread-list, .thread) > ul::-webkit-scrollbar-track,
+.version-list .pane-body::-webkit-scrollbar-track {
 	background: none;
 }
 
@@ -2823,36 +2827,66 @@ body.resizing {
 	}
 }
 
-/* What changed: a day's heading, or a release's tag on an installed copy, then its entries; a commit newer than
- * this browser's last look gets a dot, and commits that said nothing changes for the person already folded into
- * one line beneath the rest. */
-.version-list .change-groups {
-	> li.group {
-		& + li.group {
-			margin-top: var(--space-3);
+/* What changed: one surface, no rows to press. A day's date, or a release's tag on an installed copy, heads its
+ * entries; each is a headline with a quieter line under it, and a commit you haven't seen, or one a restart would
+ * bring, gets a dot in the gutter. Commits that said nothing changes for you fold into one line at the end. */
+.version-list {
+	.pane-body {
+		padding: var(--space-3) var(--space-4) var(--space-4);
+	}
+
+	.change-groups,
+	.change-groups ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.change-groups > li + li {
+		margin-top: var(--space-5);
+	}
+
+	.change-groups h3 {
+		margin: 0 0 var(--space-2);
+		font-size: var(--text-small);
+		line-height: var(--text-small-line);
+		font-weight: 500;
+		color: var(--mute);
+	}
+
+	.change-groups ul > li {
+		position: relative;
+
+		& + li {
+			margin-top: var(--space-4);
 		}
 
-		h4 {
-			margin: 0 0 var(--space-1);
-			font-size: var(--text-small);
-			font-weight: 600;
+		> span {
+			font-weight: 500;
+		}
+
+		&.folded > small {
+			margin-top: 0;
+		}
+
+		> small {
+			display: block;
+			margin-top: 2px;
 			color: var(--mute);
+			font-size: var(--text-small);
+			line-height: var(--text-small-line);
 		}
-	}
 
-	li.new > span::before {
-		content: '';
-		display: inline-block;
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: var(--accent, currentColor);
-		margin-inline-end: var(--space-2);
-		vertical-align: middle;
-	}
-
-	li.folded {
-		font-style: italic;
+		&.new::before {
+			content: '';
+			position: absolute;
+			left: calc(-1 * var(--space-3));
+			top: calc((var(--text-ui-line) - var(--dot)) / 2);
+			width: var(--dot);
+			height: var(--dot);
+			border-radius: 50%;
+			background: var(--pick);
+		}
 	}
 }
 
