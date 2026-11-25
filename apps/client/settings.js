@@ -12,7 +12,6 @@ import { Switch } from './dot.js'
 import { markdown } from './markdown.js'
 import { Icon } from './icons.js'
 import { PiSessionList } from './pi-sessions.js'
-import { desktopVersion } from './desktop.js'
 
 export function Settings() {
 	let panel
@@ -151,12 +150,6 @@ export function Settings() {
 							>
 						</button>
 					<//>
-					<${Show} when=${desktopVersion}>
-						<p class="mute">
-							${() =>
-								`ade ${server().release ?? server().commit?.slice(0, 7) ?? ''}, arbe desktop ${desktopVersion()}`}
-						</p>
-					<//>
 				`}
 				open=${picking}
 				onClose=${(_event) => panel.hidePopover()}
@@ -228,6 +221,18 @@ export function Settings() {
 						</li>
 					</ul>
 				<//>
+				<${Show} when=${owns}>
+					<${People}
+						on=${invitesOn}
+						disabled=${() => !editable()}
+						onToggle=${() =>
+							setDraft((store) => {
+								if (store.invites === undefined) store.invites = !invitesOn()
+								else delete store.invites
+							})}
+					/>
+				<//>
+				<h3>Modules</h3>
 				<ul class="rows modules">
 					<${For} each=${all}
 						>${(module) => html`
@@ -354,17 +359,6 @@ export function Settings() {
 						`}<//
 					>
 				</ul>
-				<${Show} when=${owns}>
-					<${People}
-						on=${invitesOn}
-						disabled=${() => !editable()}
-						onToggle=${() =>
-							setDraft((store) => {
-								if (store.invites === undefined) store.invites = !invitesOn()
-								else delete store.invites
-							})}
-					/>
-				<//>
 			<//>
 		<//>
 	`

@@ -34,7 +34,7 @@ import { liveOf } from './agent.js'
 import { report } from './notice.js'
 import { EditInPlace } from './edit-in-place.js'
 import { busy } from './busy.js'
-import { copyText, installShellUpdate, nativeMenu, shellUpdate } from './desktop.js'
+import { copyText, desktopVersion, installShellUpdate, nativeMenu, shellUpdate } from './desktop.js'
 import { openSide } from './side.js'
 import { RunnerList } from './runner.js'
 import { openTaskForm, ScheduledTaskList } from './schedule.js'
@@ -205,7 +205,7 @@ function Version() {
 	let panel
 	const [commits, setCommits] = createSignal([])
 	const version = () => server().release ?? server().commit?.slice(0, 7)
-	return html`<${Show} when=${version}>
+	return html`<${Show} when=${() => version() || desktopVersion()}>
 		<${Popover}
 			class="version-list"
 			button=${() =>
@@ -217,7 +217,7 @@ function Version() {
 							? `Up to date. What changed in ${version()}`
 							: 'Up to date. What changed lately'}
 				>
-					<span>${version}</span>
+					<span>ade updates</span>
 				</button>`}
 			ref=${(el) => (panel = el)}
 			onToggle=${(event) => {
@@ -225,7 +225,13 @@ function Version() {
 					api('/api/changes').then(({ commits }) => setCommits(commits), report)
 			}}
 		>
-			<${Panes} title="What changed" open=${() => false} onClose=${(_event) => panel.hidePopover()}>
+			<${Panes}
+				title="What changed"
+				actions=${html`<a href="https://github.com/oskarrough/ade" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`}
+				foot=${html`<p class="mute">${() => [version() && `ade ${version()}`, desktopVersion() && `arbe desktop ${desktopVersion()}`].filter(Boolean).join(', ')}</p>`}
+				open=${() => false}
+				onClose=${(_event) => panel.hidePopover()}
+			>
 				<ul class="rows">
 					<${For} each=${commits}>
 						${(commit) =>
