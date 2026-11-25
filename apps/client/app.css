@@ -22,15 +22,14 @@
 	}
 }
 
-/* Just the chat: the stage takes the page. */
-.page > section {
+/* The story sections are absent from the full-window chat. */
+:where(body.chat) .page > section {
 	display: none;
 }
 
-.stage {
+:where(body.chat) .stage {
 	position: relative;
 	height: 100vh;
-	height: 100dvh;
 	height: var(--visual-height, 100dvh);
 	overflow: hidden;
 }
@@ -38,18 +37,17 @@
 /* The live system, flattened: the server's box is the app's frame; the client, the wires and the runners' cards are the story's. */
 .system {
 	position: relative;
-	display: flex;
-	flex-direction: column;
-	align-items: stretch;
-	height: 100%;
 	font-size: var(--text-ui);
+
+	:where(body.chat) & {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
 }
 
-.client,
-.wires,
-.runners,
-.server > b,
-.server > small {
+.server > :is(b, small),
+:where(body.chat) :is(.client, .wires, .runners) {
 	display: none;
 }
 
@@ -62,7 +60,7 @@
 
 	> .body {
 		display: grid;
-		grid-template-columns: var(--list-width, 15rem) minmax(0, 1fr);
+		grid-template-columns: var(--list-width, var(--sidebar-width)) minmax(0, 1fr);
 		grid-template-rows: minmax(0, 1fr);
 		align-items: start;
 		position: relative;
@@ -74,9 +72,7 @@
 	font-size: var(--text-ui);
 
 	ul {
-		list-style: none;
-		margin: var(--space-2) 0;
-		padding: 0;
+		margin-block: var(--space-2);
 	}
 
 	li {
@@ -182,54 +178,15 @@ agent-memory {
 	}
 }
 
-/* Why the model wrote no new title, under the title, in its words' muted size. */
-.thread-details .title-failed {
-	display: block;
-	flex-basis: 100%;
-	margin: 0 var(--space-2);
-	color: var(--wait);
-	font-size: var(--text-small);
-}
-
-.thread-details h2.thread-title {
-	display: flex;
-	gap: var(--space-1);
-	flex: 1;
-	align-items: center;
-	/* Its words on the column the rows' names start on, past the field's own border and padding */
-	margin: 0 calc(var(--space-2) - var(--space-1) - 1px);
-	font-size: var(--text);
-	font-weight: normal;
-
-	> input {
-		display: block;
-		flex: 1;
-		min-width: 0;
-	}
-}
-
-/* A switch and the list it writes; the list is a field you can read and type in. Nested inside a bot's own panel too, not only the thread-level one. */
-.thread-details .hands {
-	display: flex;
-	gap: var(--space-2);
-	align-items: center;
-	font-size: var(--text-ui);
-
-	> .switch {
-		flex: none;
-	}
-
-	input.tools {
-		flex: 1;
-	}
-}
-
 .threads {
 	display: flex;
 	align-items: start;
 	min-width: 0;
-	height: 100%;
-	overflow-x: auto;
+
+	:where(body.chat) & {
+		height: 100%;
+		overflow-x: auto;
+	}
 }
 
 .threads,
@@ -240,15 +197,17 @@ agent-memory {
 .thread-list {
 	position: relative;
 	z-index: 1;
-	display: flex;
-	flex-direction: column;
-	align-self: stretch;
-	min-height: 0;
-	/* The same inset as the composer's own margins, so its foot row floats the same distance off the bottom edge */
-	padding: 0 var(--space-2) var(--space-2);
-	border-right: 1px solid var(--line);
-	overflow-y: auto;
 	font-size: var(--text-ui);
+
+	:where(body.chat) & {
+		display: flex;
+		flex-direction: column;
+		align-self: stretch;
+		min-height: 0;
+		padding: 0 var(--space-2) var(--space-2);
+		border-inline-end: 1px solid var(--line);
+		overflow-y: auto;
+	}
 }
 
 /* A new row reads like the rows it makes, in their ink, its + where their dot sits; the muted headings above are the only labels. */
@@ -257,14 +216,6 @@ agent-memory {
 	display: flex;
 	justify-content: center;
 	width: var(--dot);
-}
-
-.thread-list > ul,
-.thread-family {
-	display: grid;
-	list-style: none;
-	margin: 0;
-	padding: 0;
 }
 
 .thread-list > ul {
@@ -451,8 +402,19 @@ agent-memory {
 	border-radius: var(--radius);
 }
 
+/* Icon-only window controls use one square frame. */
+:where(
+	.thread > header > button.close,
+	.app-bar > button:not(.thread-name),
+	.lightbox button.close
+) {
+	inline-size: var(--control);
+	block-size: var(--control);
+}
+
 /* A thread: a column with its name on top and the composer at the foot, the messages scrolling between them, fading out under both. */
 .thread {
+	--fade-top: 3.4rem;
 	--fade-bottom: calc(3 * var(--baseline));
 	/* Two left edges: the text edge for everything at thread level, and one fold in for whatever an open fold holds */
 	--fold: 1rem;
@@ -460,7 +422,7 @@ agent-memory {
 	z-index: 1;
 	display: flex;
 	flex-direction: column;
-	flex: 1 0 min(100%, 26rem);
+	flex: 1 0 min(100%, var(--column-width));
 	min-width: 0;
 	height: 100%;
 	background: Canvas;
@@ -489,7 +451,7 @@ agent-memory {
 
 	&::before {
 		top: 0;
-		height: var(--fade-top, 3.4rem);
+		height: var(--fade-top);
 		/* Solid along the top edge, then soft, so words scrolling up dissolve before they reach the pill. */
 		background: linear-gradient(Canvas var(--space-2), transparent);
 	}
@@ -520,8 +482,6 @@ agent-memory {
 
 		> button.close {
 			flex: none;
-			width: var(--control);
-			height: var(--control);
 		}
 
 		> h2.title {
@@ -563,10 +523,8 @@ agent-memory {
 	> ul {
 		flex: 1;
 		min-height: 0;
-		list-style: none;
-		margin: 0;
 		/* Rounded to the baseline, so the rows sit on it at the top and the bottom of the scroll. */
-		padding-block: round(up, max(3.4rem, var(--thread-top, 0px)), var(--baseline))
+		padding-block: round(up, max(var(--fade-top), var(--thread-top, 0px)), var(--baseline))
 			round(
 				up,
 				calc(var(--compose-height, 7rem) + var(--fade-bottom) + var(--space-2)),
@@ -606,7 +564,6 @@ agent-memory {
 			small {
 				display: block;
 				color: var(--mute);
-				font-size: var(--text-small);
 				line-height: var(--text-small-line);
 				margin-bottom: var(--space-2);
 				overflow: hidden;
@@ -658,7 +615,6 @@ agent-memory {
 
 			/* A run's steps, and the messages that crossed threads, one line each; open, the whole of it. */
 			.steps {
-				list-style: none;
 				tab-size: 2;
 				margin: var(--space-2) 0 0;
 				padding: 0 0 0 var(--fold);
@@ -980,6 +936,91 @@ agent-memory {
 				);
 			}
 
+			/* Dates and the memory cut divide the transcript. */
+			&:is(.break, .cut) {
+				font-size: var(--text-small);
+				text-align: center;
+			}
+
+			&.break {
+				line-height: var(--text-small-line);
+			}
+
+			&.cut {
+				padding-block: var(--space-2);
+			}
+
+			/* A row's time and fork sit in the gap under it, out of the flow so showing them moves nothing: on your bubble's side, under its right edge, or under anyone else's words on the left. Only with a mouse on a big screen. */
+			> .foot {
+				position: absolute;
+				/* The whole strip under the row, above the next one, so the pointer can travel down to fork without losing the hover */
+				z-index: 1;
+				top: 100%;
+				inset-inline: 0;
+				min-height: var(--space-5);
+				display: none;
+				align-items: center;
+				gap: var(--space-2);
+				color: var(--mute);
+				font-size: var(--text-small);
+				line-height: var(--text-small-line);
+				white-space: nowrap;
+
+				> button.fork {
+					min-height: 0;
+					padding: 0;
+					line-height: inherit;
+
+					&:hover {
+						color: var(--ink);
+					}
+				}
+			}
+
+			&.mine > .foot {
+				flex-direction: row-reverse;
+			}
+
+			@media (hover: hover) and (pointer: fine) and (min-width: 701px) {
+				&:has(> .foot) + li {
+					margin-top: var(--space-5);
+				}
+
+				&:hover > .foot {
+					display: flex;
+				}
+			}
+
+			/* A message's images, under its words: each 16 baselines tall whatever its shape, kept whole within the column, so the rows after it stay on the baseline. A row of them wraps a baseline apart. */
+			div.images {
+				display: flex;
+				flex-wrap: wrap;
+				gap: var(--space-3);
+				margin-top: var(--space-3);
+				white-space: normal;
+
+				a {
+					display: block;
+					max-width: 100%;
+					cursor: zoom-in;
+				}
+
+				a > img {
+					display: block;
+					height: calc(16 * var(--baseline));
+					width: auto;
+					max-width: 100%;
+					object-fit: contain;
+					border-radius: var(--radius);
+				}
+			}
+
+			@media (prefers-reduced-motion: no-preference) {
+				&.sending {
+					animation: send-message 200ms ease-out;
+				}
+			}
+
 			/* Taking back a message you sent while it waits is there until an agent reads it, without a hover */
 			.withdraw {
 				position: absolute;
@@ -1002,34 +1043,6 @@ agent-memory {
 
 	> ul > li > .links:not(:first-child) {
 		padding: var(--space-3) 0 0;
-	}
-
-	/* A message's markdown keeps to the baseline: a line apart, never part of one. */
-	.markdown {
-		:is(p, ul, ol, blockquote, pre, table) {
-			margin-block: var(--space-3);
-		}
-
-		:is(h1, h2, h3, h4, h5, h6) {
-			margin: var(--space-3) 0 0;
-		}
-
-		hr {
-			margin-block: var(--space-3) calc(var(--space-3) - 1px);
-		}
-
-		> :first-child {
-			margin-top: 0;
-		}
-
-		> :last-child {
-			margin-bottom: 0;
-		}
-
-		/* Inline code in its own face would push its line taller. */
-		:not(pre) > code {
-			line-height: 0;
-		}
 	}
 
 	form {
@@ -1068,12 +1081,9 @@ agent-memory {
 			> textarea {
 				flex: 1;
 				min-width: 0;
-				field-sizing: content;
-				min-height: var(--field);
-				max-height: min(12rem, 40dvh);
-				overflow-y: auto;
+				--field-min: var(--field);
+				--field-max: min(12rem, 40dvh);
 				overscroll-behavior-y: contain;
-				resize: none;
 			}
 		}
 
@@ -1092,6 +1102,19 @@ agent-memory {
 				calc(-1 * (var(--space-1) + var(--space-2) + 1px));
 			min-height: var(--foot-height);
 
+			/* The button stays small but its touch target reaches 44px. */
+			@media (pointer: coarse) {
+				button {
+					position: relative;
+
+					&::after {
+						content: '';
+						position: absolute;
+						inset: min(0px, (100% - 44px) / 2);
+					}
+				}
+			}
+
 			button.add {
 				margin-left: calc(-1 * var(--space-1));
 			}
@@ -1104,39 +1127,45 @@ agent-memory {
 			min-width: 0;
 			margin-left: auto;
 
-			/* One line each, cut with an ellipsis once space runs out: the bar never grows a second row. */
-			span {
-				overflow: hidden;
-				text-overflow: ellipsis;
-				white-space: nowrap;
+			@media (max-width: 700px) {
+				.thinking-word {
+					display: none;
+				}
+			}
+		}
+
+		/* Images waiting to go: small squares above the box, each with its × to take it off. */
+		ul.images {
+			display: flex;
+			flex-wrap: wrap;
+			gap: var(--space-2);
+			margin-block-end: var(--space-2);
+
+			li {
+				position: relative;
+			}
+
+			img {
+				display: block;
+				width: 4rem;
+				height: 4rem;
+				object-fit: cover;
+				border-radius: var(--radius);
+			}
+
+			button {
+				position: absolute;
+				top: calc(-1 * var(--space-2));
+				right: calc(-1 * var(--space-2));
 			}
 		}
 	}
 }
 
-/* A phone's bar has room for the model, not how hard it thinks; the picker still says. */
-@media (max-width: 700px) {
-	.thread form .pick .thinking-word {
-		display: none;
-	}
-}
-
-.markdown .message-diagram {
-	margin-block: var(--space-3);
-	max-width: 100%;
-
-	.diagram {
-		overflow-x: auto;
-
-		svg {
-			display: block;
-		}
-	}
-
-	summary {
-		width: fit-content;
-		font-size: var(--text-small);
-		color: var(--mute);
+@keyframes send-message {
+	from {
+		translate: 0 2rem;
+		opacity: 0.2;
 	}
 }
 
@@ -1144,22 +1173,27 @@ agent-memory {
 .markdown {
 	white-space: normal;
 
-	> :first-child {
-		margin-top: 0;
-	}
+	/* Messages sit on the same baseline as their transcript. */
+	.thread & {
+		--paragraph-gap: var(--space-3);
+		--heading-before: var(--space-3);
+		--heading-after: 0px;
+		--rule-after: calc(var(--space-3) - 1px);
 
-	> :last-child {
-		margin-bottom: 0;
+		/* Inline code in its own face would push its line taller. */
+		:not(pre) > code {
+			line-height: 0;
+		}
 	}
 
 	:is(p, ul, ol, blockquote, pre, table) {
-		margin: var(--space-2) 0;
+		margin: var(--paragraph-gap, var(--space-2)) 0;
 	}
 
 	:is(h1, h2, h3, h4, h5, h6) {
 		font-size: 1em;
 		line-height: inherit;
-		margin: var(--space-4) 0 var(--space-1);
+		margin: var(--heading-before, var(--space-4)) 0 var(--heading-after, var(--space-1));
 	}
 
 	h1 {
@@ -1175,8 +1209,8 @@ agent-memory {
 		padding-left: var(--space-5);
 	}
 
-	li > p {
-		margin: 0;
+	:where(li) > p {
+		margin-block: var(--paragraph-gap, 0px);
 	}
 
 	blockquote {
@@ -1227,11 +1261,38 @@ agent-memory {
 	hr {
 		border: 0;
 		border-top: 1px solid var(--line);
-		margin: var(--space-2) 0;
+		margin-block: var(--paragraph-gap, var(--space-2)) var(--rule-after, var(--space-2));
 	}
 
 	img {
 		max-width: 100%;
+	}
+
+	.message-diagram {
+		margin-block: var(--space-3);
+		max-width: 100%;
+
+		.diagram {
+			overflow-x: auto;
+
+			svg {
+				display: block;
+			}
+		}
+
+		summary {
+			width: fit-content;
+			font-size: var(--text-small);
+			color: var(--mute);
+		}
+	}
+
+	> :first-child {
+		margin-top: 0;
+	}
+
+	> :last-child {
+		margin-bottom: 0;
 	}
 }
 
@@ -1254,14 +1315,10 @@ agent-memory {
 			margin-top: var(--space-2);
 		}
 	}
-
-	.hands {
-		padding: 0 var(--space-2) 0 0;
-	}
 }
 
 /* A bot's part of the sheet, the settings fold, and its + new, sized like the hands toggle and its tools. */
-.thread-details :is(.bot, .fold) > :is(textarea, input, button, select),
+.thread-details :is(.bot, .fold) > :is(textarea, input, button),
 .thread-details :is(.bot, .fold) > .sure > *,
 .task-form > :is(textarea, select, button, .when, .actions) {
 	margin: 0 var(--space-2);
@@ -1272,7 +1329,6 @@ agent-memory {
 .task-form > :is(select, button.bot-model) {
 	display: block;
 	background: var(--tint);
-	box-sizing: border-box;
 	width: calc(100% - 2 * var(--space-2));
 	text-align: left;
 	overflow: hidden;
@@ -1280,58 +1336,133 @@ agent-memory {
 	white-space: nowrap;
 }
 
-/* Its colour: the default, then a swatch per hue, as a row of small ghost buttons; the one it has is filled. */
-.thread-details .bot > .colors {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-1);
-	margin: 0 var(--space-2);
+.thread-details {
+	/* Why the model wrote no new title, under the title, in its words' muted size. */
+	.title-failed {
+		display: block;
+		flex-basis: 100%;
+		margin: 0 var(--space-2);
+		color: var(--wait);
+	}
 
-	> button {
-		display: inline-flex;
-		align-items: center;
+	h2.thread-title {
+		display: flex;
 		gap: var(--space-1);
-		min-height: var(--space-5);
+		flex: 1;
+		align-items: center;
+
+		> input {
+			display: block;
+			flex: 1;
+			min-width: 0;
+		}
 	}
 
-	> button:not(:first-child) {
-		padding-inline: var(--space-1);
+	/* A switch and the list it writes; the list is a field you can read and type in. Nested inside a bot's own panel too, not only the thread-level one. */
+	.hands {
+		padding-inline-end: var(--space-2);
+		display: flex;
+		gap: var(--space-2);
+		align-items: center;
+		font-size: var(--text-ui);
+
+		> .switch {
+			flex: none;
+		}
+
+		input.tools {
+			flex: 1;
+		}
 	}
 
-	.dot {
-		width: 0.75rem;
-		height: 0.75rem;
+	/* Its colour: the default, then a swatch per hue, as a row of small ghost buttons; the one it has is filled. */
+	.bot > .colors {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+		margin: 0 var(--space-2);
+
+		> button {
+			display: inline-flex;
+			align-items: center;
+			gap: var(--space-1);
+			min-height: var(--space-5);
+		}
+
+		> button:not(:first-child) {
+			padding-inline: var(--space-1);
+		}
+
+		.dot {
+			width: 0.75rem;
+			height: 0.75rem;
+		}
+
+		> .taken .dot {
+			opacity: 0.3;
+		}
 	}
 
-	> .taken .dot {
-		opacity: 0.3;
+	:is(#members, .folder) {
+		margin: 0 var(--space-2) var(--space-2);
+		color: var(--mute);
+		font-size: var(--text-small);
+		line-height: var(--text-small-line);
+	}
+
+	.bot > h3:first-child {
+		margin-top: var(--space-4);
+	}
+
+	:is(.bot, .fold) > .sure > :is(.forget, .archive) {
+		margin-top: var(--space-4);
+	}
+
+	/* A folded section of the details: its heading as the closed line, what it holds in a word after it, then the chevron. */
+	details.fold > summary {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		color: var(--mute);
+
+		/* A section's gap above it, though it's the first thing in its line */
+		> h2 {
+			margin-top: var(--space-4);
+			margin-inline-end: 0;
+		}
+	}
+
+	/* A thread's usage in its details reads at the pane's own size: the total a plain line, nothing larger below it. */
+	.thread-usage {
+		font-size: var(--text-ui);
+		line-height: var(--text-ui-line);
+
+		&:is(div) {
+			margin: var(--space-2) var(--space-2) 0;
+		}
+
+		> p {
+			margin: 0;
+			font-size: var(--text-small);
+			line-height: var(--text-small-line);
+		}
+
+		> small {
+			display: block;
+			color: var(--mute);
+			line-height: var(--text-small-line);
+		}
 	}
 }
 
 /* A page of the thread list: back, then the page's name. */
 .page-head {
-	display: flex;
 	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
 	margin: 0 var(--space-2) var(--space-2);
 
 	h2 {
 		margin: 0;
 	}
-}
-
-/* Instructions are written like a message: the composer's box, growing with what's in it, up to a dozen lines, then it scrolls so what's under it stays in view. */
-.thread-details .instructions,
-.task-form .instructions,
-.popover:has(> .panes) .options > textarea {
-	display: block;
-	box-sizing: border-box;
-	field-sizing: content;
-	min-height: 4lh;
-	max-height: 12lh;
-	overflow-y: auto;
-	resize: none;
 }
 
 .thread-details .instructions,
@@ -1350,7 +1481,6 @@ agent-memory {
 
 		small {
 			color: var(--mute);
-			font-size: var(--text-small);
 		}
 	}
 
@@ -1454,22 +1584,17 @@ agent-memory {
 		}
 
 		> textarea {
-			display: block;
-			box-sizing: border-box;
+			--field-min: 6lh;
+			--field-max: 16lh;
 			width: 100%;
 			margin-top: var(--space-1);
-			field-sizing: content;
-			min-height: 6lh;
-			max-height: 16lh;
 			font-family: var(--font-mono);
 			font-size: var(--text-small);
-			resize: none;
 		}
 
 		> small {
 			display: block;
 			margin-top: var(--space-1);
-			font-size: var(--text-small);
 		}
 	}
 
@@ -1555,39 +1680,6 @@ svg.ring {
 	color: var(--mute);
 }
 
-.thread-details :is(#members, .folder) {
-	margin: 0 var(--space-2) var(--space-2);
-	color: var(--mute);
-	font-size: var(--text-small);
-	line-height: var(--text-small-line);
-}
-
-.thread-details .bot > h3:first-child {
-	margin-top: var(--space-4);
-}
-
-.thread-details :is(.bot, .fold) > .sure > :is(.forget, .archive) {
-	margin-top: var(--space-4);
-}
-
-/* A folded section of the details: its heading as the closed line, what it holds in a word after it, then the chevron. */
-.thread-details details.fold > summary {
-	display: flex;
-	align-items: baseline;
-	gap: var(--space-2);
-	color: var(--mute);
-
-	/* A section's gap above it, though it's the first thing in its line */
-	> h2 {
-		margin-top: var(--space-4);
-		margin-inline-end: 0;
-	}
-
-	> small {
-		font-size: var(--text-small);
-	}
-}
-
 .thread-list > h2 {
 	display: flex;
 	justify-content: space-between;
@@ -1609,18 +1701,12 @@ svg.ring {
 
 /* The thread's name, the button for its details: in each thread's head on a big screen, in the bar on a phone; its light first. */
 .thread-name {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
 	min-width: 0;
 	max-width: 60%;
 	height: var(--control);
 
 	> span:not(.dot) {
 		flex: 0 1 auto;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 
 	> .dot {
@@ -1631,14 +1717,11 @@ svg.ring {
 /* A model billed per use, on an API key rather than a subscription: a quiet $ after its provider. */
 .metered {
 	color: var(--mute);
-	font-size: var(--text-small);
 }
 
 /* A search, then each runner's models as rows with a check on the one asked, then how hard it thinks as a row of steps. */
 .model {
-	display: flex;
 	align-items: start;
-	gap: var(--space-2);
 	width: 100%;
 	text-align: left;
 
@@ -1646,7 +1729,6 @@ svg.ring {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: var(--text-small);
 	}
 }
 
@@ -1765,6 +1847,43 @@ svg.ring {
 	> .model-controls {
 		flex: 1 1 auto;
 	}
+
+	.search > button.close {
+		display: none;
+
+		@media (max-width: 700px) {
+			display: flex;
+		}
+	}
+
+	/* Jump matches the composer on desktop; mentions fit the field at every size. */
+	@media (min-width: 701px) {
+		&.jump {
+			--popover-width: var(--chat-width);
+		}
+	}
+
+	&.mentions {
+		inset: auto;
+		width: min(22.5rem, var(--composer-width, 100vw), var(--popover-available-width));
+		max-height: min(40dvh, 20rem);
+	}
+
+	&:is(.mentions, .jump) .model {
+		align-items: baseline;
+
+		> span:not(.dot) {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		> small {
+			flex: none;
+			max-width: 50%;
+			margin-inline-start: auto;
+			color: var(--mute);
+		}
+	}
 }
 
 .runner-list {
@@ -1777,6 +1896,29 @@ svg.ring {
 
 	pre {
 		font-size: var(--text-small);
+	}
+
+	/* Revoke waits at the row's end, like a thread's archive button. */
+	.rows > li {
+		.revoke {
+			flex: none;
+			visibility: hidden;
+		}
+
+		&:focus-within .revoke,
+		.armed .revoke {
+			visibility: visible;
+		}
+
+		@media (hover: hover) and (pointer: fine) {
+			&:hover .revoke {
+				visibility: visible;
+			}
+		}
+
+		.outdated {
+			color: var(--wait);
+		}
 	}
 }
 
@@ -1921,7 +2063,7 @@ svg.ring {
 /* Settings get room on a desktop: up to twice a popover's height, as the window allows, and a little wider for the descriptions. A phone keeps the sheet. */
 @media (min-width: 701px) {
 	.popover.settings {
-		width: min(28rem, var(--popover-available-width));
+		--popover-width: 28rem;
 		max-height: min(64rem, calc(100dvh - 5rem));
 	}
 }
@@ -1939,33 +2081,6 @@ svg.ring {
 		span {
 			color: var(--ink);
 		}
-	}
-}
-
-.model-picker .search > button.close {
-	display: none;
-}
-
-/* Revoke waits at the row's end, like a thread's archive button. */
-.runner-list .rows > li {
-	.revoke {
-		flex: none;
-		visibility: hidden;
-	}
-
-	&:focus-within .revoke,
-	.armed .revoke {
-		visibility: visible;
-	}
-
-	@media (hover: hover) and (pointer: fine) {
-		&:hover .revoke {
-			visibility: visible;
-		}
-	}
-
-	.outdated {
-		color: var(--wait);
 	}
 }
 
@@ -2039,18 +2154,9 @@ connect-runner {
 
 button.foot-toggle {
 	flex: none;
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
 	min-width: 0;
 	/* Its dot where a row's sits, so the words line up with the threads above; a row has no border to make up for. */
 	padding-inline: calc(var(--space-2) - 1px);
-
-	span:last-child {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
 
 	&.runner-toggle {
 		flex: 0 1 auto;
@@ -2073,40 +2179,6 @@ button.foot-toggle {
 	&.settings-toggle {
 		width: var(--small-button);
 		padding: 0;
-	}
-}
-
-/* Jump, on a big screen: as wide as the composer, centred on the window, over the list's edge too. */
-@media (min-width: 701px) {
-	.model-picker.jump {
-		width: min(var(--chat-width), var(--popover-available-width));
-	}
-}
-
-/* The bots and threads an @ can mention: a small popover over the message box, on phones too, never a sheet, never wider than the box. */
-.model-picker.mentions {
-	inset: auto;
-	width: min(22.5rem, var(--composer-width, 100vw), var(--popover-available-width));
-	max-height: min(40dvh, 20rem);
-}
-
-/* Its rows, and Jump's: a name takes one line and ends in … when it's too long; what it is sits on the right edge. */
-:is(.model-picker.mentions, .model-picker.jump) .model {
-	align-items: baseline;
-
-	> span:not(.dot) {
-		flex: 1 1 auto;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	> small {
-		flex: none;
-		max-width: 50%;
-		margin-left: auto;
-		color: var(--mute);
 	}
 }
 
@@ -2135,7 +2207,7 @@ button.foot-toggle {
 	display: block;
 	position: absolute;
 	inset-block: 0;
-	left: calc(var(--list-width, 15rem) - 3px);
+	left: calc(var(--list-width, var(--sidebar-width)) - 3px);
 }
 
 :is(.side-edge, .column-edge) {
@@ -2177,7 +2249,6 @@ body.resizing {
 		flex-basis: 100%;
 		margin-top: var(--space-1);
 		color: var(--mute);
-		font-size: var(--text-small);
 		line-height: var(--text-small-line);
 	}
 }
@@ -2230,77 +2301,25 @@ body.resizing {
 	}
 }
 
-/* Images waiting to go: small squares above the box, each with its × to take it off. */
-.thread form ul.images {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2);
-	list-style: none;
-	margin: 0 0 var(--space-2);
-	padding: 0;
-
-	li {
-		position: relative;
-	}
-
-	img {
-		display: block;
-		width: 4rem;
-		height: 4rem;
-		object-fit: cover;
-		border-radius: var(--radius);
-	}
-
-	button {
-		position: absolute;
-		top: calc(-1 * var(--space-2));
-		right: calc(-1 * var(--space-2));
-	}
-}
-
-/* A message's images, under its words: each 16 baselines tall whatever its shape, kept whole within the column, so the rows after it stay on the baseline. A row of them wraps a baseline apart. */
-.thread > ul > li div.images {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-3);
-	margin-top: var(--space-3);
-	white-space: normal;
-
-	a {
-		display: block;
-		max-width: 100%;
-		cursor: zoom-in;
-	}
-
-	a > img {
-		display: block;
-		height: calc(16 * var(--baseline));
-		width: auto;
-		max-width: 100%;
-		object-fit: contain;
-		border-radius: var(--radius);
-	}
-}
-
 /* A thread's images over the page, dimmed: the open one as big as the window allows, never upscaled; every image in the thread down the left, the open one outlined, along the foot on a phone. */
-.lightbox[open] {
-	display: grid;
-	grid-template: minmax(0, 1fr) / auto minmax(0, 1fr);
-	width: 100vw;
-	height: 100dvh;
-	max-width: none;
-	max-height: none;
-	margin: 0;
-	padding: 0;
-	border: 0;
-	overflow: hidden;
-	background: none;
-	color-scheme: dark;
-	color: var(--ink);
-	outline: none;
-}
-
 .lightbox {
+	&[open] {
+		display: grid;
+		grid-template: minmax(0, 1fr) / auto minmax(0, 1fr);
+		width: 100vw;
+		height: 100dvh;
+		max-width: none;
+		max-height: none;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		overflow: hidden;
+		background: none;
+		color-scheme: dark;
+		color: var(--ink);
+		outline: none;
+	}
+
 	&::backdrop {
 		background: rgb(0 0 0 / 0.88);
 		backdrop-filter: blur(24px);
@@ -2338,10 +2357,8 @@ body.resizing {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		margin: 0;
 		padding: var(--space-4);
 		overflow: auto;
-		list-style: none;
 		scrollbar-width: none;
 
 		button {
@@ -2367,8 +2384,8 @@ body.resizing {
 
 		img {
 			display: block;
-			width: 3.5rem;
-			height: 3.5rem;
+			inline-size: var(--thumb-size, 3.5rem);
+			block-size: var(--thumb-size, 3.5rem);
 			object-fit: cover;
 			border-radius: var(--radius-small);
 		}
@@ -2390,37 +2407,30 @@ body.resizing {
 		}
 
 		button.close {
-			width: var(--control);
-			height: var(--control);
 			padding: 0;
 		}
 	}
-}
 
-@media (max-width: 700px) {
-	.lightbox[open] {
-		grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
-	}
+	@media (max-width: 700px) {
+		&[open] {
+			grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
+		}
 
-	.lightbox {
 		.picture {
 			grid-column: 1;
-			padding: calc(var(--control) + 2 * var(--space-3) + env(safe-area-inset-top)) 0 var(--space-3);
+			padding: calc(var(--control) + 2 * var(--space-3) + var(--window-inset-top)) 0 var(--space-3);
 		}
 
 		.thumbs {
 			grid-row: 2;
 			flex-direction: row;
-			padding: var(--space-3) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom));
+			padding: var(--space-3) var(--space-3) calc(var(--space-3) + var(--window-inset-bottom));
 
-			img {
-				width: 3rem;
-				height: 3rem;
-			}
+			--thumb-size: var(--space-7);
 		}
 
 		.bar {
-			top: calc(var(--space-3) + env(safe-area-inset-top));
+			top: calc(var(--space-3) + var(--window-inset-top));
 			left: var(--space-3);
 
 			.count {
@@ -2429,50 +2439,39 @@ body.resizing {
 			}
 		}
 	}
-}
 
-@keyframes send-message {
-	from {
-		translate: 0 2rem;
-		opacity: 0.2;
-	}
-}
+	@media (prefers-reduced-motion: no-preference) {
+		.picture:not(.dragging) img {
+			transition: translate var(--duration-popover) var(--ease-out);
+		}
 
-@media (prefers-reduced-motion: no-preference) {
-	.thread > ul > li.sending {
-		animation: send-message 200ms ease-out;
-	}
+		&,
+		&::backdrop {
+			transition:
+				opacity var(--duration-press) var(--ease-out),
+				scale var(--duration-press) var(--ease-out),
+				display var(--duration-press) allow-discrete,
+				overlay var(--duration-press) allow-discrete;
+		}
 
-	.lightbox .picture:not(.dragging) img {
-		transition: translate var(--duration-popover) var(--ease-out);
-	}
-
-	.lightbox,
-	.lightbox::backdrop {
-		transition:
-			opacity var(--duration-press) var(--ease-out),
-			scale var(--duration-press) var(--ease-out),
-			display var(--duration-press) allow-discrete,
-			overlay var(--duration-press) allow-discrete;
-	}
-
-	.lightbox:not([open]),
-	.lightbox:not([open])::backdrop {
-		opacity: 0;
-	}
-
-	.lightbox:not([open]) {
-		scale: 0.96;
-	}
-
-	@starting-style {
-		.lightbox[open],
-		.lightbox[open]::backdrop {
+		&:not([open]),
+		&:not([open])::backdrop {
 			opacity: 0;
 		}
 
-		.lightbox[open] {
+		&:not([open]) {
 			scale: 0.96;
+		}
+
+		@starting-style {
+			&[open],
+			&[open]::backdrop {
+				opacity: 0;
+			}
+
+			&[open] {
+				scale: 0.96;
+			}
 		}
 	}
 }
@@ -2515,7 +2514,6 @@ body.resizing {
 
 	small {
 		color: var(--mute);
-		font-size: var(--text-small);
 	}
 
 	/* Memory catching up: written so far solid, still to write faint, filling as batches land */
@@ -2540,74 +2538,6 @@ body.resizing {
 	}
 }
 
-/* A new day, or an hour gone by: the date or the time, centred and quiet, between the messages. */
-.thread > ul > li.break {
-	font-size: var(--text-small);
-	line-height: var(--text-small-line);
-	text-align: center;
-}
-
-/* A row's time and fork sit in the gap under it, out of the flow so showing them moves nothing: on your bubble's side, under its right edge, or under anyone else's words on the left. Only with a mouse on a big screen. */
-.thread > ul > li > .foot {
-	position: absolute;
-	/* The whole strip under the row, above the next one, so the pointer can travel down to fork without losing the hover */
-	z-index: 1;
-	top: 100%;
-	inset-inline: 0;
-	min-height: var(--space-5);
-	display: none;
-	align-items: center;
-	gap: var(--space-2);
-	color: var(--mute);
-	font-size: var(--text-small);
-	line-height: var(--text-small-line);
-	white-space: nowrap;
-
-	> button.fork {
-		min-height: 0;
-		padding: 0;
-		line-height: inherit;
-
-		&:hover {
-			color: var(--ink);
-		}
-	}
-}
-
-.thread > ul > li.mine > .foot {
-	flex-direction: row-reverse;
-}
-
-@media (hover: hover) and (pointer: fine) and (min-width: 701px) {
-	.thread > ul > li:has(> .foot) + li {
-		margin-top: var(--space-5);
-	}
-
-	.thread > ul > li:hover > .foot {
-		display: flex;
-	}
-}
-
-/* Where compaction cut: a quiet line across the thread, not a message. */
-.thread > ul > li.cut {
-	font-size: var(--text-small);
-	text-align: center;
-	padding: var(--space-2) 0;
-}
-
-/* A finger needs 44px: the small icon buttons keep their look and reach past it. */
-@media (pointer: coarse) {
-	.thread form .bar button {
-		position: relative;
-
-		&::after {
-			content: '';
-			position: absolute;
-			inset: min(0px, (100% - 44px) / 2);
-		}
-	}
-}
-
 /* A phone: one thread, an app bar on top, all threads in a drawer on the left, the thread's family and runners on the right. */
 .app-bar {
 	display: none;
@@ -2617,11 +2547,11 @@ body.resizing {
 	body {
 		overscroll-behavior: none;
 		/* The bar's own height, so the thread below knows where it ends. */
-		--bar-height: calc(var(--control) + 2 * var(--space-2) + env(safe-area-inset-top));
+		--bar-height: calc(var(--control) + 2 * var(--space-2) + var(--window-inset-top));
 	}
 
 	/* The bar, on the page's own surface so the messages scroll under it, not through it. */
-	.app-bar {
+	:where(body.chat) .app-bar {
 		display: grid;
 		grid-template-columns: 1fr auto 1fr;
 		align-items: center;
@@ -2629,14 +2559,9 @@ body.resizing {
 		position: fixed;
 		inset: 0 0 auto;
 		z-index: 6;
-		padding: calc(var(--space-2) + env(safe-area-inset-top)) var(--space-2) var(--space-2);
+		padding: calc(var(--space-2) + var(--window-inset-top)) var(--space-2) var(--space-2);
 		background: Canvas;
 		font-size: var(--text-ui);
-
-		> button:not(.thread-name) {
-			width: var(--control);
-			height: var(--control);
-		}
 
 		> button:last-child:not(:first-child, .thread-name) {
 			justify-self: end;
@@ -2664,7 +2589,7 @@ body.resizing {
 		position: absolute;
 		inset: 0;
 		z-index: 3;
-		padding-top: calc(var(--control) + 3 * var(--space-2) + env(safe-area-inset-top));
+		padding-top: calc(var(--control) + 3 * var(--space-2) + var(--window-inset-top));
 	}
 
 	.thread {
@@ -2678,7 +2603,6 @@ body.resizing {
 		&::before {
 			top: var(--bar-height);
 			height: calc(2 * var(--baseline));
-			background: linear-gradient(Canvas var(--space-2), transparent);
 		}
 
 		/* A phone's narrower gutter, the composer keeping pace. */
@@ -2692,7 +2616,7 @@ body.resizing {
 		/* The same composer as on a big screen, edge to edge and clear of the home bar. */
 		form.compose {
 			width: calc(100% - 2 * var(--space-4));
-			margin-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
+			margin-bottom: calc(var(--space-4) + var(--window-inset-bottom));
 		}
 	}
 
@@ -2702,7 +2626,7 @@ body.resizing {
 	}
 
 	/* All threads are a screen of their own, under the thread: back slides the thread off to the right and the list in after it, like a mail inbox. */
-	.thread-list {
+	:where(body.chat) .thread-list {
 		position: fixed;
 		inset: 0;
 		z-index: 3;
@@ -2710,21 +2634,21 @@ body.resizing {
 		overscroll-behavior: contain;
 		border: 0;
 		background: Canvas;
-		padding: calc(var(--space-2) + env(safe-area-inset-top)) var(--space-2) 0;
+		padding: calc(var(--space-2) + var(--window-inset-top)) var(--space-2) 0;
 	}
 
-	.threads {
+	:where(body.chat) .threads {
 		display: block;
 		position: relative;
 		z-index: 5;
 		background: Canvas;
 	}
 
-	body.list :is(.threads, .app-bar) {
+	body.chat:where(.list) :is(.threads, .app-bar) {
 		transform: translateX(100%);
 	}
 
-	body:not(.list) .thread-list {
+	body.chat:where(:not(.list)) .thread-list {
 		transform: translateX(-30%);
 		visibility: hidden;
 	}
@@ -2734,20 +2658,15 @@ body.resizing {
 		padding-top: var(--space-2);
 		margin: auto calc(-1 * var(--space-2)) 0;
 		padding-inline: var(--space-2);
-		padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+		padding-bottom: max(var(--space-2), var(--window-inset-bottom));
 	}
 
 	:is(.list-edge, .side-edge) {
 		display: none;
 	}
 
-	/* A sheet closes from its top corner, the picker beside its search; on a big screen a click outside does it. */
-	.model-picker .search > button.close {
-		display: flex;
-	}
-
 	@media (prefers-reduced-motion: no-preference) {
-		:is(.threads, .app-bar, .thread-list) {
+		:where(body.chat) :is(.threads, .app-bar, .thread-list) {
 			transition:
 				transform var(--duration-sheet) var(--ease-sheet),
 				visibility var(--duration-sheet) var(--ease-sheet);
@@ -2758,7 +2677,7 @@ body.resizing {
 /* The side column: beside the thread, as wide as a narrow thread, its pages in one frame whose body scrolls on its own. */
 .side {
 	display: flex;
-	flex: 0 1 var(--side-width, 26rem);
+	flex: 0 1 var(--side-width, var(--column-width));
 	flex-direction: column;
 	min-width: 18rem;
 	align-self: stretch;
@@ -2837,13 +2756,6 @@ body.resizing {
 		padding: var(--space-3) calc(var(--space-2) + var(--space-2)) var(--space-4);
 	}
 
-	.change-groups,
-	.change-groups ul {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-
 	.change-groups ul {
 		padding-inline-start: calc(var(--dot) + var(--space-2));
 	}
@@ -2875,7 +2787,6 @@ body.resizing {
 			display: block;
 			margin-top: 2px;
 			color: var(--mute);
-			font-size: var(--text-small);
 			line-height: var(--text-small-line);
 		}
 
@@ -2886,7 +2797,7 @@ body.resizing {
 			top: calc((var(--text-ui-line) - var(--dot)) / 2);
 			width: var(--dot);
 			height: var(--dot);
-			border-radius: 50%;
+			border-radius: var(--radius-circle);
 			background: var(--pick);
 		}
 	}
@@ -3035,12 +2946,14 @@ body.resizing {
 }
 
 /* A usage row is one plain line: its name, then its numbers muted after it, or under it once they don't fit. */
-.rows.usage > li > div,
-.rows.usage > li > .row > div {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: baseline;
-	column-gap: var(--space-2);
+.rows.usage > li {
+	> div,
+	> .row > div {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		column-gap: var(--space-2);
+	}
 }
 
 /* What the tokens were: one bar in four parts, named under it in the same colours. */
@@ -3077,7 +2990,7 @@ body.resizing {
 			width: 0.5em;
 			height: 0.5em;
 			margin-right: var(--space-1);
-			border-radius: 50%;
+			border-radius: var(--radius-circle);
 			background: var(--kind);
 		}
 
@@ -3132,32 +3045,8 @@ body.resizing {
 
 		> small {
 			color: var(--mute);
-			font-size: var(--text-small);
 			line-height: var(--text-small-line);
 		}
-	}
-}
-
-/* A thread's usage in its details reads at the pane's own size: the total a plain line, nothing larger below it. */
-.thread-details .thread-usage {
-	font-size: var(--text-ui);
-	line-height: var(--text-ui-line);
-
-	&:is(div) {
-		margin: var(--space-2) var(--space-2) 0;
-	}
-
-	> p {
-		margin: 0;
-		font-size: var(--text-small);
-		line-height: var(--text-small-line);
-	}
-
-	> small {
-		display: block;
-		color: var(--mute);
-		font-size: var(--text-small);
-		line-height: var(--text-small-line);
 	}
 }
 
@@ -3241,7 +3130,6 @@ body.resizing {
 			> small {
 				padding: 0 var(--space-2);
 				color: var(--mute);
-				font-size: var(--text-small);
 				overflow-wrap: anywhere;
 			}
 

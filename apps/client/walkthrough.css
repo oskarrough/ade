@@ -17,7 +17,6 @@ body:not(.chat) {
 		padding: 0 var(--space-6);
 
 		> section {
-			display: block;
 			grid-column: 1;
 			padding: var(--space-7) 0;
 			min-height: 60vh;
@@ -89,10 +88,8 @@ body:not(.chat) {
 		grid-template-columns: max-content minmax(0, 1fr);
 		gap: var(--space-6);
 		align-items: start;
-		height: auto;
 	}
 
-	.client,
 	.wires {
 		display: block;
 	}
@@ -201,43 +198,17 @@ body:not(.chat) {
 	}
 
 	.threads {
-		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
-		position: static;
-		z-index: auto;
-		height: auto;
-		overflow: visible;
-		background: none;
-		transform: none;
-		transition: none;
 	}
 
 	.thread-list {
-		display: block;
-		position: relative;
-		inset: auto;
-		z-index: 1;
-		align-self: auto;
-		min-height: auto;
-		padding: 0;
-		border: 0;
-		overflow: visible;
-		background: none;
-		transform: none;
-		visibility: visible;
-		transition: none;
-
 		> ul {
 			max-height: 24rem;
 
 			> li {
 				font-size: inherit;
 				transition: none;
-
-				&:active {
-					transform: none;
-				}
 
 				> .row {
 					padding-block: var(--space-1);
@@ -346,12 +317,10 @@ body:not(.chat) {
 	/* The chat's own parts: its list's foot and edge, a phone's bar, and its motion. */
 	.list-foot,
 	.list-edge,
-	.side-edge,
-	.app-bar {
+	.side-edge {
 		display: none;
 	}
 
-	.thread-details,
 	button {
 		transition: none;
 	}
@@ -362,9 +331,7 @@ body:not(.chat) {
 
 	/* A runner's card: its models, the first the one it runs. The whole card is the switch: lit blue when your next message goes there. */
 	.card .models {
-		list-style: none;
-		margin: var(--space-2) 0 0;
-		padding: 0;
+		margin-block-start: var(--space-2);
 
 		> li {
 			display: flex;

@@ -54,6 +54,10 @@
 :root {
 	/* How wide a thread's messages and composer run; Jump takes it too */
 	--chat-width: 50rem;
+	--column-width: 26rem;
+	--sidebar-width: 15rem;
+	--window-inset-top: env(safe-area-inset-top);
+	--window-inset-bottom: env(safe-area-inset-bottom);
 	color-scheme: light dark;
 	--font-text: 'Inter Variable', system-ui, sans-serif;
 	--font-ui: 'Inter Variable', system-ui, sans-serif;
@@ -66,6 +70,8 @@
 	--tint: color-mix(in srgb, CanvasText 5%, Canvas);
 	--edge: color-mix(in srgb, CanvasText 32%, Canvas);
 	--selected-surface: color-mix(in srgb, CanvasText 10%, Canvas);
+	--pressed-fill: color-mix(in srgb, CanvasText 10%, transparent);
+	--hover-fill: color-mix(in srgb, CanvasText 8%, transparent);
 	--ok: #2f9e62;
 	--wait: #d39a00;
 	--pick: #3b7be0;
@@ -88,6 +94,7 @@
 	--radius-small: 6px;
 	--radius: 10px;
 	--radius-large: 14px;
+	--radius-circle: 50%;
 	/* Three sizes, each on lines of the 4px grid: text to read, ui for rows, panels, fields and buttons, small for run lines, headers and the foot. */
 	--text: 16px;
 	--text-line: 24px;
@@ -278,7 +285,7 @@ button.ghost {
 	color: var(--mute);
 
 	&:is([aria-pressed='true'], [aria-expanded='true'], [aria-selected='true']) {
-		background: color-mix(in srgb, CanvasText 10%, transparent);
+		background: var(--pressed-fill);
 		color: var(--ink);
 	}
 }
@@ -355,7 +362,7 @@ button.send {
 	display: inline-flex;
 	justify-content: center;
 	align-items: center;
-	border-radius: 50%;
+	border-radius: var(--radius-circle);
 }
 
 /* Fields: one soft box to type in, a shade off the page, its border darker while you write. */
@@ -367,8 +374,14 @@ button.send {
 	}
 }
 
-textarea:not(.draft) {
-	line-height: var(--text-ui-line);
+/* Drafts, instructions and checks grow with what you write, then scroll. */
+textarea {
+	display: block;
+	field-sizing: content;
+	min-height: var(--field-min, 4lh);
+	max-height: var(--field-max, 12lh);
+	overflow-y: auto;
+	resize: none;
 }
 
 /* Bare: a field that reads as the text it holds until you point at it or write in it, for a name that is also a heading or a row's title. */
@@ -409,11 +422,45 @@ input[type='checkbox'] {
 	accent-color: var(--ink);
 }
 
-/* A row: a link, or a button that makes one, as wide as its list; a link is none of the three buttons, and its fill is the row's, not its own. */
-.row {
+/* App lists start at their container edge. Lists in prose keep the browser's markers. */
+:where(.thread, .thread-list, .model-controls) > ul,
+:where(
+	.thread-family,
+	.rows,
+	.change-groups,
+	.change-groups ul,
+	.lightbox .thumbs,
+	.card .models,
+	.memory ul,
+	.thread .steps,
+	.thread form ul.images
+) {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+:is(.row, .model, .thread-name, .foot-toggle, .page-head) {
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
+}
+
+/* Labels that share a control with a dot, icon, or hint keep one line. */
+:where(
+	.row > span:not(.dot, .plus),
+	.thread-name > span:not(.dot),
+	.foot-toggle > span:last-child,
+	.thread form .pick span,
+	:is(.jump, .mentions) .model > span:not(.dot)
+) {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* A row: a link, or a button that makes one, as wide as its list; a link is none of the three buttons, and its fill is the row's, not its own. */
+.row {
 	padding-block: var(--space-2);
 	padding-inline: calc(var(--space-2) + var(--depth, 0) * var(--space-4)) var(--space-2);
 	border: 0;
@@ -426,9 +473,6 @@ input[type='checkbox'] {
 
 	> span:not(.dot, .plus) {
 		flex: 1;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 
 	> small {
@@ -445,7 +489,7 @@ input[type='checkbox'] {
 	display: inline-block;
 	width: var(--dot);
 	height: var(--dot);
-	border-radius: 50%;
+	border-radius: var(--radius-circle);
 	background: var(--line);
 	flex: none;
 
@@ -533,7 +577,7 @@ button[data-danger]:focus-visible:not(:disabled) {
 	}
 
 	button.ghost:hover:not(:disabled) {
-		background: color-mix(in srgb, CanvasText 8%, transparent);
+		background: var(--hover-fill);
 		color: var(--ink);
 	}
 }
@@ -541,11 +585,12 @@ button[data-danger]:focus-visible:not(:disabled) {
 /* Popovers on desktop, bottom sheets on phones. Jump can open one from a hidden sidebar. */
 .popover {
 	--popover-available-width: calc(100vw - 1rem);
+	--popover-width: 24rem;
 	position: fixed;
 	line-height: var(--text-ui-line);
 	inset: auto;
 	margin: 0;
-	width: min(24rem, var(--popover-available-width));
+	width: min(var(--popover-width), var(--popover-available-width));
 	max-height: min(70dvh, 32rem);
 	overflow-y: auto;
 	overscroll-behavior: contain;
@@ -560,13 +605,63 @@ button[data-danger]:focus-visible:not(:disabled) {
 	&:popover-open {
 		visibility: visible;
 	}
+
+	/* Desktop panels close on an outside click; phone sheets get a close button. */
+	.panes .pane > header > button.close {
+		display: var(--popover-close, none);
+	}
+
+	@media (max-width: 700px) {
+		--popover-close: block;
+		inset: auto var(--space-2) calc(var(--space-2) + var(--window-inset-bottom)) var(--space-2);
+		width: auto;
+		max-height: 70dvh;
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		transition:
+			opacity var(--duration-press) var(--ease-out),
+			scale var(--duration-press) var(--ease-out),
+			translate var(--duration-press) var(--ease-out),
+			display var(--duration-press) var(--ease-out) allow-discrete,
+			overlay var(--duration-press) var(--ease-out) allow-discrete;
+
+		/* A desktop popover fades and scales; a phone sheet slides from below the home bar. */
+		@media (max-width: 700px) {
+			--popover-opening: var(--duration-sheet);
+			--popover-closed-opacity: 1;
+			--popover-closed-scale: none;
+			--popover-closed-translate: 0 calc(100% + var(--space-2) + var(--window-inset-bottom));
+			transition:
+				translate var(--duration-sheet) var(--ease-sheet),
+				display var(--duration-sheet) allow-discrete,
+				overlay var(--duration-sheet) allow-discrete;
+		}
+
+		&:popover-open {
+			transition-duration: var(--popover-opening, var(--duration-popover));
+		}
+
+		&:not(:popover-open) {
+			opacity: var(--popover-closed-opacity, 0);
+			scale: var(--popover-closed-scale, 0.96);
+			translate: var(--popover-closed-translate, none);
+		}
+
+		@starting-style {
+			&:popover-open {
+				opacity: var(--popover-closed-opacity, 0);
+				scale: var(--popover-closed-scale, 0.96);
+				translate: var(--popover-closed-translate, none);
+			}
+		}
+	}
 }
 
 .model-controls > ul,
-.rows {
-	list-style: none;
-	margin: 0;
-	padding: 0;
+.rows,
+.thread-list > ul,
+.thread-family {
 	display: grid;
 }
 
@@ -598,7 +693,6 @@ button[data-danger]:focus-visible:not(:disabled) {
 
 	small {
 		color: var(--mute);
-		font-size: var(--text-small);
 	}
 }
 
@@ -687,69 +781,10 @@ button[data-danger]:focus-visible:not(:disabled) {
 		inset: 0;
 		background: Canvas;
 	}
-}
 
-/* A popover closes by a tap outside it; only a phone's sheet shows its close. */
-.popover .panes .pane > header > button.close {
-	display: none;
-}
-
-@media (max-width: 700px) {
-	.popover {
-		/* Lifted off the edge, clear of the home bar, like the composer. */
-		inset: auto var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom)) var(--space-2);
-		width: auto;
-		max-height: 70dvh;
-		border-radius: var(--radius-large);
-		padding-bottom: var(--space-2);
-	}
-
-	.panes .pane-body {
-		padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom));
-	}
-
-	.popover .panes .pane > header > button.close {
-		display: block;
-	}
-}
-
-@media (prefers-reduced-motion: no-preference) {
-	.popover {
-		transition:
-			opacity var(--duration-press) var(--ease-out),
-			scale var(--duration-press) var(--ease-out),
-			translate var(--duration-press) var(--ease-out),
-			display var(--duration-press) var(--ease-out) allow-discrete,
-			overlay var(--duration-press) var(--ease-out) allow-discrete;
-
-		/* A desktop popover fades and scales; a phone sheet slides from below the home bar. */
-		@media (max-width: 700px) {
-			--popover-opening: var(--duration-sheet);
-			--popover-closed-opacity: 1;
-			--popover-closed-scale: none;
-			--popover-closed-translate: 0 calc(100% + var(--space-2) + env(safe-area-inset-bottom));
-			transition:
-				translate var(--duration-sheet) var(--ease-sheet),
-				display var(--duration-sheet) allow-discrete,
-				overlay var(--duration-sheet) allow-discrete;
-		}
-
-		&:popover-open {
-			transition-duration: var(--popover-opening, var(--duration-popover));
-		}
-
-		&:not(:popover-open) {
-			opacity: var(--popover-closed-opacity, 0);
-			scale: var(--popover-closed-scale, 0.96);
-			translate: var(--popover-closed-translate, none);
-		}
-
-		@starting-style {
-			&:popover-open {
-				opacity: var(--popover-closed-opacity, 0);
-				scale: var(--popover-closed-scale, 0.96);
-				translate: var(--popover-closed-translate, none);
-			}
+	@media (max-width: 700px) {
+		.pane-body {
+			padding-bottom: calc(var(--space-2) + var(--window-inset-bottom));
 		}
 	}
 }
