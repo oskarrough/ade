@@ -2831,8 +2831,10 @@ body.resizing {
  * entries; each is a headline with a quieter line under it, and a commit you haven't seen, or one a restart would
  * bring, gets a dot in the gutter. Commits that said nothing changes for you fold into one line at the end. */
 .version-list {
+	/* Insets as the sidebar's: a date where a section's heading sits, an entry where a thread's title does, its dot
+	 * where the thread's dot does */
 	.pane-body {
-		padding: var(--space-3) var(--space-4) var(--space-4);
+		padding: var(--space-3) calc(var(--space-2) + var(--space-2)) var(--space-4);
 	}
 
 	.change-groups,
@@ -2840,6 +2842,10 @@ body.resizing {
 		list-style: none;
 		margin: 0;
 		padding: 0;
+	}
+
+	.change-groups ul {
+		padding-inline-start: calc(var(--dot) + var(--space-2));
 	}
 
 	.change-groups > li + li {
@@ -2876,7 +2882,7 @@ body.resizing {
 		&.new::before {
 			content: '';
 			position: absolute;
-			left: calc(-1 * var(--space-3));
+			left: calc(-1 * (var(--dot) + var(--space-2)));
 			top: calc((var(--text-ui-line) - var(--dot)) / 2);
 			width: var(--dot);
 			height: var(--dot);
