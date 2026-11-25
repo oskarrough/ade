@@ -36,6 +36,7 @@ import {
 	fork,
 	followThread,
 	forkedFrom,
+	forksIn,
 	homeBot,
 	hrefOf,
 	newThreadTools,
@@ -109,17 +110,10 @@ export function Thread(props) {
 		() => threadOf(props.id) ?? archivedThreads.find((row) => row.id === props.id),
 	)
 	const messages = () => entries[props.id] ?? []
-	/** The forks made from any message shown here, by `thread entry`; a fork is in its source's family, so only the family is read */
-	const forks = createMemo(() => {
-		const at = new Map()
-		for (const member of familyOf(props.id)) {
-			const fork = threadOf(member.id)
-			const from = forkedFrom(fork)
-			if (!from || fork.archived) continue
-			const key = `${from} ${fork.conversation.parent.at}`
-			at.set(key, [...(at.get(key) ?? []), fork])
-		}
-		return at
+	const forks = createMemo(() => forksIn(props.id), {
+		equals: (before, after) =>
+			before.size === after.size &&
+			[...after].every(([key, ids]) => before.has(key) && sameItems(before.get(key), ids)),
 	})
 	/** Each message's position in the thread, from 0, as memory and the recap count them */
 	const positions = createMemo(() => new Map(messages().map((entry, at) => [entry.id, at])))
@@ -416,8 +410,9 @@ export function Thread(props) {
 					before &&
 					Object.keys(row).length === Object.keys(before).length &&
 					Object.keys(row).every((key) => row[key] === before[key])
-				next.set(row.key, same ? before : row)
-				return same ? before : row
+				const kept = same ? before : row
+				next.set(row.key, kept)
+				return kept
 			})
 			built = next
 			return reused
@@ -515,6 +510,12 @@ export function Thread(props) {
 		Boolean(list && list.scrollTop + list.clientHeight >= list.scrollHeight - 4)
 	/** Back from a glide, hold or anchor: following if the view ends at the bottom, else left where the reader is */
 	const settle = () => setScrollMode({ kind: atBottom() ? 'following' : 'detached' })
+	const settleAfterLayout = (mode) =>
+		requestAnimationFrame(() =>
+			requestAnimationFrame(() => {
+				if (scrollMode === mode) settle()
+			}),
+		)
 	onSettled(() => () => {
 		setScrollMode({ kind: 'detached' })
 		sizes?.disconnect()
@@ -657,12 +658,7 @@ export function Thread(props) {
 				const was = details.open
 				const next = { kind: 'holding', summary, top: summary.getBoundingClientRect().top }
 				setScrollMode(next)
-				const release = () =>
-					requestAnimationFrame(() =>
-						requestAnimationFrame(() => {
-							if (scrollMode === next) settle()
-						}),
-					)
+				const release = () => settleAfterLayout(next)
 				// A line fills in once it hears its own toggle, so the hold lasts until that has been laid out
 				details.addEventListener('toggle', release, { once: true })
 				// A click that toggled nothing, like a link in the line, lets go at once
@@ -696,11 +692,7 @@ export function Thread(props) {
 			if (!row) return
 			const next = { kind: 'anchoring', row, bottom: row.getBoundingClientRect().bottom }
 			setScrollMode(next)
-			requestAnimationFrame(() =>
-				requestAnimationFrame(() => {
-					if (scrollMode === next) settle()
-				}),
-			)
+			settleAfterLayout(next)
 		}
 		startGlide = () => {
 			setScrollMode({ kind: 'following' })
@@ -1058,10 +1050,12 @@ function Message(props) {
 				</div>
 			<//>
 			<${For} each=${() => row().forks ?? []}
-				>${(fork) => html`
-					<div class="links">
-						<${ThreadLink} id=${() => fork.id}>${() => `forked → ${fork.title}`}<//>
-					</div>
+				>${(id) => html`
+					<${Show} when=${() => threadOf(id) && !threadOf(id).archived}>
+						<div class="links">
+							<${ThreadLink} id=${id}>${() => `forked → ${titleOf(id)}`}<//>
+						</div>
+					<//>
 				`}<//
 			>
 			<${Show} when=${() => props.waiting}>

@@ -297,6 +297,7 @@ export const {
 	threadOf,
 	familyOf,
 	family,
+	forksIn,
 	columns,
 	closeColumn,
 	openBeside,
@@ -372,7 +373,6 @@ export const {
 		if (!view) {
 			const [rows, setRows] = createSignal(/** @type {any[]} */ ([]))
 			view = {
-				name,
 				boot: null,
 				seq: null,
 				synced: false,
@@ -399,10 +399,8 @@ export const {
 			},
 		}
 	}
-	const viewStore = (name, key, options) => {
-		const { rows } = subscribeView(name, options)
-		return createOptimisticStore(() => rows(), /** @type {any[]} */ ([]), { key })
-	}
+	const viewStore = ({ rows }, key) =>
+		createOptimisticStore(rows, /** @type {any[]} */ ([]), { key })
 	const caughtUp = (name, seq, boot = undefined) => {
 		const view = views.get(name)
 		if (!view || reached(view, seq, boot)) return Promise.resolve()
@@ -498,24 +496,19 @@ export const {
 	const byNewest = (left, right) => right.id - left.id
 	const openSub = subscribeView('threads', { sort: byNewest })
 	const archivedSub = subscribeView('archived', { sort: byNewest })
-	const [threads, setOptimisticThreads] = createOptimisticStore(
-		() => openSub.rows(),
-		/** @type {any[]} */ ([]),
-		{ key: 'id' },
-	)
-	const [archivedThreads, setOptimisticArchived] = createOptimisticStore(
-		() => archivedSub.rows(),
-		/** @type {any[]} */ ([]),
-		{ key: 'id' },
-	)
+	const [threads, setOptimisticThreads] = viewStore(openSub, 'id')
+	const [archivedThreads, setOptimisticArchived] = viewStore(archivedSub, 'id')
 	/** Both lists as plain rows: a scan of the whole list reads this memo instead of every row's fields */
 	const threadRows = createMemo(
 		/** @returns {any} */ () => ({ open: openSub.rows(), archived: archivedSub.rows() }),
 	)
-	const [runners, setOptimisticRunners] = viewStore('runners', 'name')
-	const [bots, setOptimisticBots] = viewStore('bots', 'name')
+	const [runners, setOptimisticRunners] = viewStore(subscribeView('runners'), 'name')
+	const [bots, setOptimisticBots] = viewStore(subscribeView('bots'), 'name')
 	/** What needs you, one entry per thread: open questions, then failures, then unread answers */
-	const [inbox, setOptimisticInbox] = viewStore('inbox', inboxKey, { sort: inboxSort })
+	const [inbox, setOptimisticInbox] = viewStore(
+		subscribeView('inbox', { sort: inboxSort }),
+		inboxKey,
+	)
 	/** A question is hidden for everyone until its thread asks again; a failure or an answer is marked read, for you */
 	const dismiss = action(function* (item) {
 		const key = inboxKey(item)
@@ -544,19 +537,16 @@ export const {
 		moveRow(id, archived)
 		yield bothLists(yield write(`/api/threads/${id}/archive`, { archived }))
 	})
-	const renameThread = action(function* (id, title) {
-		const patch = (rows) => rows.map((row) => (row.id === id ? { ...row, title } : row))
-		setOptimisticThreads(patch)
-		setOptimisticArchived(patch)
-		yield bothLists(yield write(`/api/threads/${id}/title`, { title }))
-	})
-	/** Pausing shows on the row at once; the server's answer settles it */
-	const pauseThread = action(function* (id, paused) {
-		const patch = (rows) => rows.map((row) => (row.id === id ? { ...row, paused } : row))
-		setOptimisticThreads(patch)
-		setOptimisticArchived(patch)
-		yield bothLists(yield write(`/api/threads/${id}/pause`, { paused }))
-	})
+	const patchThread = (route, field = route) =>
+		action(function* (id, value) {
+			const change = { [field]: value }
+			const patch = (rows) => rows.map((row) => (row.id === id ? { ...row, ...change } : row))
+			setOptimisticThreads(patch)
+			setOptimisticArchived(patch)
+			yield bothLists(yield write(`/api/threads/${id}/${route}`, change))
+		})
+	const renameThread = patchThread('title')
+	const pauseThread = patchThread('pause', 'paused')
 	/** Changes a bot, shown on its row at once; a rename waits for the server, since the name is the row's key */
 	const saveBot = action(function* (name, change) {
 		if (!change.rename)
@@ -629,19 +619,34 @@ export const {
 		return untrack(() => new Map(threads.map((thread) => [thread.id, thread])))
 	})
 	const threadOf = (id) => byId().get(id)
+	// Family and fork metadata come from the feed, not one reactive read per field per relative.
+	const threadRecords = createMemo(() => new Map(openSub.rows().map((row) => [row.id, row])))
 	/** A thread's family, from its root's server-computed `family` list */
 	const familyOf = (id) => {
 		const row = threadOf(id)
-		return (row?.root ? threadOf(row.root)?.family : row?.family) ?? (row ? [{ id, depth: 0 }] : [])
+		if (!row) return []
+		const root = row.root ?? id
+		return (threadOf(root) && threadRecords().get(root)?.family) ?? [{ id, depth: 0 }]
+	}
+	const forksIn = (id) => {
+		const records = threadRecords()
+		const forks = new Map()
+		for (const member of familyOf(id)) {
+			const parent = records.get(member.id)?.conversation?.parent
+			if (!parent?.conversationId) continue
+			const key = `${parent.conversationId} ${parent.at}`
+			if (!forks.has(key)) forks.set(key, [])
+			forks.get(key).push(member.id)
+		}
+		return forks
 	}
 	/** The open thread's family ids: one thread until the list has it, `[null]` for a new one */
 	const family = createMemo(
-		() =>
-			current()
-				? ((list) => (list.length ? list.map((member) => member.id) : [current()]))(
-						familyOf(current()),
-					)
-				: [null],
+		() => {
+			const id = current()
+			const list = id ? familyOf(id) : []
+			return list.length ? list.map((member) => member.id) : [id]
+		},
 		// `familyOf` reads the thread row the feed replaces wholesale on every update; same members, fresh array.
 		{ equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) },
 	)
@@ -704,8 +709,9 @@ export const {
 		dismiss,
 		threadOf,
 		familyOf,
-		threadRows,
 		family,
+		forksIn,
+		threadRows,
 		columns,
 		closeColumn,
 		openBeside,

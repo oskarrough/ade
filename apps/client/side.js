@@ -16,16 +16,17 @@ const PAGES = [
 const pagesOf = (id) =>
 	PAGES.filter(
 		(page) =>
-			['details', 'trail'].includes(page.key) ||
-			(id && server().modules.includes(page.key) && (page.shows?.(id) ?? true)),
+			['details', 'trail'].includes(page.key) || (id && server().modules.includes(page.key)),
 	)
 
 /** The page each thread's column shows; a thread with none has it closed */
 const [shown, setShown] = createSignal(new Map())
-export const sideOf = (id) =>
-	shown().has(id)
-		? (pagesOf(id).find((page) => page.key === shown().get(id)) ?? pagesOf(id)[0])
-		: undefined
+export const sideOf = (id) => {
+	const key = shown().get(id)
+	if (!key) return undefined
+	const pages = pagesOf(id)
+	return pages.find((page) => page.key === key) ?? pages[0]
+}
 /** Shows a page in the thread's column, or closes it with none */
 export const openSide = (id, key) =>
 	setShown((pages) => {

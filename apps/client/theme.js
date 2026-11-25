@@ -17,7 +17,8 @@ const read = () => {
 	return THEMES.includes(value) ? value : 'auto'
 }
 /** The device's pinned theme, or 'auto' for the system's own */
-export const [theme, setTheme] = createSignal(read())
+const [theme, setTheme] = createSignal(read())
+export { theme }
 
 export const chooseTheme = (value) => {
 	setTheme(value)

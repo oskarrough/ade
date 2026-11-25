@@ -30,8 +30,21 @@ export function Settings() {
 	const overridden = (name) => server().settings?.overrides.includes(name)
 	const editable = () => !restarting() && save.state() !== 'busy'
 	const on = (module) => draft.modules[module.name] ?? module.on
-	const model = () => setting('memory', 'model')
-	const directs = (field) => setting('director', field)
+	const modelFor = (section, label) => {
+		const model = () => setting(section, 'model')
+		return html`<div class="option">
+			<span>${label}</span>
+			<button
+				type="button"
+				class="small"
+				disabled=${() => !editable() || overridden(`${section.toUpperCase()}_MODEL`)}
+				title=${() => model() || 'Haiku or Luna on each thread’s runner'}
+				onClick=${() => setPicking(section)}
+			>
+				${() => (model() ? shown(model()) : 'Haiku or Luna')}
+			</button>
+		</div>`
+	}
 	const directorOption = (field, label, unit, least) =>
 		html`<div class="option compact-option">
 			<span>${label}</span>
@@ -41,7 +54,7 @@ export function Settings() {
 				min=${least}
 				aria-label=${`${label}, in ${unit}`}
 				disabled=${() => !editable()}
-				value=${() => directs(field)}
+				value=${() => setting('director', field)}
 				onChange=${(event) => {
 					const value = Number(event.currentTarget.value)
 					if (event.currentTarget.value !== '' && value >= least)
@@ -52,16 +65,17 @@ export function Settings() {
 		</div>`
 	const toggle = (module) =>
 		setDraft((store) => {
-			if (!module.on === !on(module)) store.modules[module.name] = !module.on
+			if (on(module) === module.on) store.modules[module.name] = !module.on
 			else delete store.modules[module.name]
 		})
 	// A pick counts at once, like a module's switch; Save and restart sends it with the rest
+	const section = () => (picking() === 'director' ? 'director' : 'memory')
 	const choose = (to) =>
 		setDraft((store) => {
 			const chosen = to.model ? formatAgent(to) : ''
-			store[picking() === 'director' ? 'director' : 'memory'].model = chosen
+			store[section()].model = chosen
 		})
-	const chosen = () => agentTo(picking() === 'director' ? directs('model') : model())
+	const chosen = () => agentTo(setting(section(), 'model'))
 	// With nothing changed it only restarts; either way the page reloads once the server is back
 	const save = busy(() =>
 		restart(
@@ -137,8 +151,8 @@ export function Settings() {
 							type="button"
 							class="save"
 							data-fuzz-skip
-							disabled=${() => save.state() === 'busy' || Boolean(restarting())}
-							aria-busy=${() => save.state() === 'busy' || Boolean(restarting())}
+							disabled=${() => !editable()}
+							aria-busy=${() => !editable()}
 							onClick=${(_event) => save()}
 						>
 							<${Busy} state=${() => (restarting() ? 'busy' : save.state())}
@@ -196,8 +210,8 @@ export function Settings() {
 									<${Show} when=${() => !chosen().model}><${Icon} name="check" /><//>
 								</button>
 							</li>`}
-							onChoose=${(to) => choose(to)}
-							onConfigure=${(to) => choose(to)}
+							onChoose=${choose}
+							onConfigure=${choose}
 						/>`}
 					><${PiSessionList} onStarted=${() => panel.hidePopover()}
 				/><//>`}
@@ -271,18 +285,7 @@ export function Settings() {
 										when=${() => module.name === 'memory' && expanded() === 'memory' && on(module)}
 									>
 										<div class="options">
-											<div class="option">
-												<span>Writes its lines</span>
-												<button
-													type="button"
-													class="small"
-													disabled=${() => !editable() || overridden('MEMORY_MODEL')}
-													title=${() => model() || 'Haiku or Luna on each thread’s runner'}
-													onClick=${(event) => setPicking('memory')}
-												>
-													${() => (model() ? shown(model()) : 'Haiku or Luna')}
-												</button>
-											</div>
+											${modelFor('memory', 'Writes its lines')}
 											<div class="option compact-option">
 												<span>Compacts past</span>
 												<input
@@ -325,18 +328,7 @@ export function Settings() {
 											module.name === 'director' && expanded() === 'director' && on(module)}
 									>
 										<div class="options">
-											<div class="option">
-												<span>Picks with</span>
-												<button
-													type="button"
-													class="small"
-													disabled=${() => !editable() || overridden('DIRECTOR_MODEL')}
-													title=${() => directs('model') || 'Haiku or Luna on each thread’s runner'}
-													onClick=${(event) => setPicking('director')}
-												>
-													${() => (directs('model') ? shown(directs('model')) : 'Haiku or Luna')}
-												</button>
-											</div>
+											${modelFor('director', 'Picks with')}
 											${directorOption('context', 'Reads the last', 'messages', 1)}
 											${directorOption('timeout', 'Gives up after', 'seconds', 1)}
 											${directorOption('burst', 'Waits for more', 'seconds', 0)}

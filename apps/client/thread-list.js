@@ -41,7 +41,8 @@ import { FootNews } from './version.js'
 export const [creatingBot, setCreatingBot] = createSignal(false)
 
 /** Whether the Archived page has the list's place; New bot from Jump leaves it */
-export const [archivedPage, setArchivedPage] = createSignal(false)
+const [archivedPage, setArchivedPage] = createSignal(false)
+export { setArchivedPage }
 
 export function ThreadList() {
 	/** Most recently answered first, anywhere, not only at home; a bot that's never answered sits last, oldest-made first */

@@ -243,7 +243,8 @@ export const canLogIn = (runner) =>
 	Boolean(desktop) && runner.own && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
 
 /** Counts the window's returns from a login, so pickers ask runners for their models again */
-export const [logins, setLogins] = createSignal(0)
+const [logins, setLogins] = createSignal(0)
+export { logins }
 
 /** Opens pi in a terminal on this machine, where /login logs in to a model; pi keeps the login, not ade */
 export function LogIn() {

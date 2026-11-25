@@ -19,9 +19,9 @@ const SEEN_VERSION = 'ade.seenVersion'
 const INTERNAL = /nothing changes for you/i
 
 /** The checkout's commit or the installed release's tag; null for an install that names neither */
-export const version = () => server().release ?? server().commit
+const version = () => server().release ?? server().commit
 /** `version`, shortened to a commit's first seven characters; a release's tag is already short */
-export const shortVersion = () => server().release ?? server().commit?.slice(0, 7)
+const shortVersion = () => server().release ?? server().commit?.slice(0, 7)
 /** Where the running version lives in the source: a commit's page on a checkout, a release's on an install */
 const sourceHref = () =>
 	server().release
@@ -34,21 +34,26 @@ const restarts = () =>
 	(server().stale || server().staged) &&
 	server().settings?.restarts &&
 	me() === server().settings.owner
-export const updateShown = () => restarts() || Boolean(shellUpdate())
+const updateShown = () => restarts() || Boolean(shellUpdate())
 
 const [seen, setSeen] = createSignal(localStorage.getItem(SEEN_VERSION))
 /** Whether a restart brought a version newer than the one this browser last looked at; a checkout pulled but not
  * yet restarted isn't running its news */
-export const hasNews = () => {
+const hasNews = () => {
 	const v = version()
 	return Boolean(v) && !server().stale && seen() !== null && seen() !== v
 }
+const remember = (version) => {
+	localStorage.setItem(SEEN_VERSION, version)
+	setSeen(version)
+}
 const markSeen = () => {
 	const v = version()
-	if (v && seen() !== v) {
-		localStorage.setItem(SEEN_VERSION, v)
-		setSeen(v)
-	}
+	if (v && seen() !== v) remember(v)
+}
+const changesPath = () => {
+	const since = !server().release && hasNews() ? seen() : null
+	return `/api/changes${since ? `?since=${since}` : ''}`
 }
 
 /** 24 Nov, with the year when it isn't this one */
@@ -126,18 +131,23 @@ export function FootNews() {
 		Boolean(restarts()) &&
 		changes().some((change) => change.at === commit.at && change.subject === commit.subject)
 	// The first version this browser ever sees is read as caught up, not as news
-	createEffect(version, (v) => {
-		if (v && seen() === null) markSeen()
-	})
+	createEffect(
+		() => seen() === null && version(),
+		(v) => {
+			if (v) remember(v)
+		},
+	)
 	// Nor is a restart that brought only internal changes
-	createEffect(hasNews, (news) => {
-		if (!news) return
-		const since = server().release ? null : seen()
-		api(`/api/changes${since ? `?since=${since}` : ''}`).then(
-			({ commits }) => commits.every((commit) => INTERNAL.test(commit.subject)) && markSeen(),
-			() => {},
-		)
-	})
+	createEffect(
+		() => hasNews() && changesPath(),
+		(path) => {
+			if (!path) return
+			api(path).then(
+				({ commits }) => commits.every((commit) => INTERNAL.test(commit.subject)) && markSeen(),
+				() => {},
+			)
+		},
+	)
 	return html`<${Popover}
 		class="version-list"
 		button=${() =>
@@ -155,12 +165,8 @@ export function FootNews() {
 		ref=${(el) => (panel = el)}
 		onToggle=${(event) => {
 			if (event.newState === 'open') {
-				const since = !server().release && hasNews() ? seen() : null
 				setIsNews(hasNews())
-				api(`/api/changes${since ? `?since=${since}` : ''}`).then(
-					({ commits }) => setCommits(commits),
-					report,
-				)
+				api(changesPath()).then(({ commits }) => setCommits(commits), report)
 			} else markSeen()
 		}}
 	>
