@@ -567,11 +567,15 @@ export function Composer(props) {
 									disabled=${() => compactNow.state() === 'busy'}
 									title=${() =>
 										server().modules?.includes('memory')
-											? 'The agent reads the memory lines instead of the old messages'
+											? undefined
 											: 'Pi summarises the old messages, which costs a model call'}
 									onClick=${(_event) => compactNow()}
 								>
-									<${Busy} state=${compactNow.state}>Compact now<//>
+									<${Show}
+										when=${() => compactNow.state() === 'busy'}
+										fallback=${html`<${Busy} state=${compactNow.state}>Compact now<//>`}
+										>Compacting…<//
+									>
 								</button>
 							<//>
 						<//>

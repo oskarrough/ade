@@ -2517,6 +2517,27 @@ body.resizing {
 		color: var(--mute);
 		font-size: var(--text-small);
 	}
+
+	/* Memory catching up: written so far solid, still to write faint, filling as batches land */
+	.reel.writing {
+		margin-top: var(--space-2);
+		gap: 0;
+		background: var(--line);
+		border-radius: var(--radius-small);
+		overflow: hidden;
+
+		> span:first-child {
+			background: var(--pick);
+			transition: flex-grow 0.6s ease-out;
+		}
+	}
+
+	.backlog {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
 }
 
 /* A new day, or an hour gone by: the date or the time, centred and quiet, between the messages. */

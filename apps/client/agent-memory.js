@@ -3,6 +3,7 @@ import html from '@solidjs/html'
 import { createMemo, createSignal, For, Loading, Show } from 'solid-js'
 import { api, connected, current, entries, feedItem, server, threadOf } from './server.js'
 import { cutOf, newestCut, plural } from './run.js'
+import { busy, Busy } from './busy.js'
 
 /**
  * What compaction did to this thread's agent, as a tape of the thread: the part before the newest cut faint, one segment per memory line,
@@ -47,7 +48,68 @@ function CompactionOf(props) {
 								cut().memory ? plural(cut().lines.length, 'memory line') : "Pi's summary"
 							}, last ${newer()} word for word`}</small
 			>
+			<${Show} when=${() => server().modules.includes('memory')}>
+				<${Backlog} thread=${props.thread} />
+			<//>
 		</div>
+	`
+}
+
+/**
+ * Memory catching up on the thread: while it writes, a bar that fills as batches land, what's left and, once its pace
+ * is known, about how long; idle with messages not yet in memory, a way to write them now; caught up, nothing.
+ */
+function Backlog(props) {
+	const backlog = feedItem(() => `backlog/${props.thread}`)
+	const write = busy(() => api(`/api/threads/${props.thread}/memory`))
+	const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
+	const eta = () => {
+		const { left, perMinute } = backlog()
+		if (!perMinute || !left) return ''
+		const minutes = left / perMinute
+		return minutes < 1
+			? ', under a minute'
+			: minutes < 90
+				? `, about ${Math.round(minutes)} min`
+				: `, about ${Math.round(minutes / 60)} h`
+	}
+	return html`
+		<${Show} when=${() => backlog()?.writing || backlog()?.left}>
+			<${Show}
+				when=${() => backlog().writing}
+				fallback=${() => html`
+					<div class="backlog">
+						<small>${() => `${count(backlog().left, 'message')} not in memory yet`}</small>
+						<button
+							type="button"
+							class="ghost small"
+							disabled=${() => write.state() === 'busy'}
+							onClick=${(_event) => write()}
+						>
+							<${Busy} state=${write.state}>Write them now<//>
+						</button>
+					</div>
+				`}
+			>
+				<div
+					class="reel writing"
+					role="progressbar"
+					aria-label="Memory writing"
+					aria-valuemin="0"
+					aria-valuemax=${() => backlog().done + backlog().left}
+					aria-valuenow=${() => backlog().done}
+				>
+					<span style=${() => ({ flex: backlog().left ? backlog().done : 1 })}></span>
+					<span style=${() => ({ flex: backlog().left })}></span>
+				</div>
+				<small
+					>${() =>
+						backlog().left
+							? `Writing memory: ${count(backlog().left, 'message')} to go${eta()}`
+							: 'Writing memory: merging lines'}</small
+				>
+			<//>
+		<//>
 	`
 }
 
