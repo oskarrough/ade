@@ -755,6 +755,7 @@ function TaskForm(props) {
 			<h3>When</h3>
 			<select
 				aria-label="When"
+				disabled=${schedule.on !== undefined}
 				value=${kind}
 				onChange=${(event) => setKind(event.currentTarget.value)}
 			>
@@ -764,7 +765,7 @@ function TaskForm(props) {
 				<${Show} when=${() => schedule.after !== undefined}>
 					<option value="after">${() => `Once ${titleOf(schedule.after)} is done`}</option>
 				<//>
-				<${Show} when=${() => hooks() || schedule.on !== undefined}>
+				<${Show} when=${() => (task ? schedule.on !== undefined : hooks())}>
 					<option value="on">${`On ${EVENTS[schedule.on ?? 'hook']}`}</option>
 				<//>
 				<optgroup label="When something happens">
@@ -1013,6 +1014,7 @@ ${() =>
 			>
 				<select
 					aria-label="Runs in"
+					disabled=${Boolean(task)}
 					value=${place}
 					onChange=${(event) => {
 						setPlace(event.currentTarget.value)

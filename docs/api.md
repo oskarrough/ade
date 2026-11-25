@@ -257,9 +257,8 @@ POST   /api/schedule {instructions, bot | thread | to, in | at | every | times |
 POST   /api/threads/:id/schedule {instructions, …}  the same, running in that thread
 POST   /api/schedule {edit, instructions?, <when>?, bot | thread | to?, check?}
                                         changes a task by its id: what's given replaces what it had, a new when starting its wait over
-                                          from now. In place, keeping its id and runs: {edited}; moved to another thread, or starting or
-                                          stopping listening for events, a new task takes its place with its runs: {edited, id, thread}.
-                                          An agent's task stays in its thread
+                                          from now. In place, keeping its id, thread and runs: {edited}. Another thread, or other events
+                                          than the ones it listens for, are refused: that's a new task
 POST   /api/schedule {cancel}           cancels a task by its id: {cancelled}, or {fired} if a one-off ran first, {ended} if it had ended otherwise
 POST   /api/schedule {pause, note?} | {resume}  pauses one by its id, with a note why, or resumes it: {paused} or {resumed};
                                           it sleeps that way a moment later

@@ -677,7 +677,7 @@ export function server(core) {
 							c: 0,
 							n: 0,
 							at: firstRun(input.schedule, rt.now()),
-							runs: input.runs ?? [],
+							runs: [],
 						}),
 					ctx,
 				),
@@ -1169,8 +1169,8 @@ export function server(core) {
 	}
 
 	/**
-	 * Changes a task's instructions, when it runs or where, keeping its runs: `{edited}`. In place, unless it moves to
-	 * another thread or starts or stops listening for events: then a new task takes its place, `{edited, id, thread}`.
+	 * Changes a task's instructions, when it runs, whom it asks or its model, in place, keeping its id, its thread and its
+	 * runs: `{edited}`. Another thread, or listening for other events, is a new task.
 	 */
 	async function edit(threadId, id, body, user) {
 		const record = await taskForChange(threadId, id, user)
@@ -1195,53 +1195,39 @@ export function server(core) {
 				was.bot === undefined &&
 				was.to === undefined &&
 				Number(body.thread) === record.conversationId)
-		const listens = (schedule ?? was.schedule).on !== undefined
-		if (staying && listens === (was.schedule.on !== undefined)) {
-			const to =
-				body.to !== undefined && was.to !== undefined ? await core.address(body.to) : undefined
-			const recipients =
-				was.bot === undefined && was.to === undefined && was.conversation === undefined
-					? (await recipientsOf(body, record.conversationId)).recipients
-					: undefined
-			const check = checkOf(body, was)
-			const edited = await control(
-				threadId,
-				id,
-				{
-					edit: {
-						...(instructions ? { instructions } : {}),
-						...(check !== undefined ? { check } : {}),
-						...(schedule ? { schedule } : {}),
-						...(to ? { to } : {}),
-						...(recipients ? { recipients } : {}),
-					},
-				},
-				user,
+		if (!staying)
+			throw new Error(
+				'A task stays in the thread it runs in; cancel it and schedule a new one where you want it',
 			)
-			if (schedule) settleNew(schedule)
-			return edited
-		}
-		const where = places.length
-			? await placed(body)
-			: {
-					threadId: record.conversationId,
-					input: was.bot
-						? { bot: was.bot }
-						: was.to
-							? { to: was.to }
-							: await recipientsOf(body, record.conversationId),
-				}
-		const check = checkOf(body, where.input) ?? was.check
-		const made = await makeIn(where, {
-			by: was.by,
-			...(was.conversation === undefined ? {} : { conversation: was.conversation }),
-			instructions: instructions ?? was.instructions,
-			schedule: schedule ?? was.schedule,
-			...(check ? { check } : {}),
-			runs: checkpoint?.runs ?? [],
-		})
-		await cancel(undefined, id, user)
-		return { edited: id, ...made }
+		if (schedule && schedule.on !== was.schedule.on)
+			throw new Error(
+				was.schedule.on === undefined
+					? "A task by time or happening can't start listening for events; schedule a new one"
+					: `A task on ${EVENTS[was.schedule.on]} keeps listening for that; schedule a new one for anything else`,
+			)
+		const to =
+			body.to !== undefined && was.to !== undefined ? await core.address(body.to) : undefined
+		const recipients =
+			was.bot === undefined && was.to === undefined && was.conversation === undefined
+				? (await recipientsOf(body, record.conversationId)).recipients
+				: undefined
+		const check = checkOf(body, was)
+		const edited = await control(
+			threadId,
+			id,
+			{
+				edit: {
+					...(instructions ? { instructions } : {}),
+					...(check !== undefined ? { check } : {}),
+					...(schedule ? { schedule } : {}),
+					...(to ? { to } : {}),
+					...(recipients ? { recipients } : {}),
+				},
+			},
+			user,
+		)
+		if (schedule) settleNew(schedule)
+		return edited
 	}
 
 	/**
