@@ -397,8 +397,9 @@ agent-memory {
 	background: color-mix(in srgb, CanvasText 13%, transparent);
 }
 
-/* The quote button: a zero-size marker rides the selection's end as its CSS anchor, so the button tethers to it without any measured position, just above it so it never sits over the selected words; lifted to the top layer as a manual popover, raised like the composer's own box (its background, border and radius), not a ghost that would float bare over the text. */
+/* The quote button: a zero-size marker rides the selection's focus end as its CSS anchor, shifted to where the pointer let go, so the button tethers to it and scrolls with the text, just above it so it never sits over the selected words; lifted to the top layer as a manual popover, raised like the composer's own box (its background, border and radius), not a ghost that would float bare over the text. */
 .quote-anchor {
+	position: relative;
 	anchor-name: --quote-anchor;
 }
 
