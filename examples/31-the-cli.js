@@ -213,7 +213,7 @@ mkdirSync(`${dir}/review`)
 const options = await cli(
 	'post',
 	'--to',
-	'echo/echo@desk',
+	'echo/try@desk',
 	'--thinking',
 	'low',
 	'--dir',
