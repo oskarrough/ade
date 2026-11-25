@@ -12,6 +12,7 @@ import { Switch } from './dot.js'
 import { aboutModule } from './markdown.js'
 import { Icon } from './icons.js'
 import { PiSessionList } from './pi-sessions.js'
+import { VersionSection } from './version.js'
 
 export function Settings() {
 	let panel
@@ -232,6 +233,7 @@ export function Settings() {
 							})}
 					/>
 				<//>
+				<${VersionSection} />
 				<h3>Modules</h3>
 				<ul class="rows modules">
 					<${For} each=${all}

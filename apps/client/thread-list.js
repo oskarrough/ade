@@ -7,7 +7,6 @@ import {
 	archiveThread,
 	pauseThread,
 	bots,
-	changes,
 	current,
 	followThread,
 	fork,
@@ -15,26 +14,20 @@ import {
 	hrefOf,
 	waiting,
 	api,
-	me,
 	openInbox,
 	openThread,
 	page,
 	renameThread,
-	restart,
-	restarting,
 	runners,
 	server,
 	threadOf,
 	threadRows,
 } from './server.js'
 import { Dot } from './dot.js'
-import { Popover } from './popover.js'
-import { Panes } from './panes.js'
 import { liveOf } from './agent.js'
 import { report } from './notice.js'
 import { EditInPlace } from './edit-in-place.js'
-import { busy } from './busy.js'
-import { copyText, desktopVersion, installShellUpdate, nativeMenu, shellUpdate } from './desktop.js'
+import { copyText, nativeMenu } from './desktop.js'
 import { openSide } from './side.js'
 import { RunnerList } from './runner.js'
 import { openTaskForm, ScheduledTaskList } from './schedule.js'
@@ -42,6 +35,7 @@ import { Settings } from './settings.js'
 import { BotItem, NewBot } from './bot.js'
 import { SearchField } from './search.js'
 import { cards, HoverCard, HoverFrame } from './hover-card.js'
+import { FootNews } from './version.js'
 
 /** Whether New bot's name field shows at the top of the bots; jump.js opens it too */
 export const [creatingBot, setCreatingBot] = createSignal(false)
@@ -146,106 +140,10 @@ export function ThreadList() {
 				<${Settings} />
 				<${RunnerList} />
 				<${Show} when=${() => server().modules.includes('schedule')}><${ScheduledTaskList} /><//>
-				<${Update} />
+				<${FootNews} />
 			</footer>
 		</nav>
 	`
-}
-
-/**
- * Update, when ade needs more than the reload a page does by itself: the owner's restarts a server whose code changed,
- * or that has a newer release staged, and the page reloads once it's back; in arbe desktop, a newer app opens its
- * update window. Up to date, it's a quiet line naming the version, which opens what changed.
- */
-function Update() {
-	const restarts = () =>
-		(server().stale || server().staged) &&
-		server().settings?.restarts &&
-		me() === server().settings.owner
-	const shown = () => restarts() || shellUpdate()
-	const update = busy(async () => (restarts() ? restart() : installShellUpdate()))
-	const title = () => {
-		if (!restarts()) return `arbe desktop ${shellUpdate()} is out`
-		if (server().staged)
-			return `ade ${server().staged} is ready: ade restarts into it and the page reloads`
-		return (
-			changes()
-				.map((commit) => commit.subject)
-				.join('\n') ||
-			'The server changed since it started: it restarts, as Save and restart does, and the page reloads once it’s back'
-		)
-	}
-	return html`<${Show} when=${shown} fallback=${html`<${Version} />`}>
-		<button
-			type="button"
-			class="ghost small foot-toggle update-toggle"
-			data-fuzz-skip
-			disabled=${() => update.state() === 'busy' || Boolean(restarting())}
-			title=${title}
-			onClick=${(_e) => update()}
-		>
-			<span>Update</span>
-		</button>
-	<//>`
-}
-
-/** 24 Nov, with the year when it isn't this one */
-const dayOfCommit = (at) => {
-	const date = new Date(at)
-	return date.toLocaleDateString('en-GB', {
-		day: 'numeric',
-		month: 'short',
-		...(date.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }),
-	})
-}
-
-/** The checkout's commit and its newest twenty subjects, or the installed release and its notes; nothing for an install
- * that names neither */
-function Version() {
-	let panel
-	const [commits, setCommits] = createSignal([])
-	const version = () => server().release ?? server().commit?.slice(0, 7)
-	return html`<${Show} when=${() => version() || desktopVersion()}>
-		<${Popover}
-			class="version-list"
-			button=${() =>
-				html`<button
-					type="button"
-					class="ghost small foot-toggle version-toggle"
-					title=${() =>
-						server().release
-							? `Up to date. What changed in ${version()}`
-							: 'Up to date. What changed lately'}
-				>
-					<span>ade updates</span>
-				</button>`}
-			ref=${(el) => (panel = el)}
-			onToggle=${(event) => {
-				if (event.newState === 'open')
-					api('/api/changes').then(({ commits }) => setCommits(commits), report)
-			}}
-		>
-			<${Panes}
-				title="What changed"
-				actions=${html`<a href="https://github.com/oskarrough/ade" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`}
-				foot=${html`<p class="mute">${() => [version() && `ade ${version()}`, desktopVersion() && `arbe desktop ${desktopVersion()}`].filter(Boolean).join(', ')}</p>`}
-				open=${() => false}
-				onClose=${(_event) => panel.hidePopover()}
-			>
-				<ul class="rows">
-					<${For} each=${commits}>
-						${(commit) =>
-							html`<li>
-								<div>
-									<span>${() => commit.subject}</span>
-									<small>${() => (commit.at ? dayOfCommit(commit.at) : '')}</small>
-								</div>
-							</li>`}
-					<//>
-				</ul>
-			<//>
-		<//>
-	<//>`
 }
 
 const LATEST = 'https://github.com/oskarrough/ade/releases/latest/download/'

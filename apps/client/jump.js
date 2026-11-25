@@ -33,6 +33,7 @@ import { marked, showMessage } from './search.js'
 import { setArchivedPage, setCreatingBot } from './thread-list.js'
 import { openTaskForm } from './schedule.js'
 import { chooseTheme, LABEL as THEME_LABEL, theme, THEMES } from './theme.js'
+import { openVersion } from './version.js'
 
 const RECENT = 'ade.recent'
 const readRecent = () => {
@@ -141,6 +142,7 @@ export function Jump() {
 				stepInto: true,
 				run: () => toStep('theme'),
 			},
+			{ label: 'What changed', run: openVersion },
 			on('usage') && { label: 'Usage', run: openUsage },
 		]
 			.filter(Boolean)

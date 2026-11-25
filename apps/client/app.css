@@ -2080,33 +2080,41 @@ button.foot-toggle {
 	}
 
 	&.version-toggle {
-		margin-inline-start: auto;
 		font-variant-numeric: tabular-nums;
-	}
 
-	&.update-toggle {
-		margin-inline-start: auto;
-
-		/* A pale band crosses the word now and then, then waits; parked off to the side, it reads as plain mute text. */
-		> span:first-child {
-			background: linear-gradient(100deg, var(--mute) 45%, var(--ink) 50%, var(--mute) 55%);
-			background-size: 250% 100%;
-			background-position: 250% 0;
-			background-clip: text;
-			-webkit-background-clip: text;
-			color: transparent;
-		}
-
-		@media (prefers-reduced-motion: no-preference) {
-			> span:first-child {
-				animation: shimmer 6s ease-in-out infinite;
-			}
+		&.hidden {
+			display: none;
 		}
 	}
 
 	&.settings-toggle {
 		width: var(--small-button);
 		padding: 0;
+	}
+}
+
+/* The foot's one line about an update or What changed: nothing, "What's new" alone, or "Update ready" with Restart
+ * and What changed beside it. Pushed to the right, like the trigger it replaces. */
+.foot-news {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-inline-start: auto;
+
+	/* A pale band crosses "Update ready" now and then, then waits; it reads as plain mute text otherwise. */
+	> .mute {
+		background: linear-gradient(100deg, var(--mute) 45%, var(--ink) 50%, var(--mute) 55%);
+		background-size: 250% 100%;
+		background-position: 250% 0;
+		background-clip: text;
+		-webkit-background-clip: text;
+		color: transparent;
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		> .mute {
+			animation: shimmer 6s ease-in-out infinite;
+		}
 	}
 }
 
@@ -2846,6 +2854,58 @@ body.resizing {
 		position: relative;
 		flex: 1;
 		min-height: 0;
+	}
+}
+
+/* What changed: a day's heading, or a release's tag on an installed copy, then its entries; a commit newer than
+ * this browser's last look gets a dot, and commits that said nothing changes for the person already folded into
+ * one line beneath the rest. */
+.version-list .change-groups {
+	> li.group {
+		& + li.group {
+			margin-top: var(--space-3);
+		}
+
+		h4 {
+			margin: 0 0 var(--space-1);
+			font-size: var(--text-small);
+			font-weight: 600;
+			color: var(--mute);
+		}
+	}
+
+	li.new > span::before {
+		content: '';
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--accent, currentColor);
+		margin-inline-end: var(--space-2);
+		vertical-align: middle;
+	}
+
+	li.folded {
+		font-style: italic;
+	}
+}
+
+.settings .version-section {
+	> li {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+
+		> div {
+			display: flex;
+			gap: var(--space-2);
+		}
+
+		.actions {
+			display: flex;
+			gap: var(--space-2);
+		}
 	}
 }
 
