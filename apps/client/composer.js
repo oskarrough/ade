@@ -422,15 +422,17 @@ export function Composer(props) {
 						if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) findMention()
 					}}
 					onKeyDown=${(event) => {
-						if (mentionable().length && mentionKeys.keydown(event)) return
+						// Pi's keys come before the @ list's, whose Tab takes a mention but whose Shift+Tab is pi's
 						const key = piKey(event)
-						if (key) {
-							event.preventDefault()
-							if (key === 'picker') return picker.showPopover()
-							return key === 'thinking'
-								? cycleThinking(props.thread)
-								: cycleModel(props.thread, key === 'next' ? 1 : -1)
-						}
+						const applied =
+							key === 'picker'
+								? (picker.showPopover(), true)
+								: key === 'thinking'
+									? cycleThinking(props.thread)
+									: key && cycleModel(props.thread, key === 'next' ? 1 : -1)
+						// Ctrl+P never prints from the box; Shift+Tab moves focus back when there's nothing to cycle
+						if (key) return (applied || key !== 'thinking') && event.preventDefault()
+						if (mentionable().length && mentionKeys.keydown(event)) return
 						if (event.key !== 'Enter' || event.isComposing || event.shiftKey || touch()) return
 						submit(event)
 					}}
@@ -1065,7 +1067,8 @@ const keyRunner = (thread) =>
 /** Thinking one level up among those the model can use, wrapping to the first, from the level the label shows, as the picker's thinking row sets it */
 const cycleThinking = (thread) => {
 	const runner = keyRunner(thread)
-	if (!runner) return
+	// A pick of bots alone has no agent whose thinking the label shows
+	if (!runner || !agent(thread)) return false
 	const to = toFor(runner, thread)
 	const running = here(thread).find(
 		(agent) => agent.to?.name === to.name && agent.to?.runner === to.runner,
@@ -1075,7 +1078,9 @@ const cycleThinking = (thread) => {
 	const next =
 		levels.find((level) => THINKING_LEVELS.indexOf(level) > THINKING_LEVELS.indexOf(now)) ??
 		levels[0]
-	if (next !== now) configure({ ...to, thinkingLevel: next }, thread)
+	if (next === now) return false
+	configure({ ...to, thinkingLevel: next }, thread)
+	return true
 }
 /** The runner's default model, then those its newest threads run, five in all, and the one asked now */
 const shortList = (runner, to) => {
@@ -1090,12 +1095,15 @@ const shortList = (runner, to) => {
 /** The next model on the short list, or the one before, chosen as a tap in the picker chooses it */
 const cycleModel = (thread, step) => {
 	const runner = keyRunner(thread)
-	if (!runner?.online) return
+	if (!runner?.online) return false
 	const to = toFor(runner, thread)
 	const list = shortList(runner, to)
-	if (list.length < 2) return
-	const model = list[(list.indexOf(to.model) + step + list.length) % list.length]
+	if (list.length < 2) return false
+	const at = list.indexOf(to.model)
+	// From none on the list, forward starts at the first and back at the last
+	const model = at < 0 ? list.at(step > 0 ? 0 : -1) : list[(at + step + list.length) % list.length]
 	choose({ ...to, name: undefined, model }, true, thread)
+	return true
 }
 
 /** A bot's settings open the current composer's picker, which already edits that bot's agent. */

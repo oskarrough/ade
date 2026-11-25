@@ -8,8 +8,12 @@ export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhig
 /** The levels a model can think at on a runner, as the runner reports them; every level for one it hasn't */
 export const levelsOf = (runner, model = '') => {
 	const known = runner?.thinkingLevels ?? {}
-	const ids = Object.keys(known).filter((ref) => ref.split('/').pop() === model.split('/').pop())
-	return known[model] ?? (ids.length === 1 ? known[ids[0]] : THINKING_LEVELS)
+	if (known[model]) return known[model]
+	// Only a model named without its provider is looked up by its own name, so another provider's never stands in
+	const ids = model.includes('/')
+		? []
+		: Object.keys(known).filter((ref) => ref.split('/').pop() === model)
+	return ids.length === 1 ? known[ids[0]] : THINKING_LEVELS
 }
 
 /** A level the model can use, as pi clamps one: the asked level, else the next one up, else the nearest below */
