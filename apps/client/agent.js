@@ -5,6 +5,23 @@ export const [doing, setDoing] = createStore({})
 
 export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 
+/** The levels a model can think at on a runner, as the runner reports them; every level for one it hasn't */
+export const levelsOf = (runner, model = '') => {
+	const known = runner?.thinkingLevels ?? {}
+	const ids = Object.keys(known).filter((ref) => ref.split('/').pop() === model.split('/').pop())
+	return known[model] ?? (ids.length === 1 ? known[ids[0]] : THINKING_LEVELS)
+}
+
+/** A level the model can use, as pi clamps one: the asked level, else the next one up, else the nearest below */
+export const clampLevel = (runner, model, level) => {
+	if (!level) return level
+	const levels = levelsOf(runner, model)
+	const at = THINKING_LEVELS.indexOf(level)
+	return levels.includes(level)
+		? level
+		: (levels.find((each) => THINKING_LEVELS.indexOf(each) > at) ?? levels.at(-1))
+}
+
 export const thinkingWord = (level) => ({ minimal: 'min', medium: 'med' })[level] ?? level
 
 /** `model:thinking@runner`, as pi names a model, or `ada=model@runner` for a bot: util.js's agentTo, with the thinking split off */

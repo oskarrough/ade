@@ -3,7 +3,7 @@ import html from '@solidjs/html'
 import { createEffect, createSignal, For, onSettled, Show } from 'solid-js'
 import { listKeys } from './list-keys.js'
 import { api, runners } from './server.js'
-import { modelsOf, THINKING_LEVELS, thinkingWord } from './agent.js'
+import { levelsOf, modelsOf, thinkingWord } from './agent.js'
 import { Dot } from './dot.js'
 import { Icon } from './icons.js'
 import { canLogIn, ConnectRunner, LogIn, logins } from './runner.js'
@@ -236,7 +236,7 @@ function PickerFoot(runner, props) {
 			<//>
 			<h3>Thinking</h3>
 			<div class="thinking">
-				<${For} each=${() => THINKING_LEVELS}
+				<${For} each=${() => levelsOf(runner, to().model)}
 					>${(level) => html`
 						<button
 							type="button"

@@ -44,7 +44,7 @@ import {
 	threadOf,
 	url,
 } from './server.js'
-import { agentTo, formatAgent, shortLabel, THINKING_LEVELS } from './agent.js'
+import { agentTo, clampLevel, formatAgent, levelsOf, shortLabel, THINKING_LEVELS } from './agent.js'
 import { placePopover, Popover } from './popover.js'
 import { matches, metered, Metered, ModelPicker } from './model-picker.js'
 import { listKeys } from './list-keys.js'
@@ -1035,7 +1035,10 @@ const setPick = (to, bots, thread = current(), held = false) => {
 	if (!held) changeDraftFor(thread ?? 'new', () => {}, ['pick'])
 }
 /** Choosing a model replaces the agent's pick and keeps the bots; in a bot's home, it is the bot's own model */
-export function choose(to, always = true, thread = current()) {
+export function choose(asked, always = true, thread = current()) {
+	const runner = runners.find((runner) => runner.name === asked.runner)
+	const thinkingLevel = clampLevel(runner, asked.model, asked.thinkingLevel)
+	const to = { ...asked, ...(thinkingLevel && { thinkingLevel }) }
 	const bot = homeBot(thread)
 	if (bot) return saveBot(bot.name, { to: { ...to, name: undefined } }).catch(report)
 	if (always || agent(thread)?.runner === to.runner)
@@ -1059,7 +1062,7 @@ const piKey = (event) => {
 const keyRunner = (thread) =>
 	runners.find((runner) => runner.name === agent(thread)?.runner && runner.dir) ??
 	runners.find((runner) => runner.online)
-/** Thinking one level up, wrapping to off, from the level the label shows, as the picker's thinking row sets it */
+/** Thinking one level up among those the model can use, wrapping to the first, from the level the label shows, as the picker's thinking row sets it */
 const cycleThinking = (thread) => {
 	const runner = keyRunner(thread)
 	if (!runner) return
@@ -1068,8 +1071,11 @@ const cycleThinking = (thread) => {
 		(agent) => agent.to?.name === to.name && agent.to?.runner === to.runner,
 	)?.to
 	const now = to.thinkingLevel ?? running?.thinkingLevel ?? runner.thinkingLevel ?? 'off'
-	const next = THINKING_LEVELS[(THINKING_LEVELS.indexOf(now) + 1) % THINKING_LEVELS.length]
-	configure({ ...to, thinkingLevel: next }, thread)
+	const levels = levelsOf(runner, to.model)
+	const next =
+		levels.find((level) => THINKING_LEVELS.indexOf(level) > THINKING_LEVELS.indexOf(now)) ??
+		levels[0]
+	if (next !== now) configure({ ...to, thinkingLevel: next }, thread)
 }
 /** The runner's default model, then those its newest threads run, five in all, and the one asked now */
 const shortList = (runner, to) => {
