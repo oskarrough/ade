@@ -24,6 +24,7 @@
 		"server.js",
 		"feed.js",
 		"images.js",
+		"version.js",
 		"read.js",
 		"runner.js",
 		"runner-updater.js",
