@@ -2872,10 +2872,6 @@ body.resizing {
 			margin-top: var(--space-4);
 		}
 
-		> span {
-			font-weight: 500;
-		}
-
 		&.folded > small {
 			margin-top: 0;
 		}
