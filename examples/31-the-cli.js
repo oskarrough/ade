@@ -18,8 +18,9 @@ import {
 	view,
 } from './lib.js'
 
+/** The `ade` command as installed, which hands every command to the CLI */
 const output = (...args) =>
-	promisify(execFile)(process.execPath, ['cli.js', '--server', base, ...args], {
+	promisify(execFile)(process.execPath, ['bin.js', '--server', base, ...args], {
 		cwd: repo,
 		timeout: 8000,
 	})

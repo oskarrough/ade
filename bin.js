@@ -14,7 +14,7 @@ async function main() {
 ade --dir a --dir b   agents work in these folders instead; threads start in the first
 ade --no-runner       start the server without lending this machine as a runner
 ade runner …          connect this machine to a server (runner --help)
-ade post …            and threads, read, wait, runners, key, revoke, stop, link (post --help)
+ade <command> …       talk to a server: post, threads, read, update and the rest (post --help)
 
 Threads and the log live in $XDG_DATA_HOME/ade (default ~/.local/share/ade).
 Settings and runner keys live in $XDG_CONFIG_HOME/ade (default ~/.config/ade).
@@ -37,13 +37,8 @@ PORT, HOST, DB_PATH and MODULES set the server; the README has the rest.`)
 				]),
 			),
 		})
-		await import(
-			['post', 'threads', 'read', 'wait', 'runners', 'key', 'revoke', 'stop', 'link'].includes(
-				command,
-			)
-				? './cli.js'
-				: './server.js'
-		)
+		// The server takes no command, so any command is the CLI's, which says when it doesn't know one
+		await import(command ? './cli.js' : './server.js')
 	}
 }
 await main().catch(async (error) => {
