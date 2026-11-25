@@ -1469,14 +1469,32 @@ async function append(
 	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
 }
 
-const messageIds = async (tx, threadId) =>
-	(
-		await collect((cursor) =>
-			tx.scanEntries({ conversationId: threadId, order: 'ascending' }, 500, cursor),
-		)
+/** Every message's id in a thread, oldest first: those the SQL tables hold, then Pi's entries since the newest of them,
+ * which is all of a fork's, its first messages being its parent's */
+async function messageIds(tx, threadId) {
+	const known =
+		(await read.exact(
+			(all) =>
+				!all('select 1 from ade_threads where id = ? and forked_from_id is not null', threadId)
+					.length &&
+				all('select id from ade_messages where thread_id = ? order by id', threadId).map(
+					({ id }) => id,
+				),
+			true,
+		)) || []
+	const since = await collect((cursor) =>
+		tx.scanEntries(
+			{
+				conversationId: threadId,
+				order: 'ascending',
+				...(known.length ? { minEntryId: known.at(-1) + 1 } : {}),
+			},
+			500,
+			cursor,
+		),
 	)
-		.filter((entry) => entry.kind === KIND)
-		.map((entry) => entry.id)
+	return [...known, ...since.filter((entry) => entry.kind === KIND).map((entry) => entry.id)]
+}
 
 /** Each agent `to` names gets a Deliver task for all it hasn't seen up to `upTo`; with `turns`, one after another */
 async function ask(tx, row, threadId, upTo, to, { steer, prior }) {
@@ -2004,7 +2022,7 @@ const threadList = async (reader, archived = false) =>
 			threadIds(),
 			reader,
 			archived,
-			read.exact((all) => listFacts(all, archived)),
+			await read.exact((all) => listFacts(all, archived)),
 		)
 	).flatMap(([, row]) => row ?? [])
 /**
