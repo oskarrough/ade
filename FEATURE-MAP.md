@@ -27,6 +27,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
   shown                             images an answer shows as `![](path)`, read through its runner and attached
+  addressed, sizeOf, imageSize, serveImage   a page's images by address and size (GET /api/threads/:id/images/:entry-:n), not bytes
   reachable                         a message waits for its agent's runner
   moveAgent, keysOf                 move an agent to another runner (POST /api/threads/:id/move)
   finishShell                       a shell's output and outcome, committed together

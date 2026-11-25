@@ -24,10 +24,17 @@ import {
 
 let srv = await server()
 const long = `done ${'and more '.repeat(60)}`
+/** Every image the agent's model was handed, as it got it */
+const handedToModel = []
 const bot = await scriptedRunner(
 	'bot',
 	(request) =>
-		request.messages.some((m) => m.role === 'toolResult')
+		(handedToModel.push(
+			...request.messages.flatMap((m) =>
+				Array.isArray(m.content) ? m.content.filter((block) => block.type === 'image') : [],
+			),
+		),
+		request.messages.some((m) => m.role === 'toolResult'))
 			? say(long)
 			: fauxAssistantMessage(
 					[
@@ -261,7 +268,8 @@ check(
 	now && !now.run && !now.tools.length,
 	'after a restart, subscribing again says the agent is idle',
 )
-// An image someone sends is in the thread's message; the turn that handed it to the agent names it without its bytes
+// An image someone sends is in the thread's message, by its address and size, so a page fetches it only when it shows
+// it; the agent's model gets its bytes, and the turn that handed it over names it without them
 const pixel =
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 await api('POST', `/api/threads/${id}/entries`, {
@@ -274,9 +282,25 @@ const handed = await until(async () =>
 		.flatMap((entry) => entry.model?.[0]?.content ?? [])
 		.find((block) => block.type === 'image'),
 )
+const kept = await until(
+	async () =>
+		feedEntries(restarted.frames).find((entry) => entry.data.images?.length)?.data.images[0],
+)
+const served = kept?.url && (await fetch(`${base}${kept.url}`))
 check(
-	feedEntries(restarted.frames).some((entry) => entry.data.images?.[0]?.data === pixel),
-	'a message keeps the image it was sent with',
+	kept &&
+		!('data' in kept) &&
+		kept.width === 1 &&
+		kept.height === 1 &&
+		served?.ok &&
+		served.headers.get('content-type') === 'image/png' &&
+		Buffer.from(await served.arrayBuffer()).toString('base64') === pixel,
+	'a message keeps the image it was sent with, by its address and size',
+	JSON.stringify(kept),
+)
+check(
+	await until(async () => handedToModel.some((block) => block.data === pixel)),
+	"the agent's model is handed the image itself",
 )
 check(
 	handed?.mimeType === 'image/png' && !('data' in handed),

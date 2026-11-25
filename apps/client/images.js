@@ -34,4 +34,7 @@ export async function imageContent(file) {
 	throw new Error(`${file.name || 'That image'} is too big to send, even shrunk`)
 }
 
-export const imageUrl = (image) => `data:${image.mimeType};base64,${image.data}`
+/** Where an image is: a thread's message has it by address, a draft still holds its bytes */
+export const imageUrl = (image) => image.url ?? `data:${image.mimeType};base64,${image.data}`
+/** What tells one image from another, by address or by bytes */
+export const imageKey = (image) => image.url ?? image.data

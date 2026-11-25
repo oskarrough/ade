@@ -70,7 +70,7 @@ import { threadMenu } from './thread-list.js'
 import { Dot } from './dot.js'
 import { report } from './notice.js'
 import { Busy, busy } from './busy.js'
-import { imageUrl } from './images.js'
+import { imageKey, imageUrl } from './images.js'
 import { markdown } from './markdown.js'
 import { messageDiagrams } from './mermaid.js'
 import { sideOf, toggleSide } from './side.js'
@@ -1225,9 +1225,9 @@ const Images = (props) => html`
 		<div class="images">
 			<${For} each=${() => props.images}
 				>${(image) => {
-					// Data URLs display inline, but browsers block opening them as pages: a link gets a blob's once it's
-					// pressed or focused, since decoding every image a thread opens on is most of showing it
-					let url
+					// A data URL displays inline, but browsers block opening one as a page: its link gets a blob's once it's
+					// pressed or focused; an image by address opens as itself
+					let url = image.url
 					const link = (event) => {
 						if (url) return
 						const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0))
@@ -1235,7 +1235,7 @@ const Images = (props) => html`
 							new Blob([bytes], { type: image.mimeType }),
 						)
 					}
-					onCleanup(() => url && URL.revokeObjectURL(url))
+					onCleanup(() => url && !image.url && URL.revokeObjectURL(url))
 					// A plain click opens its thread's lightbox on it; a modified one still opens a tab.
 					const open = (event) => {
 						if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
@@ -1246,7 +1246,7 @@ const Images = (props) => html`
 						view(image)
 					}
 					return html`<a
-						href="#"
+						href=${url ?? '#'}
 						target="_blank"
 						rel="noopener noreferrer"
 						aria-label="Open image full size"
@@ -1254,7 +1254,14 @@ const Images = (props) => html`
 						onFocus=${link}
 						onClick=${open}
 					>
-						<img src=${() => imageUrl(image)} alt="" loading="lazy" />
+						<img
+							src=${() => imageUrl(image)}
+							width=${image.width}
+							height=${image.height}
+							alt=""
+							loading="lazy"
+							decoding="async"
+						/>
 					</a>`
 				}}<//
 			>
@@ -1279,9 +1286,11 @@ function Lightbox(props) {
 		const open = props.image
 		if (!open) return []
 		const all = props.images
-		return all.some((one) => one.image.data === open.data) ? all : [{ image: open }]
+		return all.some((one) => imageKey(one.image) === imageKey(open)) ? all : [{ image: open }]
 	})
-	const at = createMemo(() => list().findIndex((one) => one.image.data === props.image?.data))
+	const at = createMemo(() =>
+		list().findIndex((one) => props.image && imageKey(one.image) === imageKey(props.image)),
+	)
 	const step = (by) => {
 		const next = list()[at() + by]
 		if (next) props.onPick(next.image)
@@ -1291,7 +1300,7 @@ function Lightbox(props) {
 	/** The open image and its neighbours, decoded ahead, by their data */
 	let decoded = new Map()
 	const decode = (image) => {
-		const found = decoded.get(image.data)
+		const found = decoded.get(imageKey(image))
 		if (found) return found
 		const element = new Image()
 		element.src = imageUrl(image)
@@ -1301,7 +1310,7 @@ function Lightbox(props) {
 		() =>
 			[list()[at() - 1], list()[at()], list()[at() + 1]].filter(Boolean).map((one) => one.image),
 		(near) => {
-			decoded = new Map(near.map((image) => [image.data, decode(image)]))
+			decoded = new Map(near.map((image) => [imageKey(image), decode(image)]))
 		},
 	)
 	let showing = null

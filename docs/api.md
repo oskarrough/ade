@@ -25,6 +25,8 @@ A thread you haven't started has a draft too, one per person, at `GET` and `POST
 
 An agent's answer shows images the way a person's message does. Each `![](path)` in it, a png, jpeg, gif, webp or bmp on the agent's machine (`~` is the runner's home, a relative path its folder), is read through its runner, shrunk to pi's 2000×2000 and 4.5 MB like the read tool's, and becomes one of the message's `images`, up to 8; the body keeps the words around it. One it can't show stays in the body as `(couldn't show path: why)`. An answer back to an asking thread carries the images too, so the asker sees them.
 
+A thread's messages, from `GET /api/threads/:id` and the feed's `thread/<id>`, name their images rather than carry them: each is `{type, mimeType, url, width, height}`, its size as the page shows it, so its place is held before it loads. `GET` its `url` for the bytes; a message never changes, so a browser keeps them for good and fetches each only when it scrolls into view. Drafts and the export keep the bytes, and agents are handed the images themselves.
+
 A bot that posts with its `post` tool into a thread it's in, or one it opens for other bots, speaks there as itself: its message carries `posted: true`, which marks it as an agent's, as `answer` does, so it never counts as a person's.
 
 A message its author takes back leaves a withdrawal entry (`ade.withdrawal`, `{message}`). Reads leave the message out; the feed removes its message id with `del`, and an agent's memory keeps its place as "(took back a message)".
@@ -99,6 +101,7 @@ POST   /api/threads/:id/entries {body, to?, images?, steer?, key?}
 POST   /api/threads/:id/withdraw {entry}  takes back your message (its id) while no agent has read it: {withdrawn}, or an error once one has
 POST   /api/threads/:id/fork {at, title?}  your pick from this thread comes with you
 GET    /api/threads/:id/draft          {draft}: yours, or null
+GET    /api/threads/:id/images/:entry-:n  that message's nth image, its bytes
 POST   /api/threads/:id/draft {key, text?, images?, pick?, page?}  saves what you're writing; {draft}, or {draft: null, sent: true} once its key was sent
 POST   /api/threads/:id/title {title}
 POST   /api/threads/:id/tools {tools}  a nonempty list of tool names, or null to reset

@@ -4,6 +4,7 @@ import { copyFileSync } from 'node:fs'
 import path from 'node:path'
 import {
 	answered,
+	base,
 	answers,
 	check,
 	createThread,
@@ -31,10 +32,16 @@ const id = await createThread('show me')
 await postEntry(id, 'show me the icon', 'echo/echo@laptop')
 await answered(id)
 const [answer] = answers(await view(id))
+const [picture] = answer?.data.images ?? []
+const served = picture?.url && (await fetch(`${base}${picture.url}`))
 check(
-	answer?.data.images?.length === 1 && answer.data.images[0].mimeType === 'image/png',
+	answer?.data.images?.length === 1 &&
+		picture.width === 192 &&
+		picture.height === 192 &&
+		served?.ok &&
+		served.headers.get('content-type') === picture.mimeType,
 	'the answer carries the picture it showed',
-	JSON.stringify(answer?.data.images?.map(({ mimeType, data }) => [mimeType, data.length])),
+	JSON.stringify(answer?.data.images),
 )
 check(
 	answer.data.body.startsWith('Here it is:') && !answer.data.body.includes('shot.png'),
