@@ -7,6 +7,7 @@ import {
 	check,
 	configDir,
 	done,
+	routed,
 	say,
 	newest,
 	scriptedRunner,
@@ -50,6 +51,7 @@ check(
 )
 const second = await post('and this too')
 const held = await first
+const secondRouted = await routed(id, second.json.entry)
 const byBody = async (body) => (await view(id)).entries.find((entry) => entry.data.body === body)
 check(
 	picks.length === 2 && picks[1].ask.includes('hold this one'),
@@ -57,9 +59,9 @@ check(
 	JSON.stringify(picks.map((pick) => pick.body)),
 )
 check(
-	second.json.to?.[0] === 'Jeroen' && (await byBody('and this too'))?.data.to?.[0] === 'Jeroen',
-	'the pick shows on its message, and the post answers with it',
-	JSON.stringify(second.json),
+	second.json.direct === true && !second.json.to.length && secondRouted?.to?.[0] === 'Jeroen',
+	'the post answers before the pick, which then shows on its message',
+	JSON.stringify({ posted: second.json, routed: secondRouted }),
 )
 const older = await byBody('hold this one')
 check(

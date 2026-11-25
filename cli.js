@@ -179,7 +179,8 @@ async function post() {
 			throw error
 		})
 		if (fresh) console.log(`thread ${id}`)
-		const asked = posted.command || posted.to?.length
+		// The director's pick comes after the post; waiting shows whomever it asks, or ends once it asks no one
+		const asked = posted.command || posted.to?.length || posted.direct
 		if (!asked && !flags.to)
 			console.error('Asked nobody: name a model@runner, a runner or a bot with --to')
 		if (flags['no-wait'] || !asked) return
@@ -203,6 +204,12 @@ async function post() {
 			shows(messages)
 		})
 		shows((await api('GET', `/api/threads/${id}?after=${last}`)).entries)
+		if (posted.direct && last === posted.entry) {
+			const { entries } = await api('GET', `/api/threads/${id}?after=${posted.entry - 1}`)
+			const { data } = entries.find((entry) => entry.id === posted.entry) ?? {}
+			if (!data?.to?.length)
+				console.error(`The director asked nobody: ${data?.picked ?? 'no reason given'}`)
+		}
 	} finally {
 		await frames?.return()
 		socket?.close()

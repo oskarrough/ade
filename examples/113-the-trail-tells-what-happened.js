@@ -52,7 +52,10 @@ check(
 )
 
 const quiet = await post('anyone around?')
-const picked = await story(quiet.entry)
+const picked = await until(async () => {
+	const steps = await story(quiet.entry)
+	return steps.at(-1)?.kind === 'nobody' && steps
+})
 const pick = picked.find((step) => step.kind === 'picked')?.chose
 check(
 	kinds(picked) === 'posted → waited → picked → nobody' &&

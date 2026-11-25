@@ -11,6 +11,7 @@ import {
 	done,
 	say,
 	newest,
+	routed,
 	scriptedRunner,
 	server,
 	text,
@@ -107,8 +108,7 @@ check(
 const bots = await createThread('bots only')
 await post(bots, 'hello', ['Jeroen', 'Bot1'])
 await answered(bots, 2)
-await post(bots, 'chooser unknown')
-const failed = await message(bots, 'chooser unknown')
+const failed = await routed(bots, (await post(bots, 'chooser unknown')).json.entry)
 check(
 	!failed?.to && failed?.picked?.startsWith('Pick failed:'),
 	'a bot-only group reports a failed pick without asking the last bot',

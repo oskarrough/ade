@@ -226,6 +226,17 @@ export const brief = (thread) =>
 	)
 export { text }
 
+/** A message as its thread shows it once the director's pick for it is in, which its trail's `picked` step says */
+export async function routed(id, entry) {
+	await until(
+		async () =>
+			(await api('GET', `/api/threads/${id}/trail?entry=${entry}`)).json.some(
+				(step) => step.kind === 'picked',
+			),
+		30000,
+	)
+	return (await view(id)).entries.find((one) => one.id === entry)?.data
+}
 export async function until(fn, ms = 8000, every = 100) {
 	const end = Date.now() + ms
 	while (Date.now() < end) {

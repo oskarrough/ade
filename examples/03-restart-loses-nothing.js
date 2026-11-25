@@ -33,7 +33,7 @@ await answered(id)
 
 laptop.kill()
 await until(() => api('GET', '/api/runners').then((r) => r.json.every((x) => !x.online)))
-await postEntry(id, 'while away', undefined, 'ben')
+await postEntry(id, 'while away', { runner: 'laptop', model: 'echo/echo' }, 'ben')
 const inputs = async () =>
 	(await conversationOf(await view(id), 'echo/echo@laptop')).entries
 		.filter((e) => e.kind === 'ade.delivery')

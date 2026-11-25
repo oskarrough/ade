@@ -2508,7 +2508,7 @@ function scopedKey(scope, key) {
 async function postEntry(id, author, input) {
 	const requestId = scopedKey(`post ${id}`, input.key)
 	const saved = await receipt(requestId, `post ${id}`)
-	if (saved) return withPick(id, saved.result)
+	if (saved) return answerOf(saved.result)
 	await conversation(id)
 	const { images, body, command } = written(input)
 	const { to, picked, direct, solo } = await recipients(
@@ -2545,7 +2545,7 @@ async function postEntry(id, author, input) {
 		}
 		return result
 	})
-	return withPick(id, result)
+	return answerOf(result)
 }
 
 /** A message as it was sent: its images, its body, and the command a body starting `$ ` runs */
@@ -2637,26 +2637,8 @@ async function moveAgent(threadId, input) {
 	return { conversation: input.conversation, to }
 }
 
-/** A post's answer once the director's pick for its message is in, as one with `to` says whom it asks; a retry too */
-async function withPick(id, result) {
-	if (!result.pick) return result
-	const { state } = await harness.waitForTask(result.pick, context)
-	const route = /** @type {any} */ (
-		await latestMessage(id, (one) => one.data.message === result.entry, ROUTE)
-	)
-	// A pick that ended without saving a route failed; an empty `to` alone would read as a chosen silence
-	if (!route)
-		return {
-			...result,
-			to: [],
-			picked: `Pick failed: the director's pick ${state.outcome.status}${state.outcome.error ? ` (${errorLine(state.outcome.error, 'director')})` : ''}.`,
-		}
-	return {
-		...result,
-		to: route.data.to ?? [],
-		...(route.data.picked && { picked: route.data.picked }),
-	}
-}
+/** A post's answer as soon as its message is saved: with `direct`, the director's pick for it comes after, as its route */
+const answerOf = ({ pick, ...result }) => (pick ? { ...result, direct: true } : result)
 
 /**
  * Takes back a message its author wrote while no agent has read it yet: each agent that still has it unseen, or queued

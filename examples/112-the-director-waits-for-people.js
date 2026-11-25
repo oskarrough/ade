@@ -16,6 +16,7 @@ import {
 	text,
 	until,
 	view,
+	routed,
 } from './lib.js'
 
 writeFileSync(path.join(configDir, 'ade.json'), JSON.stringify({ director: { burst: 0.3 } }))
@@ -46,8 +47,9 @@ await answered(id, 2)
 // Someone else's message never takes over yours
 const mine = post(id, 'what does Jeroen think?')
 await until(async () => message(id, 'what does Jeroen think?'))
-await post(id, 'and what about tests?', 'dee')
-await mine
+const theirs = await post(id, 'and what about tests?', 'dee')
+await routed(id, (await mine).json.entry)
+await routed(id, theirs.json.entry)
 check(
 	picked.includes('what does Jeroen think?') && picked.includes('and what about tests?'),
 	'each person’s message gets its own pick',
@@ -73,7 +75,7 @@ check(
 const mention = await post(id, '@Jeroen quick one', 'ann')
 check(mention.json.to?.[0] === 'Jeroen', 'an @mention skips the wait')
 await typing(id, false, 'dee')
-await held
+await routed(id, (await held).json.entry)
 check(picked.includes('is this ready?'), 'once they stop typing, the pick goes on')
 
 // One agent with two people writing: the director decides whether it's for the agent
@@ -81,8 +83,8 @@ const pair = await createThread('one agent')
 await post(pair, 'hi', undefined, 'echo/echo@laptop')
 await answered(pair)
 const before = picked.length
-await post(pair, 'oskar, lunch at one?', 'dee')
-await sleep(500)
+const lunch = await post(pair, 'oskar, lunch at one?', 'dee')
+await routed(pair, lunch.json.entry)
 check(
 	picked.length === before + 1 && !(await message(pair, 'oskar, lunch at one?'))?.to,
 	'one agent and two people: a message for the other person gets no answer',
@@ -91,10 +93,11 @@ check(
 
 // A message to everyone gets every agent's answer, one after another
 const all = await post(id, 'what do you all think?')
+const everyone = await routed(id, all.json.entry)
 check(
-	all.json.to?.length === 2 && all.json.to.includes('Jeroen'),
+	everyone?.to?.length === 2 && everyone.to.includes('Jeroen'),
 	'asking everyone picks every agent, each in turn',
-	JSON.stringify(all.json),
+	JSON.stringify(everyone),
 )
 await answered(id, 8)
 
@@ -110,7 +113,8 @@ check(
 	'paused: a message naming no one gets no pick, an @mention still answers',
 )
 await api('POST', `/api/threads/${id}/pause`, { paused: false })
-await post(id, 'back again?')
+const back = await post(id, 'back again?')
+await routed(id, back.json.entry)
 check(
 	picked.length === quiet + 1 && picked.at(-1) === 'back again?',
 	'resumed: the next message gets a pick, and nothing from the pause is picked again',
