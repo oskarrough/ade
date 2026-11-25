@@ -5135,6 +5135,32 @@ async function saveSettings({
 	writeFileSync(settings.file, `${JSON.stringify(next, null, '\t')}\n`)
 	return { saved: settings.file, ...restartSoon('settings saved') }
 }
+/**
+ * A checkout whose lockfile moved since its last install gets one before it restarts, so new code doesn't start
+ * against old packages; if the install fails, this server keeps running
+ */
+function installed() {
+	const read = (file) => {
+		try {
+			return readFileSync(path.join(import.meta.dirname, file), 'utf8')
+		} catch {
+			return ''
+		}
+	}
+	if (read('pnpm-lock.yaml') === read('node_modules/.pnpm/lock.yaml')) return true
+	console.log('restart: the lockfile changed; running pnpm install first')
+	return new Promise((resolve) =>
+		execFile(
+			'pnpm',
+			['install', '--frozen-lockfile'],
+			{ cwd: import.meta.dirname, timeout: 10 * 60_000 },
+			(error, _out, err) => {
+				if (error) console.error('restart: pnpm install failed, so this server keeps running', err)
+				resolve(!error)
+			},
+		),
+	)
+}
 /** Restarts once this request is answered; where the runtime can't restart in place, it stops */
 function restartSoon(why) {
 	const restarts = typeof process.execve === 'function'
@@ -5149,6 +5175,7 @@ function restartSoon(why) {
  * In place: the same process, so its terminal, its process group and arbe desktop's house token stay.
  */
 async function restart(why, again) {
+	if (again && !release && !(await installed())) return
 	console.log(
 		`restart: ${again ? `${why}; restarting` : `${why}; stopped, start it again to take it up`}`,
 	)
