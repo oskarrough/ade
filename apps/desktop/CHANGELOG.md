@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.11
+
+- A release of ade that needs your threads converted first stays put, stopped, and shows the command to run, instead of going back to the one before and never coming again.
+
 ## 0.1.10
 
 - Takes only releases of ade signed with its own update key, and only those it's new enough for; for a release that needs a newer arbe desktop, it says so and offers its own update.

@@ -255,10 +255,17 @@ run)
 	fi
 	take_staged || exit 1
 	# A release that stops before it comes up, with the one before it still in ade.old, makes way for that one again,
-	# and fetch_ade passes it over; the server's restart into a staged release counts too
+	# and fetch_ade passes it over; the server's restart into a staged release counts too. One that stops with 78 asks
+	# for its store to be converted, with the command it printed: it stays, stopped, and the one before goes, since
+	# it can't read the store once converted.
 	while :; do
 		node "$own/ade/bin.js"
 		code=$?
+		if [ $code -eq 78 ]; then
+			rm -rf "$own/ade.old"
+			echo "$(date '+%F %T'): ade $(release_of "$own/ade") stays stopped until you run the command above; then start it again"
+			exit $code
+		fi
 		[ -f "$own/ade.old/bin.js" ] || exit $code
 		bad="$(release_of "$own/ade")"
 		echo "$(date '+%F %T'): ade $bad stopped before it came up; going back to $(release_of "$own/ade.old")"

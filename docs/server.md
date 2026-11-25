@@ -32,7 +32,7 @@ Use `+` and `-` to change the defaults; a list of bare names replaces them. A na
 
 Threads live in `${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite`, with its SQLite sidecars, lock and `ade.log` beside it. It's ade's database: Pi Durable keeps its records there, and the `ade_` tables beside them hold the house as plain SQL (see [below](#the-house-as-sql)). Settings stay in `${XDG_CONFIG_HOME:-~/.config}/ade/ade.json`. `DB_PATH` selects another store and puts its log beside it; it does not move settings.
 
-A thread keeps what each of its agents and bots hasn't read yet as a place in the thread, the last message it was handed, plus the odd message left behind it while the director picked. So a member waiting on an offline runner costs every post the same few bytes, however long the thread. A store from before it kept them that way refuses to start, and prints the one command that converts it, to run once with ade stopped.
+A thread keeps what each of its agents and bots hasn't read yet as a place in the thread, the last message it was handed, plus the odd message left behind it while the director picked. So a member waiting on an offline runner costs every post the same few bytes, however long the thread. A store from before it kept them that way refuses to start, with exit code 78, and prints the one command that backs it up and converts it. The command refuses while ade is running, and run again it says the store is already converted.
 
 Server secrets, like `TYPESAFE_API_KEY` and `MATRIX_TOKEN`, go in `${XDG_CONFIG_HOME:-~/.config}/ade/.env`, loaded at start-up if it exists; a variable already set in the shell wins over it.
 

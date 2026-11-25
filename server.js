@@ -151,29 +151,26 @@ process.on('exit', () => Number(readFileSync(lock, 'utf8')) === process.pid && r
 
 /**
  * A store from before members kept a place in the thread: each still holds the list of every message it hadn't been
- * handed, which this server doesn't read, so it would hand them nothing new. It refuses, with the one-off command that
- * converts them: every member's place at the newest entry, its old list kept as `earlier`.
+ * handed, which this server doesn't read, so it would hand them nothing new. It refuses with exit code 78, which arbe
+ * desktop's house.sh takes as "stay on this release, stopped", and prints the one-off command that converts them: every
+ * member's place at the newest entry, its old list kept as `earlier`. The command refuses while a server holds the
+ * store, holds its lock while it works, and says so when there's nothing left to convert.
  */
+const oldThreads = String.raw`document_id in (select id from documents where kind = '"ade.thread"') and exists (select 1 from json_each(content, '$.agents') agent where agent.value -> '$.unseen' is not null)`
 const oldMembers = (() => {
 	if (!existsSync(file)) return false
 	const db = new DatabaseSync(file, { readOnly: true })
 	try {
-		return Boolean(
-			db
-				.prepare(
-					`select 1 from documents join document_revisions on document_id = documents.id
-					where documents.kind = '"ade.thread"' and instr(content, '"unseen":') limit 1`,
-				)
-				.get(),
-		)
-	} catch {
-		return false
+		return Boolean(db.prepare(`select 1 from document_revisions where ${oldThreads} limit 1`).get())
+	} catch (error) {
+		if (/no such table/.test(error.message)) return false
+		throw error
 	} finally {
 		db.close()
 	}
 })()
 if (oldMembers) {
-	const convert = String.raw`update document_revisions set content = json_set(content, '$.agents', json((select json_group_object(agent.key, json(iif(json_array_length(agent.value, '$.unseen') > 0, json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id, '$.earlier', json(agent.value -> '$.unseen')), json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id)))) from json_each(content, '$.agents') agent, (select max(id) as id from entries) newest))) where document_id in (select id from documents where kind = '"ade.thread"') and exists (select 1 from json_each(content, '$.agents') agent where agent.value -> '$.unseen' is not null)`
+	const convert = String.raw`update document_revisions set content = json_set(content, '$.agents', json((select json_group_object(agent.key, json(iif(json_array_length(agent.value, '$.unseen') > 0, json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id, '$.earlier', json(agent.value -> '$.unseen')), json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id)))) from json_each(content, '$.agents') agent, (select max(id) as id from entries) newest))) where ${oldThreads}`
 	/** Quotes as \x27 and \x22 inside a JS string, so the line pastes the same into bash, zsh and fish */
 	const inJs = (text) =>
 		text
@@ -182,10 +179,20 @@ if (oldMembers) {
 			.replaceAll('"', String.raw`\x22`)
 	const backup = `${file}.before-positions`
 	const vacuum = `vacuum into '${backup.replaceAll("'", "''")}'`
+	const script = [
+		`const fs = require("node:fs"), file = "${inJs(file)}", lock = file + ".lock", backup = "${inJs(backup)}"`,
+		`let holder = 0; try { holder = Number(fs.readFileSync(lock, "utf8")); process.kill(holder, 0) } catch (error) { if (error.code !== "EPERM") holder = 0 }`,
+		`if (holder) { console.error("ade is running as process " + holder + "; stop it, then run this again"); process.exit(1) }`,
+		`fs.writeFileSync(lock, String(process.pid))`,
+		`try { const db = new (require("node:sqlite").DatabaseSync)(file); ` +
+			`if (!db.prepare("${inJs(`select 1 from document_revisions where ${oldThreads} limit 1`)}").get()) console.log("already converted"); ` +
+			`else if (fs.existsSync(backup)) { console.error(backup + " is left from an earlier try; move it away, then run this again"); process.exitCode = 1 } ` +
+			`else { db.exec("${inJs(vacuum)}"); db.exec("begin immediate; ${inJs(convert)}; commit"); console.log("converted") } } finally { fs.rmSync(lock) }`,
+	].join('; ')
 	console.error(
-		`${file} keeps thread members' unread messages the old way; with ade stopped, convert it once (a backup goes to ${backup}): node -e 'const db = new (require("node:sqlite").DatabaseSync)("${inJs(file)}"); db.exec("${inJs(vacuum)}"); db.exec("${inJs(convert)}"); console.log("converted")'`,
+		`${file} keeps thread members' unread messages the old way; with ade stopped, convert it once (a backup goes to ${backup}): node -e '${script}'`,
 	)
-	process.exit(1)
+	process.exit(78)
 }
 /** `--dir` folders for the server's own runner, the first where threads start; `--no-runner` lends no runner */
 const { values: flags } = parseArgs({
