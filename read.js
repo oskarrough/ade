@@ -335,6 +335,7 @@ function projector(db) {
 	}
 	const run = (sql, ...params) => statement(sql).run(...params)
 	const get = (sql, ...params) => statement(sql).get(...params)
+	const all = (sql, ...params) => statement(sql).all(...params)
 	/** Each of Pi's conversations: the thread that owns it, and where it was forked from */
 	const conversations = new Map()
 	const threadOf = (conversation) =>
@@ -350,7 +351,10 @@ function projector(db) {
 			values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			on conflict (id) do update set title = excluded.title, parent_id = excluded.parent_id,
 				created_at = excluded.created_at, archived = excluded.archived, paused = excluded.paused,
-				hands_off = excluded.hands_off, trail_id = excluded.trail_id`,
+				hands_off = excluded.hands_off, trail_id = excluded.trail_id
+			where (title, parent_id, created_at, archived, paused, hands_off, trail_id) is not (excluded.title,
+				excluded.parent_id, excluded.created_at, excluded.archived, excluded.paused, excluded.hands_off,
+				excluded.trail_id)`,
 			id,
 			doc.title ?? '',
 			doc.parent ?? null,
@@ -362,24 +366,33 @@ function projector(db) {
 			['-write', '-edit', '-bash'].every((tool) => tools.includes(tool)) ? 1 : 0,
 			doc.trail ?? null,
 		)
-		run('delete from ade_reads where thread_id = ?', id)
-		for (const [person, message] of Object.entries(doc.reads ?? {}))
-			run(
-				'insert into ade_reads (thread_id, person, message_id) values (?, ?, ?)',
-				id,
-				person,
-				message,
-			)
+		// Every post changes the thread's document, rarely its reads or agents: rows written again as they were still cost a page each
+		const reads = Object.entries(doc.reads ?? {}).map(([person, message]) => [id, person, message])
+		if (!same(all('select * from ade_reads where thread_id = ?', id), reads)) {
+			run('delete from ade_reads where thread_id = ?', id)
+			for (const read of reads)
+				run('insert into ade_reads (thread_id, person, message_id) values (?, ?, ?)', ...read)
+		}
+		const agents = Object.entries(doc.agents ?? {}).map(([name, agent]) => [
+			agent.conversation,
+			id,
+			name,
+			...(settings.get(agent.conversation) ?? [null, null, null, null]),
+		])
+		if (same(all('select * from ade_agents where thread_id = ?', id), agents)) return
 		// A renamed bot keeps its conversation under the new name; two rows can't hold one name meanwhile
 		run('delete from ade_agents where thread_id = ?', id)
-		for (const [name, agent] of Object.entries(doc.agents ?? {}))
+		for (const agent of agents)
 			run(
 				'insert into ade_agents (conversation_id, thread_id, name, runner, model, thinking, folder) values (?, ?, ?, ?, ?, ?, ?)',
-				agent.conversation,
-				id,
-				name,
-				...(settings.get(agent.conversation) ?? [null, null, null, null]),
+				...agent,
 			)
+	}
+	/** Whether `rows` as read hold the same values as `wanted`, in any order */
+	const same = (rows, wanted) => {
+		const key = (values) => JSON.stringify(values)
+		const have = new Set(rows.map((row) => key(Object.values(row))))
+		return rows.length === wanted.length && wanted.every((values) => have.has(key(values)))
 	}
 
 	const settingsOf = (doc) => [
