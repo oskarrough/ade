@@ -27,14 +27,20 @@ function wall(ms, timeZone) {
 	return /** @type {any} */ ({ ...parts, month: parts.month - 1 })
 }
 
-/** The moment a wall clock in `timeZone` reads that date and time; in a spring-forward gap, the moment after it */
+/**
+ * The moment a wall clock in `timeZone` reads that date and time: the first of two when the clock falls back, and in a
+ * spring-forward gap the moment as far past the gap as the time was into it (02:30 → 03:30)
+ */
 export function instant(year, month, day, hour, minute, timeZone) {
 	const guess = Date.UTC(year, month, day, hour, minute)
 	const offset = (ms) => {
 		const at = wall(ms, timeZone)
 		return Date.UTC(at.year, at.month, at.day, at.hour, at.minute, at.second) - ms + (ms % 1000)
 	}
-	return guess - offset(guess - offset(guess))
+	// The offsets a day either side, the one before any change of the day first
+	const [before, after] = [guess - offset(guess - 86_400_000), guess - offset(guess + 86_400_000)]
+	const reads = (ms) => ms + offset(ms) === guess
+	return reads(before) && reads(after) ? Math.min(before, after) : reads(after) ? after : before
 }
 
 /** `09:00` → [9, 0], or undefined if it isn't a clock time */
