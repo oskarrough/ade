@@ -4,7 +4,7 @@
  * schedule call leaves in the chat, and a run's own line.
  */
 import html from '@solidjs/html'
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Show, untrack } from 'solid-js'
 import { Icon } from './icons.js'
 import { Busy, busy } from './busy.js'
 import {
@@ -679,21 +679,29 @@ function TaskForm(props) {
 					: {}),
 		}
 	}
+	// What the fields said when the form opened: an edit sends when only if it changed, since the fields can't hold
+	// every schedule exactly (90s shows as 2m) and a new when starts the wait and the count over
+	const asSet = task && JSON.stringify(untrack(when))
+	const retimed = () => !task || JSON.stringify(when()) !== asSet
 	const next = createMemo(() => {
 		if (!['once', 'every', 'days'].includes(kind())) return []
-		const schedule = timing()
+		const kept = !retimed()
+		const schedule = kept ? { ...task.schedule } : timing()
 		if (schedule.times && (!schedule.times.length || !schedule.days.length)) return []
 		if ('every' in schedule) {
 			if (!(schedule.every >= 60_000)) return []
 			schedule.at ??= now() + schedule.every
 		}
 		if (Number.isNaN(schedule.at)) return []
-		const end = ends() === 'until' ? endAt() : Infinity
-		const left =
-			ends() === 'count'
-				? Math.max(0, runCount() - (task?.schedule.count === undefined ? 0 : (task.ran ?? 0)))
+		const end = kept ? (schedule.until ?? Infinity) : ends() === 'until' ? endAt() : Infinity
+		const left = kept
+			? schedule.count === undefined
+				? 5
+				: schedule.count - (task.ran ?? 0)
+			: ends() === 'count'
+				? runCount()
 				: 5
-		return runsAfter(schedule, now(), Math.min(5, left)).filter((at) => at <= end)
+		return runsAfter(schedule, now(), Math.max(0, Math.min(5, left))).filter((at) => at <= end)
 	})
 	const placeLink = createMemo(() => {
 		const { bot: name, thread } = destination()
@@ -711,21 +719,30 @@ function TaskForm(props) {
 		if (saving()) return
 		const fields = new FormData(event.currentTarget)
 		const { bot, thread } = destination()
-		const body = {
-			...(task ? { edit: task.id } : { key: crypto.randomUUID() }),
-			instructions: String(fields.get('instructions') ?? ''),
-			...(agentTask
-				? {}
-				: bot !== undefined
-					? { bot }
-					: thread !== undefined
-						? { thread, recipients: who() }
-						: { to: chosen() }),
-			...when(),
-			...(checks() && (task || fields.get('check'))
-				? { check: String(fields.get('check') ?? '') }
-				: {}),
-		}
+		const instructions = String(fields.get('instructions') ?? '')
+		const check = String(fields.get('check') ?? '')
+		const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+		// An edit sends only what changed; where it runs stays
+		const body = task
+			? {
+					edit: task.id,
+					...(instructions !== task.instructions && { instructions }),
+					...(!same(who(), initial.who) && { recipients: who() }),
+					...(task.to && !same(chosen(), task.to) && { to: chosen() }),
+					...(retimed() && when()),
+					...(checks() && check !== (task.check ?? '') && { check }),
+				}
+			: {
+					key: crypto.randomUUID(),
+					instructions,
+					...(bot !== undefined
+						? { bot }
+						: thread !== undefined
+							? { thread, recipients: who() }
+							: { to: chosen() }),
+					...when(),
+					...(checks() && check && { check }),
+				}
 		setSaving(true)
 		try {
 			await api('/api/schedule', body)
