@@ -65,6 +65,7 @@
 	--line: color-mix(in srgb, CanvasText 14%, Canvas);
 	--tint: color-mix(in srgb, CanvasText 5%, Canvas);
 	--edge: color-mix(in srgb, CanvasText 32%, Canvas);
+	--selected-surface: color-mix(in srgb, CanvasText 10%, Canvas);
 	--ok: #2f9e62;
 	--wait: #d39a00;
 	--pick: #3b7be0;
@@ -276,9 +277,7 @@ button.ghost {
 	background: none;
 	color: var(--mute);
 
-	&[aria-pressed='true'],
-	&[aria-expanded='true'],
-	&[aria-selected='true'] {
+	&:is([aria-pressed='true'], [aria-expanded='true'], [aria-selected='true']) {
 		background: color-mix(in srgb, CanvasText 10%, transparent);
 		color: var(--ink);
 	}
@@ -415,8 +414,8 @@ input[type='checkbox'] {
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	padding: var(--space-2) var(--space-2);
-	padding-left: calc(var(--space-2) + var(--depth, 0) * var(--space-4));
+	padding-block: var(--space-2);
+	padding-inline: calc(var(--space-2) + var(--depth, 0) * var(--space-4)) var(--space-2);
 	border: 0;
 	background: none;
 	color: inherit;
@@ -539,18 +538,14 @@ button[data-danger]:focus-visible:not(:disabled) {
 	}
 }
 
-/* The model picker and settings: popovers on desktop, bottom sheets on phones. One opened from Cmd-K shows even when
- * the sidebar it lives in is hidden, as on a phone in a thread. */
-.popover:popover-open {
-	visibility: visible;
-}
-
+/* Popovers on desktop, bottom sheets on phones. Jump can open one from a hidden sidebar. */
 .popover {
+	--popover-available-width: calc(100vw - 1rem);
 	position: fixed;
 	line-height: var(--text-ui-line);
 	inset: auto;
 	margin: 0;
-	width: min(24rem, calc(100vw - 1rem));
+	width: min(24rem, var(--popover-available-width));
 	max-height: min(70dvh, 32rem);
 	overflow-y: auto;
 	overscroll-behavior: contain;
@@ -561,6 +556,10 @@ button[data-danger]:focus-visible:not(:disabled) {
 	color: var(--ink);
 	font-size: var(--text-ui);
 	box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
+
+	&:popover-open {
+		visibility: visible;
+	}
 }
 
 .model-controls > ul,
@@ -569,6 +568,9 @@ button[data-danger]:focus-visible:not(:disabled) {
 	margin: 0;
 	padding: 0;
 	display: grid;
+}
+
+.rows {
 	gap: var(--space-1);
 }
 
@@ -577,7 +579,7 @@ button[data-danger]:focus-visible:not(:disabled) {
 	display: flex;
 	align-items: start;
 	gap: var(--space-2);
-	padding: var(--space-2) var(--space-2);
+	padding: var(--space-2);
 	border-radius: var(--radius-small);
 
 	> .dot {
@@ -677,7 +679,7 @@ button[data-danger]:focus-visible:not(:disabled) {
 		min-height: 0;
 		overflow-y: auto;
 		overscroll-behavior: contain;
-		padding: var(--space-2) var(--space-2) var(--space-2);
+		padding: var(--space-2);
 	}
 
 	.detail {
@@ -719,47 +721,34 @@ button[data-danger]:focus-visible:not(:disabled) {
 			translate var(--duration-press) var(--ease-out),
 			display var(--duration-press) var(--ease-out) allow-discrete,
 			overlay var(--duration-press) var(--ease-out) allow-discrete;
-	}
 
-	.popover:popover-open {
-		transition-duration: var(--duration-popover);
-	}
-
-	.popover:not(:popover-open) {
-		opacity: 0;
-		scale: 0.96;
-	}
-
-	@starting-style {
-		.popover:popover-open {
-			opacity: 0;
-			scale: 0.96;
-		}
-	}
-
-	@media (max-width: 700px) {
-		.popover {
+		/* A desktop popover fades and scales; a phone sheet slides from below the home bar. */
+		@media (max-width: 700px) {
+			--popover-opening: var(--duration-sheet);
+			--popover-closed-opacity: 1;
+			--popover-closed-scale: none;
+			--popover-closed-translate: 0 calc(100% + var(--space-2) + env(safe-area-inset-bottom));
 			transition:
 				translate var(--duration-sheet) var(--ease-sheet),
 				display var(--duration-sheet) allow-discrete,
 				overlay var(--duration-sheet) allow-discrete;
 		}
 
-		.popover:popover-open {
-			transition-duration: var(--duration-sheet);
+		&:popover-open {
+			transition-duration: var(--popover-opening, var(--duration-popover));
 		}
 
-		.popover:not(:popover-open) {
-			opacity: 1;
-			scale: none;
-			translate: 0 calc(100% + var(--space-2) + env(safe-area-inset-bottom));
+		&:not(:popover-open) {
+			opacity: var(--popover-closed-opacity, 0);
+			scale: var(--popover-closed-scale, 0.96);
+			translate: var(--popover-closed-translate, none);
 		}
 
 		@starting-style {
-			.popover:popover-open {
-				opacity: 1;
-				scale: none;
-				translate: 0 calc(100% + var(--space-2) + env(safe-area-inset-bottom));
+			&:popover-open {
+				opacity: var(--popover-closed-opacity, 0);
+				scale: var(--popover-closed-scale, 0.96);
+				translate: var(--popover-closed-translate, none);
 			}
 		}
 	}

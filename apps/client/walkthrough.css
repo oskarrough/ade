@@ -79,12 +79,8 @@ body:not(.chat) {
 
 	/* Just the chat: a quiet button above the system. */
 	.mode-toggle {
-		position: static;
 		display: block;
-		z-index: auto;
 		margin: 0 0 var(--space-2) auto;
-		transform: none;
-		visibility: visible;
 	}
 
 	/* The live system: plumbing is quiet; the route your next message takes is loud, and shows the agent's state. */
@@ -125,17 +121,18 @@ body:not(.chat) {
 			stroke-width: 2.5;
 		}
 
-		&.working {
-			stroke: var(--ok);
+		&:is(.working, .blocked) {
 			stroke-width: 2.5;
 			stroke-dasharray: 6 6;
+		}
+
+		&.working {
+			stroke: var(--ok);
 			animation: flow 0.6s linear infinite;
 		}
 
 		&.blocked {
 			stroke: var(--wait);
-			stroke-width: 2.5;
-			stroke-dasharray: 6 6;
 		}
 	}
 
@@ -146,7 +143,7 @@ body:not(.chat) {
 		border: 1px solid var(--line);
 		border-radius: var(--radius);
 		background: var(--tint);
-		padding: var(--space-2) var(--space-2);
+		padding: var(--space-2);
 		transition:
 			opacity 0.3s,
 			box-shadow 0.3s;
@@ -160,7 +157,8 @@ body:not(.chat) {
 			border-color: var(--pick);
 		}
 
-		> b {
+		> b,
+		> button.ask {
 			display: flex;
 			align-items: center;
 			gap: var(--space-2);
@@ -168,9 +166,6 @@ body:not(.chat) {
 
 		/* A runner's name, as the button that asks it with a keyboard. */
 		> button.ask {
-			display: flex;
-			align-items: center;
-			gap: var(--space-2);
 			margin: 0;
 			padding: 0;
 			border: 0;
@@ -189,8 +184,7 @@ body:not(.chat) {
 	}
 	/* What the section in view talks about gets a soft glow; nothing else changes, so the live parts stay readable. */
 	.stage[data-focus='server'] .server,
-	.stage[data-focus='runners'] .runners .node,
-	.stage[data-focus='hands'] .runners .node,
+	.stage:is([data-focus='runners'], [data-focus='hands']) .runners .node,
 	.stage[data-focus='thread'] .thread {
 		box-shadow: 0 0 0 3px color-mix(in srgb, var(--pick) 20%, transparent);
 	}
@@ -238,7 +232,6 @@ body:not(.chat) {
 			max-height: 24rem;
 
 			> li {
-				border-radius: var(--radius-small);
 				font-size: inherit;
 				transition: none;
 
@@ -247,8 +240,7 @@ body:not(.chat) {
 				}
 
 				> .row {
-					padding: var(--space-1) var(--space-2);
-					padding-left: calc(var(--space-2) + var(--depth, 0) * var(--space-4));
+					padding-block: var(--space-1);
 				}
 			}
 		}
@@ -327,14 +319,6 @@ body:not(.chat) {
 				font: inherit;
 				font-weight: 400;
 				line-height: 1;
-			}
-		}
-
-		> p.from {
-			position: static;
-
-			&:empty {
-				display: block;
 			}
 		}
 
