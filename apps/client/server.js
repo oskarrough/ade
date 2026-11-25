@@ -90,6 +90,8 @@ export const restart = async (settings) => {
 	setRestarting(restarts ? 'asked' : 'stopped')
 }
 export const [newThreadTools, setNewThreadTools] = createSignal(null)
+/** Whether the next new thread works in a checkout of its own (the checkouts module), else in the folder itself */
+export const [newThreadCheckout, setNewThreadCheckout] = createSignal(false)
 /** The last key this page made, {name, connect}: the key is shown once, so it outlives the form that asked */
 export const [minted, setMinted] = createSignal(null)
 /** Each thread's messages, written only by the `thread/<id>` feed, older pages and optimistic sends. */
@@ -735,8 +737,15 @@ export function feedItem(nameOf) {
 /** `first`, its first message, `{body, to, images, steer, key}`, comes in the same step; under the new-thread draft's key, it empties that draft */
 export async function createThread(title, first = {}) {
 	const tools = newThreadTools()
-	const { id } = await api('/api/threads', { title, tools, ...first })
+	const own = newThreadCheckout() && !/^\$\s/.test(first.body ?? '')
+	const { id } = await api('/api/threads', {
+		title,
+		tools,
+		...(own ? { checkout: 'own' } : {}),
+		...first,
+	})
 	if (latest(newThreadTools) === tools) setNewThreadTools(null)
+	setNewThreadCheckout(false)
 	if (!latest(current)) openThread(id)
 	return id
 }

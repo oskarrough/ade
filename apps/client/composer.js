@@ -629,6 +629,7 @@ export function Composer(props) {
 										picker.hidePopover()
 									}}
 						folders=${true}
+						checkout=${() => !props.thread}
 						onClose=${(_e) => picker.hidePopover()}
 						after=${(search) => (homeBot(props.thread) ? null : pickerBots(search))}
 					/>

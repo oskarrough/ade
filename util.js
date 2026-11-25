@@ -345,6 +345,12 @@ export function stepText(step) {
 		case 'joined':
 		case 'changed':
 			return `${step.agent} ${step.kind === 'joined' ? 'joined' : 'now runs'} as ${step.model}${step.thinking ? `:${step.thinking}` : ''} on ${step.runner}, in ${step.folder}`
+		case 'checkout-made':
+			return `own checkout made in ${step.path}, ${step.tip ? `again at ${step.tip}` : `from ${step.parent}`}`
+		case 'checkout-removed':
+			return `own checkout ${step.path} removed; ${step.branch ? `branch ${step.branch}` : `its commits, up to ${step.tip},`} kept`
+		case 'checkout-kept':
+			return `own checkout ${step.path} kept: ${step.why}`
 		case 'bot-created':
 			return `bot ${step.bot} created`
 		case 'bot-changed':

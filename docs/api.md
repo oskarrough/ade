@@ -90,7 +90,7 @@ POST   /api/runners {name}             a key, and the commands that connect it: 
 DELETE /api/runners/:name              its maker's or the owner's; the name stays its maker's
 GET    /api/runners/:name/available    every model pi is logged in for there, as a list of names; the runner row’s `offers` are its scoped ones
 GET    /api/threads                    each thread's row; its `parent`, or `conversation.parent` for a fork, places it in a family
-POST   /api/threads {title, parent?, tools?, key?, body?, to?, images?, steer?}  with a body, its first message in the same commit
+POST   /api/threads {title, parent?, tools?, key?, body?, to?, images?, steer?, checkout?}  with a body, its first message in the same commit; `checkout: "own"` puts its agent in a checkout of its own (`checkouts`)
 POST   /api/threads/shed {key?}        makes the walkthrough’s thread and messages: {id}
 GET    /api/draft                      {draft}: yours for a thread not started yet, or null
 POST   /api/draft {key, text?, images?, pick?, page?}  saves it, as a thread's draft saves
@@ -133,6 +133,7 @@ What changes about the thread itself is a step too, with no `entry`, so its past
 - `renamed` `{from, to}`, `archived`, `unarchived`, `paused`, `resumed`, `tools` `{tools}`
 - `joined`, `changed` `{agent, conversation, model, thinking?, runner, folder}`: an agent's first message here, and each time it moves to another model, runner or folder; `conversation` is the same through every change and rename
 - `bot-created` `{bot, to}`, `bot-changed` `{bot, changed, from?, to?, instructions?}`, `bot-forgotten` `{bot}`, in the bot's home: `changed` lists `name`, `agent` or `instructions`, with the old name as `from`, what it runs as now as `to`, and its instructions whole
+- `checkout-made` `{path, parent}` or `{path, tip}` when made again, `checkout-removed` `{path, branch}` or `{path, tip}`, `checkout-kept` `{path, why}`: a thread's own checkout, with `checkouts` on
 - `scheduled` `{task, by, schedule, instructions}`, `edited` `{task, changed, …}` with what the edit set, `task-paused` `{task, note?}`, `task-resumed`, `cancelled`, and `ended` `{task, why}`: a scheduled task's life, beside its `fired` and `skipped`
 
 These begin with the version that writes them: a thread made before has no `created`, and its first such step is its first change since.
@@ -163,6 +164,8 @@ POST   /api/threads/:id/auto-title            asks for a fresh title: {title}, o
 GET    /api/pi-sessions?runner=name&dir=folder   pi sessions there
 POST   /api/pi-sessions {runner, dir?, session, title?}   brings one in by id or path: {id}
 GET    /api/threads/:id/pi-sessions           {from}, null unless the thread came from pi
+GET    /api/checkouts?runner=name&dir=folder  {kind}: jj, git, or null outside a repo
+GET    /api/threads/:id/checkouts             its own checkout {state, kind, path, parent, branch, note, …}, or null; the feed's `checkout/<id>` too
 GET    /api/threads/:id/canvas                {shapes, tldraw}; its socket at the same path takes ?sessionId=…
 POST   /api/threads/:id/canvas                {actions} edits shapes, {look} reads them, {seen} reports the viewer’s selection and view
 ```

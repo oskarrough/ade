@@ -33,6 +33,7 @@ import { agent, folderOf, openPicker } from './composer.js'
 import { EditInPlace } from './edit-in-place.js'
 import { Sure } from './sure.js'
 import { Busy, busy } from './busy.js'
+import { CheckoutDetails } from './checkouts.js'
 
 /** A thread that's live whatever its inbox says: running, waiting on a person, or failed */
 const LIVE = ['working', 'blocked', 'error']
@@ -219,6 +220,9 @@ export function DetailsPage(props) {
 						<p class="folder" title="Where its agent works; the model picker moves it">
 							${() => folderOf(id()) ?? 'Its runner’s own'}
 						</p>
+						<${Show} when=${() => server().modules.includes('checkouts')}>
+							<${CheckoutDetails} thread=${id()} />
+						<//>
 						<h3>Tools</h3>
 						<${Tools} thread=${id()} />
 						<${Show} when=${() => !bot()}>

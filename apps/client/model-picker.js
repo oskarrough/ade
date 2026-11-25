@@ -7,6 +7,7 @@ import { modelsOf, THINKING_LEVELS, thinkingWord } from './agent.js'
 import { Dot } from './dot.js'
 import { Icon } from './icons.js'
 import { canLogIn, ConnectRunner, LogIn, logins } from './runner.js'
+import { CheckoutChoice } from './checkouts.js'
 
 /** Every word of the search is somewhere in the text. */
 export const matches = (search, text) =>
@@ -32,6 +33,7 @@ export const Metered = () =>
  * Typing filters the list; the keys are every list's. A line that reads as recipients (an `@` or a comma), or matches nothing, goes to `onRecipients` on Enter instead.
  * getTo(runner) supplies each runner's choice; the caller decides when a choice is applied or closes the view.
  * `onClose` puts a close beside the search, which a phone's sheet shows.
+ * `checkout` offers a thread about to start the choice of a checkout of its own.
  * `before` is rows above the models while nothing is typed; `after(search)` rows under them, filtered by the caller. Their buttons are `role="option"` to take the keys.
  */
 export function ModelPicker(props) {
@@ -256,6 +258,9 @@ function PickerFoot(runner, props) {
 						>${(folder) => html`<option value=${() => folderValue(folder) || folder}></option>`}<//
 					>
 				</datalist>
+				<${Show} when=${() => props.checkout}>
+					<${CheckoutChoice} runner=${runner.name} dir=${() => to().dir} />
+				<//>
 			<//>
 		</div>
 	`

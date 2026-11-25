@@ -15,7 +15,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   TRAIL, trailed, trail, nameIn, ranAs   a thread's trail, in a conversation of its own: each step written in its commit, GET /api/threads/:id/trail, `trail/<id>`
   messages, firstWrote, authors   a thread's messages, or only the newest, the ones since one or a time, or those that match, read back from its end; when each person first wrote
   Draft, saveDraft, draftIn, NEW, spentUnder   a person's unsent draft per thread, and for a new one; `draft/<id>` feed view
-  createThread, written, mayAsk     a thread and its first message in one commit
+  createThread, written, mayAsk     a thread and its first message in one commit; checkoutOf, its agent's own checkout
   withdraw, WITHDRAWAL              a message taken back before any agent read it
   afterCommit                       best-effort work after a commit
   isWork, busy, workIn              whether a thread has work
@@ -96,6 +96,8 @@ modules/
   search.js              search over the read model's FTS5 index of messages (read.js): search, matchOf; serve, the `search` tool
   jump.js                Cmd-K's switch; the client does the rest
   usage.js               tokens and cost: spend, build, entryStored, settle, spent; serve
+  checkouts.js           a thread's own checkout: Checkout doc, DETECT, MAKE, REMOVE, ownCheckout (before the thread), prepare
+                         (in Admit, before its agent runs), Remove task (archiving), the `checkout/` feed; serve
   pi-sessions.js         threads as pi session files (push, sync, changed, writePiSession) and back (bring);
                          serve, listPiSessions, readPiSession
 apps/desktop/            arbe desktop, a Go app on mygo (main.go, preload.js, offline.html, release.sh; README.md there); .github/workflows/desktop-release.yml builds its releases
@@ -149,6 +151,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   theme.js               Auto/Light/Dark, chosen from Cmd-K's Choose theme: theme, chooseTheme, openThemeMenu, ThemeMenu
   usage.js               Usage, Mix, Days, ThreadUsage
   inbox.js               Inbox, brief, Question, Failed, Finished, Meta, RecapLine
+  checkouts.js           CheckoutChoice (the picker's main or its own), CheckoutDetails (a thread's details); newThreadCheckout is in server.js
   thread-details.js      DetailsPage: threads, scheduled, then Settings and Usage folded, for a thread and a bot's home
   pi-sessions.js         PiSessionList, PiSource
   canvas.js              Canvas: load, board, fitLabels, reportSeen; CanvasRow, showOnCanvas

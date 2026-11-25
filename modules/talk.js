@@ -78,6 +78,16 @@ export function server(core) {
 						'Or "nobody". Leave out for whom the thread last asked, or whom its director picks; a new thread needs it, or a bot @mentioned in the body.',
 				}),
 			),
+			...(core.modulesOn?.includes('checkouts')
+				? {
+						checkout: opt(
+							str({
+								description:
+									'"own" starts a new thread\'s agent in a checkout of its own of the repo it works in (yours, on your runner), so its edits stay apart from yours; "main", the default, works in the folder itself',
+							}),
+						),
+					}
+				: {}),
 		}),
 		replay: 'safe',
 		execute: async (args, api, context) => {
@@ -159,9 +169,11 @@ export function server(core) {
 					)
 			/** Only a thread you started answers you on its own */
 			const child = fresh || row.parent === from
+			const placing = await checkout(args.checkout, fresh, to, api.conversationId, key, signal)
 			return core.once(`post ${api.taskId}`, 'post', async (tx) => {
 				signal?.throwIfAborted()
 				const id = thread ?? (await core.startThread(tx, title, from))
+				if (placing) to[placing.at] = await placing.place(tx, id, title)
 				await core.post(
 					tx,
 					id,
@@ -189,6 +201,23 @@ export function server(core) {
 			})
 		},
 	})
+
+	/** A new thread's agent in a checkout of its own: on the asker's runner, of the folder the asker works in unless `to` names one */
+	async function checkout(asked, fresh, to, asker, key, signal) {
+		if (asked === undefined || asked === 'main') return undefined
+		if (asked !== 'own') throw new Error('checkout is "own" or "main"')
+		const at = to.findIndex((one) => !one.name)
+		if (!fresh || at < 0)
+			throw new Error(
+				"A checkout of its own is for a new thread's agent: post with to model@runner",
+			)
+		const mine = await agentOf(asker, key)
+		const agent =
+			!to[at].dir && mine?.runner === to[at].runner && mine.dir
+				? { ...to[at], dir: mine.dir }
+				: to[at]
+		return { at, place: await core.ownCheckout(agent, signal) }
+	}
 
 	const threads = defineTool({
 		name: 'threads',

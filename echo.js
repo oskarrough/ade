@@ -197,6 +197,8 @@ export const tryEcho = (request) => {
 			body: `${asked.includes('slow') ? 'slow: ' : ''}what did you find?${show ? ` show ${show}` : ''}`,
 			// "post bot1" asks the bot bot1 instead
 			to: Object.keys(personas).find((name) => asked.includes(name)) ?? 'echo/try@bot',
+			// "post own" starts it in a checkout of its own (checkouts module)
+			...(/\bpost own\b/.test(asked) ? { checkout: 'own' } : {}),
 		})
 	return say(
 		`Done. I wrote, read and edited \`notes.md\`, then ran a command:\n\n\`\`\`\n${text(request.messages.at(-1)).slice(0, 400)}\n\`\`\`\n\n- one\n- two`,

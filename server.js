@@ -460,6 +460,7 @@ const Admit = defineTask({
 				(id) => !waiting.has(id),
 			)
 			if (!held.length) return rt.commit(() => finished('completed', { held }), ctx)
+			await prepare?.(threadId, agent, rt.signal)
 			/** A folder renamed or deleted under the agent: it doesn't run there, and what it was asked waits for another folder */
 			const missing = await gone(agent, rt.signal)
 			if (missing) return rt.commit(() => finished('completed', { held, missing }), ctx)
@@ -2752,10 +2753,12 @@ async function createThread(
 			)
 		: []
 	if (message) await mayAsk(to, person, message.command)
+	const placing = await checkoutOf(first.checkout, to, message)
 	return once(requestId, 'create thread', async (tx) => {
 		const draft = message && key !== undefined && (await tx.doc(Draft, draftOf(NEW, person), null))
 		const id = await startThread(tx, title, parent, tools)
 		if (!message) return { id }
+		if (placing) to[placing.at] = await placing.place(tx, id, title)
 		const { images, body, command } = message
 		const result = command
 			? (await tx.createTask(
@@ -2782,6 +2785,17 @@ async function createThread(
 		}
 		return { id, ...result }
 	})
+}
+
+/** With `checkout: 'own'`, what puts the thread's agent, among `to`, in a checkout of its own: the checkouts module's */
+async function checkoutOf(checkout, to, message) {
+	if (checkout === undefined || checkout === 'main') return undefined
+	if (checkout !== 'own') throw new Error("checkout is 'main' or 'own'")
+	if (!ownCheckout) throw new Error('A checkout of its own needs the checkouts module on')
+	const at = to.findIndex((one) => !one.name)
+	if (!message || message.command || at < 0)
+		throw new Error("A checkout of its own is for the thread's agent: ask a model@runner")
+	return { at, place: await ownCheckout(to[at]) }
 }
 
 /** The walkthrough's example thread, written by its three people as the server names them, since no page can */
@@ -3551,6 +3565,10 @@ compactAt = hook('compactAt')
 const webhook = hook('webhook')
 harnessed = undefined
 const remembers = hook('remembers')
+/** The checkouts module's: a thread's own checkout, planned before it starts and made before its agent runs */
+const ownCheckout = hook('ownCheckout')
+core.ownCheckout = ownCheckout
+const prepare = hook('prepare')
 
 // ── HTTP: input, routes, static files, runner script ──────────────────────
 
