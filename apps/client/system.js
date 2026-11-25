@@ -26,9 +26,26 @@ export function System() {
 		const here = page()
 		return here.kind !== 'threads' && server().modules.includes(here.kind) ? here.kind : 'threads'
 	}
-	const shown = createMemo(() => columns().map(threadOf).filter(Boolean))
-	const agents = createMemo(() =>
-		shown().flatMap((thread) => thread.agents.map((agent) => ({ ...agent, thread: thread.id }))),
+	const shown = createMemo(
+		() => columns().map(threadOf).filter(Boolean),
+		// `columns` keeps its own ids stable; `.map`/`.filter` doesn't, so an unrelated thread update still rebuilt
+		// this and reran every reader of the columns on screen.
+		{ equals: (a, b) => a.length === b.length && a.every((row, i) => row === b[i]) },
+	)
+	const agents = createMemo(
+		() =>
+			shown().flatMap((thread) => thread.agents.map((agent) => ({ ...agent, thread: thread.id }))),
+		// Each agent is a fresh `{...agent, thread}` object every run; compare what they say, not their identity.
+		{
+			equals: (a, b) =>
+				a.length === b.length &&
+				a.every(
+					(agent, i) =>
+						agent.thread === b[i].thread &&
+						agent.conversation === b[i].conversation &&
+						agent.status === b[i].status,
+				),
+		},
 	)
 	const connections = createMemo(() => {
 		const asking = recipients()

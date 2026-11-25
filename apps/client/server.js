@@ -635,12 +635,15 @@ export const {
 		return (row?.root ? threadOf(row.root)?.family : row?.family) ?? (row ? [{ id, depth: 0 }] : [])
 	}
 	/** The open thread's family ids: one thread until the list has it, `[null]` for a new one */
-	const family = createMemo(() =>
-		current()
-			? ((list) => (list.length ? list.map((member) => member.id) : [current()]))(
-					familyOf(current()),
-				)
-			: [null],
+	const family = createMemo(
+		() =>
+			current()
+				? ((list) => (list.length ? list.map((member) => member.id) : [current()]))(
+						familyOf(current()),
+					)
+				: [null],
+		// `familyOf` reads the thread row the feed replaces wholesale on every update; same members, fresh array.
+		{ equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) },
 	)
 	/** Family members you opened in this page; closing forgets one */
 	const [open, setOpen] = createSignal(new Set())
@@ -658,18 +661,23 @@ export const {
 		if (here) setOpen((ids) => (ids.has(here) ? ids : new Set([...ids, here])))
 	})
 	/** The columns on screen: the thread you're in and the open members of its family, in the family's order */
-	const columns = createMemo(() => {
-		const shown = family().filter((id) => id === current() || open().has(id))
-		const at = beside().indexOf(current())
-		const before =
-			at < 0
-				? []
-				: beside()
-						.slice(0, at)
-						.filter((id) => !shown.includes(id))
-		const after = beside().filter((id) => !shown.includes(id) && !before.includes(id))
-		return [...before, ...shown, ...after]
-	})
+	const columns = createMemo(
+		() => {
+			const shown = family().filter((id) => id === current() || open().has(id))
+			const at = beside().indexOf(current())
+			const before =
+				at < 0
+					? []
+					: beside()
+							.slice(0, at)
+							.filter((id) => !shown.includes(id))
+			const after = beside().filter((id) => !shown.includes(id) && !before.includes(id))
+			return [...before, ...shown, ...after]
+		},
+		// Rebuilt from scratch on every read of `family`, `open` or `beside`, even when none of them actually moved a
+		// column; its ids are plain values, so comparing them is cheap and keeps every reader of the layout still.
+		{ equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) },
+	)
 	/** Closing the thread you're in moves you to its nearest open neighbour, or to a new thread when it was alone */
 	const closeColumn = (id) => {
 		if (id === current()) {

@@ -135,13 +135,14 @@ function PickerRunner(runner, props, search) {
 	const all = () => opened() || !modelsOf(runner, props.getTo(runner)).length
 	const [available, setAvailable] = createSignal([])
 	let asked = -1
-	// Asked once, and again after the window comes back from a login
+	// Asked once, and again after the window comes back from a login; `runner.name` is read here, tracked, since
+	// the effect's callback runs untracked and would otherwise freeze it at the runner it first saw.
 	createEffect(
-		() => ((search() || all()) && runner.online ? logins() : null),
-		(round) => {
+		() => [(search() || all()) && runner.online ? logins() : null, runner.name],
+		([round, name]) => {
 			if (round === null || asked === round) return
 			asked = round
-			api(`/api/runners/${encodeURIComponent(runner.name)}/available`).then(setAvailable, () => {
+			api(`/api/runners/${encodeURIComponent(name)}/available`).then(setAvailable, () => {
 				asked = -1
 			})
 		},

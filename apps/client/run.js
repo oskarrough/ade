@@ -27,12 +27,22 @@ export function Turn(props) {
 		(on) => (on ? tick() : undefined),
 	)
 	/** Its steps, the handed one as what it adds to the thread: nothing for the one message above, else a count that opens onto them */
-	const steps = createMemo(() => {
-		const all = props.turn?.steps ?? []
-		if (all[0]?.label !== 'handed') return all
-		const step = handedStep(all[0], props.thread, entries[props.thread] ?? [])
-		return step ? [step, ...all.slice(1)] : all.slice(1)
-	})
+	const steps = createMemo(
+		() => {
+			const all = props.turn?.steps ?? []
+			if (all[0]?.label !== 'handed') return all
+			const step = handedStep(all[0], props.thread, entries[props.thread] ?? [])
+			return step ? [step, ...all.slice(1)] : all.slice(1)
+		},
+		// The 'handed' branch rebuilds its first step fresh every run, from any unrelated message landing in the
+		// thread, even when what it says (in, text) comes out the same; without this, every subscriber (now(),
+		// calls(), summed()) redoes its own work on every one of those too.
+		{
+			equals: (a, b) =>
+				a.length === b.length &&
+				a.every((step, i) => step === b[i] || (step?.in === b[i]?.in && step?.text === b[i]?.text)),
+		},
+	)
 	const now = () => {
 		const running = steps().findLast((step) => step.name && !step.result)
 		if (running)

@@ -13,6 +13,7 @@ import html from '@solidjs/html'
 import { Icon } from './icons.js'
 import {
 	createEffect,
+	createMemo,
 	createSignal,
 	createStore,
 	For,
@@ -127,25 +128,6 @@ export function Composer(props) {
 				})
 		},
 	)
-	/**
-	 * Who's in the thread, as the placeholder names them: its agents and bots, or whom it asks before any is here, then the
-	 * other people who wrote or read. A group is more than one agent, or anyone besides you.
-	 */
-	const members = () => {
-		const agents = here(props.thread).map((agent) => shortLabel(agent.name))
-		const others = (people[props.thread] ?? [])
-			.filter((name) => name !== me())
-			.map((name) => shortLabel(name))
-		return {
-			names: [
-				...new Set([
-					...(agents.length ? agents : whom().map((to) => recipientWords(to, props.thread)[0])),
-					...others,
-				]),
-			],
-			group: !props.inbox && !homeBot(props.thread) && (agents.length > 1 || others.length > 0),
-		}
-	}
 	const asking = () =>
 		members().group && !pick(props.thread)
 			? ''
@@ -172,6 +154,27 @@ export function Composer(props) {
 	const enter = () => props.inbox || openThread(props.thread)
 	/** Whom it asks: in the inbox, the agent that asked, and no one until the thread's list knows it; never a guess from history */
 	const whom = () => (props.inbox ? [props.asks].filter(Boolean) : recipients(props.thread))
+	/**
+	 * Who's in the thread, as the placeholder names them: its agents and bots, or whom it asks before any is here, then the
+	 * other people who wrote or read. A group is more than one agent, or anyone besides you.
+	 */
+	// Read by the textarea's placeholder, which reruns on every keystroke along with the rest of its bindings;
+	// memoized so typing doesn't redo this lookup each time, only when who's in the thread actually changes.
+	const members = createMemo(() => {
+		const agents = here(props.thread).map((agent) => shortLabel(agent.name))
+		const others = (people[props.thread] ?? [])
+			.filter((name) => name !== me())
+			.map((name) => shortLabel(name))
+		return {
+			names: [
+				...new Set([
+					...(agents.length ? agents : whom().map((to) => recipientWords(to, props.thread)[0])),
+					...others,
+				]),
+			],
+			group: !props.inbox && !homeBot(props.thread) && (agents.length > 1 || others.length > 0),
+		}
+	})
 	const free = () => !props.inbox && directing(props.thread) && !pick(props.thread)
 	// Coming to a thread takes up its draft as saved, which another device may have changed meanwhile, then each change
 	createEffect(

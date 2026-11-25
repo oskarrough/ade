@@ -4,7 +4,7 @@
  * once, kept per device in localStorage — nothing asks the server, so it's the same choice in arbe desktop's webview
  * as in a browser tab.
  */
-import { createEffect, createSignal } from 'solid-js'
+import { createEffect, createRoot, createSignal } from 'solid-js'
 
 const KEY = 'ade.theme'
 /** The three choices Cmd-K's "Choose theme" step offers, and their labels */
@@ -29,23 +29,25 @@ export const chooseTheme = (value) => {
 
 // Pins color-scheme away from the system's, which every `light-dark()` and system colour reads; auto clears it, back
 // to the `color-scheme: light dark` the page always had. Runs at import, so a pinned choice applies before Jump ever
-// opens.
-createEffect(theme, (value) => {
-	document.documentElement.dataset.theme = value === 'auto' ? '' : value
-	// The address bar / status bar colour on a phone: the two media-matched metas are the system's own; a pinned
-	// choice adds one more, with no media, that outranks them.
-	const existing = /** @type {HTMLMetaElement | null} */ (
-		document.querySelector('meta[name="theme-color"][data-theme-override]')
-	)
-	if (value === 'auto') {
-		existing?.remove()
-		return
-	}
-	const override = existing ?? document.createElement('meta')
-	if (!existing) {
-		override.name = 'theme-color'
-		override.dataset.themeOverride = ''
-		document.head.append(override)
-	}
-	override.content = META_COLOR[value]
+// opens. Owned by its own root, since it lives for the page's whole life and nothing ever disposes it.
+createRoot(() => {
+	createEffect(theme, (value) => {
+		document.documentElement.dataset.theme = value === 'auto' ? '' : value
+		// The address bar / status bar colour on a phone: the two media-matched metas are the system's own; a pinned
+		// choice adds one more, with no media, that outranks them.
+		const existing = /** @type {HTMLMetaElement | null} */ (
+			document.querySelector('meta[name="theme-color"][data-theme-override]')
+		)
+		if (value === 'auto') {
+			existing?.remove()
+			return
+		}
+		const override = existing ?? document.createElement('meta')
+		if (!existing) {
+			override.name = 'theme-color'
+			override.dataset.themeOverride = ''
+			document.head.append(override)
+		}
+		override.content = META_COLOR[value]
+	})
 })

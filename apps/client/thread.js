@@ -77,6 +77,10 @@ import { sideOf, toggleSide } from './side.js'
 import { CanvasRow } from './canvas.js'
 import { ScheduledRun, ScheduledTaskSet } from './schedule.js'
 
+/** Same items, same order, by reference: lets a `.filter`/`.map` that recomputes on an unrelated change keep the
+ * array it last returned, instead of a fresh-but-equal one that reruns every reader of it. */
+const sameItems = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
+
 /** A folded summary's text, without the literal <summary> wrapper tags some memories still carry */
 const stripSummaryTag = (text) =>
 	(text ?? '').replace(/^\s*<\/?summary>\s*\n?/im, '').replace(/\n\s*<\/?summary>\s*$/im, '')
@@ -120,17 +124,22 @@ export function Thread(props) {
 	/** Each message's position in the thread, from 0, as memory and the recap count them */
 	const positions = createMemo(() => new Map(messages().map((entry, at) => [entry.id, at])))
 	/** In a bot's home, the threads others asked it in: it's their one agent, and they started outside its family. A room has more than one. */
+	let lastAskedHere = []
+	// `threadRows` rebuilds its whole array when any thread's row changes, not just these; its own rows keep their
+	// identity when untouched, so filtering usually gives back the very set already shown: keep that one array.
 	const askedHere = createMemo(() => {
 		const bot = homeBot(props.id)
 		if (!bot) return []
 		const family = new Set(familyOf(props.id).map((member) => member.id))
-		return threadRows().open.filter(
+		const next = threadRows().open.filter(
 			(other) =>
 				other.parent !== null &&
 				!family.has(other.id) &&
 				other.agents.length === 1 &&
 				other.agents[0].name === bot.name,
 		)
+		if (sameItems(lastAskedHere, next)) return lastAskedHere
+		return (lastAskedHere = next)
 	})
 	// Fetched once, and again while unanswered each time the asked thread's status moves, as it does when the answer lands:
 	// every thread that moved in one read
@@ -202,7 +211,7 @@ export function Thread(props) {
 	/** Scrolled near the top, the rows above come, then the page before, unless what's above is folded into memory lines */
 	const nearTop = () => {
 		if (!list || scrollMode.kind === 'gliding' || list.scrollTop >= list.clientHeight) return
-		const top = rows.findIndex((row) => row.at >= (shownFrom() ?? -Infinity))
+		const top = rows.findIndex((row) => row.at >= effectiveFrom())
 		if (top > 0) {
 			hold()
 			return setShownFrom(rows[Math.max(0, top - SHOWN)].at)
@@ -422,28 +431,46 @@ export function Thread(props) {
 		(thread()?.agents ?? []).every((agent) => conversations[agent.conversation])
 	/**
 	 * Where the rows on screen start, by `at`: a thread opens on its newest SHOWN rows, and those above come in as you
-	 * scroll up, so a long thread costs its end, not all it has. `null` until the first rows are laid out.
+	 * scroll up, so a long thread costs its end, not all it has. `null` until the viewer has scrolled.
 	 */
 	const [shownFrom, setShownFrom] = createSignal(null)
-	const onScreen = createMemo(() => {
-		if (!ready()) return []
-		const from = shownFrom() ?? (rows.at(-SHOWN) ?? rows[0])?.at ?? -Infinity
-		return rows.filter((row) => row.at >= from)
-	})
-	/** Once the first rows are laid out, where they start stays put: a message landing below adds a row instead of moving the top */
-	createEffect(
-		() => (ready() && rows.length ? ((rows.at(-SHOWN) ?? rows[0])?.at ?? -Infinity) : null),
-		(start) => {
-			if (start !== null) setShownFrom((from) => from ?? start)
+	/**
+	 * Where they started before any scroll: the newest SHOWN once the first rows are laid out, then stays put so a
+	 * message landing below adds a row instead of moving the top. A memo instead of an effect-set signal, so it never
+	 * tears against `onScreen` reading the same settle.
+	 */
+	const initialFrom = createMemo((prev) =>
+		prev !== undefined
+			? prev
+			: ready() && rows.length
+				? ((rows.at(-SHOWN) ?? rows[0])?.at ?? -Infinity)
+				: undefined,
+	)
+	const effectiveFrom = () => shownFrom() ?? initialFrom() ?? -Infinity
+	const onScreen = createMemo(
+		() => {
+			if (!ready()) return []
+			return rows.filter((row) => row.at >= effectiveFrom())
 		},
+		// `rows` keeps its row objects' identity; `.filter` doesn't, so an unrelated store write that changes none
+		// of the rows shown still built a fresh, equal array every time and reran every subscriber on it.
+		{ equals: sameItems },
 	)
 	/** Every image in the messages loaded so far, in order, each with the message it came in */
-	const images = createMemo(() =>
-		messages().flatMap((entry) =>
-			entry.data.withdrawn
-				? []
-				: (entry.data.images ?? []).map((image) => ({ image, entry: entry.id })),
-		),
+	const images = createMemo(
+		() =>
+			messages().flatMap((entry) =>
+				entry.data.withdrawn
+					? []
+					: (entry.data.images ?? []).map((image) => ({ image, entry: entry.id })),
+			),
+		// A fresh wrapper per image every run, even when `messages()` only grew or changed somewhere that carries
+		// no images; the lightbox and its strip of thumbnails both read this, so an unrelated message holds them still.
+		{
+			equals: (a, b) =>
+				a.length === b.length &&
+				a.every((row, i) => row.entry === b[i].entry && row.image === b[i].image),
+		},
 	)
 	const [viewing, setViewing] = createSignal(null)
 	/** A message's own row, if it has one here rather than inside an ask line or folded into memory */
@@ -1256,8 +1283,8 @@ const Images = (props) => html`
 					>
 						<img
 							src=${() => imageUrl(image)}
-							width=${image.width}
-							height=${image.height}
+							width=${() => image.width}
+							height=${() => image.height}
 							alt=""
 							loading="lazy"
 							decoding="async"

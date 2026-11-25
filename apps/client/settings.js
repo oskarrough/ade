@@ -1,6 +1,6 @@
 /** The server's settings: its modules, on or off, and memory's and the director's options. Saving restarts it. */
 import html from '@solidjs/html'
-import { createSignal, createStore, For, Show, snapshot } from 'solid-js'
+import { createSignal, createStore, For, onSettled, Show, snapshot } from 'solid-js'
 import { me, openUsage, restart, restarting, server, setChat } from './server.js'
 import { forgetLink, loadInvites, People } from './people.js'
 import { ModelPicker } from './model-picker.js'
@@ -9,7 +9,7 @@ import { agentTo, formatAgent, writtenTo } from './agent.js'
 import { busy, Busy } from './busy.js'
 import { Popover } from './popover.js'
 import { Switch } from './dot.js'
-import { markdown } from './markdown.js'
+import { aboutModule } from './markdown.js'
 import { Icon } from './icons.js'
 import { PiSessionList } from './pi-sessions.js'
 
@@ -235,128 +235,133 @@ export function Settings() {
 				<h3>Modules</h3>
 				<ul class="rows modules">
 					<${For} each=${all}
-						>${(module) => html`
-							<li class=${() => ({ off: !on(module), open: expanded() === module.name })}>
-								<div
-									class="about"
-									onClick=${(event) => {
-										// A link in the description opens itself, not the row; the name is the button for keys
-										if (!event.target.closest('a')) expand(module)
-									}}
-								>
-									<button type="button" aria-expanded=${() => String(expanded() === module.name)}>
-										${() => module.name}
-									</button>
-									${
-										// Its own template: the markdown it fills in would throw off the walk to what follows
-										html`<small
-											class="markdown"
-											innerHTML=${() => markdown(server().about?.[module.name] ?? 'Your own module.')}
-										/>`
-									}
-								</div>
-								<${Switch}
-									on=${() => on(module)}
-									title=${() => `${module.name}: ${on(module) ? 'on' : 'off'}`}
-									disabled=${() => !editable() || overridden('MODULES')}
-									onToggle=${() => toggle(module)}
-								/>
-								<${Show}
-									when=${() => module.name === 'memory' && expanded() === 'memory' && on(module)}
-								>
-									<div class="options">
-										<div class="option">
-											<span>Writes its lines</span>
-											<button
-												type="button"
-												class="small"
-												disabled=${() => !editable() || overridden('MEMORY_MODEL')}
-												title=${() => model() || 'Haiku or Luna on each thread’s runner'}
-												onClick=${(event) => setPicking('memory')}
-											>
-												${() => (model() ? shown(model()) : 'Haiku or Luna')}
-											</button>
+						>${(module) => {
+							// Parsing every module's README at once is the list's whole first-render cost; a tick
+							// later costs nothing the user notices and keeps the list itself light to mount.
+							const [about, setAbout] = createSignal('')
+							onSettled(() =>
+								queueMicrotask(() => setAbout(aboutModule(server().about?.[module.name]))),
+							)
+							return html`
+								<li class=${() => ({ off: !on(module), open: expanded() === module.name })}>
+									<div
+										class="about"
+										onClick=${(event) => {
+											// A link in the description opens itself, not the row; the name is the button for keys
+											if (!event.target.closest('a')) expand(module)
+										}}
+									>
+										<button type="button" aria-expanded=${() => String(expanded() === module.name)}>
+											${() => module.name}
+										</button>
+										${
+											// Its own template: the markdown it fills in would throw off the walk to what follows
+											html`<small class="markdown" innerHTML=${about} />`
+										}
+									</div>
+									<${Switch}
+										on=${() => on(module)}
+										title=${() => `${module.name}: ${on(module) ? 'on' : 'off'}`}
+										disabled=${() => !editable() || overridden('MODULES')}
+										onToggle=${() => toggle(module)}
+									/>
+									<${Show}
+										when=${() => module.name === 'memory' && expanded() === 'memory' && on(module)}
+									>
+										<div class="options">
+											<div class="option">
+												<span>Writes its lines</span>
+												<button
+													type="button"
+													class="small"
+													disabled=${() => !editable() || overridden('MEMORY_MODEL')}
+													title=${() => model() || 'Haiku or Luna on each thread’s runner'}
+													onClick=${(event) => setPicking('memory')}
+												>
+													${() => (model() ? shown(model()) : 'Haiku or Luna')}
+												</button>
+											</div>
+											<div class="option compact-option">
+												<span>Compacts past</span>
+												<input
+													type="number"
+													class="small"
+													min="10"
+													step="10"
+													aria-label="Compacts past, in thousands of tokens"
+													disabled=${() => !editable()}
+													value=${() => Math.round(setting('memory', 'compactAt') / 1000)}
+													onChange=${(event) => {
+														const thousands = Number(event.currentTarget.value)
+														if (thousands > 0)
+															setDraft((store) => void (store.memory.compactAt = thousands * 1000))
+													}}
+												/>
+												<span>k tokens</span>
+											</div>
 										</div>
-										<div class="option compact-option">
-											<span>Compacts past</span>
-											<input
-												type="number"
-												class="small"
-												min="10"
-												step="10"
-												aria-label="Compacts past, in thousands of tokens"
+									<//>
+									<${Show}
+										when=${() => module.name === 'bots' && expanded() === 'bots' && on(module)}
+									>
+										<div class="options">
+											<div class="option">
+												<span>Every bot reads this on top of its own instructions</span>
+											</div>
+											<textarea
+												rows="6"
+												aria-label="Shared bot instructions"
 												disabled=${() => !editable()}
-												value=${() => Math.round(setting('memory', 'compactAt') / 1000)}
-												onChange=${(event) => {
-													const thousands = Number(event.currentTarget.value)
-													if (thousands > 0)
-														setDraft((store) => void (store.memory.compactAt = thousands * 1000))
-												}}
-											/>
-											<span>k tokens</span>
+												value=${() => setting('bots', 'voice')}
+												onInput=${(event) =>
+													setDraft((store) => void (store.bots.voice = event.currentTarget.value))}
+											></textarea>
 										</div>
-									</div>
-								<//>
-								<${Show}
-									when=${() => module.name === 'bots' && expanded() === 'bots' && on(module)}
-								>
-									<div class="options">
-										<div class="option">
-											<span>Every bot reads this on top of its own instructions</span>
+									<//>
+									<${Show}
+										when=${() =>
+											module.name === 'director' && expanded() === 'director' && on(module)}
+									>
+										<div class="options">
+											<div class="option">
+												<span>Picks with</span>
+												<button
+													type="button"
+													class="small"
+													disabled=${() => !editable() || overridden('DIRECTOR_MODEL')}
+													title=${() => directs('model') || 'Haiku or Luna on each thread’s runner'}
+													onClick=${(event) => setPicking('director')}
+												>
+													${() => (directs('model') ? shown(directs('model')) : 'Haiku or Luna')}
+												</button>
+											</div>
+											${directorOption('context', 'Reads the last', 'messages', 1)}
+											${directorOption('timeout', 'Gives up after', 'seconds', 1)}
+											${directorOption('burst', 'Waits for more', 'seconds', 0)}
 										</div>
-										<textarea
-											rows="6"
-											aria-label="Shared bot instructions"
-											disabled=${() => !editable()}
-											value=${() => setting('bots', 'voice')}
-											onInput=${(event) =>
-												setDraft((store) => void (store.bots.voice = event.currentTarget.value))}
-										></textarea>
-									</div>
-								<//>
-								<${Show}
-									when=${() =>
-										module.name === 'director' && expanded() === 'director' && on(module)}
-								>
-									<div class="options">
-										<div class="option">
-											<span>Picks with</span>
-											<button
-												type="button"
-												class="small"
-												disabled=${() => !editable() || overridden('DIRECTOR_MODEL')}
-												title=${() => directs('model') || 'Haiku or Luna on each thread’s runner'}
-												onClick=${(event) => setPicking('director')}
-											>
-												${() => (directs('model') ? shown(directs('model')) : 'Haiku or Luna')}
-											</button>
+									<//>
+									<${Show}
+										when=${() =>
+											module.name === 'pi-sessions' &&
+											expanded() === 'pi-sessions' &&
+											server().modules.includes('pi-sessions')}
+									>
+										<div class="options">
+											<div class="option">
+												<span>Brings a pi session in as a thread</span>
+												<button
+													type="button"
+													class="small"
+													onClick=${(event) => setPicking('pi-sessions')}
+												>
+													Import pi session
+												</button>
+											</div>
 										</div>
-										${directorOption('context', 'Reads the last', 'messages', 1)}
-										${directorOption('timeout', 'Gives up after', 'seconds', 1)}
-										${directorOption('burst', 'Waits for more', 'seconds', 0)}
-									</div>
-								<//>
-								<${Show}
-									when=${() =>
-										module.name === 'pi-sessions' &&
-										expanded() === 'pi-sessions' &&
-										server().modules.includes('pi-sessions')}
-								>
-									<div class="options">
-										<div class="option">
-											<span>Brings a pi session in as a thread</span>
-											<button
-												type="button"
-												class="small"
-												onClick=${(event) => setPicking('pi-sessions')}
-											>
-												Import pi session
-											</button>
-										</div>
-									</div>
-								<//>
-							</li>
-						`}<//
+									<//>
+								</li>
+							`
+						}}<//
 					>
 				</ul>
 			<//>

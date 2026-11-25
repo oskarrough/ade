@@ -92,3 +92,12 @@ export const markdown = (text, links = {}) => marked.parse(text ?? '', { async: 
 /** One line of markdown as HTML, without the paragraph around it */
 export const inline = (text, links = {}) =>
 	marked.parseInline(text ?? '', { async: false, ...links })
+
+/** A module's README, one line, in Settings' module list: `inline`, not the full block parser every module paid for
+ * on every mount, and cached by text, since the list re-renders its rows on every server update though the
+ * description never changed. */
+const aboutCache = new Map()
+export const aboutModule = (text = 'Your own module.') => {
+	if (!aboutCache.has(text)) aboutCache.set(text, inline(text))
+	return aboutCache.get(text)
+}
