@@ -114,7 +114,7 @@ export function ModelPicker(props) {
 						</li>
 					`}
 				>
-					${(runner) => PickerRunner(runner, props, search)}
+					${(runner) => PickerRunner(runner, props, search, () => askedRunner()?.name)}
 				<//>
 				${() => props.after?.(search())}
 			</ul>
@@ -127,11 +127,14 @@ export function ModelPicker(props) {
  * A runner's name, then its models that match what was typed; nothing when none do.
  * Its scoped models come first; "All models", or a search, reaches every other model pi is logged in for there.
  * A runner with no scoped models lists them all at once, so a fresh house's picker isn't empty.
+ * Every runner but the one asked folds to its first model until opened, so a second machine never hides below the first one's list.
  */
-function PickerRunner(runner, props, search) {
+function PickerRunner(runner, props, search, askedRunner) {
 	const to = () => props.getTo(runner)
 	const selected = () => props.selectedRunner === runner.name
 	const [opened, setAll] = createSignal(false)
+	const [unfolded, setUnfolded] = createSignal(false)
+	const folded = () => !search() && !unfolded() && askedRunner() !== runner.name
 	const all = () => opened() || !modelsOf(runner, props.getTo(runner)).length
 	const [available, setAvailable] = createSignal([])
 	let asked = -1
@@ -153,8 +156,10 @@ function PickerRunner(runner, props, search) {
 	const found = (model) => matches(search(), `${model} ${runner.name}`)
 	const scoped = () => modelsOf(runner, to())
 	const scopedFound = () => scoped().filter(found)
+	const shown = () => (folded() ? scopedFound().slice(0, 1) : scopedFound())
+	const hidden = () => scoped().length - shown().length
 	const rest = () =>
-		search() || all()
+		!folded() && (search() || all())
 			? available().filter((model) => !scoped().includes(model) && found(model))
 			: []
 	const choice = (model) => html`
@@ -173,7 +178,7 @@ function PickerRunner(runner, props, search) {
 		</button>
 	`
 	return html`
-		<${Show} when=${() => scopedFound().length || rest().length}>
+		<${Show} when=${() => folded() || scopedFound().length || rest().length}>
 			<li class=${() => ({ on: selected(), mute: !runner.online })}>
 				<div class="who">
 					<${Dot}
@@ -182,8 +187,18 @@ function PickerRunner(runner, props, search) {
 					<${Show} when=${() => !runner.online}><small>offline</small><//>
 				</div>
 				<div class="models">
-					<${For} each=${scopedFound}>${choice}<//>
-					<${Show} when=${() => !search() && !all() && runner.online}>
+					<${For} each=${shown}>${choice}<//>
+					<${Show} when=${() => folded() && (hidden() || runner.online)}>
+						<button
+							type="button"
+							role="option"
+							class="ghost model"
+							onClick=${() => setUnfolded(true)}
+						>
+							<span>${() => (hidden() ? `${hidden()} more` : 'All models')}</span>
+						</button>
+					<//>
+					<${Show} when=${() => !folded() && !search() && !all() && runner.online}>
 						<button type="button" role="option" class="ghost model" onClick=${() => setAll(true)}>
 							<span>All models</span>
 						</button>
@@ -192,7 +207,7 @@ function PickerRunner(runner, props, search) {
 						<h3>All models</h3>
 						<${For} each=${rest}>${choice}<//>
 					<//>
-					<${Show} when=${() => !search() && echoOnly() && canLogIn(runner)}>
+					<${Show} when=${() => !folded() && !search() && echoOnly() && canLogIn(runner)}>
 						<p class="login">Only echo answers here. <${LogIn} /></p>
 					<//>
 				</div>
