@@ -112,7 +112,7 @@ const loginOnly = await api(
 	'oskar',
 )
 check(
-	loginOnly.status === 403 && loginOnly.json.error.includes('owner link'),
+	loginOnly.status === 403 && loginOnly.json.needs === 'owner-key',
 	'and writes only once the device shows the owner key',
 	JSON.stringify(loginOnly.json),
 )

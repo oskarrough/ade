@@ -4188,7 +4188,7 @@ async function handleRequest(req, res, serve = false) {
 		return send(res, 201, { me })
 	}
 	if (!['GET', 'HEAD'].includes(req.method) && ownerByLogin(req, serve))
-		return send(res, 403, { error: loginRefused })
+		return send(res, 403, { error: loginRefused, needs: 'owner-key' })
 	if (req.method === 'OPTIONS') {
 		res.writeHead(204)
 		return res.end()
