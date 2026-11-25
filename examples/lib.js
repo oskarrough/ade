@@ -145,18 +145,29 @@ export function command(file, args = [], options = {}) {
 
 export async function server(env = {}, { cwd, args = ['--no-runner'] } = {}) {
 	const child = start('server.js', args, env, cwd)
-	if (!port) {
-		let printed = ''
-		child.stdout.on('data', (chunk) => {
-			printed += chunk
-			port ||= Number(/ade +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
-			servePort ||= Number(/serve +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
-			hookPort ||= Number(/hooks +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
-		})
-		await until(async () => port && servePort)
-		base = `http://127.0.0.1:${port}`
-	}
-	await until(() => api('GET', '/api/server').then((response) => response.status === 200))
+	// It prints its ports once it listens, however long a restart's recovery takes; a clock here once ran out under load
+	const printed = await new Promise((resolve, reject) => {
+		let output = ''
+		const read = (chunk) => {
+			output += chunk
+			if (!/^ +modules /m.test(output)) return
+			child.stdout.off('data', read)
+			child.off('exit', exited)
+			resolve(output)
+		}
+		const exited = (code) => reject(new Error(`the server exited before it listened: ${code}`))
+		child.stdout.on('data', read)
+		child.once('exit', exited)
+	})
+	const listening = Number(/ade +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
+	if (port && listening !== port)
+		throw new Error(
+			`the server came back on ${listening}, not ${port}: something took its port meanwhile`,
+		)
+	port ||= listening
+	servePort ||= Number(/serve +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
+	hookPort ||= Number(/hooks +http:\/\/127\.0\.0\.1:(\d+)/.exec(printed)?.[1])
+	base = `http://127.0.0.1:${port}`
 	owner ??= (await api('GET', '/api/server')).json.me
 	return child
 }
