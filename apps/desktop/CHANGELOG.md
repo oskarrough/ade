@@ -4,6 +4,7 @@
 
 - Takes only releases of ade signed with its own update key, and only those it's new enough for; for a release that needs a newer arbe desktop, it says so and offers its own update.
 - A release of ade that won't start goes back to the one before it by itself, and waits for the next.
+- A release of ade that changes how your threads are stored converts them itself, with a backup; if it then won't start, going back restores the backup too, so the house can always post.
 - Settings shows ade's version beside arbe desktop's, for bug reports.
 
 ## 0.1.9
