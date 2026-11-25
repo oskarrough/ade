@@ -127,15 +127,16 @@ export function ModelPicker(props) {
  * A runner's name, then its models that match what was typed; nothing when none do.
  * Its scoped models come first; "All models", or a search, reaches every other model pi is logged in for there.
  * A runner with no scoped models lists them all at once, so a fresh house's picker isn't empty.
- * Every runner but the one asked folds to its first model until opened, so a second machine never hides below the first one's list.
+ * Until opened or searched, the runner asked shows its first three models and every other runner its first one, so the next runner and the bots stay in view.
  */
 function PickerRunner(runner, props, search, askedRunner) {
 	const to = () => props.getTo(runner)
 	const selected = () => props.selectedRunner === runner.name
 	const [opened, setAll] = createSignal(false)
 	const [unfolded, setUnfolded] = createSignal(false)
-	const folded = () => !search() && !unfolded() && askedRunner() !== runner.name
 	const all = () => opened() || !modelsOf(runner, props.getTo(runner)).length
+	const isAsked = () => askedRunner() === runner.name
+	const folded = () => !search() && !unfolded() && !(isAsked() && all())
 	const [available, setAvailable] = createSignal([])
 	let asked = -1
 	// Asked once, and again after the window comes back from a login; `runner.name` is read here, tracked, since
@@ -156,7 +157,7 @@ function PickerRunner(runner, props, search, askedRunner) {
 	const found = (model) => matches(search(), `${model} ${runner.name}`)
 	const scoped = () => modelsOf(runner, to())
 	const scopedFound = () => scoped().filter(found)
-	const shown = () => (folded() ? scopedFound().slice(0, 1) : scopedFound())
+	const shown = () => (folded() ? scopedFound().slice(0, isAsked() ? 3 : 1) : scopedFound())
 	const hidden = () => scoped().length - shown().length
 	const rest = () =>
 		!folded() && (search() || all())
