@@ -2,7 +2,7 @@
 
 Ade is a program for working with agents.
 
-You get bots, multi-user durable threads, scheduled tasks aka workflows. Cross-thread communication feels natural, and bots know how to orchestrate and delegate efficiently.
+You get bots, multi-user durable threads and scheduled tasks. Cross-thread communication feels natural, and bots know how to orchestrate and delegate efficiently.
 
 Use your Anthropic, ChatGPT or Antigravity subscriptions, or really any model that works in `pi`.
 
@@ -36,7 +36,7 @@ A house running from a checkout you work in updates from its own files. `ade upd
 
 ## Connect a runner
 
-Ade can let agents work on any device. It works by creating a "runner" on that machine. A runner lends a machine's folders and model logins to your server. To let agents work on your laptop too, open "Runners" and follow the command. You get one, private line run on the laptop.
+Ade can let agents work on any device. It works by creating a "runner" on that machine. A runner lends a machine's folders and model logins to your server. To let agents work on your laptop too, open "Runners" and follow the command. You get one private line to run on the laptop.
 
 Every runner shows up in the model picker, so `sonnet:low@laptop` is Sonnet working on the laptop. When the server has a newer runner than one connected, that runner updates itself once it's idle; Runners and `ade runners` show each one's machine and version, and whether it's outdated or updating, so one that never updates stands out.
 
