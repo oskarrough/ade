@@ -22,6 +22,8 @@
 	"files": [
 		"bin.js",
 		"server.js",
+		"feed.js",
+		"read.js",
 		"runner.js",
 		"runner-updater.js",
 		"cli.js",

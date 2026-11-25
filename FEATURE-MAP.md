@@ -19,7 +19,6 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   withdraw, WITHDRAWAL              a message taken back before any agent read it
   afterCommit                       best-effort work after a commit
   isWork, busy, workIn              whether a thread has work
-  createFeed, feed                  one versioned `/ws` feed (`seq`, `define`, `onCommit`, `touch`, `subscribe`, `sync`)
   shapeMessages, families, familyField   per-viewer message shaping (`speaker`, `showName`, `voice`, `to`, `other*`) and open families
   core.*                            what modules call: trailed, conversations, feed, snapshot, spent, task, tasks, signal, threadRows, threadMatch
   entryStored, documentStored, endedHooks, runnerHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks, `runner` for runnerHooks, `uninvited` for uninvitedHooks)
@@ -54,6 +53,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   mintKey, revoke, Makers, upgrade  runner keys, who made a guest's runner, and sockets; a module's `connect` socket
   saveSettings, restartSoon, restart, connectSelf   settings, restart (POST /api/restart), the server's own machine as a runner
   stale                             whether the server's code changed since it started
+feed.js                  createFeed: versioned /ws views, subscriptions, row deltas, replay and eviction
 echo.js                  echo/try scripted model responses
 runner.js                a runner: offers models and folders, runs agents on its machine
 runner-updater.js        what `curl <server>/connect-runner | sh` starts; keeps the runner up to date
