@@ -70,7 +70,8 @@ modules/
   talk.js                `post` and `threads` tools; resolveThread, reply, member
   auto-title.js          AutoTitle, sanitizeThreadTitle; serve
   memory.js              memory lines (Line task), `zoom`, writerOf, demand, beforeCompact, inTurn, writeLines,
-                         indexOf, messagesAt, checked, remembers, turn, view, opened, views, layOut, render, rendered
+                         indexOf, messagesAt, checked, remembers, turn, view, opened, views, layOut, render, rendered,
+                         progress and its `backlog/` feed (what's left to write, the pace in `paces`)
   bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, requireBotEditor, botKey, renameIn), askedHome,
                          answeredAt, posted, homesOf, DEFAULT_VOICE, voice, section, bot-threads, volatility, withoutProject
   context.js             AGENTS.md, skills and cwd from the runner; expand, skillCommand
@@ -162,7 +163,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   recap.js               Recap tab: topicsOf, Topic, Page
   side.js                the side column: pagesOf, sideOf, openSide, toggleSide, PageTabs
   trail.js               Trail tab: `trail/<id>` feed, and whatHappened, a message's story from its right-click menu
-  agent-memory.js        memory popover and compaction view
+  agent-memory.js        memory popover and compaction view, Backlog (memory catching up, its bar and Write them now)
   icons.js               Icon, the stroke icons
   title.js               defaultTitle
   settings.js            server settings, one row per module

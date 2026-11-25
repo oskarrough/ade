@@ -403,7 +403,12 @@ export function server(core) {
 							state.checkpoint
 						)
 						const batch = remembers(await core.thread(threadId)) ? due(index, input, failed) : []
-						if (!batch.length) return rt.commit(() => finished(), ctx)
+						if (!batch.length) {
+							paces.delete(threadId)
+							return rt.commit(() => finished(), ctx)
+						}
+						if (!paces.has(threadId))
+							paces.set(threadId, { since: Date.now(), written: 0, batches: 0 })
 						const { ids, have, withdrawn } = index
 						const messages = await core.commit(async (tx) => {
 							const read = new Map()
@@ -436,6 +441,12 @@ export function server(core) {
 						const now = await indexOf(core, threadId)
 						// A line that failed waits for the next fill, so this one doesn't ask for it again and again
 						const missed = items.filter((_, offset) => !texts[offset]).map(({ l, i }) => key(l, i))
+						const pace = paces.get(threadId)
+						if (pace) {
+							pace.written += items.filter((item, offset) => !item.l && texts[offset]).length
+							pace.batches++
+							pace.at = Date.now()
+						}
 						return rt.commit(async (tx) => {
 							const current = await unchanged(tx, threadId, now)
 							for (const [offset, item] of items.entries())
@@ -614,6 +625,56 @@ export function server(core) {
 		return { total: T, least, full, budget, cut, tree }
 	}
 
+	/**
+	 * How far memory is behind on a thread, in messages: `left` without a line of their own, of `total`. While a fill
+	 * runs, `left` is what the fills still have to write, `done` what they wrote since they started, and `perMinute`
+	 * their pace once two batches have landed. Kept in memory only: after a restart the pace starts over.
+	 */
+	const paces = new Map()
+	async function progress(thread) {
+		const row = await core.thread(thread)
+		const { ids, have } = await indexOf(core, thread)
+		const total = ids.length
+		if (!remembers(row)) return { total, left: 0, writing: false }
+		const fills = (
+			await core.commit(async (tx) => {
+				const live = []
+				for (const status of /** @type {const} */ (['pending', 'running']))
+					live.push(
+						...(await collect((cursor) =>
+							tx.scanTasks({ conversationId: thread, kind: 'ade.line', status }, 500, cursor),
+						)),
+					)
+				return live
+			})
+		)
+			.map(({ input }) => input)
+			.filter((input) => input.fill)
+		const unwritten = (upTo) =>
+			ids.slice(0, Math.min(upTo, total)).filter((_, i) => !have.has(key(0, i))).length
+		if (!fills.length) {
+			paces.delete(thread)
+			return { total, left: unwritten(total), writing: false }
+		}
+		const due = new Set()
+		for (const { fill, upTo, budget } of fills)
+			if (fill === 'leaves')
+				for (let i = 0; i < Math.min(upTo, total); i++) {
+					if (!have.has(key(0, i))) due.add(i)
+				}
+			else
+				for (const line of needed(have, Math.min(upTo, total), budget)) if (!line.l) due.add(line.i)
+		const pace = paces.get(thread)
+		return {
+			total,
+			left: due.size,
+			writing: true,
+			done: pace?.written ?? 0,
+			...(pace?.batches >= 2 &&
+				pace.written && { perMinute: (pace.written / (pace.at - pace.since)) * 60000 }),
+		}
+	}
+
 	async function section({ conversationId }) {
 		const home = await core.home(conversationId)
 		return !home?.thread || remembers(await core.thread(home.thread)) ? SECTION : undefined
@@ -657,6 +718,23 @@ export function server(core) {
 				const { kind, conversationId } = /** @type {any} */ (change.value)
 				return kind === KIND || (kind === 'ade.message' && conversationId === id)
 			}
+			if (change.type === 'document')
+				return change.record.kind === 'ade.thread' && change.conversationId === id
+			return false
+		},
+	})
+
+	core.feed.define('backlog/', {
+		keyOf: () => 'backlog',
+		all: async (_viewer, param) => [{ key: 'backlog', ...(await progress(Number(param))) }],
+		match: (change, param) => {
+			const id = Number(param)
+			if (change.type === 'entry') {
+				const { kind, conversationId } = /** @type {any} */ (change.value)
+				return conversationId === id && (kind === KIND || kind === 'ade.message')
+			}
+			if (change.type === 'task')
+				return change.value.kind === 'ade.line' && change.value.conversationId === id
 			if (change.type === 'document')
 				return change.record.kind === 'ade.thread' && change.conversationId === id
 			return false
