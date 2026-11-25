@@ -44,7 +44,7 @@ import {
 	threadOf,
 	url,
 } from './server.js'
-import { agentTo, formatAgent, shortLabel } from './agent.js'
+import { agentTo, formatAgent, shortLabel, THINKING_LEVELS } from './agent.js'
 import { placePopover, Popover } from './popover.js'
 import { matches, metered, Metered, ModelPicker } from './model-picker.js'
 import { listKeys } from './list-keys.js'
@@ -423,6 +423,14 @@ export function Composer(props) {
 					}}
 					onKeyDown=${(event) => {
 						if (mentionable().length && mentionKeys.keydown(event)) return
+						const key = piKey(event)
+						if (key) {
+							event.preventDefault()
+							if (key === 'picker') return picker.showPopover()
+							return key === 'thinking'
+								? cycleThinking(props.thread)
+								: cycleModel(props.thread, key === 'next' ? 1 : -1)
+						}
 						if (event.key !== 'Enter' || event.isComposing || event.shiftKey || touch()) return
 						submit(event)
 					}}
@@ -581,7 +589,8 @@ export function Composer(props) {
 									: free()
 										? 'The director picks the agent, bots, or nobody; pick one here to choose'
 										: whom().map(formatAgent).join(', ')) +
-								(folderOf(props.thread) ? `, in ${folderOf(props.thread)}` : '')}
+								(folderOf(props.thread) ? `, in ${folderOf(props.thread)}` : '') +
+								`. In the box, Shift+Tab cycles thinking, ${mod}+P and Shift+${mod}+P cycle models, ${mod}+L opens this`}
 							onClick=${(_event) => enter()}
 						>
 							<span
@@ -1035,6 +1044,53 @@ export function choose(to, always = true, thread = current()) {
 }
 /** A runner's settings change the agent's pick only when the agent is on that runner */
 export const configure = (to, thread = current()) => choose(to, false, thread)
+
+const mac = /Mac|iPhone|iPad/.test(navigator.platform)
+const mod = mac ? 'Cmd' : 'Ctrl'
+/** Pi's own keys from its terminal: Shift+Tab cycles thinking, Ctrl+P cycles models and Shift+Ctrl+P back, Ctrl+L opens the picker; Cmd on a Mac */
+const piKey = (event) => {
+	if (event.isComposing || event.altKey) return
+	const held = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+	if (event.key === 'Tab' && event.shiftKey && !event.ctrlKey && !event.metaKey) return 'thinking'
+	if (held && event.key.toLowerCase() === 'p') return event.shiftKey ? 'previous' : 'next'
+	if (held && !event.shiftKey && event.key.toLowerCase() === 'l') return 'picker'
+}
+/** The runner the keys change, as the picker's foot picks it: the asked agent's, else the first online */
+const keyRunner = (thread) =>
+	runners.find((runner) => runner.name === agent(thread)?.runner && runner.dir) ??
+	runners.find((runner) => runner.online)
+/** Thinking one level up, wrapping to off, from the level the label shows, as the picker's thinking row sets it */
+const cycleThinking = (thread) => {
+	const runner = keyRunner(thread)
+	if (!runner) return
+	const to = toFor(runner, thread)
+	const running = here(thread).find(
+		(agent) => agent.to?.name === to.name && agent.to?.runner === to.runner,
+	)?.to
+	const now = to.thinkingLevel ?? running?.thinkingLevel ?? runner.thinkingLevel ?? 'off'
+	const next = THINKING_LEVELS[(THINKING_LEVELS.indexOf(now) + 1) % THINKING_LEVELS.length]
+	configure({ ...to, thinkingLevel: next }, thread)
+}
+/** The runner's default model, then those its newest threads run, five in all, and the one asked now */
+const shortList = (runner, to) => {
+	const recent = threadRows()
+		.open.flatMap((row) => row.agents ?? [])
+		.map((agent) => agent.to)
+		.filter((each) => each && !each.name && each.runner === runner.name)
+		.map((each) => each.model)
+	const list = [...new Set([runner.model, ...recent].filter(Boolean))].slice(0, 5)
+	return to.model && !list.includes(to.model) ? [...list, to.model] : list
+}
+/** The next model on the short list, or the one before, chosen as a tap in the picker chooses it */
+const cycleModel = (thread, step) => {
+	const runner = keyRunner(thread)
+	if (!runner?.online) return
+	const to = toFor(runner, thread)
+	const list = shortList(runner, to)
+	if (list.length < 2) return
+	const model = list[(list.indexOf(to.model) + step + list.length) % list.length]
+	choose({ ...to, name: undefined, model }, true, thread)
+}
 
 /** A bot's settings open the current composer's picker, which already edits that bot's agent. */
 let lend

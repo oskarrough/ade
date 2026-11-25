@@ -135,6 +135,7 @@ apps/client/             the web client, Solid 2, no build (README.md there)
     choose, configure, toFor   model picker and runner controls
     changeDraftFor, saveLater, save, wasSent, tookDraft, heardDraft, sendingNow   drafts, heard on `draft/<id>`
     Composer             submit, add, pickRecipients, filled, compactNow, folderOf, where
+    piKey                pi's keys: Shift+Tab cycleThinking, Ctrl/Cmd+P cycleModel (shortList), Ctrl/Cmd+L opens the picker
     PickerBot            bots in the picker
   agent.js               agent labels and live work: doing, agentTo, formatAgent, lastToolCall, liveOf, modelsOf
   model-picker.js        model search, thinking and folder: ModelPicker, matches, fromRunner, metered, Metered
