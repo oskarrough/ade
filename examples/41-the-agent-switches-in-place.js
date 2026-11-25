@@ -1,4 +1,4 @@
-/** A thread has one agent: ask it as another model, thinking, runner or folder and it switches in place, as in pi, keeping its conversation, and is told when it moves; one waiting for an offline runner moves with one request, its turn going on there */
+/** A thread has one agent: ask it as another model, thinking, runner or folder and it switches in place, as in pi, keeping its conversation, and is told when it moves; one waiting for an offline runner moves with one request, its turn starting again there */
 import { createModels } from '@earendil-works/pi-ai/models'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { mkdirSync } from 'node:fs'
@@ -232,7 +232,7 @@ check(
 		waiting.status === 'blocked' &&
 		after.agents[0].to.runner === 'desk' &&
 		answers(after).at(-1).data.author === 'echo@desk',
-	'an agent waiting for an offline runner moves with one request, and the turn held up there goes on where it moved',
+	'an agent waiting for an offline runner moves with one request, and the turn held up there starts again where it moved',
 	JSON.stringify([movedOn.json, waiting.status, brief(after)]),
 )
 done()

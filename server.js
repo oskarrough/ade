@@ -37,7 +37,6 @@ import {
 	Harness,
 	InboxDoc,
 	LiveDoc,
-	ProviderDoc,
 	SubmissionSettled,
 } from '@earendil-works/pi-durable'
 import { num, obj, opt, str } from '@earendil-works/pi-schema'
@@ -520,9 +519,6 @@ const Admit = defineTask({
 			)
 			if (!held.length) return rt.commit(() => finished('completed', { held }), ctx)
 			await prepare?.(threadId, agent, rt.signal)
-			/** A folder renamed or deleted under the agent: it doesn't run there, and what it was asked waits for another folder */
-			const missing = await gone(agent, rt.signal)
-			if (missing) return rt.commit(() => finished('completed', { held, missing }), ctx)
 			const given = new Set(held)
 			const mine = await Promise.all(
 				since
@@ -581,17 +577,6 @@ const Admit = defineTask({
 	abort: (task, rt, ctx) => rt.commit(() => finished('aborted'), ctx),
 })
 
-/** The agent's folder, when its runner says it no longer exists */
-async function gone(agent, signal) {
-	const { model, cwd } = await harness.snapshot(AgentDoc, agent, context)
-	const runner = model.provider.replace(/^runner:/, '')
-	const found = await remoteEnv(runners, runner, cwd).exists(cwd, {
-		...context,
-		abortSignal: signal,
-	})
-	return found.ok && !found.value ? cwd : undefined
-}
-
 /** A person's `/skill:name` message as the agent reads it, expanded on its runner in its folder as pi does */
 async function skillCommand(row, entry, agent, signal) {
 	if (!expand || !entry.data.body?.startsWith('/skill:') || !person(row, entry)) return entry
@@ -630,8 +615,7 @@ const Deliver = defineTask({
 		async tell({ id, conversationId: threadId, input: { admit, agent, upTo } }, rt, ctx) {
 			const [result] = /** @type {any[]} */ (await rt.outcomes([admit], ctx))
 			const submitted = result.status === 'completed' ? result.result : null
-			if (submitted && !submitted.submission && !submitted.missing)
-				return rt.commit(() => finished(), ctx)
+			if (submitted && !submitted.submission) return rt.commit(() => finished(), ctx)
 			const submission =
 				submitted?.submission && (await harness.submission(submitted.submission, ctx))
 			const now = submission && (await submission.status(ctx))
@@ -644,15 +628,9 @@ const Deliver = defineTask({
 					}),
 					ctx,
 				)
-			const settled = submitted?.missing
-				? { id: admit, status: 'unanswered', said: `folder ${submitted.missing} no longer exists` }
-				: submission
-					? await submission.wait(ctx)
-					: {
-							id: admit,
-							status: 'unanswered',
-							reason: result.error?.detail?.reason ?? result.status,
-						}
+			const settled = submission
+				? await submission.wait(ctx)
+				: { id: admit, status: 'unanswered', reason: result.error?.detail?.reason ?? result.status }
 			const told = await outcome(threadId, agent, settled, submitted?.held ?? [upTo])
 			await rt.commit(
 				async (tx) => (
@@ -762,8 +740,6 @@ function printed(
 
 /** A runner's calls show in no list; one ending may let an outdated runner update */
 const runners = createRunners({ onChange: () => nudge() })
-/** Waits woken when an agent's settings change, by its conversation; set before Pi resumes tasks that wait */
-const moves = new Map()
 /** What each running `$ cmd` has printed so far */
 const shells = new Map()
 const bundle = await runnerBundle(import.meta.dirname)
@@ -1245,32 +1221,10 @@ const agentsHere = async (threadId) =>
 
 // ── Live work and statuses ────────────────────────────────────────────────
 
-/** Until the agent's runner is online, following the agent if it's asked on another runner meanwhile */
+/** Until the agent's runner is online; moving it while it waits stops the wait and asks it again (`moveAgent`) */
 async function reachable(agent, signal) {
-	for (;;) {
-		const { model } = await harness.snapshot(AgentDoc, agent, context)
-		const runner = model?.provider?.match(/^runner:(.+)$/)?.[1]
-		if (runner && runners.isOnline(runner)) return
-		// Its runner dialling in, or its settings changing, which may be it moving, wakes it to look again
-		const done = new AbortController()
-		const stop = () => done.abort(signal.reason)
-		signal.addEventListener('abort', stop, { once: true })
-		const waits = moves.get(agent) ?? new Set()
-		moves.set(agent, waits)
-		let wake
-		try {
-			await Promise.race([
-				runners.online(runner, done.signal),
-				new Promise((resolve) => waits.add((wake = resolve))),
-			])
-		} finally {
-			waits.delete(wake)
-			if (!waits.size) moves.delete(agent)
-			signal.removeEventListener('abort', stop)
-			done.abort()
-		}
-		signal.throwIfAborted()
-	}
+	const { model } = await harness.snapshot(AgentDoc, agent, context)
+	await runners.online(model?.provider?.replace(/^runner:/, ''), signal)
 }
 
 /** One status for an agent, a thread, a runner or a bot: `working`, `blocked` while its runner is offline, or `idle` */
@@ -1292,11 +1246,7 @@ async function work() {
 				if (!runsOnRunner(task.kind)) return { thread: task.conversationId, status: 'working' }
 				const shell = task.kind === Shell.definition.name
 				const to = shell ? task.input.to : await agentOf(task.input.agent)
-				// A model call waits on the runner it was sent to, which may not be the one the agent has moved to
-				const parked = shell
-					? undefined
-					: (await keysOf(task.input.agent)).map(runners.parkedOn).find(Boolean)
-				const on = parked ?? to?.runner
+				const on = to?.runner
 				return {
 					thread: task.conversationId,
 					...(!shell && {
@@ -1308,20 +1258,6 @@ async function work() {
 				}
 			}),
 	)
-}
-/**
- * Whose an agent's calls to a runner are: its model session, which its model calls carry, and its conversation, which
- * its prompt's calls carry. The session never changes, so it's kept once read.
- */
-const sessions = new Map()
-async function keysOf(conversation, tx = undefined) {
-	if (!sessions.has(conversation)) {
-		const session = tx
-			? (await tx.doc(ProviderDoc, conversation)).sessionId
-			: (await harness.snapshot(ProviderDoc, conversation, context))?.sessionId
-		if (session) sessions.set(conversation, String(session))
-	}
-	return [sessions.get(conversation), `conversation ${conversation}`].filter(Boolean)
 }
 /** An agent answering or a `$ cmd`: work on a runner */
 const runsOnRunner = (kind) => kind === Deliver.definition.name || kind === Shell.definition.name
@@ -1657,8 +1593,6 @@ async function reconfigure(tx, recipient, to, threadId) {
 	const remodelled = moved || now.model?.modelId !== model.modelId
 	const thinks = to.thinkingLevel && now.thinkingLevel !== to.thinkingLevel
 	if (!remodelled && !thinks) return
-	const left = now.model?.provider?.match(/^runner:(.+)$/)?.[1]
-	const keys = left && left !== to.runner && (await keysOf(recipient.conversation, tx))
 	await configure(tx, recipient.conversation, {
 		...(remodelled ? { model, cwd } : {}),
 		...(thinks ? { thinkingLevel: to.thinkingLevel } : {}),
@@ -1668,14 +1602,6 @@ async function reconfigure(tx, recipient, to, threadId) {
 		conversation: recipient.conversation,
 		...ranAs(to, cwd),
 	})
-	// A turn waiting for the runner it leaves, offline, retries where the agent runs now
-	if (keys)
-		afterCommit(tx, () => {
-			for (const key of keys) {
-				runners.moved(key, undefined)
-				if (!runners.isOnline(left)) runners.moved(key, left)
-			}
-		})
 	if (remodelled)
 		recipient.note = `[You now run as ${to.model}${to.thinkingLevel ? `:${to.thinkingLevel}` : ''} on ${to.runner}, in ${cwd}.${moved ? ' Files and paths from before may not be here; check them before you trust them.' : ''}]`
 }
@@ -1879,8 +1805,8 @@ async function outcome(threadId, agent, settled, mine) {
 		.filter((entry) => !asks.includes(entry) || posts.includes(entry))
 		.filter((entry) => entry.data.to?.some((name) => keyOf(name) === key))
 		.map((entry) => entry.id)
-	let failure = settled.said
-	if (!done && !failure) {
+	let failure
+	if (!done) {
 		const settings = settled.reason === 'model_error' && (await agentOf(agent, key))
 		const detail =
 			settled.detail?.message ??
@@ -2679,8 +2605,32 @@ async function moveAgent(threadId, input) {
 	await commit(async (tx) =>
 		reconfigure(tx, (await tx.doc(Thread, threadId)).agents[key], to, threadId),
 	)
+	const { admission } = agents[key]
+	if (was.runner !== runner && !runners.isOnline(was.runner) && admission)
+		await askAgain(threadId, key, to, admission)
 	touchThread(threadId)
 	return { conversation: input.conversation, to }
+}
+
+/** A turn held up by the runner its agent left stops, as Stop would, and what it held is asked again where it runs now */
+async function askAgain(threadId, key, to, { admit, deliver }) {
+	const task = await harness.getTask(deliver, context)
+	if (!task || task.state.status === 'terminal') return
+	const agent = (await thread(threadId)).agents[key].conversation
+	await harness.abortTask(admit, context)
+	await (await harness.conversation(agent, context))?.abort(context)
+	await harness.waitForTask(deliver, context)
+	const held = /** @type {any} */ ((await harness.getTask(admit, context))?.state.outcome?.result)
+		?.held
+	await commit(async (tx) => {
+		if (held) await restore(tx, threadId, agent, { held, note: undefined })
+		const row = await tx.doc(Thread, threadId)
+		const behind = { [key]: await waits(tx, threadId, row.agents[key], key) }
+		await ask(tx, row, threadId, /** @type {any} */ (task.input).upTo, [to], {
+			steer: false,
+			behind,
+		})
+	})
 }
 
 /** A post's answer as soon as its message is saved: with `direct`, the director's pick for it comes after, as its route */
@@ -2989,7 +2939,11 @@ async function forkThread(id, { at, title }, person) {
 	const answers = {}
 	const asked = new Set()
 	for (const { data } of shown) {
-		if (data.answer && source.agents[keyOf(data.author)]) answers[keyOf(data.author)] = data.answer
+		const key = keyOf(data.author)
+		// An answer from a conversation it no longer has, before it left and was added again, counts as none
+		if (data.answer && source.agents[key])
+			if (data.answer.conversation === source.agents[key].conversation) answers[key] = data.answer
+			else asked.add(key)
 		for (const name of data.to ?? []) asked.add(keyOf(name))
 	}
 	/** Asked but not answered by then: made anew, as the source's is now */
@@ -2999,20 +2953,11 @@ async function forkThread(id, { at, title }, person) {
 			.map(async (key) => [key, await agentOf(source.agents[key].conversation, key)]),
 	)
 	const agents = await Promise.all(
-		Object.entries(answers).map(async ([key, answer]) => {
-			if (answer.conversation === source.agents[key].conversation)
-				return {
-					key,
-					answer,
-					position: await positionAt(source.agents[key], answer, Number(at)),
-				}
-			// Its answer was in a conversation it no longer has, so the whole thread was read back
-			const seen = new Set(await seenBy(answer.conversation, answer.entry))
-			const left = shown
-				.filter((entry) => !seen.has(entry.id) && forAgent(entry, key, source.agents[key]))
-				.map((entry) => entry.id)
-			return { key, answer, position: positionOf(left, shown, key, source.agents[key]) }
-		}),
+		Object.entries(answers).map(async ([key, answer]) => ({
+			key,
+			answer,
+			position: await positionAt(source.agents[key], answer, Number(at)),
+		})),
 	)
 	const forkTitle = title?.trim() || `${source.title} (fork)`
 	const fork = await handle.fork(
@@ -4103,11 +4048,8 @@ harness.observeCommits({
 				}
 			}
 			if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
-			else if (change.type === 'document' && change.kind === 'change') {
+			else if (change.type === 'document' && change.kind === 'change')
 				for (const hook of documentStored) hook(change)
-				if (change.record.kind === AgentDoc.definition.kind)
-					for (const wake of moves.get(change.conversationId) ?? []) wake()
-			}
 		}
 		feed.onCommit(publication)
 		movedFamilies = null

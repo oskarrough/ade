@@ -27,9 +27,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
   shown                             images an answer shows as `![](path)`, read through its runner and attached
   reachable                         a message waits for its agent's runner
-  moveAgent, keysOf                 move an agent to another runner (POST /api/threads/:id/move)
+  moveAgent, askAgain               move an agent to another runner (POST /api/threads/:id/move); a turn stuck on the offline one starts again there
   finishShell                       a shell's output and outcome, committed together
-  gone                              an agent whose folder no longer exists
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
   threadIds, threadList, threadRows, threadRow, threadPage, threadView, people, newest   GET /api/threads and a thread's view, which `thread/<id>` shares
   listFacts, placedTo               what a whole list reads of messages and agents, from the `ade_` tables while they're current
