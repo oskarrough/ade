@@ -17,7 +17,7 @@
 	},
 	"engines": {
 		"node": ">=24",
-		"arbe-desktop": ">=0.1.9"
+		"arbe-desktop": ">=0.1.11"
 	},
 	"files": [
 		"bin.js",
