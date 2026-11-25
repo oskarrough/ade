@@ -7,6 +7,7 @@ import {
 	api,
 	call,
 	check,
+	conversationOf,
 	done,
 	quiet,
 	say,
@@ -300,5 +301,38 @@ check(
 		oldName.status === 400,
 	'a renamed bot keeps her home, instructions, model and conversations under the new name; her home shows it, and the old name asks no one',
 	JSON.stringify([renamed.json, robin, v?.agents, titled.json, oldName.json]),
+)
+// A name changes hands: answers under it before were another bot's, so whoever takes it reads them
+const heldFor = async (thread, name) =>
+	(await conversationOf(await view(thread), name)).entries
+		.filter((entry) => entry.kind === 'ade.delivery')
+		.flatMap((entry) => entry.data.held)
+for (const name of ['maple', 'pine'])
+	await api('POST', '/api/bots', { name, to: 'echo/echo@laptop' })
+const grove = await createThread('grove')
+await postEntry(grove, 'start with maple', 'maple')
+await answered(grove)
+await postEntry(grove, 'pine only', 'pine')
+v = await answered(grove, 2)
+const oldPine = answers(v).at(-1)
+await api('POST', '/api/bots', { name: 'pine', rename: 'birch' })
+await api('POST', '/api/bots', { name: 'maple', rename: 'pine' })
+await postEntry(grove, 'new pine now', 'pine')
+v = await answered(grove, 3)
+const newPine = answers(v).at(-1)
+check(
+	oldPine.data.author === 'pine' && (await heldFor(grove, 'pine')).includes(oldPine.id),
+	"a bot renamed to a name another bot answered under here reads those answers, which aren't hers",
+	JSON.stringify([oldPine, await heldFor(grove, 'pine')]),
+)
+await api('POST', '/api/bots', { name: 'pine', rename: 'oak' })
+await api('POST', '/api/bots', { name: 'pine', to: 'echo/echo@laptop' })
+await postEntry(grove, 'third pine here', 'pine')
+await answered(grove, 4)
+const third = await heldFor(grove, 'pine')
+check(
+	third.includes(oldPine.id) && third.includes(newPine.id),
+	'a new bot taking a name other bots answered under here reads their answers',
+	JSON.stringify([oldPine.id, newPine.id, third]),
 )
 done()

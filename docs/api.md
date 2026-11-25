@@ -181,7 +181,7 @@ GET    /api/threads/:home/bots?asked=4,7   for a bot's home, each thread that as
 
 Only the creator or the house owner can change or forget a bot through the API. Other guests get 403. Bots made before ade recorded their creator belong to the house owner; a bot made with the `bot` tool belongs to the same person as the bot that made it.
 
-`rename` gives a bot a new name, under the same rules as a new one. It keeps its home, instructions, model and colour, and its agent in every thread it's in answers to the new name. Messages already written keep the old one, which asks no one now. A bot's home thread always shows the bot's name as its title, so it can't be renamed on its own.
+`rename` gives a bot a new name, under the same rules as a new one. It keeps its home, instructions, model and colour, and its agent in every thread it's in answers to the new name. Messages already written keep the old one, which asks no one now. Answers another bot gave under the new name, before, are for it to read like anyone else's; so are a new bot's, when it takes a name someone answered under. A bot's home thread always shows the bot's name as its title, so it can't be renamed on its own.
 
 `GET /api/bots` gives each bot an `answeredAt`: an ISO time, the newest message anywhere she answered (not only her home), or `null` if she never has.
 

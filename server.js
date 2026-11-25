@@ -95,10 +95,11 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {true} [stopped]  Its author pressed Stop while the thread was working; the body says `stopped`.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
  * @typedef {{ name: string, conversation: import("@earendil-works/pi-durable").ConversationId, to: To | null, status: string, contextWindow?: number }} Agent  An agent or bot, as a thread view shows it.
- * @typedef {{ conversation: import("@earendil-works/pi-durable").ConversationId, after: number, earlier?: number[], skip?: number[], admission?: { admit: number, deliver: number }, note?: string }} Recipient
+ * @typedef {{ conversation: import("@earendil-works/pi-durable").ConversationId, after: number, earlier?: number[], skip?: number[], named?: number, admission?: { admit: number, deliver: number }, note?: string }} Recipient
  *   A thread doc's row for its agent or a bot: its conversation; what it hasn't seen, as a position, every message for it
  *   after `after` but those in `skip`, and the few at or before it in `earlier`, held back while the director picked or
- *   given back by a Stop; its latest input's tasks; and what to tell it about a change before its next one.
+ *   given back by a Stop; the message from which it has gone by its name, so answers under that name before it are
+ *   another agent's; its latest input's tasks; and what to tell it about a change before its next one.
  */
 
 // ── Start-up: store lock and port ─────────────────────────────────────────
@@ -1425,8 +1426,14 @@ async function lastAsked(id) {
 	)
 }
 
-/** An agent's own answer, which it never reads back: its turn's last words, or what it posted to its asker */
-const ownAnswer = ({ data: message }, key) =>
+/**
+ * An agent's own answer, which it never reads back: its turn's last words, or what it posted to its asker, since it took its name
+ * @param {{ id?: number, data: any }} entry
+ * @param {string} key
+ * @param {Recipient} [recipient]
+ */
+const ownAnswer = ({ id, data: message }, key, recipient = undefined) =>
+	!(recipient?.named && id < recipient.named) &&
 	keyOf(message.author) === key &&
 	!message.from &&
 	Boolean(message.answer || message.error || message.re || message.waitingOnPerson)
@@ -1528,7 +1535,8 @@ async function ask(tx, row, threadId, upTo, to, { steer, behind }) {
 		const key = keyOf(writtenTo(one))
 		// New, it hasn't seen any of the thread
 		if (!row.agents[key]) {
-			row.agents[key] = await newAgent(tx, threadId, { after: 0 })
+			// Answers under its name before it joined were another's, a bot's that had the name before
+			row.agents[key] = await newAgent(tx, threadId, { after: 0, named: upTo })
 			await setUp(tx, row.agents[key].conversation, threadId, one)
 		} else {
 			await reconfigure(tx, row.agents[key], one, threadId)
@@ -1711,9 +1719,11 @@ async function renameIn(tx, ids, from, to) {
 		listed(recipient, 'skip', [
 			...(recipient.skip ?? []),
 			...answers
-				.filter((entry) => entry.kind === KIND && ownAnswer(entry, from))
+				.filter((entry) => entry.kind === KIND && ownAnswer(entry, from, recipient))
 				.map((entry) => entry.id),
 		])
+		// Answers already under its new name were another bot's, and are for it to read
+		recipient.named = (answers.at(-1)?.id ?? recipient.after) + 1
 		await configure(tx, row.agents[to].conversation, {
 			instructions: instructions(to, id, row.tools),
 		})
@@ -1731,7 +1741,7 @@ const nameOf = (row, conversation) =>
 	Object.keys(row.agents).find((key) => row.agents[key].conversation === conversation)
 
 /** Whether a message is one for an agent to read: every thread message but its own answers */
-const forAgent = (entry, key) => entry.kind === KIND && !ownAnswer(entry, key)
+const forAgent = (entry, key, recipient) => entry.kind === KIND && !ownAnswer(entry, key, recipient)
 
 /** Whether a recipient hasn't been handed message `id`, one for it */
 const unseen = (recipient, id) =>
@@ -1744,7 +1754,9 @@ const readFrom = (recipient) =>
 
 /** The messages a recipient hasn't been handed among a thread's, read from its `readFrom`: ids, oldest first */
 const unseenIn = (recipient, key, entries) =>
-	entries.filter((entry) => forAgent(entry, key) && unseen(recipient, entry.id)).map(({ id }) => id)
+	entries
+		.filter((entry) => forAgent(entry, key, recipient) && unseen(recipient, entry.id))
+		.map(({ id }) => id)
 
 /** Sets a recipient's list, or leaves it out when empty, so its row stays a few bytes */
 function listed(recipient, name, ids) {
@@ -1758,7 +1770,9 @@ function hand(recipient, key, held, entries) {
 	const top = Math.max(recipient.after, ...held)
 	const skip = recipient.skip ?? []
 	const passed = entries
-		.filter((entry) => entry.id > recipient.after && entry.id <= top && forAgent(entry, key))
+		.filter(
+			(entry) => entry.id > recipient.after && entry.id <= top && forAgent(entry, key, recipient),
+		)
 		.map(({ id }) => id)
 		.filter((id) => !skip.includes(id))
 	listed(
@@ -1784,16 +1798,17 @@ async function waits(tx, threadId, recipient, key) {
 				50,
 				cursor,
 			),
-		(entry) => forAgent(entry, key) && unseen(recipient, entry.id),
+		(entry) => forAgent(entry, key, recipient) && unseen(recipient, entry.id),
 	)
 	return Boolean(found)
 }
 
 /** The position that leaves just `ids` unseen among `shown`, a thread's messages, oldest first, reaching back past them */
-function positionOf(ids, shown, key) {
+function positionOf(ids, shown, key, recipient) {
 	const left = new Set(ids)
 	const position = {
-		after: shown.findLast((entry) => forAgent(entry, key) && !left.has(entry.id))?.id ?? 0,
+		after:
+			shown.findLast((entry) => forAgent(entry, key, recipient) && !left.has(entry.id))?.id ?? 0,
 	}
 	listed(
 		position,
@@ -3081,9 +3096,9 @@ async function forkThread(id, { at, title }, person) {
 			// Its answer was in a conversation it no longer has, so the whole thread was read back
 			const seen = new Set(await seenBy(answer.conversation, answer.entry))
 			const left = shown
-				.filter((entry) => !seen.has(entry.id) && forAgent(entry, key))
+				.filter((entry) => !seen.has(entry.id) && forAgent(entry, key, source.agents[key]))
 				.map((entry) => entry.id)
-			return { key, answer, position: positionOf(left, shown, key) }
+			return { key, answer, position: positionOf(left, shown, key, source.agents[key]) }
 		}),
 	)
 	const forkTitle = title?.trim() || `${source.title} (fork)`
@@ -3097,23 +3112,27 @@ async function forkThread(id, { at, title }, person) {
 					memory: source.memory ?? null,
 				})
 				const row = {}
+				/** A fork keeps the source's message ids, so each keeps where it took its name */
+				const named = (key) => (source.agents[key].named ? { named: source.agents[key].named } : {})
 				for (const { key, answer, position } of agents) {
-					row[key] = await newAgent(tx, forkId, position, answer)
+					row[key] = await newAgent(tx, forkId, { ...position, ...named(key) }, answer)
 					await configure(tx, row[key].conversation, {
 						tools: toolsOf(source.tools),
 						instructions: instructions(key, forkId, source.tools),
 					})
 				}
 				for (const [key, to] of fresh) {
-					row[key] = await newAgent(
-						tx,
-						forkId,
-						positionOf(
-							shown.filter((entry) => forAgent(entry, key)).map((entry) => entry.id),
+					row[key] = await newAgent(tx, forkId, {
+						...positionOf(
+							shown
+								.filter((entry) => forAgent(entry, key, source.agents[key]))
+								.map((entry) => entry.id),
 							shown,
 							key,
+							source.agents[key],
 						),
-					)
+						...named(key),
+					})
 					await setUp(tx, row[key].conversation, forkId, to)
 				}
 				Object.assign(await tx.doc(Thread, forkId), {
