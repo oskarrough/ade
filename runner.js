@@ -94,8 +94,10 @@ const config = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), 
 const keyFile = args['key-file'] || path.join(config, `key.${name}`)
 const lent = Boolean(process.env.ADE_LENT)
 const inherited = process.env.ADE_KEY
-// Agents' commands inherit this process's environment: they get neither the key nor the mark of the server's own runner
+const ownerKeyGiven = process.env.ADE_OWNER_KEY
+// Agents' commands inherit this process's environment: they get neither key nor the mark of the server's own runner
 delete process.env.ADE_KEY
+delete process.env.ADE_OWNER_KEY
 delete process.env.ADE_LENT
 /** A saved key, with the folder it was saved for; the connect-runner script saves the key alone */
 const saved = (() => {
@@ -170,9 +172,9 @@ async function mint() {
 			`A runner named ${name} already exists${taken.dir ? `, in ${taken.dir}` : ''}, offline for now. Give this one its own name:\n  ${again('--name', `${name}-2`)}\nor take its name over, which replaces its key:\n  ${again('--name', name)}`,
 		)
 	if (taken) console.log(`This replaces ${name}'s key: the runner that had it can't connect again.`)
-	const ownerKey = /^https?:\/\/(localhost|127\.[\d.]+|\[::1\])(:\d+)?(\/|$)/.test(server)
-		? ownerKeyHere()
-		: ''
+	const ownerKey =
+		ownerKeyGiven ||
+		(/^https?:\/\/(localhost|127\.[\d.]+|\[::1\])(:\d+)?(\/|$)/.test(server) ? ownerKeyHere() : '')
 	const res = await fetch(`${server}/api/runners`, {
 		method: 'POST',
 		headers: {

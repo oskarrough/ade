@@ -1,6 +1,6 @@
 # API and CLI
 
-Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in ([SECURITY.md](../SECURITY.md)), and ignores an `x-user` header or a `?user=`. On its own machine you're the owner. Through the Serve port you're the login in `Tailscale-User-Login`. The owner's `owner.key` beside the store works anywhere as `Authorization: Bearer <key>`. With invites on, only that key or an invite's gets you in. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get. The owner's is `owner` in ade.json, or their login on the server's machine; set it to the name your history has, and it stays yours. A tailnet login that isn't the owner's is `~` and the login with `@` written as `+`, so it never reads as a bot or an agent.
+Everything the page does, you can do with a few requests. You don't say who you are; the server knows from how you came in ([SECURITY.md](../SECURITY.md)), and ignores an `x-user` header or a `?user=`. On its own machine you're the owner. Through the Serve port you're the login in `Tailscale-User-Login`; the owner's login only reads until it shows the owner key. The owner's `owner.key` beside the store works anywhere as `Authorization: Bearer <key>`. With invites on, only that key or an invite's gets you in. `GET /api/server` answers with `me`, the name your messages, read marks and drawings get. The owner's is `owner` in ade.json, or their login on the server's machine; set it to the name your history has, and it stays yours. A tailnet login that isn't the owner's is `~` and the login with `@` written as `+`, so it never reads as a bot or an agent.
 
 ```sh
 api() { curl -s -H 'content-type: application/json' "localhost:3000/api/$1" ${2:+-d "$2"}; }
@@ -313,7 +313,7 @@ ade stop 3
 ade export ~/backup                    # with export on: every thread as Markdown and JSON
 ```
 
-It writes as whoever the server takes it for: on the server's machine, the owner, though an agent's shell there only reads. Against a server elsewhere (`--server` or `ADE_SERVER`), set `ADE_OWNER_KEY` to write as the owner; through a Serve address you're your tailnet login without it. `ade link`, on the server's machine, prints a link that brings a browser in as the owner.
+It writes as whoever the server takes it for: on the server's machine, the owner, though an agent's shell there only reads. Against a server elsewhere (`--server` or `ADE_SERVER`), set `ADE_OWNER_KEY` to write as the owner; through a Serve address you're your tailnet login without it, which for the owner only reads. `ade link`, on the server's machine, prints a link that brings a browser in as the owner.
 
 A new thread prints `thread N` on stdout, followed by any answers; progress and errors go to stderr. To capture just its id without waiting:
 

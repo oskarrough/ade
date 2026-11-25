@@ -104,6 +104,18 @@ check(
 	'through Serve, a login ade.json lists as the owner’s is the owner',
 	ownDevice.json.me,
 )
+// but only reads as them: an agent on that device comes in with the same login, so writing takes the owner key
+const loginOnly = await api(
+	'POST',
+	`/api/threads/${id}/entries`,
+	{ body: 'login only', to: null },
+	'oskar',
+)
+check(
+	loginOnly.status === 403 && loginOnly.json.error.includes('owner link'),
+	'and writes only once the device shows the owner key',
+	JSON.stringify(loginOnly.json),
+)
 
 // A task runs as its creator, even after the owner edits it.
 const schedule = '/api/schedule'
@@ -132,12 +144,10 @@ check(
 	'another guest can’t control Ana’s task',
 	otherTaskChanges,
 )
-const ownerEdit = await api(
-	'POST',
-	schedule,
-	{ edit: anaTask.json.id, instructions: 'write a short brief' },
-	'oskar',
-)
+const ownerEdit = await api('POST', schedule, {
+	edit: anaTask.json.id,
+	instructions: 'write a short brief',
+})
 const anaCancel = await api('POST', schedule, { cancel: anaTask.json.id }, 'ana')
 check(
 	ownerEdit.json.edited === anaTask.json.id && anaCancel.json.cancelled === anaTask.json.id,
@@ -163,12 +173,7 @@ check(
 	guestBotChanges.map(({ status }) => status),
 )
 const anaRename = await api('POST', botRoute, { name: 'finch', rename: 'robin' }, 'ana')
-const ownerBotEdit = await api(
-	'POST',
-	botRoute,
-	{ name: 'robin', instructions: 'Be brief.' },
-	'oskar',
-)
+const ownerBotEdit = await api('POST', botRoute, { name: 'robin', instructions: 'Be brief.' })
 const anaForget = await api('DELETE', `${botRoute}/robin?key=forget-robin`, undefined, 'ana')
 const otherForget = await api('DELETE', `${botRoute}/robin?key=forget-robin`, undefined, 'bea')
 check(
@@ -359,6 +364,20 @@ check(
 check(
 	!shell.entries.some((entry) => entry.data.body === 'agent as owner'),
 	'and nothing it sent shows as the owner’s',
+)
+// An agent on another machine comes through Serve with that machine's login, where no process can be seen
+const remote = await createThread('an agent’s shell elsewhere')
+await postEntry(
+	remote,
+	`shell env -u ADE_AGENT_OF curl -s -X POST ${tailnet}/api/threads/${remote}/entries -H 'tailscale-user-login: oskar@github' -H 'content-type: application/json' -d '{"body":"agent as owner","to":null}'`,
+	'echo/try@laptop',
+)
+const elsewhere = await answered(remote)
+check(
+	(answers(elsewhere)[0]?.data.body ?? '').includes('owner link') &&
+		!elsewhere.entries.some((entry) => entry.data.body === 'agent as owner'),
+	'an agent elsewhere, with the owner’s tailnet login, writes nothing as the owner',
+	answers(elsewhere)[0]?.data.body,
 )
 
 const gone = exited(laptop)

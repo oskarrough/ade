@@ -278,6 +278,15 @@ function agentPeer(socket) {
 }
 const agentRefused =
 	'An agent writes here only through its own tools, never as a person. Put what you have to say, images as `![](path)`, in your answer; to reach another thread, use the post tool.'
+/**
+ * The owner by a tailnet login alone, through Serve, with no owner key shown. Tailscale names a machine's user, not the
+ * process, so an agent on that machine comes in with the same login: it reads as the owner and writes nothing.
+ */
+function ownerByLogin(req, serve) {
+	const given = keyIn(req)
+	return serve && !invitesOn && !(given && isOwnerKey(given)) && whoSent(req, serve) === owner
+}
+const loginRefused = `Through Tailscale your login only reads as the owner, since an agent on your device comes in with it too. To write, bring this device in once with the owner link, from Settings' People on a device that has it or \`ade link\` on the server's machine; the CLI takes ADE_OWNER_KEY. ${agentRefused}`
 /** Tailnet logins as `name@provider`, as Tailscale-User-Login gives them, compared without case; anything else throws */
 function loginList(logins) {
 	if (
@@ -4033,6 +4042,8 @@ async function handleRequest(req, res, serve = false) {
 		keepKey(req, res, given)
 		return send(res, 201, { me })
 	}
+	if (!['GET', 'HEAD'].includes(req.method) && ownerByLogin(req, serve))
+		return send(res, 403, { error: loginRefused })
 	if (req.method === 'OPTIONS') {
 		res.writeHead(204)
 		return res.end()
@@ -4691,7 +4702,7 @@ async function upgrade(req, raw, head, serve = false) {
 	const sender = !name && whoSent(req, serve)
 	if (!name && !sender) return refuse('401 Unauthorized')
 	// A module's socket writes, the canvas's strokes; the feed's only reads
-	if (taker && fromAgent(req)) return refuse('403 Forbidden')
+	if (taker && (fromAgent(req) || ownerByLogin(req, serve))) return refuse('403 Forbidden')
 	const socket = await new Promise((resolve) => wss.handleUpgrade(req, raw, head, resolve))
 	// Their invite may have gone while the socket opened
 	if (sender && whoSent(req, serve) !== sender)

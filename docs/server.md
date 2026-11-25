@@ -16,7 +16,7 @@ To update, stop the server and run the same `npx` line: npx fetches the newest c
 
 ## Who gets in
 
-[SECURITY.md](../SECURITY.md) says who gets in and what they can do. To let in your other devices and friends, point `tailscale serve` at the port the server prints marked `serve`, never the first one, and list your own login in ade.json's `ownerLogins` (`["you@github"]`). Your name is `owner` in ade.json, or else your login on the server's machine. For invite-only, turn on Invites in Settings' People, or set `"invites": true` and restart.
+[SECURITY.md](../SECURITY.md) says who gets in and what they can do. To let in your other devices and friends, point `tailscale serve` at the port the server prints marked `serve`, never the first one, and list your own login in ade.json's `ownerLogins` (`["you@github"]`); each device writes as you once it opens the owner link. Your name is `owner` in ade.json, or else your login on the server's machine. For invite-only, turn on Invites in Settings' People, or set `"invites": true` and restart.
 
 ## Settings
 

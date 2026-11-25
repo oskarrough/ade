@@ -47,6 +47,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   Invites, invite, uninvite, guests, closeSockets   invites (`invites` in ade.json): keys with names, GET/POST/DELETE /api/invites; POST /api/link, the owner link; keepKey, the key cookie; cli.js `invite`, `uninvite`, `invites`
   newKey                            a new runner or invite key; a request key derives it, so a retry gets it again
   fromAgent, agentPeer              an agent's command on this machine (runner.js sets ADE_AGENT_OF) writes nothing
+  ownerByLogin                      an owner login through Serve without the owner key reads but writes nothing
   exampleShed                       the walkthrough's example thread (POST /api/threads/shed)
   routes                            every HTTP route
   agents/, agentRows, agentRow, liveOf, followLive, cutOf, covers   `agents/<id>` feed view: a thread's agents' turns, cuts and live work
