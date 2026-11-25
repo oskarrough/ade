@@ -108,7 +108,7 @@ const changed = await until(async () => {
 	return task?.instructions === 'write the short brief' && task
 })
 check(
-	edited.json.edited === daily.id &&
+	edited.json.accepted === daily.id &&
 		changed.schedule.times.join() === '09:00,17:30' &&
 		changed.schedule.days.join() === '1,2,3,4,5' &&
 		['09:00', '17:30'].includes(clockIn(changed.at)) &&

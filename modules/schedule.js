@@ -21,8 +21,8 @@
  *
  * Pause (with an optional note), resume, run now and edit are Control signals it sleeps on beside its time, one key
  * each (`control-N`): paused, it sleeps on the next key only; resumed, it sleeps until its next run from now; run now
- * posts once, outside its schedule; an edit's instructions, schedule and model live in its checkpoint from then on
- * (current). A webhook task, paused, refuses events.
+ * posts once, outside its schedule; an edit's instructions, schedule, model and runner live in its checkpoint from then
+ * on (current). From its time coming until that run is posted its key is expired, so it takes none: it's firing. A webhook task, paused, refuses events.
  *
  * A task `after` thread N sleeps on Ended. When the server hears a thread's work end (`ended`), and once on start,
  * settle signals each such task whose thread has no work left (core.busy); one set while N is already idle runs at once.
@@ -471,53 +471,38 @@ export function server(core) {
 		return outcome?.result?.fired ? { fired: id } : { ended: id }
 	}
 
+	const over = (record) => !record || record.state.status === 'terminal' || record.abortRequested
+	const hasEnded = (id) =>
+		Object.assign(new Error(`Scheduled task ${id} has ended`), { status: 409 })
+
 	/**
-	 * Pauses one, with an optional note why, resumes it, or runs it now: `{paused}`, `{resumed}` or `{ran}` once it has
-	 * the word; it acts in its next phase, and its pages hear when
+	 * Pauses one, with an optional note why, resumes it, runs it now or edits it: `{accepted}` once it has the word. It
+	 * acts in its next phase, and the trail says what it did. Firing, it has no key to take one until its run is posted.
 	 */
 	async function control(threadId, id, word, by) {
 		const record = await taskForChange(threadId, id, by)
 		const { checkpoint } = /** @type {any} */ (record.state)
-		if (record.state.status === 'terminal' || record.abortRequested)
-			throw Object.assign(new Error(`Scheduled task ${id} has ended`), {
-				status: 409,
-			})
-		if (word.runner !== undefined) {
-			if (typeof word.runner !== 'string' || !word.runner)
-				throw new Error('move takes the runner its runs ask from now on')
-			const to = current(record.input, checkpoint).to
-			if (!to)
-				throw new Error('Only a task that starts a new thread each run runs on a runner of its own')
-			// Its model there, as the picker would move it: refused if that runner doesn't have it
-			await core.address({ ...to, runner: word.runner })
-		}
-		if (word.run || word.runner || word.edit || Boolean(checkpoint?.paused) !== word.paused) {
+		if (over(record)) throw hasEnded(id)
+		if (word.run || word.edit || Boolean(checkpoint?.paused) !== word.paused) {
 			let sent = await core.signal(id, Control, `control-${checkpoint?.c ?? 0}`, word)
-			// Its key expired as its time came: once that run sleeps again, on the next key
-			for (let tries = 0; sent === 'closed' && tries < 100; tries++) {
+			// Its key expired as its time came; once that run is posted it listens on the next
+			if (sent === 'closed') {
 				const now = await core.task(id)
-				if (!now || now.state.status === 'terminal' || now.abortRequested) break
+				if (over(now)) throw hasEnded(id)
 				const c = /** @type {any} */ (now.state).checkpoint?.c
-				if (['sleeping', 'waiting'].includes(now.state.status) && c !== checkpoint?.c)
-					sent = await core.signal(id, Control, `control-${c}`, word)
-				else await new Promise((resolve) => setTimeout(resolve, 20))
+				if (c !== checkpoint?.c) sent = await core.signal(id, Control, `control-${c}`, word)
+				if (sent === 'closed' && over(await core.task(id))) throw hasEnded(id)
 			}
 			if (sent === 'duplicate')
 				throw Object.assign(new Error('It is taking another change; try again'), { status: 409 })
-			if (sent !== 'delivered')
-				throw Object.assign(new Error(`Scheduled task ${id} has ended`), {
-					status: 409,
-				})
+			if (sent === 'closed')
+				throw Object.assign(
+					new Error(`Scheduled task ${id} is running right now; try again once this run is posted`),
+					{ status: 409 },
+				)
+			if (sent !== 'delivered') throw hasEnded(id)
 		}
-		return word.run
-			? { ran: id }
-			: word.edit
-				? { edited: id }
-				: word.runner
-					? { moved: id, runner: word.runner }
-					: word.paused
-						? { paused: id }
-						: { resumed: id }
+		return { accepted: id }
 	}
 
 	/**
@@ -758,16 +743,6 @@ export function server(core) {
 					const moved = { ...checkpoint, c: checkpoint.c + 1 }
 					// Run now runs once and keeps its schedule
 					if (word.run) return due(undefined, { sleep: moved })
-					// Its runs ask another runner from now on, its model there
-					if (word.runner)
-						return rt.commit(async (tx) => {
-							await core.trailed(tx, threadId, undefined, 'edited', {
-								task: id,
-								changed: ['runner'],
-								runner: word.runner,
-							})
-							return asleep(schedule, { ...moved, to: { ...input.to, runner: word.runner } })
-						}, ctx)
 					// Edited, it does what it says now; a new schedule starts its wait, and its count, over from now
 					if (word.edit) {
 						const edited = { ...moved, ...word.edit }
@@ -1194,8 +1169,8 @@ export function server(core) {
 	}
 
 	/**
-	 * Changes a task's instructions, when it runs, whom it asks or its model, in place, keeping its id, its thread and its
-	 * runs: `{edited}`. Another thread, or listening for other events, is a new task.
+	 * Changes a task's instructions, when it runs, whom it asks or its model and runner, in place, keeping its id, its
+	 * thread and its runs: `{accepted}`. Another thread, or listening for other events, is a new task.
 	 */
 	async function edit(threadId, id, body, user) {
 		const record = await taskForChange(threadId, id, user)
@@ -1237,7 +1212,7 @@ export function server(core) {
 				? (await recipientsOf(body, record.conversationId)).recipients
 				: undefined
 		const check = checkOf(body, was)
-		const edited = await control(
+		const accepted = await control(
 			threadId,
 			id,
 			{
@@ -1252,7 +1227,7 @@ export function server(core) {
 			user,
 		)
 		if (schedule) settleNew(schedule)
-		return edited
+		return accepted
 	}
 
 	/**
@@ -1270,13 +1245,11 @@ export function server(core) {
 			if (threadId !== undefined) body = { ...body, thread: threadId }
 			return create(body, user)
 		}
-		for (const action of ['cancel', 'pause', 'resume', 'run', 'move'])
+		for (const action of ['cancel', 'pause', 'resume', 'run'])
 			if (body[action] !== undefined) {
 				if (!Number.isInteger(body[action])) throw new Error(`${action} is the task's id`)
 				if (action === 'cancel') return cancel(threadId, body.cancel, user)
 				if (action === 'run') return control(threadId, body.run, { run: true }, user)
-				if (action === 'move')
-					return control(threadId, body.move, { runner: body.runner ?? null }, user)
 				const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : ''
 				return control(
 					threadId,
@@ -1289,7 +1262,7 @@ export function server(core) {
 				)
 			}
 		throw new Error(
-			'POST cancel, pause, resume, run or edit with a task id, move with one and a runner, or instructions for a new task',
+			'POST cancel, pause, resume, run or edit with a task id, or instructions for a new task',
 		)
 	}
 

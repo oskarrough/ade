@@ -190,7 +190,7 @@ function OfflineRunner(props) {
 				<${For} each=${() => runnersWith(to().model)}
 					>${(runner) => {
 						const moving = busy(() =>
-							api('/api/schedule', { move: props.task.id, runner: runner.name }),
+							api('/api/schedule', { edit: props.task.id, to: { ...to(), runner: runner.name } }),
 						)
 						return html`
 							<button

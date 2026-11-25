@@ -131,7 +131,6 @@ for (const [action, fields] of Object.entries({
 	cancel: {},
 	pause: {},
 	resume: {},
-	move: { runner: 'laptop' },
 	run: {},
 })) {
 	const route = action === 'edit' ? `/api/threads/${id}/schedule` : schedule
@@ -150,7 +149,7 @@ const ownerEdit = await api('POST', schedule, {
 })
 const anaCancel = await api('POST', schedule, { cancel: anaTask.json.id }, 'ana')
 check(
-	ownerEdit.json.edited === anaTask.json.id && anaCancel.json.cancelled === anaTask.json.id,
+	ownerEdit.json.accepted === anaTask.json.id && anaCancel.json.cancelled === anaTask.json.id,
 	'the owner can edit Ana’s task and Ana can still cancel it',
 	[ownerEdit.json, anaCancel.json],
 )
