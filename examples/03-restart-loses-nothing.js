@@ -73,19 +73,27 @@ check(
 	JSON.stringify(await inputs()),
 )
 
-// A runner that goes away: the models pi has enabled in its folder are offered, and what it can't resolve is skipped
+// A runner that goes away: the models pi has enabled in its folder are offered with the thinking levels each can use, and what it can't resolve is skipped
 const awayDir = path.join(dir, 'away')
 mkdirSync(path.join(awayDir, '.pi'), { recursive: true })
 writeFileSync(
 	path.join(awayDir, '.pi', 'settings.json'),
-	JSON.stringify({ enabledModels: ['echo/e*', 'claude-bridge/claude-opus-5-5'] }),
+	JSON.stringify({ enabledModels: ['echo/e*', 'echo/try', 'claude-bridge/claude-opus-5-5'] }),
 )
 const away = await runner('away', { dir: awayDir })
 const offered = (await api('GET', '/api/runners')).json.find((x) => x.name === 'away')
 check(
-	JSON.stringify(offered?.offers) === '["echo/echo"]' && !offered.models.includes('echo/echo'),
+	JSON.stringify(offered?.offers) === '["echo/echo","echo/try"]' &&
+		!offered.models.includes('echo/echo'),
 	'a runner offers the models enabled in pi, unresolved',
 	JSON.stringify(offered),
+)
+check(
+	JSON.stringify(offered?.thinkingLevels?.['echo/echo']) === '["off"]' &&
+		JSON.stringify(offered?.thinkingLevels?.['echo/try']) ===
+			'["off","minimal","low","medium","high"]',
+	'a runner says which thinking levels each model it offers can use',
+	JSON.stringify(offered?.thinkingLevels),
 )
 const gone = await createThread('away')
 await postEntry(gone, 'hi', { runner: 'away', model: 'echo/echo' })

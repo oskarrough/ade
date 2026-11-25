@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
-import { clampThinkingLevel } from '@earendil-works/pi-ai/models'
+import { clampThinkingLevel, getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
 import {
 	createAgentSessionServices,
 	resolveCliModel,
@@ -201,7 +201,10 @@ const save = () => {
 const { modelRuntime: models, diagnostics } = await createAgentSessionServices({ cwd: dir })
 for (const diagnostic of diagnostics)
 	if (diagnostic.type === 'error') console.log(`pi: ${diagnostic.message}`)
-const echo = fauxProvider({ provider: 'echo', models: [{ id: 'echo' }, { id: 'try' }] })
+const echo = fauxProvider({
+	provider: 'echo',
+	models: [{ id: 'echo' }, { id: 'try', reasoning: true }],
+})
 models.registerNativeProvider(echo.provider)
 
 /** What `pi --model pattern` runs */
@@ -321,18 +324,22 @@ async function connect() {
 				: "pi isn't logged in, so only echo answers: install pi (`npm i -g @earendil-works/pi-coding-agent`), run `pi`, then `/login`.",
 		)
 	}
-	let offered = []
+	let scoped = []
 	try {
-		const { scopedModels } = await resolveModelScopeWithDiagnostics(
+		;({ scopedModels: scoped } = await resolveModelScopeWithDiagnostics(
 			SettingsManager.create(dir).getEnabledModels() ?? [],
 			models,
-		)
-		offered = [...new Set(scopedModels.map(({ model }) => `${model.provider}/${model.id}`))]
+		))
 	} catch (error) {
 		if (!warnedOffers) console.error(`${name}: couldn't list models: ${error.message}`)
 		warnedOffers = true
 	}
-	for (const ref of offered) query.append('offer', ref)
+	const refOf = (model) => `${model.provider}/${model.id}`
+	for (const offer of new Set(scoped.map(({ model }) => refOf(model)))) query.append('offer', offer)
+	// The thinking levels pi's Shift+Tab cycles through, for each model offered and the default: `provider/id off,low,…`
+	const leveled = [...(model ? [resolve('').model] : []), ...scoped.map(({ model }) => model)]
+	for (const each of new Map(leveled.map((model) => [refOf(model), model])).values())
+		query.append('thinking', `${refOf(each)} ${getSupportedThinkingLevels(each).join(',')}`)
 	const { metered, free } = await billing()
 	for (const provider of metered) query.append('metered', provider)
 	for (const ref of free) query.append('free', ref)

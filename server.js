@@ -20,7 +20,7 @@ import { pipeline } from 'node:stream/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { parseArgs } from 'node:util'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
-import { createModels } from '@earendil-works/pi-ai/models'
+import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
 import {
 	AgentDoc,
 	configure,
@@ -4326,7 +4326,7 @@ async function runnerList() {
 	const [all, last] = [await work(), await known()]
 	const makers = (await harness.snapshot(Makers, context)) ?? {}
 	return Object.keys(await keys()).map((name) => {
-		const { models, offers, ...runner } = last[name] ?? {}
+		const { models, offers, thinkingLevels, ...runner } = last[name] ?? {}
 		const here = all.filter((job) => job.runner === name)
 		/** Its agents' statuses, by row: a bot's name, or `provider/id@runner` whatever its thinking */
 		const agents = {}
@@ -4340,6 +4340,16 @@ async function runnerList() {
 			...(makers[name] && { by: makers[name] }),
 			offers: offers ?? [],
 			models: Object.keys(models ?? {}),
+			/** Each model's thinking levels, as pi cycles them: those it has run, then what it reports for its offers and default */
+			thinkingLevels: {
+				...Object.fromEntries(
+					Object.entries(models ?? {}).map(([ref, model]) => [
+						ref,
+						getSupportedThinkingLevels(model),
+					]),
+				),
+				...thinkingLevels,
+			},
 			online: runners.isOnline(name),
 			calls: runners.working(name),
 			status: busiest(here.map((job) => job.status)),
@@ -4979,6 +4989,12 @@ async function upgrade(req, raw, head, serve = false) {
 		...(query('thinkingLevel') && { thinkingLevel: query('thinkingLevel') }),
 		modelError: query('modelError'),
 		offers: url.searchParams.getAll('offer'),
+		thinkingLevels: Object.fromEntries(
+			url.searchParams.getAll('thinking').map((line) => {
+				const space = line.lastIndexOf(' ')
+				return [line.slice(0, space), line.slice(space + 1).split(',')]
+			}),
+		),
 		metered: url.searchParams.getAll('metered'),
 		free: url.searchParams.getAll('free'),
 		models: resolved,
