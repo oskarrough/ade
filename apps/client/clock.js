@@ -9,7 +9,7 @@ export const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
  * What a wall clock in `timeZone` reads at `ms`
  * @returns {{ year: number, month: number, day: number, hour: number, minute: number, second: number }}
  */
-export function wall(ms, timeZone) {
+function wall(ms, timeZone) {
 	const parts = Object.fromEntries(
 		new Intl.DateTimeFormat('en-US', {
 			timeZone,
