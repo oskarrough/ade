@@ -39,7 +39,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   recent, older, back, conversationRecord   each thread's newest entries, older ones on demand
   anyRunner, mayRun                 `bash` with a `runner`, and the `runners` tool
   harnessSettings, provide          Pi's settings; a runner's models as Pi's provider
-  forkThread, seenBy, unseenAt      forks
+  forkThread, seenBy, positionAt      forks
   compact, compactingAt             compaction
   setTitle, setTitleIn, setTools, toolList, toolsOf   a thread's title and tools
   receipt, once                     a retried request does its work once

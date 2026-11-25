@@ -594,7 +594,7 @@ export function server(core) {
 				tx,
 				thread,
 				{ author: input.by, ...mark, to: asked.to },
-				{ empty: true, fired },
+				{ fired },
 			)
 			return { thread, entry }
 		}

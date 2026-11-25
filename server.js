@@ -17,6 +17,7 @@ import {
 } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
+import { DatabaseSync } from 'node:sqlite'
 import { parseArgs } from 'node:util'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
@@ -94,9 +95,10 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {true} [stopped]  Its author pressed Stop while the thread was working; the body says `stopped`.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
  * @typedef {{ name: string, conversation: import("@earendil-works/pi-durable").ConversationId, to: To | null, status: string, contextWindow?: number }} Agent  An agent or bot, as a thread view shows it.
- * @typedef {{ conversation: import("@earendil-works/pi-durable").ConversationId, unseen: number[], admission?: { admit: number, deliver: number }, note?: string }} Recipient
- *   A thread doc's row for its agent or a bot: its conversation, the thread messages it hasn't seen, its latest input's
- *   tasks, and what to tell it about a change before its next one.
+ * @typedef {{ conversation: import("@earendil-works/pi-durable").ConversationId, after: number, earlier?: number[], skip?: number[], admission?: { admit: number, deliver: number }, note?: string }} Recipient
+ *   A thread doc's row for its agent or a bot: its conversation; what it hasn't seen, as a position, every message for it
+ *   after `after` but those in `skip`, and the few at or before it in `earlier`, held back while the director picked or
+ *   given back by a Stop; its latest input's tasks; and what to tell it about a change before its next one.
  */
 
 // ── Start-up: store lock and port ─────────────────────────────────────────
@@ -145,6 +147,45 @@ process.on('unhandledRejection', (reason) =>
 )
 process.on('exit', (code) => logged(`exited with code ${code}`))
 process.on('exit', () => Number(readFileSync(lock, 'utf8')) === process.pid && rmSync(lock))
+
+/**
+ * A store from before members kept a place in the thread: each still holds the list of every message it hadn't been
+ * handed, which this server doesn't read, so it would hand them nothing new. It refuses, with the one-off command that
+ * converts them: every member's place at the newest entry, its old list kept as `earlier`.
+ */
+const oldMembers = (() => {
+	if (!existsSync(file)) return false
+	const db = new DatabaseSync(file, { readOnly: true })
+	try {
+		return Boolean(
+			db
+				.prepare(
+					`select 1 from documents join document_revisions on document_id = documents.id
+					where documents.kind = '"ade.thread"' and instr(content, '"unseen":') limit 1`,
+				)
+				.get(),
+		)
+	} catch {
+		return false
+	} finally {
+		db.close()
+	}
+})()
+if (oldMembers) {
+	const convert = String.raw`update document_revisions set content = json_set(content, '$.agents', json((select json_group_object(agent.key, json(iif(json_array_length(agent.value, '$.unseen') > 0, json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id, '$.earlier', json(agent.value -> '$.unseen')), json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id)))) from json_each(content, '$.agents') agent, (select max(id) as id from entries) newest))) where document_id in (select id from documents where kind = '"ade.thread"') and exists (select 1 from json_each(content, '$.agents') agent where agent.value -> '$.unseen' is not null)`
+	/** Quotes as \x27 and \x22 inside a JS string, so the line pastes the same into bash, zsh and fish */
+	const inJs = (text) =>
+		text
+			.replaceAll('\\', String.raw`\\`)
+			.replaceAll("'", String.raw`\x27`)
+			.replaceAll('"', String.raw`\x22`)
+	const backup = `${file}.before-positions`
+	const vacuum = `vacuum into '${backup.replaceAll("'", "''")}'`
+	console.error(
+		`${file} keeps thread members' unread messages the old way; with ade stopped, convert it once (a backup goes to ${backup}): node -e 'const db = new (require("node:sqlite").DatabaseSync)("${inJs(file)}"); db.exec("${inJs(vacuum)}"); db.exec("${inJs(convert)}"); console.log("converted")'`,
+	)
+	process.exit(1)
+}
 /** `--dir` folders for the server's own runner, the first where threads start; `--no-runner` lends no runner */
 const { values: flags } = parseArgs({
 	options: {
@@ -435,7 +476,7 @@ const Anchor = defineTask({
 
 /**
  * Admissions are ordered by Pi task dependencies, independently of how long the answers take. An input takes what its
- * agent hasn't seen, up to the message that asked, in the commit that submits it: until then nothing leaves `unseen`,
+ * agent hasn't seen, up to the message that asked, in the commit that submits it: until then its position stays,
  * so a failed or stopped admission has nothing to give back. With `turn`, the Deliver of the agent named before it, it
  * starts once that answer has landed and takes all it hasn't seen.
  */
@@ -453,22 +494,24 @@ const Admit = defineTask({
 		) {
 			await reachable(agent, rt.signal)
 			const row = await thread(threadId)
-			const { unseen, note } = recipientOf(row, agent)
+			const recipient = recipientOf(row, agent)
+			const { note } = recipient
+			// It reads only from its position, however long the thread
+			const since = await messages(threadId, { after: readFrom(recipient) })
 			/** Its turn comes after the answer before it, so it takes that answer, and whatever was said meanwhile */
 			const waiting = new Set(row.unpicked ?? [])
-			const held = (turn ? unseen : unseen.filter((id) => id <= upTo)).filter(
-				(id) => !waiting.has(id),
+			const held = unseenIn(recipient, nameOf(row, agent), since).filter(
+				(id) => (turn || id <= upTo) && !waiting.has(id),
 			)
 			if (!held.length) return rt.commit(() => finished('completed', { held }), ctx)
 			await prepare?.(threadId, agent, rt.signal)
 			/** A folder renamed or deleted under the agent: it doesn't run there, and what it was asked waits for another folder */
 			const missing = await gone(agent, rt.signal)
 			if (missing) return rt.commit(() => finished('completed', { held, missing }), ctx)
-			// It reads only from the first message it takes on, however long the thread
-			const since = await messages(threadId, { after: Math.min(...held) - 1 })
+			const given = new Set(held)
 			const mine = await Promise.all(
 				since
-					.filter((entry) => held.includes(entry.id))
+					.filter((entry) => given.has(entry.id))
 					.map((entry) => skillCommand(row, entry, agent, rt.signal)),
 			)
 			const first = await firstWrote(threadId)
@@ -490,9 +533,9 @@ const Admit = defineTask({
 			const entry = { kind: DELIVERY, data: { held } }
 			const deliver = await deliverOf(threadId, id)
 			await rt.commit(async (tx) => {
-				// A message withdrawn while this read the thread has left `unseen`: read it again without
-				const left = recipientOf(await tx.doc(Thread, threadId), agent).unseen
-				if (held.some((id) => !left.includes(id)))
+				// A message withdrawn while this read the thread is no longer unseen: read it again without
+				const left = recipientOf(await tx.doc(Thread, threadId), agent)
+				if (held.some((id) => !unseen(left, id)))
 					return {
 						status: 'running',
 						checkpoint: {
@@ -509,8 +552,7 @@ const Admit = defineTask({
 					whenBusy: steer ? 'steer' : 'followUp',
 				})
 				const row = await tx.doc(Thread, threadId)
-				const recipient = recipientOf(row, agent)
-				recipient.unseen = recipient.unseen.filter((id) => !held.includes(id))
+				hand(recipientOf(row, agent), nameOf(row, agent), held, since)
 				if (note && recipient.note === note) delete recipient.note
 				await trailed(tx, threadId, Math.max(...held), 'started', {
 					agent: await nameIn(tx, row, agent),
@@ -1391,7 +1433,6 @@ const ownAnswer = ({ data: message }, key) =>
 
 /**
  * Writes a message, inside the caller's commit, and gives each agent it asks a Deliver task with all it hasn't seen.
- * A new agent reads the thread, which a commit can't do after writing: post first, or pass `empty` for a new thread.
  * @param {Message} message
  */
 async function post(tx, threadId, message, options = {}) {
@@ -1409,7 +1450,7 @@ async function post(tx, threadId, message, options = {}) {
 	/** A bot that opens a thread joins it after its first message, which it has said and so never reads back */
 	if (options.opener) {
 		const row = await tx.doc(Thread, threadId)
-		row.agents[options.opener.name] = await newAgent(tx, threadId, [])
+		row.agents[options.opener.name] = await newAgent(tx, threadId, { after: entry.entry })
 		await setUp(tx, row.agents[options.opener.name].conversation, threadId, options.opener)
 	}
 	return entry
@@ -1423,15 +1464,18 @@ async function append(
 	tx,
 	threadId,
 	{ to = undefined, ...message },
-	{ steer = false, empty = false, direct = false, unlessPaused = false, fired = undefined } = {},
+	{ steer = false, direct = false, unlessPaused = false, fired = undefined } = {},
 ) {
 	const row = await tx.doc(Thread, threadId)
 	// A solo thread's message, decided outside this commit, asks no one if the thread was paused meanwhile
 	if (unlessPaused && row.paused) [to, message] = [undefined, { ...message, picked: PAUSED }]
 	const names = (to ?? []).map(writtenTo)
 	const data = { createdAt: now(), ...message, ...(to ? { to: names } : {}) }
-	const prior =
-		!empty && names.some((name) => !row.agents[keyOf(name)]) ? await messageIds(tx, threadId) : []
+	/** Those it asks have something to read: this message, unless it's their own answer, or what they had before */
+	const behind = {}
+	for (const key of names.map(keyOf))
+		if (row.agents[key])
+			behind[key] = !ownAnswer({ data }, key) || (await waits(tx, threadId, row.agents[key], key))
 	row.picks ??= {}
 	row.unpicked ??= []
 	/** The author's own earlier messages a pick still pending covered, which their new message's pick covers now */
@@ -1449,9 +1493,7 @@ async function append(
 	}
 	const entry = await tx.appendEntry(threadId, { kind: KIND, data })
 	for (const hook of posted) await hook(tx, threadId, entry)
-	for (const [key, agent] of Object.entries(row.agents))
-		if (!ownAnswer({ data }, key)) agent.unseen.push(entry.id)
-	await ask(tx, row, threadId, entry.id, to ?? [], { steer, prior })
+	await ask(tx, row, threadId, entry.id, to ?? [], { steer, behind })
 	const pick =
 		direct && directing
 			? await directing(tx, threadId, entry.id, {
@@ -1479,45 +1521,21 @@ async function append(
 	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
 }
 
-/** Every message's id in a thread, oldest first: those the SQL tables hold, then Pi's entries since the newest of them,
- * which is all of a fork's, its first messages being its parent's */
-async function messageIds(tx, threadId) {
-	const known =
-		(await read.exact(
-			(all) =>
-				!all('select 1 from ade_threads where id = ? and forked_from_id is not null', threadId)
-					.length &&
-				all('select id from ade_messages where thread_id = ? order by id', threadId).map(
-					({ id }) => id,
-				),
-			true,
-		)) || []
-	const since = await collect((cursor) =>
-		tx.scanEntries(
-			{
-				conversationId: threadId,
-				order: 'ascending',
-				...(known.length ? { minEntryId: known.at(-1) + 1 } : {}),
-			},
-			500,
-			cursor,
-		),
-	)
-	return [...known, ...since.filter((entry) => entry.kind === KIND).map((entry) => entry.id)]
-}
-
 /** Each agent `to` names gets a Deliver task for all it hasn't seen up to `upTo`; with `turns`, one after another */
-async function ask(tx, row, threadId, upTo, to, { steer, prior }) {
+async function ask(tx, row, threadId, upTo, to, { steer, behind }) {
 	let turn
 	for (const one of to) {
 		const key = keyOf(writtenTo(one))
+		// New, it hasn't seen any of the thread
 		if (!row.agents[key]) {
-			row.agents[key] = await newAgent(tx, threadId, [...prior, upTo])
+			row.agents[key] = await newAgent(tx, threadId, { after: 0 })
 			await setUp(tx, row.agents[key].conversation, threadId, one)
-		} else await reconfigure(tx, row.agents[key], one, threadId)
+		} else {
+			await reconfigure(tx, row.agents[key], one, threadId)
+			if (!behind[key]) continue
+		}
 		const recipient = row.agents[key]
-		const { conversation: agent, unseen, admission: after } = recipient
-		if (!unseen.length) continue
+		const { conversation: agent, admission: after } = recipient
 		const admit = await tx.createTask(
 			Admit,
 			{ agent, upTo, steer, ...(after ? { after } : {}), ...(turn ? { turn } : {}) },
@@ -1563,14 +1581,14 @@ async function route(
 	} catch (error) {
 		;[to, picked] = [[], `Pick failed: ${errorLine(error, 'director')}`]
 	}
-	const prior = to.some((one) => !row.agents[keyOf(writtenTo(one))])
-		? await messageIds(tx, threadId)
-		: []
+	const behind = {}
+	for (const key of to.map((one) => keyOf(writtenTo(one))))
+		if (row.agents[key]) behind[key] = await waits(tx, threadId, row.agents[key], key)
 	await tx.appendEntry(threadId, {
 		kind: ROUTE,
 		data: { message: messageId, to: to.map(writtenTo), ...(picked ? { picked } : {}) },
 	})
-	await ask(tx, row, threadId, messageId, to, { steer, prior })
+	await ask(tx, row, threadId, messageId, to, { steer, behind })
 	if (chose?.waited !== undefined)
 		await trailed(tx, threadId, messageId, 'waited', {
 			ms: chose.waited,
@@ -1636,13 +1654,13 @@ async function reconfigure(tx, recipient, to, threadId) {
  * Owned by an Anchor in the thread
  * @returns {Promise<Recipient>}
  */
-async function newAgent(tx, threadId, unseen, from) {
+async function newAgent(tx, threadId, position, from) {
 	const anchor = await tx.createTask(Anchor, null, { ...own, conversationId: threadId })
 	const ownership = { ownership: { kind: 'task', taskId: anchor } }
 	const { id } = from
 		? await tx.forkConversation(from.conversation, from.entry, ownership)
 		: await tx.createConversation(ownership)
-	return { conversation: id, unseen }
+	return { conversation: id, ...position }
 }
 
 /** What an agent runs as, as its `joined` and `changed` steps keep it */
@@ -1681,6 +1699,21 @@ async function renameIn(tx, ids, from, to) {
 		if (!row.agents[from]) continue
 		row.agents[to] = JSON.parse(JSON.stringify(row.agents[from]))
 		delete row.agents[from]
+		// Its answers under its old name, past its position, stay its own
+		const recipient = row.agents[to]
+		const answers = await collect((cursor) =>
+			tx.scanEntries(
+				{ conversationId: id, order: 'ascending', minEntryId: recipient.after + 1 },
+				500,
+				cursor,
+			),
+		)
+		listed(recipient, 'skip', [
+			...(recipient.skip ?? []),
+			...answers
+				.filter((entry) => entry.kind === KIND && ownAnswer(entry, from))
+				.map((entry) => entry.id),
+		])
 		await configure(tx, row.agents[to].conversation, {
 			instructions: instructions(to, id, row.tools),
 		})
@@ -1693,12 +1726,87 @@ const person = (row, { data }) => !byAgent(data) && !data.stopped && !row.agents
 const recipientOf = (row, conversation) =>
 	Object.values(row.agents).find((candidate) => candidate.conversation === conversation)
 
+/** The name an agent goes by in a thread */
+const nameOf = (row, conversation) =>
+	Object.keys(row.agents).find((key) => row.agents[key].conversation === conversation)
+
+/** Whether a message is one for an agent to read: every thread message but its own answers */
+const forAgent = (entry, key) => entry.kind === KIND && !ownAnswer(entry, key)
+
+/** Whether a recipient hasn't been handed message `id`, one for it */
+const unseen = (recipient, id) =>
+	(recipient.earlier ?? []).includes(id) ||
+	(id > recipient.after && !(recipient.skip ?? []).includes(id))
+
+/** Where to read a thread from to find all a recipient hasn't been handed */
+const readFrom = (recipient) =>
+	Math.min(recipient.after, ...(recipient.earlier ?? []).map((id) => id - 1))
+
+/** The messages a recipient hasn't been handed among a thread's, read from its `readFrom`: ids, oldest first */
+const unseenIn = (recipient, key, entries) =>
+	entries.filter((entry) => forAgent(entry, key) && unseen(recipient, entry.id)).map(({ id }) => id)
+
+/** Sets a recipient's list, or leaves it out when empty, so its row stays a few bytes */
+function listed(recipient, name, ids) {
+	if (ids.length) recipient[name] = [...new Set(ids)].sort((left, right) => left - right)
+	else delete recipient[name]
+}
+
+/** A recipient handed `held`, read from `entries`: its position moves past them, and what it passed over stays unseen */
+function hand(recipient, key, held, entries) {
+	const given = new Set(held)
+	const top = Math.max(recipient.after, ...held)
+	const skip = recipient.skip ?? []
+	const passed = entries
+		.filter((entry) => entry.id > recipient.after && entry.id <= top && forAgent(entry, key))
+		.map(({ id }) => id)
+		.filter((id) => !skip.includes(id))
+	listed(
+		recipient,
+		'earlier',
+		[...(recipient.earlier ?? []), ...passed].filter((id) => !given.has(id)),
+	)
+	listed(
+		recipient,
+		'skip',
+		skip.filter((id) => id > top),
+	)
+	recipient.after = top
+}
+
+/** Whether a recipient has anything to read; inside a commit, before its entries */
+async function waits(tx, threadId, recipient, key) {
+	if (recipient.earlier?.length) return true
+	const found = await firstIn(
+		(cursor) =>
+			tx.scanEntries(
+				{ conversationId: threadId, order: 'ascending', minEntryId: recipient.after + 1 },
+				50,
+				cursor,
+			),
+		(entry) => forAgent(entry, key) && unseen(recipient, entry.id),
+	)
+	return Boolean(found)
+}
+
+/** The position that leaves just `ids` unseen among `shown`, a thread's messages, oldest first, reaching back past them */
+function positionOf(ids, shown, key) {
+	const left = new Set(ids)
+	const position = {
+		after: shown.findLast((entry) => forAgent(entry, key) && !left.has(entry.id))?.id ?? 0,
+	}
+	listed(
+		position,
+		'earlier',
+		ids.filter((id) => id <= position.after),
+	)
+	return position
+}
+
 /** An input Pi withdrew before it was placed: its messages are unseen again, and its note untold */
 async function restore(tx, threadId, conversation, { held, note }) {
 	const recipient = recipientOf(await tx.doc(Thread, threadId), conversation)
-	recipient.unseen = [...new Set([...recipient.unseen, ...held])].sort(
-		(left, right) => left - right,
-	)
+	listed(recipient, 'earlier', [...(recipient.earlier ?? []), ...held])
 	if (note) recipient.note ??= note
 }
 
@@ -2668,7 +2776,7 @@ async function withdraw(threadId, author, messageId) {
 		const row = await tx.doc(Thread, threadId)
 		const taken = []
 		for (const recipient of Object.values(row.agents)) {
-			if (recipient.unseen.includes(messageId)) {
+			if (unseen(recipient, messageId)) {
 				taken.push({ recipient })
 				continue
 			}
@@ -2685,9 +2793,13 @@ async function withdraw(threadId, author, messageId) {
 				tx.settleSubmission(item.id, { status: 'unanswered', reason: WITHDRAWN })
 				inbox.items.splice(inbox.items.indexOf(item), 1)
 			}
-			recipient.unseen = [...new Set([...recipient.unseen, ...others])]
-				.filter((id) => id !== messageId)
-				.sort((left, right) => left - right)
+			listed(
+				recipient,
+				'earlier',
+				[...(recipient.earlier ?? []), ...others].filter((id) => id !== messageId),
+			)
+			if (messageId > recipient.after)
+				listed(recipient, 'skip', [...(recipient.skip ?? []), messageId])
 		}
 		row.unpicked = (row.unpicked ?? []).filter((id) => id !== messageId)
 		await tx.appendEntry(threadId, { kind: WITHDRAWAL, data: { message: messageId } })
@@ -2777,7 +2889,7 @@ async function createThread(
 						...(images ? { images } : {}),
 						...(to.length ? { to } : {}),
 					},
-					{ empty: true, steer: first.steer === true },
+					{ steer: first.steer === true },
 				)
 		if (draft && draft.key === key) {
 			Object.assign(draft, { key: '', text: '', images: [], sent: key })
@@ -2849,10 +2961,10 @@ async function seenBy(id, cut) {
 }
 
 /**
- * The thread messages up to `at` an agent hadn't seen by its `answer`: those it still hasn't, and those it was handed
- * since, placed or still queued. Only its own conversation's few newest entries are read, not all it ever saw.
+ * Where an agent stood at `at`, by its `answer`: the thread messages up to `at` it still hasn't seen, and those it was
+ * handed since, placed or still queued. Only its own conversation's few newest entries are read, not all it ever saw.
  */
-async function unseenAt(agent, answer, at) {
+async function positionAt(agent, answer, at) {
 	const handle = await harness.conversation(answer.conversation, context)
 	const since = await collect((cursor) =>
 		handle.entries({ minEntryId: answer.entry + 1, order: 'ascending' }, 200, cursor, context),
@@ -2861,9 +2973,18 @@ async function unseenAt(agent, answer, at) {
 	const handed = [...since, ...queued.map((item) => item.entry)]
 		.filter((entry) => entry?.kind === DELIVERY)
 		.flatMap((entry) => entry.data.held)
-	return [...new Set([...agent.unseen, ...handed])]
-		.filter((message) => message <= at)
-		.sort((left, right) => left - right)
+	const position = { after: Math.min(agent.after, at) }
+	listed(
+		position,
+		'earlier',
+		[...(agent.earlier ?? []), ...handed].filter((id) => id <= position.after),
+	)
+	listed(
+		position,
+		'skip',
+		(agent.skip ?? []).filter((id) => id > position.after && id <= at),
+	)
+	return position
 }
 
 async function setTitle(id, { title, key }) {
@@ -2952,15 +3073,17 @@ async function forkThread(id, { at, title }, person) {
 	const agents = await Promise.all(
 		Object.entries(answers).map(async ([key, answer]) => {
 			if (answer.conversation === source.agents[key].conversation)
-				return { key, answer, unseen: await unseenAt(source.agents[key], answer, Number(at)) }
+				return {
+					key,
+					answer,
+					position: await positionAt(source.agents[key], answer, Number(at)),
+				}
+			// Its answer was in a conversation it no longer has, so the whole thread was read back
 			const seen = new Set(await seenBy(answer.conversation, answer.entry))
-			return {
-				key,
-				answer,
-				unseen: shown
-					.filter((entry) => !seen.has(entry.id) && !ownAnswer(entry, key))
-					.map((entry) => entry.id),
-			}
+			const left = shown
+				.filter((entry) => !seen.has(entry.id) && forAgent(entry, key))
+				.map((entry) => entry.id)
+			return { key, answer, position: positionOf(left, shown, key) }
 		}),
 	)
 	const forkTitle = title?.trim() || `${source.title} (fork)`
@@ -2974,8 +3097,8 @@ async function forkThread(id, { at, title }, person) {
 					memory: source.memory ?? null,
 				})
 				const row = {}
-				for (const { key, answer, unseen } of agents) {
-					row[key] = await newAgent(tx, forkId, unseen, answer)
+				for (const { key, answer, position } of agents) {
+					row[key] = await newAgent(tx, forkId, position, answer)
 					await configure(tx, row[key].conversation, {
 						tools: toolsOf(source.tools),
 						instructions: instructions(key, forkId, source.tools),
@@ -2985,7 +3108,11 @@ async function forkThread(id, { at, title }, person) {
 					row[key] = await newAgent(
 						tx,
 						forkId,
-						shown.filter((entry) => !ownAnswer(entry, key)).map((entry) => entry.id),
+						positionOf(
+							shown.filter((entry) => forAgent(entry, key)).map((entry) => entry.id),
+							shown,
+							key,
+						),
 					)
 					await setUp(tx, row[key].conversation, forkId, to)
 				}

@@ -194,7 +194,7 @@ export async function server(core) {
 					name: read.name ?? found.firstMessage.split('\n')[0].slice(0, 100),
 				},
 			})
-			const agent = await core.newAgent(tx, threadId, [])
+			const agent = await core.newAgent(tx, threadId, { after: 0 })
 			await core.setUp(tx, agent.conversation, threadId, to)
 			for (const { type, messages } of read.items)
 				for (const message of messages) {
@@ -220,6 +220,8 @@ export async function server(core) {
 								...(images.length ? { images } : {}),
 							},
 						})
+						// It has read the session's messages; its answers it never reads back
+						agent.after = sent.id
 						await tx.appendEntry(agent.conversation, {
 							kind: DELIVERY,
 							data: { held: [sent.id] },
