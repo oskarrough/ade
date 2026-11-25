@@ -37,10 +37,11 @@ const restarts = () =>
 export const updateShown = () => restarts() || Boolean(shellUpdate())
 
 const [seen, setSeen] = createSignal(localStorage.getItem(SEEN_VERSION))
-/** Whether a restart brought a version newer than the one this browser last looked at */
+/** Whether a restart brought a version newer than the one this browser last looked at; a checkout pulled but not
+ * yet restarted isn't running its news */
 export const hasNews = () => {
 	const v = version()
-	return Boolean(v) && seen() !== null && seen() !== v
+	return Boolean(v) && !server().stale && seen() !== null && seen() !== v
 }
 const markSeen = () => {
 	const v = version()
@@ -91,6 +92,15 @@ function ChangesPopover(props) {
 	// The first version this browser ever sees is read as caught up, not as news
 	createEffect(version, (v) => {
 		if (v && seen() === null) markSeen()
+	})
+	// Nor is a restart that brought only internal changes
+	createEffect(hasNews, (news) => {
+		if (!news) return
+		const since = server().release ? null : seen()
+		api(`/api/changes${since ? `?since=${since}` : ''}`).then(
+			({ commits }) => commits.every((commit) => INTERNAL.test(commit.subject)) && markSeen(),
+			() => {},
+		)
 	})
 	return html`<${Popover}
 		class="version-list"

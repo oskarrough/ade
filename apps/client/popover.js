@@ -1,10 +1,10 @@
 import html from '@solidjs/html'
 import { onCleanup } from 'solid-js'
 
-/** Popovers sit above their button on desktop (below, when only there they fit), its left edge on the button's, or its right edge when `end` says so or it wouldn't fit; one with no button sits centred near the top. On phones they become bottom sheets, unless `sheet` is false. */
+/** Popovers sit above their button on desktop (below, when only there they fit), its left edge on the button's, or its right edge when `end` says so or it wouldn't fit; one with no button, or a hidden one, sits centred near the top. On phones they become bottom sheets, unless `sheet` is false. */
 export function placePopover(panel, button, sheet = true, end = false) {
 	if (sheet && matchMedia('(max-width: 700px)').matches) return panel.removeAttribute('style')
-	if (!button)
+	if (!button?.getClientRects().length)
 		return Object.assign(panel.style, {
 			transformOrigin: 'top',
 			left: `${Math.max(8, (innerWidth - panel.offsetWidth) / 2)}px`,
