@@ -235,7 +235,7 @@ export function VersionSection() {
 						</button>
 					<//>
 					<button type="button" class="ghost small" onClick=${(_e) => openVersion()}>
-						What’s new
+						${() => (hasNews() ? 'What’s new' : 'What changed')}
 					</button>
 				</div>
 			</li>
