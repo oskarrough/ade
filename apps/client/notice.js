@@ -1,6 +1,7 @@
 /** What went wrong, above the active composer's input; goes by itself. */
 import html from '@solidjs/html'
 import { Icon } from './icons.js'
+import { keyless } from './server.js'
 import { createEffect, createSignal, Show } from 'solid-js'
 
 const [notice, setNotice] = createSignal('', { equals: false })
@@ -8,7 +9,8 @@ export const report = (error) => setNotice(error?.message ?? String(error))
 
 export function Notice() {
 	createEffect(notice, (text) => {
-		if (!text) return
+		// Bringing the device in takes another one, so that notice waits to be dismissed
+		if (!text || text === keyless) return
 		const timer = setTimeout(() => setNotice(''), 6000)
 		return () => clearTimeout(timer)
 	})

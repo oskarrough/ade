@@ -46,6 +46,9 @@ if (linkKey) {
 			'This link doesn’t open this house: its invite was taken back or replaced. Ask whoever sent it for a new one.',
 		)
 }
+/** What a device with the owner's tailnet login but not their key hears when it writes: it reads as them, and nothing more */
+export const keyless =
+	'This device only reads until it has your key: on one that writes, open Settings → People → Open on another device, and open that link here.'
 export const api = (path, body, method = body === undefined ? 'GET' : 'POST') =>
 	fetch(url + path, {
 		headers: { 'Content-Type': 'application/json' },
@@ -57,7 +60,7 @@ export const api = (path, body, method = body === undefined ? 'GET' : 'POST') =>
 		})
 		.then(async (response) => {
 			const json = await response.json()
-			if (!response.ok) throw new Error(json.error)
+			if (!response.ok) throw new Error(json.needs === 'owner-key' ? keyless : json.error)
 			return json
 		})
 

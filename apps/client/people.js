@@ -113,7 +113,10 @@ export function People(props) {
 			<li>
 				<div>
 					<span>Your other devices</span>
-					<small>While invites are on, they need your key too: a link brings one in as you.</small>
+					<small
+						>Through Tailscale they read as you; to write, or while invites are on, they need your
+						key: a link brings one in as you.</small
+					>
 				</div>
 				<button
 					type="button"
