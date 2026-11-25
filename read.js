@@ -310,7 +310,7 @@ const kindOf = (data) =>
  * write; the check holds the rows to them */
 function open(file) {
 	const db = new DatabaseSync(file)
-	db.exec('pragma busy_timeout = 5000; pragma synchronous = normal; pragma foreign_keys = off')
+	db.exec(`pragma busy_timeout = ${BUSY}; pragma synchronous = normal; pragma foreign_keys = off`)
 	return db
 }
 
@@ -1049,9 +1049,14 @@ const SLICE = 5
  * find us writing */
 const BEAT = 50
 const pause = new Int32Array(new SharedArrayBuffer(4))
-/** How long the write-ahead log may get, in pages, before the worker has it start over: about 4 MB, where Pi's own
- * connection would move it into the database too */
+/** How long the write-ahead log may get, in pages, before the worker has it start over: about 4 MB */
 const LOG_PAGES = 1000
+/** How long it may get while Pi's commits never pause, about 100 MB */
+const LOG_PAGES_MOST = 25_000
+/** How long the worker waits its turn to write, in milliseconds */
+const BUSY = 5000
+/** How long Pi's commits pause, in milliseconds, before the worker has the log start over */
+const QUIET = 1000
 
 /**
  * The worker: the one writer of the read model's tables, on a thread and a connection of its own, so its writes wait
@@ -1063,17 +1068,32 @@ function keep(file) {
 	const tell = (message) => parentPort.postMessage(message)
 	let project
 	let seq
+	/** The log starting over, waiting for Pi's commits to pause */
+	let quiet
 
 	/**
-	 * Moves what's been written from the write-ahead log into the database, here and not on Pi's next commit. Two
-	 * writers taking turns can keep the log from ever starting over, so once it's long this waits for its turn and
-	 * makes it: a pause for Pi's commits of as long as that copy takes, instead of a log that grows all day.
+	 * Moves what's been written from the write-ahead log into the database, here and not on the server's thread, where
+	 * Pi's commits would do it and stall everything while they do. Two writers taking turns can keep the log from
+	 * ever starting over, so once it's long and all of it is in the database, this makes it start over. That holds
+	 * Pi's commits while it copies what came since, so it waits for a quiet moment, unless the log is very long or
+	 * it's asked to start over `now`, as while the tables are made. It never waits for readers, as one may be on the
+	 * server's thread, itself waiting for a commit; it tries again later instead.
 	 */
-	function settle() {
-		const { log } = /** @type {any} */ (db.prepare('pragma wal_checkpoint(passive)').get())
-		if (log > LOG_PAGES) db.exec('pragma wal_checkpoint(restart)')
+	function settle(now = false) {
+		const { log, checkpointed } = /** @type {any} */ (
+			db.prepare('pragma wal_checkpoint(passive)').get()
+		)
+		if (log <= LOG_PAGES || checkpointed < log) return
+		clearTimeout(quiet)
+		quiet = undefined
+		if (!now && log < LOG_PAGES_MOST) return void (quiet = setTimeout(() => settle(true), QUIET))
+		db.exec('pragma busy_timeout = 0')
+		try {
+			db.prepare('pragma wal_checkpoint(restart)').get()
+		} finally {
+			db.exec(`pragma busy_timeout = ${BUSY}`)
+		}
 	}
-
 	/** Pi's records at one commit, read whole on a connection of its own */
 	function now() {
 		const reader = new DatabaseSync(file, { readOnly: true })
@@ -1097,13 +1117,13 @@ function keep(file) {
 			project = fill(db, at, () => {
 				if (performance.now() - since < SLICE) return
 				db.exec('commit')
-				settle()
+				settle(true)
 				Atomics.wait(pause, 0, 0, SLICE)
 				db.exec('begin immediate')
 				since = performance.now()
 			})
 			db.exec('commit')
-			settle()
+			settle(true)
 			seq = at.seq
 			const elapsed = Math.round(performance.now() - begun)
 			tell({
@@ -1249,6 +1269,7 @@ function keep(file) {
 		else if (message.closing) closing = stored.at(-1)?.seq ?? seq
 		else if (message.flush) {
 			clearTimeout(beat)
+			clearTimeout(quiet)
 			apply()
 			closed()
 			tell({ flushed: true })
@@ -1260,6 +1281,7 @@ function keep(file) {
 		else if (message.publication) {
 			stored.push(message.publication)
 			beat ??= setTimeout(apply, BEAT)
+			quiet?.refresh()
 		}
 	})
 }

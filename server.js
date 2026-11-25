@@ -255,32 +255,26 @@ function agentPeer(socket) {
 	}
 	if (!inode || inode === '0') return false
 	const link = `socket:[${inode}]`
-	for (const pid of readdirSync('/proc')) {
-		if (!/^\d+$/.test(pid) || Number(pid) === process.pid) continue
-		let fds = []
-		try {
-			fds = readdirSync(`/proc/${pid}/fd`)
-		} catch {}
-		const holds = fds.some((fd) => {
-			try {
-				return readlinkSync(`/proc/${pid}/fd/${fd}`) === link
-			} catch {
-				return false
-			}
-		})
-		if (!holds) continue
+	// Only a process marked as working for this server can make it an agent's, so only those have their sockets looked at
+	return readdirSync('/proc').some((pid) => {
+		if (!/^\d+$/.test(pid) || Number(pid) === process.pid) return false
 		try {
 			const marked = readFileSync(`/proc/${pid}/environ`, 'utf8')
 				.split('\0')
 				.find((pair) => pair.startsWith('ADE_AGENT_OF='))
 				?.slice('ADE_AGENT_OF='.length)
-			const url = marked && new URL(marked)
-			return Boolean(url) && [port, servePort].includes(Number(url.port || 80))
+			if (!marked || ![port, servePort].includes(Number(new URL(marked).port || 80))) return false
+			return readdirSync(`/proc/${pid}/fd`).some((fd) => {
+				try {
+					return readlinkSync(`/proc/${pid}/fd/${fd}`) === link
+				} catch {
+					return false
+				}
+			})
 		} catch {
 			return false
 		}
-	}
-	return false
+	})
 }
 const agentRefused =
 	'An agent writes here only through its own tools, never as a person. Put what you have to say, images as `![](path)`, in your answer; to reach another thread, use the post tool.'
@@ -701,8 +695,8 @@ function printed(
 
 /** A runner's calls show in no list; one ending may let an outdated runner update */
 const runners = createRunners({ onChange: () => nudge() })
-/** Waits woken by every change; set before Pi resumes tasks that wait */
-const changes = new Set()
+/** Waits woken when an agent's settings change, by its conversation; set before Pi resumes tasks that wait */
+const moves = new Map()
 /** What each running `$ cmd` has printed so far */
 const shells = new Map()
 const bundle = await runnerBundle(import.meta.dirname)
@@ -823,7 +817,9 @@ const provide = (name, runnerModels) => {
 	harnessed = undefined
 }
 
-const storage = await openNodeSqliteStorage(file)
+/** The read model's worker moves the write-ahead log into the database, off this thread; Pi's commits do it only
+ * if the log grows far past where the worker keeps it, as when the worker is down, since doing it here stalls everything */
+const storage = await openNodeSqliteStorage(file, { walAutoCheckpointPages: 100_000 })
 const harness = await Harness.open(
 	storage,
 	{
@@ -1177,24 +1173,28 @@ const agentsHere = async (threadId) =>
 /** Until the agent's runner is online, following the agent if it's asked on another runner meanwhile */
 async function reachable(agent, signal) {
 	for (;;) {
-		const to = await agentOf(agent)
-		// Its runner dialling in, or any change, which may be the agent moving, wakes it to look again
+		const { model } = await harness.snapshot(AgentDoc, agent, context)
+		const runner = model?.provider?.match(/^runner:(.+)$/)?.[1]
+		if (runner && runners.isOnline(runner)) return
+		// Its runner dialling in, or its settings changing, which may be it moving, wakes it to look again
 		const done = new AbortController()
 		const stop = () => done.abort(signal.reason)
 		signal.addEventListener('abort', stop, { once: true })
+		const waits = moves.get(agent) ?? new Set()
+		moves.set(agent, waits)
 		let wake
 		try {
 			await Promise.race([
-				runners.online(to.runner, done.signal),
-				new Promise((resolve) => changes.add((wake = resolve))),
+				runners.online(runner, done.signal),
+				new Promise((resolve) => waits.add((wake = resolve))),
 			])
 		} finally {
-			changes.delete(wake)
+			waits.delete(wake)
+			if (!waits.size) moves.delete(agent)
 			signal.removeEventListener('abort', stop)
 			done.abort()
 		}
 		signal.throwIfAborted()
-		if (runners.isOnline(to.runner)) return to
 	}
 }
 
@@ -4341,12 +4341,14 @@ harness.observeCommits({
 				}
 			}
 			if (change.type === 'entry') for (const hook of entryStored) hook(change.value)
-			else if (change.type === 'document' && change.kind === 'change')
+			else if (change.type === 'document' && change.kind === 'change') {
 				for (const hook of documentStored) hook(change)
+				if (change.record.kind === AgentDoc.definition.kind)
+					for (const wake of moves.get(change.conversationId) ?? []) wake()
+			}
 		}
 		feed.onCommit(publication)
 		movedFamilies = null
-		for (const wake of changes) wake()
 		nudge()
 		for (const threadId of ended)
 			busy(threadId)
