@@ -653,9 +653,13 @@ button[data-danger]:focus-visible:not(:disabled) {
 
 			h2 {
 				flex: 1;
-				margin: 0;
 				font: inherit;
 				font-weight: 500;
+
+				/* Beats a thread list heading's own margin, picked up only because a popover sits in its DOM. */
+				&:first-child {
+					margin: 0;
+				}
 			}
 
 			/* A quiet arrow or × lines up by its glyph, not its padding. */
