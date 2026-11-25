@@ -26,7 +26,6 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
   shown                             images an answer shows as `![](path)`, read through its runner and attached
-  addressed, sizeOf, imageSize, serveImage   a page's images by address and size (GET /api/threads/:id/images/:entry-:n), not bytes
   reachable                         a message waits for its agent's runner
   moveAgent, keysOf                 move an agent to another runner (POST /api/threads/:id/move)
   finishShell                       a shell's output and outcome, committed together
@@ -53,6 +52,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   mintKey, revoke, Makers, upgrade  runner keys, who made a guest's runner, and sockets; a module's `connect` socket
   saveSettings, restartSoon, restart, connectSelf   settings, restart (POST /api/restart), the server's own machine as a runner
   stale                             whether the server's code changed since it started
+images.js                addressed, serveImage: image URLs and dimensions in thread pages, cached bytes at GET /api/threads/:id/images/:entry-:n
 feed.js                  createFeed: versioned /ws views, subscriptions, row deltas, replay and eviction
 echo.js                  echo/try scripted model responses
 runner.js                a runner: offers models and folders, runs agents on its machine

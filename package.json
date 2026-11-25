@@ -23,6 +23,7 @@
 		"bin.js",
 		"server.js",
 		"feed.js",
+		"images.js",
 		"read.js",
 		"runner.js",
 		"runner-updater.js",
