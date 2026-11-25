@@ -20,7 +20,11 @@ import { pipeline } from 'node:stream/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { parseArgs } from 'node:util'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
-import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
+import {
+	clampThinkingLevel,
+	createModels,
+	getSupportedThinkingLevels,
+} from '@earendil-works/pi-ai/models'
 import {
 	AgentDoc,
 	configure,
@@ -1096,6 +1100,7 @@ async function address(to, command = false, signal, useDefaultThinking = true) {
 	}
 	for (const key of ['thinkingLevel', 'dir'])
 		if (typeof to[key] === 'string' && to[key].trim()) clean[key] = to[key].trim()
+	if (clean.thinkingLevel) clean.thinkingLevel = await clamped(clean, clean.thinkingLevel)
 	if (to.name !== undefined) {
 		if (typeof to.name !== 'string' || !(await botAgent?.(to.name)))
 			throw new Error(`${to.name} is no bot: only bots have names, and a thread's agent has none`)
@@ -1114,6 +1119,11 @@ async function address(to, command = false, signal, useDefaultThinking = true) {
 			)
 	}
 	return clean
+}
+/** A level the model can use, as pi clamps one, so a level it can't use is never saved or shown; as asked for a model the server hasn't resolved */
+const clamped = async (to, level) => {
+	const model = to.model && (await known())[to.runner]?.models?.[to.model]
+	return model && level ? clampThinkingLevel(model, level) : level
 }
 const addresses = (to, command, threadId) =>
 	Promise.all((to === null ? [] : [to].flat()).map((to) => whom(threadId, to, command)))
@@ -1137,8 +1147,10 @@ async function whom(threadId, to, command = false, signal) {
 	// its thinking, as a runner alone resolves to pi's default thinking there, which no one asked for, and on the same
 	// runner its folder.
 	const { thinkingLevel, dir, ...model } = resolved
-	const level =
-		asked?.thinkingLevel || (asked?.model && thinkingLevel) || agent.thinkingLevel || thinkingLevel
+	const level = await clamped(
+		resolved,
+		asked?.thinkingLevel || (asked?.model && thinkingLevel) || agent.thinkingLevel || thinkingLevel,
+	)
 	const into = dir ?? (resolved.runner === agent.runner ? agent.dir : undefined)
 	return { ...model, ...(level ? { thinkingLevel: level } : {}), ...(into ? { dir: into } : {}) }
 }
@@ -4988,15 +5000,6 @@ async function upgrade(req, raw, head, serve = false) {
 		model: query('model'),
 		...(query('thinkingLevel') && { thinkingLevel: query('thinkingLevel') }),
 		modelError: query('modelError'),
-		offers: url.searchParams.getAll('offer'),
-		thinkingLevels: Object.fromEntries(
-			url.searchParams.getAll('thinking').map((line) => {
-				const space = line.lastIndexOf(' ')
-				return [line.slice(0, space), line.slice(space + 1).split(',')]
-			}),
-		),
-		metered: url.searchParams.getAll('metered'),
-		free: url.searchParams.getAll('free'),
 		models: resolved,
 	}
 	await commit(async (tx) => {
@@ -5007,6 +5010,22 @@ async function upgrade(req, raw, head, serve = false) {
 	if (!models.getProvider(`runner:${name}`)) provide(name, resolved)
 	listen(runners.receive)
 	runners.connect(connection, (text) => socket.send(text))
+	// Its models come as a message, not in the URL, which a catalog of hundreds would overflow
+	const offered = await runners
+		.call(name, { op: 'models' }, { signal: AbortSignal.timeout(10_000) })
+		.catch(() => null)
+	if (offered)
+		await commit(async (tx) => {
+			const all = await tx.doc(Runners)
+			if (connection.phase !== 'closed' && all[name])
+				Object.assign(all[name], {
+					offers: offered.offers ?? [],
+					thinkingLevels: offered.thinkingLevels ?? {},
+					metered: offered.metered ?? [],
+					free: offered.free ?? [],
+				})
+		})
+	if (connection.phase === 'closed') return
 	feed.touch(['runners', 'bots', 'threads', 'archived', 'thread'])
 	for (const hook of runnerHooks) hook(name, true)
 	socket.send(JSON.stringify({ op: 'ready' }))

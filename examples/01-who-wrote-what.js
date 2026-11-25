@@ -95,12 +95,12 @@ check(
 	JSON.stringify(v2?.entries.at(-1)),
 )
 
-// Cy names the model as pi would let him, by its id with a thinking level
-await postEntry(id, 'think hard', { runner: 'laptop', model: 'echo:high' }, 'cy')
+// Cy names the model as pi would let him, by its id with a thinking level, one that thinks
+await postEntry(id, 'think hard', { runner: 'laptop', model: 'try:high' }, 'cy')
 const v3 = await answered(id, 3)
 const cy = v3?.entries.find((e) => e.data.author === person('cy'))
 check(
-	cy?.data.to?.join() === 'echo:high@laptop' && v3.agents[0].to.thinkingLevel === 'high',
+	cy?.data.to?.join() === 'try:high@laptop' && v3.agents[0].to.thinkingLevel === 'high',
 	"pi resolves a pattern to a model, and the thread's agent thinks as hard as it now asks",
 	JSON.stringify([cy?.data.to, v3?.agents]),
 )

@@ -87,7 +87,8 @@ POST   /api/read {rebuild: true}       the owner’s: starts rebuilding those ta
 GET    /api/runners                    each runner's row; `offers` are the models pi has scoped there, and
                                        `thinkingLevels` maps a model to the levels it can use, as pi's Shift+Tab
                                        cycles them (`["off"]` for one that doesn't think), for its offers, its
-                                       default and every model it has run
+                                       default and every model it has run. A `to` asking a level its model
+                                       can't use is saved as the nearest one it can, as pi clamps it
 POST   /api/runners {name}             a key, and the commands that connect it: `ade` with ade, `connect` without; a name another's
                                        runner holds is refused. A guest's runner lists `by`, them
 DELETE /api/runners/:name              its maker's or the owner's; the name stays its maker's

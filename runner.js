@@ -324,25 +324,6 @@ async function connect() {
 				: "pi isn't logged in, so only echo answers: install pi (`npm i -g @earendil-works/pi-coding-agent`), run `pi`, then `/login`.",
 		)
 	}
-	let scoped = []
-	try {
-		;({ scopedModels: scoped } = await resolveModelScopeWithDiagnostics(
-			SettingsManager.create(dir).getEnabledModels() ?? [],
-			models,
-		))
-	} catch (error) {
-		if (!warnedOffers) console.error(`${name}: couldn't list models: ${error.message}`)
-		warnedOffers = true
-	}
-	const refOf = (model) => `${model.provider}/${model.id}`
-	for (const offer of new Set(scoped.map(({ model }) => refOf(model)))) query.append('offer', offer)
-	// The thinking levels pi's Shift+Tab cycles through, for each model offered and the default: `provider/id off,low,…`
-	const leveled = [...(model ? [resolve('').model] : []), ...scoped.map(({ model }) => model)]
-	for (const each of new Map(leveled.map((model) => [refOf(model), model])).values())
-		query.append('thinking', `${refOf(each)} ${getSupportedThinkingLevels(each).join(',')}`)
-	const { metered, free } = await billing()
-	for (const provider of metered) query.append('metered', provider)
-	for (const ref of free) query.append('free', ref)
 	for (const who of args.allow) query.append('allow', who)
 	for (const folder of folders()) query.append('folder', folder)
 	const socket = new WebSocket(`${server.replace(/^http/, 'ws')}/ws?${query}`, {
@@ -358,6 +339,29 @@ async function connect() {
 			...Object.fromEntries(
 				modules.filter((module) => module.call).map((module) => [module.name, module.call]),
 			),
+			/** The models pi has scoped here, offered first, the thinking levels of each and of the default, as pi's
+			 * Shift+Tab cycles them, and what bills per use; a message, since a catalog of hundreds won't fit the socket's URL */
+			models: async () => {
+				let scoped = []
+				try {
+					;({ scopedModels: scoped } = await resolveModelScopeWithDiagnostics(
+						SettingsManager.create(dir).getEnabledModels() ?? [],
+						models,
+					))
+				} catch (error) {
+					if (!warnedOffers) console.error(`${name}: couldn't list models: ${error.message}`)
+					warnedOffers = true
+				}
+				const refOf = (model) => `${model.provider}/${model.id}`
+				const leveled = [...(model ? [resolve('').model] : []), ...scoped.map(({ model }) => model)]
+				return {
+					...(await billing()),
+					offers: [...new Set(scoped.map(({ model }) => refOf(model)))],
+					thinkingLevels: Object.fromEntries(
+						leveled.map((model) => [refOf(model), getSupportedThinkingLevels(model)]),
+					),
+				}
+			},
 			/** Every model pi is logged in for, beyond the scoped ones it offers first */
 			available: async () => [
 				...new Set((await models.getAvailable()).map((model) => `${model.provider}/${model.id}`)),

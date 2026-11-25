@@ -95,9 +95,56 @@ check(
 	'a runner says which thinking levels each model it offers can use',
 	JSON.stringify(offered?.thinkingLevels),
 )
+// A pi catalog of hundreds of models still connects, and its runner offers them all with their thinking levels
+const catalogDir = path.join(dir, 'catalog')
+const piDir = path.join(dir, 'pi-catalog')
+mkdirSync(path.join(catalogDir, '.pi'), { recursive: true })
+mkdirSync(piDir, { recursive: true })
+const catalog = Array.from({ length: 400 }, (_, n) => ({
+	id: `catalog-model-with-a-long-name-${n}`,
+	reasoning: true,
+}))
+writeFileSync(
+	path.join(piDir, 'models.json'),
+	JSON.stringify({
+		providers: {
+			catalog: {
+				baseUrl: 'http://127.0.0.1:1/v1',
+				api: 'openai-completions',
+				apiKey: 'none',
+				models: catalog,
+			},
+		},
+	}),
+)
+writeFileSync(
+	path.join(catalogDir, '.pi', 'settings.json'),
+	JSON.stringify({ enabledModels: ['catalog/*'] }),
+)
+const big = await runner('catalog', { dir: catalogDir, env: { PI_CODING_AGENT_DIR: piDir } })
+const bigRow = (await api('GET', '/api/runners')).json.find((x) => x.name === 'catalog')
+check(
+	bigRow?.online &&
+		bigRow.offers.length === 400 &&
+		JSON.stringify(bigRow.thinkingLevels['catalog/catalog-model-with-a-long-name-399']) ===
+			'["off","minimal","low","medium","high"]',
+	'a runner with hundreds of models comes online and offers them all',
+	JSON.stringify({ online: bigRow?.online, offers: bigRow?.offers.length }),
+)
+big.kill()
+
 const gone = await createThread('away')
 await postEntry(gone, 'hi', { runner: 'away', model: 'echo/echo' })
 await answered(gone)
+// A level the model can't use is saved as the nearest it can, as pi clamps it
+await postEntry(gone, 'think hard', { runner: 'away', model: 'echo/echo', thinkingLevel: 'max' })
+await answered(gone)
+const clampedTo = (await api('GET', `/api/threads/${gone}`)).json.agents?.[0]?.to
+check(
+	clampedTo?.thinkingLevel === 'off',
+	"a thinking level the model can't use is saved as one it can",
+	JSON.stringify(clampedTo),
+)
 await api('POST', `/api/threads/${gone}/read`, {})
 away.kill()
 await until(() =>
