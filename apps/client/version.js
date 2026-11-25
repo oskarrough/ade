@@ -1,7 +1,7 @@
 /**
- * What changed, and the sidebar foot's one line about it: "Update ready" with Restart and What changed when the
- * owner's restart is waiting, "What's new" alone once this browser hasn't looked yet, nothing once it has. Settings
- * keeps the same popover behind its own Version section.
+ * What changed, and the sidebar foot's one item about it: "Update" when the owner's restart is waiting, "What's new"
+ * once this browser hasn't looked yet, nothing once it has. Either opens What changed, which carries Restart while an
+ * update waits. Settings keeps the same popover behind its own Version section.
  */
 import html from '@solidjs/html'
 import { createEffect, createSignal, For, Show } from 'solid-js'
@@ -82,12 +82,31 @@ let panel
 /** Opens What changed from anywhere: Jump, Settings, or the foot's own line */
 export const openVersion = () => panel?.showPopover()
 
-/** What changed's popover: a trigger that reads `label`, hidden by `hidden` when the foot shows nothing, and the
- * grouped list once it opens; its panel stays mounted either way, so Jump and Settings can open it through
- * `openVersion` even with nothing to show in the foot. */
-function ChangesPopover(props) {
+/** Restart into the waiting update: the server's own restart, or arbe desktop's install */
+function restartUpdate() {
+	return busy(async () => (restarts() ? restart() : installShellUpdate()))
+}
+const restartTitle = () => {
+	if (!restarts()) return `arbe desktop ${shellUpdate()} is out`
+	if (server().staged)
+		return `ade ${server().staged} is ready: ade restarts into it and the page reloads`
+	return (
+		changes()
+			.map((commit) => commit.subject)
+			.join('\n') ||
+		'The server changed since it started: it restarts, as Save and restart does, and the page reloads once it’s back'
+	)
+}
+
+/**
+ * The sidebar foot's one item and the What changed popover behind it: "Update" while the owner's restart is waiting,
+ * with Restart in the popover's head; "What's new" once this browser hasn't looked at the newest restart; nothing
+ * otherwise. Its panel stays mounted either way, so Jump and Settings can open it through `openVersion`.
+ */
+export function FootNews() {
 	const [commits, setCommits] = createSignal([])
 	const [isNews, setIsNews] = createSignal(false)
+	const update = restartUpdate()
 	const groups = () => groupChanges(commits(), server().release)
 	// The first version this browser ever sees is read as caught up, not as news
 	createEffect(version, (v) => {
@@ -107,11 +126,14 @@ function ChangesPopover(props) {
 		button=${() =>
 			html`<button
 				type="button"
-				class=${() => ['ghost small foot-toggle version-toggle', { hidden: props.hidden }]}
+				class=${() => [
+					'ghost small foot-toggle version-toggle',
+					{ hidden: !updateShown() && !hasNews() },
+				]}
 				data-fuzz-skip
-				title="What changed"
+				title=${() => (updateShown() ? 'An update is waiting' : 'What changed')}
 			>
-				${() => props.label}
+				<span>${() => (updateShown() ? 'Update' : "What's new")}</span>
 			</button>`}
 		ref=${(el) => (panel = el)}
 		onToggle=${(event) => {
@@ -127,6 +149,18 @@ function ChangesPopover(props) {
 	>
 		<${Panes}
 			title="What changed"
+			actions=${html`<${Show} when=${updateShown}>
+				<button
+					type="button"
+					class="small"
+					data-fuzz-skip
+					disabled=${() => update.state() === 'busy' || Boolean(restarting())}
+					title=${restartTitle}
+					onClick=${(_e) => update()}
+				>
+					<${Busy} state=${() => (restarting() ? 'busy' : update.state())}>Restart<//>
+				</button>
+			<//>`}
 			foot=${html`<p class="mute">
 				<${Show} when=${version}
 					><a href=${sourceHref} target="_blank" rel="noopener noreferrer"
@@ -164,49 +198,10 @@ function ChangesPopover(props) {
 	<//>`
 }
 
-/**
- * The sidebar foot's one line: nothing while there's neither an update nor news, "What's new" alone once this
- * browser hasn't looked at the newest restart, or "Update ready" with Restart and What changed when the owner's
- * restart is waiting. Never both at once.
- */
-export function FootNews() {
-	const update = busy(async () => (restarts() ? restart() : installShellUpdate()))
-	const title = () => {
-		if (!restarts()) return `arbe desktop ${shellUpdate()} is out`
-		if (server().staged)
-			return `ade ${server().staged} is ready: ade restarts into it and the page reloads`
-		return (
-			changes()
-				.map((commit) => commit.subject)
-				.join('\n') ||
-			'The server changed since it started: it restarts, as Save and restart does, and the page reloads once it’s back'
-		)
-	}
-	return html`<div class="foot-news">
-		<${Show} when=${updateShown}>
-			<span class="mute">Update ready</span>
-			<button
-				type="button"
-				class="ghost small"
-				data-fuzz-skip
-				disabled=${() => update.state() === 'busy' || Boolean(restarting())}
-				title=${title}
-				onClick=${(_e) => update()}
-			>
-				<${Busy} state=${() => (restarting() ? 'busy' : update.state())}>Restart<//>
-			</button>
-		<//>
-		<${ChangesPopover}
-			label=${() => (updateShown() ? 'What changed' : "What's new")}
-			hidden=${() => !updateShown() && !hasNews()}
-		/>
-	</div>`
-}
-
 /** Version, Settings' own small section: ade's version, the desktop's if there is one, What's new, and Restart
  * when an update is waiting */
 export function VersionSection() {
-	const update = busy(async () => (restarts() ? restart() : installShellUpdate()))
+	const update = restartUpdate()
 	return html`<${Show} when=${() => version() || desktopVersion()}>
 		<h3>Version</h3>
 		<ul class="rows version-section">

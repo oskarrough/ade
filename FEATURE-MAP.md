@@ -140,8 +140,9 @@ apps/client/             the web client, Solid 2, no build (README.md there)
   model-picker.js        model search, thinking and folder: ModelPicker, matches, fromRunner, metered, Metered
   runner.js              runner list, ConnectRunner; Stranded, runnersWith
   bot.js                 BotSettings, ForgetBot, new bot, botThreads, botMenu, BotCard
-  thread-list.js         ThreadList, family rows, Inbox toggle, Update (restart, or arbe desktop's own release), creatingBot, threadMenu,
+  thread-list.js         ThreadList, family rows, Inbox toggle, creatingBot, threadMenu,
                          ThreadCard (a row's hover card), GetApp (the desktop download)
+  version.js             FootNews (the foot's Update or What's new, opening What changed with Restart), VersionSection
   hover-card.js          HoverCard, HoverFrame, cards: one card frame that glides beside the hovered row, fine pointers only
   schedule.js            ScheduledTaskList, TaskRow, ThreadTasks, OfflineRunner, TaskForm (its timeline), openTaskForm,
                          ScheduledTasks, Ring, LastRun, Controls, ScheduledTaskSet, ScheduledRun

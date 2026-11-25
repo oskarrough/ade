@@ -2041,7 +2041,7 @@ connect-runner {
 	}
 }
 
-/* The list's foot: settings and runners on the left, Update pushed to the right. */
+/* The list's foot: settings, runners and scheduled on the left, Update or What's new pushed to the right. */
 .list-foot {
 	position: sticky;
 	bottom: 0;
@@ -2079,8 +2079,9 @@ button.foot-toggle {
 		font-variant-numeric: tabular-nums;
 	}
 
+	/* Update or What's new, pushed to the right. */
 	&.version-toggle {
-		font-variant-numeric: tabular-nums;
+		margin-inline-start: auto;
 
 		&.hidden {
 			display: none;
@@ -2090,42 +2091,6 @@ button.foot-toggle {
 	&.settings-toggle {
 		width: var(--small-button);
 		padding: 0;
-	}
-}
-
-/* The foot's one line about an update or What changed: nothing, "What's new" alone, or "Update ready" with Restart
- * and What changed beside it. Pushed to the right, like the trigger it replaces. */
-.foot-news {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-	margin-inline-start: auto;
-
-	/* A pale band crosses "Update ready" now and then, then waits; it reads as plain mute text otherwise. */
-	> .mute {
-		background: linear-gradient(100deg, var(--mute) 45%, var(--ink) 50%, var(--mute) 55%);
-		background-size: 250% 100%;
-		background-position: 250% 0;
-		background-clip: text;
-		-webkit-background-clip: text;
-		color: transparent;
-	}
-
-	@media (prefers-reduced-motion: no-preference) {
-		> .mute {
-			animation: shimmer 6s ease-in-out infinite;
-		}
-	}
-}
-
-@keyframes shimmer {
-	0%,
-	85% {
-		background-position: 250% 0;
-	}
-
-	100% {
-		background-position: -150% 0;
 	}
 }
 
