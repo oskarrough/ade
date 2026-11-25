@@ -246,6 +246,8 @@ export function Composer(props) {
 			to = snapshot(whom())
 		// It posts under its draft's key, so it lands once and empties that draft wherever it's open
 		const sent = draft().key || crypto.randomUUID()
+		const message = { body, key: sent, ...(images.length && { images }) }
+		const post = { ...message, steer: true, ...(toDirector && props.thread ? {} : { to }) }
 		// A choice holds for one message, including the invitation that turns a solo thread into a group
 		if (props.thread && !props.inbox) setCompose((store) => void delete store.picks[props.thread])
 		let id = props.thread
@@ -270,29 +272,12 @@ export function Composer(props) {
 		sendingNow.add(going)
 		try {
 			if (id) {
-				if (!/^\$\s/.test(body))
-					sentRow = sending(id, {
-						key: sent,
-						body,
-						...(images.length && { images }),
-					})
-				const posted = await api(`/api/threads/${id}/entries`, {
-					body,
-					...(toDirector ? {} : { to }),
-					steer: true,
-					...(images.length && { images }),
-					key: sent,
-				})
+				if (!/^\$\s/.test(body)) sentRow = sending(id, message)
+				const posted = await api(`/api/threads/${id}/entries`, post)
 				sentRow?.settle(posted.seq, posted.boot)
 			} else
 				// A new thread and its first message are made in one step, under the draft's key
-				id = going.thread = await createThread(defaultTitle(body), {
-					key: sent,
-					body,
-					to,
-					steer: true,
-					...(images.length && { images }),
-				})
+				id = going.thread = await createThread(defaultTitle(body), post)
 		} catch (error) {
 			sentRow?.drop()
 			spent.delete(sent)
@@ -633,7 +618,7 @@ export function Composer(props) {
 					<${ModelPicker}
 						getTo=${(runner) => toFor(runner, props.thread)}
 						selectedRunner=${() => agent(props.thread)?.runner}
-						fromRunner=${() => here(props.thread).find((one) => one.to && !one.to.name)?.to.runner}
+						fromRunner=${() => ownAgent(props.thread)?.runner}
 						onChoose=${(to) => {
 							choose(to, true, props.thread)
 							picker.hidePopover()
@@ -792,13 +777,7 @@ function save(thread, keepalive = false) {
 			pick: chosen && !chosen.held ? snapshot(chosen) : null,
 		}),
 	}
-	if (keepalive)
-		return void fetch(`${url}${draftPath(thread)}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
-			keepalive: true,
-		}).catch(() => {})
+	if (keepalive) return saveOnClose(thread, body)
 	api(draftPath(thread), body)
 		.then((answer) => answer.sent && wasSent(thread, body.key, true))
 		.catch(() => {})
@@ -809,19 +788,21 @@ function cancelSave(thread) {
 }
 /** Sends on their way: `{thread, key, text}` */
 const sendingNow = new Set()
+const saveOnClose = (thread, body) => {
+	void fetch(`${url}${draftPath(thread)}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+		keepalive: true,
+	}).catch(() => {})
+}
 /**
  * A closing page sends what waits to be saved, and puts each send still on its way back as a draft under its key: if
  * it landed, that save does nothing; if not, the reload finds it in the box and Send posts it once.
  */
 addEventListener('pagehide', () => {
 	for (const thread of saving.keys()) save(thread, true)
-	for (const { thread, key, text } of sendingNow)
-		fetch(`${url}${draftPath(thread)}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ key, text, page }),
-			keepalive: true,
-		}).catch(() => {})
+	for (const { thread, key, text } of sendingNow) saveOnClose(thread, { key, text, page })
 })
 /**
  * A message went under this draft's key, from here or another device: what was sent leaves the box. Text typed here
@@ -888,6 +869,7 @@ function heardDraft(rows, frame, reset) {
 /** What you chose in a thread's composer, or the new thread's for `null`; none until you choose */
 export const pick = (thread = current()) => compose.picks[thread ?? 'new'] ?? null
 const here = (thread = current()) => threadOf(thread)?.agents ?? []
+const ownAgent = (thread) => here(thread).find((agent) => agent.to && !agent.to.name)?.to
 const lastTo = (thread = current()) =>
 	(entries[thread] ?? []).findLast((event) => event.data.to?.length)?.data.to
 const fallback = (runner) =>
@@ -900,20 +882,24 @@ const fallback = (runner) =>
 export const agent = (thread = current()) => {
 	const bot = homeBot(thread)
 	if (bot) return botAgent(bot)
-	if (pick(thread)) return pick(thread).agent
-	if (lastTo(thread) && !lastTo(thread).some((name) => name.includes('@'))) return null
-	const own = here(thread).find((agent) => agent.to && !agent.to.name)?.to
+	const chosen = pick(thread)
+	if (chosen) return chosen.agent
+	const last = lastTo(thread)
+	if (last && !last.some((name) => name.includes('@'))) return null
+	const own = ownAgent(thread)
 	const first = runners.find((runner) => runner.online) ?? runners[0]
 	return own ?? (first?.model ? fallback(first) : null)
 }
 /** The bots it asks beside it: those picked, or those the thread asked last, as they run */
-const askedBots = (thread = current()) =>
-	homeBot(thread)
-		? []
-		: (pick(thread)?.bots ??
-			here(thread)
-				.map((agent) => agent.to)
-				.filter((to) => to?.name && lastTo(thread)?.includes(to.name)))
+const askedBots = (thread) => {
+	if (homeBot(thread)) return []
+	const chosen = pick(thread)
+	if (chosen?.bots) return chosen.bots
+	const last = lastTo(thread)
+	return here(thread)
+		.map((agent) => agent.to)
+		.filter((to) => to?.name && last?.includes(to.name))
+}
 const isHere = (bot, thread) =>
 	here(thread).some((agent) => agent.to?.name === bot.name) ||
 	askedBots(thread).some((to) => to.name === bot.name)
@@ -1002,7 +988,7 @@ const recipientWords = (to, thread) => {
 /** The folder the next message's agent works in: as picked, else where it runs now, else its runner's own */
 export const folderOf = (thread) => {
 	// In a group whose last message asked no agent, the thread's own agent still works where it did
-	const to = agent(thread) ?? here(thread).find((agent) => agent.to && !agent.to.name)?.to
+	const to = agent(thread) ?? ownAgent(thread)
 	const runner = to && runners.find((runner) => runner.name === to.runner)
 	if (!runner?.dir) return
 	const running = here(thread).find(
@@ -1024,13 +1010,14 @@ const where = (thread) => {
 	const folder = folderOf(thread)?.split(/[\\/]/).filter(Boolean).pop()
 	if (!folder) return ''
 	const several = runners.filter((runner) => runner.online).length > 1
-	const runner = (agent(thread) ?? here(thread).find((agent) => agent.to && !agent.to.name)?.to)
-		?.runner
+	const runner = (agent(thread) ?? ownAgent(thread))?.runner
 	return `${several ? `${runner}:` : ''}${folder}/ `
 }
 /** What a runner's controls show: the agent asked, if it runs there, else what was last chosen there */
-export const toFor = (runner, thread = current()) =>
-	agent(thread)?.runner === runner.name ? agent(thread) : fallback(runner)
+export const toFor = (runner, thread = current()) => {
+	const selected = agent(thread)
+	return selected?.runner === runner.name ? selected : fallback(runner)
+}
 /** `held` marks a pick made only to keep the label still while you type, not one you chose */
 const setPick = (to, bots, thread = current(), held = false) => {
 	setCompose((store) => {
