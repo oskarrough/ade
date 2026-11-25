@@ -2243,8 +2243,19 @@ body.resizing {
 		cursor: pointer;
 	}
 
-	&.open > .line {
-		white-space: normal;
+	/* Opened, its words take the whole width beside the ring, and its buttons drop to a row of their own at the end */
+	&.open {
+		flex-wrap: wrap;
+		align-items: start;
+
+		> svg.ring {
+			translate: 0 calc((1lh - var(--icon)) / 2);
+		}
+
+		> .line {
+			flex: 1 0 calc(100% - var(--icon) - var(--space-2));
+			white-space: normal;
+		}
 	}
 }
 
