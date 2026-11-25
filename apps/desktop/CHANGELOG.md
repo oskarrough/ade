@@ -1,9 +1,5 @@
 # Changelog
 
-## 0.1.11
-
-- A release of ade that changes how your threads are stored converts them itself, with a backup; if it then won't start, going back restores the backup too, so the house can always post.
-
 ## 0.1.10
 
 - Takes only releases of ade signed with its own update key, and only those it's new enough for; for a release that needs a newer arbe desktop, it says so and offers its own update.

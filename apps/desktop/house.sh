@@ -255,8 +255,7 @@ run)
 	fi
 	take_staged || exit 1
 	# A release that stops before it comes up, with the one before it still in ade.old, makes way for that one again,
-	# and fetch_ade passes it over; the server's restart into a staged release counts too. If it converted the store,
-	# its .restore in ade.old names the backup it took first, which goes back with the old release, never without it.
+	# and fetch_ade passes it over; the server's restart into a staged release counts too
 	while :; do
 		node "$own/ade/bin.js"
 		code=$?
@@ -264,16 +263,6 @@ run)
 		bad="$(release_of "$own/ade")"
 		echo "$(date '+%F %T'): ade $bad stopped before it came up; going back to $(release_of "$own/ade.old")"
 		echo "$bad" > "$own/ade.bad"
-		restore="$own/ade.old/.restore"
-		if [ -f "$restore" ]; then
-			store="$(field "$restore" store)"
-			backup="$(field "$restore" backup)"
-			echo "Putting back $store from before $bad"
-			[ -n "$store" ] && [ -f "$backup" ] && rm -f "$store-wal" "$store-shm" && mv "$backup" "$store" && rm "$restore" || {
-				echo "Couldn't put back $store from $backup; the house stays stopped rather than run $(release_of "$own/ade.old") on data it can't read" >&2
-				exit 1
-			}
-		fi
 		rm -rf "$own/ade" && mv "$own/ade.old" "$own/ade" || exit 1
 	done
 	;;

@@ -150,71 +150,42 @@ process.on('exit', (code) => logged(`exited with code ${code}`))
 process.on('exit', () => Number(readFileSync(lock, 'utf8')) === process.pid && rmSync(lock))
 
 /**
- * How each release that changed stored data converts a store from before it: `found` finds the old shape, `sql` turns
- * it into the new one in place, and `name` names the backup kept beside the store. A new one goes at the end.
+ * A store from before members kept a place in the thread: each still holds the list of every message it hadn't been
+ * handed, which this server doesn't read, so it would hand them nothing new. It refuses, with the one-off command that
+ * converts them: every member's place at the newest entry, its old list kept as `earlier`.
  */
-const conversions = [
-	{
-		// Members kept the list of every message they hadn't been handed; now a place in the thread. Every member's place
-		// goes at the newest entry, its old list kept as `earlier`, so nobody is handed anything differently.
-		name: 'positions',
-		says: "keeps thread members' unread messages the old way",
-		found: `select 1 from documents join document_revisions on document_id = documents.id
-			where documents.kind = '"ade.thread"' and instr(content, '"unseen":') limit 1`,
-		sql: String.raw`update document_revisions set content = json_set(content, '$.agents', json((select json_group_object(agent.key, json(iif(json_array_length(agent.value, '$.unseen') > 0, json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id, '$.earlier', json(agent.value -> '$.unseen')), json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id)))) from json_each(content, '$.agents') agent, (select max(id) as id from entries) newest))) where document_id in (select id from documents where kind = '"ade.thread"') and exists (select 1 from json_each(content, '$.agents') agent where agent.value -> '$.unseen' is not null)`,
-	},
-]
-/**
- * A store in an older shape than this server reads. A release that just replaced the one in `<folder>.old` converts it
- * itself, after backing it up and leaving `.restore` there, so arbe desktop's house.sh, going back to that release if
- * this one never listens, puts the backup back with it: old code never meets new data. Anywhere else, a checkout or
- * npx, it refuses with the one command that does the same, to run with ade stopped.
- */
-const due = (() => {
-	if (!existsSync(file)) return []
+const oldMembers = (() => {
+	if (!existsSync(file)) return false
 	const db = new DatabaseSync(file, { readOnly: true })
 	try {
-		return conversions.filter((conversion) => {
-			try {
-				return Boolean(db.prepare(conversion.found).get())
-			} catch {
-				return false
-			}
-		})
+		return Boolean(
+			db
+				.prepare(
+					`select 1 from documents join document_revisions on document_id = documents.id
+					where documents.kind = '"ade.thread"' and instr(content, '"unseen":') limit 1`,
+				)
+				.get(),
+		)
+	} catch {
+		return false
 	} finally {
 		db.close()
 	}
 })()
-if (due.length) {
-	const backup = `${file}.before-${due.map((conversion) => conversion.name).join('-')}`
+if (oldMembers) {
+	const convert = String.raw`update document_revisions set content = json_set(content, '$.agents', json((select json_group_object(agent.key, json(iif(json_array_length(agent.value, '$.unseen') > 0, json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id, '$.earlier', json(agent.value -> '$.unseen')), json_set(json_remove(agent.value, '$.unseen'), '$.after', newest.id)))) from json_each(content, '$.agents') agent, (select max(id) as id from entries) newest))) where document_id in (select id from documents where kind = '"ade.thread"') and exists (select 1 from json_each(content, '$.agents') agent where agent.value -> '$.unseen' is not null)`
+	/** Quotes as \x27 and \x22 inside a JS string, so the line pastes the same into bash, zsh and fish */
+	const inJs = (text) =>
+		text
+			.replaceAll('\\', String.raw`\\`)
+			.replaceAll("'", String.raw`\x27`)
+			.replaceAll('"', String.raw`\x22`)
+	const backup = `${file}.before-positions`
 	const vacuum = `vacuum into '${backup.replaceAll("'", "''")}'`
-	const convert = `begin; ${due.map((conversion) => conversion.sql).join('; ')}; commit`
-	const previous = `${import.meta.dirname}.old`
-	if (existsSync(path.join(import.meta.dirname, '.release')) && existsSync(previous)) {
-		console.log(
-			`${file} ${due.map((conversion) => conversion.says).join(', and ')}; converting it, a backup in ${backup}`,
-		)
-		rmSync(backup, { force: true })
-		const db = new DatabaseSync(file)
-		try {
-			db.exec(vacuum)
-			writeFileSync(path.join(previous, '.restore'), `${JSON.stringify({ store: file, backup })}\n`)
-			db.exec(convert)
-		} finally {
-			db.close()
-		}
-	} else {
-		/** Quotes as \x27 and \x22 inside a JS string, so the line pastes the same into bash, zsh and fish */
-		const inJs = (text) =>
-			text
-				.replaceAll('\\', String.raw`\\`)
-				.replaceAll("'", String.raw`\x27`)
-				.replaceAll('"', String.raw`\x22`)
-		console.error(
-			`${file} ${due.map((conversion) => conversion.says).join(', and ')}; with ade stopped, convert it once (a backup goes to ${backup}): node -e 'const db = new (require("node:sqlite").DatabaseSync)("${inJs(file)}"); db.exec("${inJs(vacuum)}"); db.exec("${inJs(convert)}"); console.log("converted")'`,
-		)
-		process.exit(1)
-	}
+	console.error(
+		`${file} keeps thread members' unread messages the old way; with ade stopped, convert it once (a backup goes to ${backup}): node -e 'const db = new (require("node:sqlite").DatabaseSync)("${inJs(file)}"); db.exec("${inJs(vacuum)}"); db.exec("${inJs(convert)}"); console.log("converted")'`,
+	)
+	process.exit(1)
 }
 /** `--dir` folders for the server's own runner, the first where threads start; `--no-runner` lends no runner */
 const { values: flags } = parseArgs({

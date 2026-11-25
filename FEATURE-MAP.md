@@ -24,7 +24,6 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   core.*                            what modules call: trailed, conversations, feed, snapshot, spent, task, tasks, signal, threadRows, threadMatch
   entryStored, documentStored, endedHooks, runnerHooks, withdrawn   modules' hooks of the same names (`ended` for endedHooks, `runner` for runnerHooks, `uninvited` for uninvitedHooks)
   committed                         modules' hook of that name: each commit Pi stored, whole, with its seq
-  conversions, due                  a store from before a release that changed stored data: backed up and converted, or the command that does it
   reconfigure, newAgent, setUp      an agent starting, or switching model/thinking/runner/folder in place
   outcome, tell, restore, faulted   what a finished or failed delivery posts back
   shown                             images an answer shows as `![](path)`, read through its runner and attached
@@ -218,7 +217,7 @@ Where a feature lives:
 - The house as SQL: read.js, server.js `read` (made right after Pi opens), listFacts, messageIds and `close`, which has read.stop tell the tables of every commit, docs/server.md.
 - A page behind its ade: server.js hashOf/clientVersion, GET /api/changes, client server.js `behind` (reloads by itself when hidden or idle)/`changes`, thread-list.js `Update`; up to date, its `Version` line and the newest twenty commits, or an installed house's release notes.
 - Releases: scripts/release.sh (`pnpm release`) tags main `v*` with the subjects since the last, signed with the desktop update key (house.sh digest); server.js readRelease/stageNewest/takeStaged (`.release`, `<folder>.next` swapped in on restart); desktop.js shellUpdate, main.go ShellUpdate/InstallUpdate.
-- The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log; without ade installed, its own ade and Node, the newest release, fetched on first start, and newer ones staged hourly in ade.next by updateHouse, only when signed (verify) and new enough for this app (too_old; house.go tooOld says so); a release that doesn't come up goes back to ade.old (run), with the store backup its .restore names; login, pi in a terminal for Desktop.Login, which the model picker's LogIn in apps/client/runner.js calls; key, the owner key ownerKey puts in the window's cookie).
+- The desktop app's house: apps/desktop house.go (house.json, startHouse when the local server doesn't answer, the House menu), house.sh (start, stop and status of only the house it started, in WSL on Windows; the log; without ade installed, its own ade and Node, the newest release, fetched on first start, and newer ones staged hourly in ade.next by updateHouse, only when signed (verify) and new enough for this app (too_old; house.go tooOld says so); a release that doesn't come up goes back to ade.old (run); login, pi in a terminal for Desktop.Login, which the model picker's LogIn in apps/client/runner.js calls; key, the owner key ownerKey puts in the window's cookie).
 - The desktop window: apps/desktop main.go (`Desktop.Menu`), preload.js; releases: release.sh tags, .github/workflows/desktop-release.yml builds and publishes.
 
 ## UI parts
