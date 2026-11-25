@@ -3547,6 +3547,21 @@ const place = (id, value, record = records.get(id)) => {
 		agentThreads.set(conversation, id)
 	return { before, now }
 }
+/** The open threads but `except` with an agent working in `dir` on `runner`, or in a folder inside it */
+async function workingIn(runner, dir, except) {
+	const ids = new Set()
+	for (const [conversation, id] of agentThreads) {
+		if (id === except || ids.has(id) || (placed.get(id)?.hidden ?? true)) continue
+		const agent = await harness.snapshot(AgentDoc, conversation, context)
+		if (agent?.model?.provider !== `runner:${runner}` || !agent.cwd) continue
+		const inside = path.relative(dir, agent.cwd)
+		if (inside.startsWith('..') || path.isAbsolute(inside)) continue
+		const row = await thread(id)
+		if (Object.values(row.agents).some((member) => member.conversation === conversation))
+			ids.add(id)
+	}
+	return [...ids]
+}
 const touchThread = (threadId) => {
 	const meta = placed.get(threadId)
 	const views = [
@@ -3591,6 +3606,7 @@ const core = {
 	whom,
 	agentOf,
 	agentsHere,
+	workingIn,
 	conversation,
 	thread,
 	home,

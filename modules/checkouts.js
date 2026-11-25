@@ -11,22 +11,23 @@ import { AGENT, background, finished } from '../util.js'
 
 /**
  * Which repo a folder is in, the nearest where one is nested in another: its kind, the checkout it's in, that repo's
- * main checkout, and where checkouts go
+ * main checkout, where checkouts go, and the folder itself with symlinks resolved, as the first three are
  */
 const DETECT = String.raw`
 jjtop=$(jj root 2>/dev/null)
 gittop=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$jjtop" ] && [ ${'$'}{#jjtop} -ge ${'$'}{#gittop} ]; then
-	top=$jjtop; echo jj; echo "$top"
-	if [ -f "$top/.jj/repo" ]; then (cd "$top/.jj" && cd "$(cat repo)/../.." && pwd); else echo "$top"; fi
+	top=$(cd "$jjtop" && pwd -P); echo jj; echo "$top"
+	if [ -f "$top/.jj/repo" ]; then (cd "$top/.jj" && cd "$(cat repo)/../.." && pwd -P); else echo "$top"; fi
 elif [ -n "$gittop" ]; then
-	top=$gittop
+	top=$(cd "$gittop" && pwd -P)
 	echo git; echo "$top"
-	dirname "$(git rev-parse --path-format=absolute --git-common-dir)"
+	(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd -P)
 else
 	echo none; echo; echo
 fi
 echo "${'$'}{XDG_DATA_HOME:-$HOME/.local/share}"
+pwd -P
 `
 
 /** Makes the checkout at $DEST unless it's there, again at $REV once it was removed, and prints where it started */
@@ -123,8 +124,8 @@ export function server(core) {
 
 	/** The repo `dir` on `runner` is in, or undefined outside one */
 	async function repoOf(runner, dir, signal) {
-		const [kind, top, main, data] = await run(runner, dir, DETECT, {}, signal)
-		return kind === 'none' ? undefined : { kind, top, main, data }
+		const [kind, top, main, data, here] = await run(runner, dir, DETECT, {}, signal)
+		return kind === 'none' ? undefined : { kind, top, main, data, here }
 	}
 
 	/**
@@ -142,7 +143,7 @@ export function server(core) {
 		return async (tx, id, title) => {
 			const name = [id, slug(title)].filter(Boolean).join('-')
 			const at = path.join(repo.data, 'ade', 'checkouts', path.basename(repo.main), name)
-			const cwd = path.join(at, path.relative(repo.top, folder))
+			const cwd = path.join(at, path.relative(repo.top, repo.here))
 			Object.assign(await tx.doc(Checkout, id), {
 				state: 'planned',
 				kind: repo.kind,
@@ -187,7 +188,10 @@ export function server(core) {
 		})
 	}
 
-	/** Removes an archived thread's checkout if it's clean, and keeps it, saying why, if it isn't */
+	/**
+	 * Removes an archived thread's checkout if it's clean and no open thread works in it, as a fork of it does; else
+	 * keeps it, saying why
+	 */
 	const Remove = defineTask({
 		name: 'ade.checkout-remove',
 		version: 1,
@@ -195,15 +199,18 @@ export function server(core) {
 		phases: {
 			async remove({ conversationId: threadId }, rt, ctx) {
 				const doc = await core.snapshot(Checkout, threadId)
+				const users = await core.workingIn(doc.runner, doc.path, threadId)
 				let said
 				try {
-					;[said] = await run(
-						doc.runner,
-						doc.main,
-						REMOVE[doc.kind],
-						{ DEST: doc.path, NAME: doc.name, MAIN: doc.main },
-						rt.signal,
-					)
+					;[said] = users.length
+						? [`used ${users.join(', ')}`]
+						: await run(
+								doc.runner,
+								doc.main,
+								REMOVE[doc.kind],
+								{ DEST: doc.path, NAME: doc.name, MAIN: doc.main },
+								rt.signal,
+							)
 				} catch (error) {
 					if (rt.signal.aborted) throw error
 					said = `failed ${error.message}`
@@ -222,7 +229,9 @@ export function server(core) {
 						const why =
 							outcome === 'dirty'
 								? `${detail} ${detail === '1' ? 'file has' : 'files have'} uncommitted changes`
-								: `couldn't remove it: ${detail}`
+								: outcome === 'used'
+									? `${users.length === 1 ? 'thread' : 'threads'} ${detail} still ${users.length === 1 ? 'works' : 'work'} in it`
+									: `couldn't remove it: ${detail}`
 						Object.assign(now, { state: 'kept', note: why })
 						await core.trailed(tx, threadId, undefined, 'checkout-kept', { path: doc.path, why })
 					}
