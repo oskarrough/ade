@@ -126,8 +126,8 @@ function show({ id, data: message }) {
 	)
 }
 
-/** Reads `thread/<id>` on the feed until its row reaches `minSeq` with `busy: false`, handing `onFrame` the row and the messages each frame brings */
-async function waitThread(frames, id, minSeq, onFrame = (_row, _messages) => {}) {
+/** Reads `thread/<id>` on the feed until its row reaches `minSeq` with `busy: false`, or `onFrame`, handed the row and the messages each frame brings, says it's done */
+async function waitThread(frames, id, minSeq, onFrame = (_row, _messages) => false) {
 	let row = null
 	for (;;) {
 		const next = await frames.next()
@@ -136,12 +136,13 @@ async function waitThread(frames, id, minSeq, onFrame = (_row, _messages) => {})
 		if (frame.view !== `thread/${id}`) continue
 		const put = frame.put ?? []
 		row = put.find((item) => item.key === 'thread')?.row ?? row
-		if (row)
+		const enough =
+			row &&
 			onFrame(
 				row,
 				put.filter((item) => typeof item.key === 'number').map((item) => item.row),
 			)
-		if (frame.seq >= minSeq && row && !row.busy) return row
+		if (enough || (frame.seq >= minSeq && row && !row.busy)) return row
 	}
 }
 
@@ -186,6 +187,8 @@ async function post() {
 		if (flags['no-wait'] || !asked) return
 		let last = posted.entry ?? seen
 		let waiting = ''
+		/** The director's route for this message, once it's on it; asking nobody, there's nothing to wait for */
+		let route
 		/** Each message once, as the feed brings it: a pick re-sends one already shown */
 		const shows = (messages) => {
 			for (const entry of messages.sort((one, other) => one.id - other.id))
@@ -201,14 +204,20 @@ async function post() {
 				.map((agent) => agent.to?.runner)
 			if (blocked.join() !== waiting && (waiting = blocked.join()))
 				console.error(`waiting for ${waiting}, offline…`)
+			route =
+				messages.find((entry) => entry.id === posted.entry && entry.data.picked)?.data ?? route
 			shows(messages)
+			return posted.direct && route && !route.to?.length
 		})
 		shows((await api('GET', `/api/threads/${id}?after=${last}`)).entries)
-		if (posted.direct && last === posted.entry) {
-			const { entries } = await api('GET', `/api/threads/${id}?after=${posted.entry - 1}`)
-			const { data } = entries.find((entry) => entry.id === posted.entry) ?? {}
-			if (!data?.to?.length)
-				console.error(`The director asked nobody: ${data?.picked ?? 'no reason given'}`)
+		// Its route is on the message itself, whatever else the thread said meanwhile
+		if (posted.direct) {
+			if (!route) {
+				const { entries } = await api('GET', `/api/threads/${id}?after=${posted.entry - 1}`)
+				route = entries.find((entry) => entry.id === posted.entry)?.data
+			}
+			if (!route?.to?.length)
+				console.error(`The director asked nobody: ${route?.picked ?? 'no reason given'}`)
 		}
 	} finally {
 		await frames?.return()
