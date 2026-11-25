@@ -3272,6 +3272,7 @@ const core = {
 	route,
 	/** Writes one step of a thread's trail in the commit `tx`: `(tx, thread, entry, kind, data)` */
 	trailed,
+	trail,
 	authors,
 	afterCommit,
 	abortTask: (id) => harness.abortTask(id, context),

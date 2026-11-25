@@ -554,7 +554,30 @@ export function server(core) {
 		return agents[key]?.conversation
 	}
 
-	/** Posts one run's instructions: where it landed, `{thread, entry}`, or false when there's no one left to ask */
+	/**
+	 * Whether a task's last run, `{thread, entry, to?}`, still goes on: its new thread still working, or, in the task's
+	 * own thread, that thread working and someone it asked (anyone, if it named no one) not done with its message yet,
+	 * so other work there doesn't count
+	 */
+	async function stillGoing(threadId, last) {
+		if (last === undefined || !(await core.busy(last.thread))) return false
+		if (last.thread !== threadId) return true
+		const done = new Set(
+			(await core.trail(last.thread, { entry: last.entry }))
+				.filter(
+					(step) =>
+						['answered', 'stopped', 'failed'].includes(step.kind) &&
+						step.held?.includes(last.entry),
+				)
+				.map((step) => step.agent),
+		)
+		return last.to?.length ? last.to.some((name) => !done.has(name)) : done.size === 0
+	}
+
+	/**
+	 * Posts one run's instructions: where it landed, `{thread, entry}`, with whom it asks there, `to`, in its own thread;
+	 * or false when there's no one left to ask
+	 */
 	async function run(tx, { id, threadId, input, asked, event, checked }) {
 		const row = await core.threadIn(tx, threadId)
 		if (row.hidden || !asked) return false
@@ -586,7 +609,7 @@ export function server(core) {
 				{ author: writtenTo(to), ...mark, to: [to] },
 				{ member: true, fired: { ...fired, recipients: [writtenTo(to)] } },
 			)
-			return { thread: threadId, entry }
+			return { thread: threadId, entry, to: [writtenTo(to)] }
 		}
 		if (input.to !== undefined) {
 			const thread = await core.startThread(tx, defaultTitle(input.instructions), threadId)
@@ -609,7 +632,7 @@ export function server(core) {
 			},
 			{ direct: asked.direct, unlessPaused: asked.solo, fired },
 		)
-		return { thread: threadId, entry }
+		return { thread: threadId, entry, to: asked.to.map(writtenTo) }
 	}
 
 	const json = (value) => JSON.parse(JSON.stringify(value))
@@ -627,8 +650,10 @@ export function server(core) {
 			await core.trailed(tx, threadId, undefined, 'ended', { task: id, why })
 			return finished('completed', { ...result, ended: why })
 		}
-		const next = (then, runs) =>
-			then.end ? finished('completed', { fired: true }) : asleep(schedule, { ...then.sleep, runs })
+		const next = (then, runs, last = undefined) =>
+			then.end
+				? finished('completed', { fired: true })
+				: asleep(schedule, { ...then.sleep, runs, ...(last ? { last } : {}) })
 		const onward = async (tx, state, count) => {
 			if (state.status === 'terminal') return state
 			const why = endOf(schedule, count, state.checkpoint.paused ? undefined : state.checkpoint.at)
@@ -652,8 +677,9 @@ export function server(core) {
 					return finished()
 				}
 				if (then.done) return end(tx, 'its check said done', { fired: true })
-				const runs = [...(checkpoint.runs ?? []), { at: rt.now(), ...landed }].slice(-RUNS)
-				return onward(tx, next(then, runs), (checkpoint.ran ?? 0) + 1)
+				const { to: _, ...where } = landed
+				const runs = [...(checkpoint.runs ?? []), { at: rt.now(), ...where }].slice(-RUNS)
+				return onward(tx, next(then, runs, landed), (checkpoint.ran ?? 0) + 1)
 			}, ctx)
 		}
 		return { end, next, onward, post }
@@ -805,21 +831,20 @@ export function server(core) {
 					checkpoint.at === undefined ? undefined : following(schedule, checkpoint.at, rt.now())
 				const then = at === undefined ? { end: true } : { sleep: { ...checkpoint, at } }
 				// Its last run's thread still working, a timed run is skipped, as Temporal's default overlap does
-				const last = runs.findLast((run) => run.thread !== undefined)
-				if (checkpoint.at !== undefined && last !== undefined)
-					if (await core.busy(last.thread)) {
-						const offline = await core.waitingFor(last.thread)
-						const skipped = offline.length
-							? `${offline.join(' and ')} offline`
-							: 'the run before still working'
-						return rt.commit(async (tx) => {
-							await core.trailed(tx, threadId, undefined, 'skipped', {
-								task: id,
-								why: skipped,
-							})
-							return onward(tx, next(then, ran({ at: rt.now(), skipped })), checkpoint.ran ?? 0)
-						}, ctx)
-					}
+				if (checkpoint.at !== undefined && (await stillGoing(threadId, checkpoint.last))) {
+					const last = checkpoint.last
+					const offline = await core.waitingFor(last.thread)
+					const skipped = offline.length
+						? `${offline.join(' and ')} offline`
+						: 'the run before still working'
+					return rt.commit(async (tx) => {
+						await core.trailed(tx, threadId, undefined, 'skipped', {
+							task: id,
+							why: skipped,
+						})
+						return onward(tx, next(then, ran({ at: rt.now(), skipped })), checkpoint.ran ?? 0)
+					}, ctx)
+				}
 				return due(undefined, then)
 			},
 			/**
