@@ -36,6 +36,7 @@ import {
 export const on = true
 
 const KIND = 'ade.line'
+const WITHDRAWAL = 'ade.withdrawal'
 const RETRY = { enabled: true, maxRetries: 10, baseDelayMs: 2000 }
 const BATCH = 16
 const EARLY = 0.7
@@ -295,6 +296,29 @@ export function server(core) {
 		return ready.filter((line) => line.l === ready[0]?.l).slice(0, BATCH)
 	}
 
+	/**
+	 * Whether a line read from its messages or halves can still be kept: none of its messages was withdrawn since,
+	 * and its halves are the ones it merged
+	 */
+	async function unchanged(tx, threadId, index) {
+		const page = await tx.scanEntries(
+			{ conversationId: threadId, minEntryId: index.newest + 1, order: 'ascending' },
+			500,
+		)
+		const late = page.items
+			.filter((entry) => entry.kind === WITHDRAWAL)
+			.map((entry) => index.positions.get(entry.data.message))
+		return (
+			/** @type {{l: number, i: number, gone?: boolean, source?: string}} */ { l, i, gone, source },
+		) =>
+			!page.next &&
+			!late.some((at) => at >> l === i) &&
+			(l
+				? `${index.have.get(key(l - 1, 2 * i))?.text} ${index.have.get(key(l - 1, 2 * i + 1))?.text}` ===
+					source
+				: index.withdrawn.has(index.ids[i]) === gone)
+	}
+
 	const append = (tx, threadId, l, i, text) =>
 		tx.appendEntry(threadId, { kind: KIND, data: { l, i, text, size: bytes(text) } })
 
@@ -351,11 +375,20 @@ export function server(core) {
 							: []
 					const found = await core.commit(async (tx) => {
 						const read = []
-						for (const i of missing) read.push([i, keptOf(await tx.entry(ids[i]), withdrawn)])
+						for (const i of missing)
+							read.push({
+								l: 0,
+								i,
+								gone: withdrawn.has(ids[i]),
+								text: keptOf(await tx.entry(ids[i]), withdrawn),
+							})
 						return read
 					})
+					const now = await indexOf(core, threadId)
 					return rt.commit(async (tx) => {
-						for (const [i, text] of found) await append(tx, threadId, 0, i, text)
+						const current = await unchanged(tx, threadId, now)
+						for (const line of found.filter(current))
+							await append(tx, threadId, 0, line.i, line.text)
 						return finished()
 					}, ctx)
 				}),
@@ -379,7 +412,14 @@ export function server(core) {
 							return read
 						})
 						const items = batch.map(({ l, i }) => {
-							if (!l) return { l, i, ask: `Line: compress message ${i}`, source: messages.get(i) }
+							if (!l)
+								return {
+									l,
+									i,
+									gone: withdrawn.has(ids[i]),
+									ask: `Line: compress message ${i}`,
+									source: messages.get(i),
+								}
 							const half = 2 ** (l - 1),
 								id = i * 2 ** l
 							return {
@@ -397,9 +437,10 @@ export function server(core) {
 						// A line that failed waits for the next fill, so this one doesn't ask for it again and again
 						const missed = items.filter((_, offset) => !texts[offset]).map(({ l, i }) => key(l, i))
 						return rt.commit(async (tx) => {
-							for (const [offset, { l, i }] of items.entries())
-								if (texts[offset] && !now.have.has(key(l, i)))
-									await append(tx, threadId, l, i, texts[offset])
+							const current = await unchanged(tx, threadId, now)
+							for (const [offset, item] of items.entries())
+								if (texts[offset] && !now.have.has(key(item.l, item.i)) && current(item))
+									await append(tx, threadId, item.l, item.i, texts[offset])
 							return {
 								status: 'running',
 								checkpoint: { phase: 'fill', round: round + 1, failed: [...failed, ...missed] },
@@ -667,7 +708,12 @@ export async function indexOf(core, threadId) {
 			positions: new Map(ids.map((id, at) => [id, at])),
 			have: new Map(),
 			long: new Set(inherited ? [...inherited.long].filter((at) => at < ids.length) : []),
-			withdrawn: new Set(inherited?.withdrawn),
+			/** Withdrawn messages, each with its withdrawal's entry; a fork shares only those withdrawn before it */
+			withdrawn: new Map(
+				inherited
+					? [...inherited.withdrawn].filter(([, withdrawal]) => withdrawal <= parent.at)
+					: [],
+			),
 			/** Lines that failed `checked`, by `l:i`, until one written again passes */
 			rejected: new Set(),
 			/** What each long message's line is checked against, until it has one */
@@ -686,8 +732,17 @@ export async function indexOf(core, threadId) {
 	if (index.parent !== undefined) {
 		const inherited = await indexOf(core, index.parent)
 		if (inherited.revision !== index.inheritedAt) {
+			// A message the parent withdrew after the fork is still whole here, so no line of the parent's over it is
+			const whole = [...inherited.withdrawn.keys()]
+				.filter((id) => !index.withdrawn.has(id))
+				.map((id) => index.positions.get(id))
+				.filter((at) => at !== undefined)
 			for (const [coordinates, line] of inherited.have)
-				if ((line.i + 1) * 2 ** line.l <= index.shared && !index.have.has(coordinates)) {
+				if (
+					(line.i + 1) * 2 ** line.l <= index.shared &&
+					!index.have.has(coordinates) &&
+					!whole.some((at) => at >> line.l === line.i)
+				) {
 					index.have.set(coordinates, line)
 					index.revision++
 				}
@@ -717,10 +772,19 @@ export async function indexOf(core, threadId) {
 				index.positions.set(entry.id, index.ids.length)
 				index.ids.push(entry.id)
 			}
-			// A withdrawn message's line is written again from what's left, and checked against that
-			if (entry.kind === 'ade.withdrawal') {
-				index.withdrawn.add(entry.data.message)
-				index.sources.delete(index.positions.get(entry.data.message))
+			// Every line over a withdrawn message is unwritten, its own up to the top, so reads open the messages left
+			// until each is written again from what's left
+			if (entry.kind === WITHDRAWAL) {
+				index.withdrawn.set(entry.data.message, entry.id)
+				const at = index.positions.get(entry.data.message)
+				if (at !== undefined) {
+					index.sources.delete(at)
+					index.long.delete(at)
+					for (let l = 0; ; l++) {
+						if (index.have.delete(key(l, at >> l))) index.revision++
+						if (2 ** l >= index.ids.length) break
+					}
+				}
 			}
 			// A line written again replaces the one before. One that fails `checked`, or merges one that did, counts as
 			// unwritten, so it is written again when next needed.

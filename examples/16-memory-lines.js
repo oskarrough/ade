@@ -185,6 +185,46 @@ await api('POST', `/api/threads/${late}/memory`, { on: false })
 await post(late, 'missed before restart')
 await api('POST', `/api/threads/${late}/memory`, { lines: [] })
 
+// A withdrawn message leaves no trace in any line over it, in its thread or a fork made after, and a read opens the
+// messages that are left; a fork made before still has the message, and keeps it
+const w = await thread('withdrawn')
+const said = []
+for (const body of ['alpha', 'SECRET beta', 'gamma', 'delta'])
+	said.push((await post(w, body)).json.entry)
+await until(async () => has(await linesOf(w), 0, 3))
+await api('POST', `/api/threads/${w}/memory`, {
+	lines: [
+		{ id: 0, n: 2, text: 'alpha SECRET beta' },
+		{ id: 2, n: 2, text: 'gamma delta' },
+		{ id: 0, n: 4, text: 'alpha SECRET beta gamma delta' },
+	],
+})
+const kept = (await api('POST', `/api/threads/${w}/fork`, { at: said[3] })).json.id
+await api('GET', `/api/threads/${kept}/memory?budget=10`)
+await api('POST', `/api/threads/${w}/withdraw`, { entry: said[1] })
+const after = (
+	await api('POST', `/api/threads/${w}/fork`, { at: (await post(w, 'epsilon')).json.entry })
+).json.id
+const remembered = async (id) =>
+	JSON.stringify(
+		await Promise.all(
+			['budget=10', 'budget=65536', 'zoom=0,4', 'zoom=0,2', 'zoom=1,1'].map(
+				async (query) => (await api('GET', `/api/threads/${id}/memory?${query}`)).json,
+			),
+		),
+	)
+const forgets = async () =>
+	!(await remembered(w)).includes('SECRET') && !(await remembered(after)).includes('SECRET')
+check(
+	(await forgets()) && (await remembered(w)).includes('gamma'),
+	'a withdrawn message is gone from every line over it, in its thread and a fork made after',
+	await remembered(w),
+)
+check(
+	(await remembered(kept)).includes('SECRET'),
+	'a fork made before the withdrawal keeps the message in its memory, as in its thread',
+)
+
 const c = await thread('restart')
 const entries = []
 for (let k = 0; k < 8; k++) entries.push((await post(c, long(`m${k}`))).json.entry)
@@ -192,6 +232,7 @@ await open(c)
 await until(async () => requests.some((r) => r.input.includes('m0 ')), 15000)
 await kill(srv, 'SIGKILL')
 srv = await server(env)
+check(await forgets(), 'after a restart, a withdrawn message is still gone from every line')
 check(
 	Boolean(await until(async () => has(await linesOf(late), 0, 4))),
 	'server startup writes short messages without surviving line tasks',
