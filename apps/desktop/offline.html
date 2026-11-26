@@ -14,10 +14,12 @@
 			}
 			body {
 				margin: 0;
-				height: 100vh;
+				min-height: 100vh;
+				box-sizing: border-box;
+				padding-block: 2rem;
 				display: grid;
 				place-content: center;
-				padding: 0 1.5rem;
+				padding-inline: 1.5rem;
 				--app-region: drag;
 			}
 			main {
@@ -85,8 +87,18 @@
 				display: none;
 			}
 			.house {
-				margin-top: 0.5rem;
-				white-space: pre-line;
+				margin-top: 0.75rem;
+				max-height: 10rem;
+				overflow: auto;
+				padding: 0.5rem 0.6rem;
+				border-radius: 0.5rem;
+				background: light-dark(#f2f2f2, #1d1d1d);
+				font:
+					0.8rem/1.45 ui-monospace,
+					monospace;
+				white-space: pre-wrap;
+				overflow-wrap: anywhere;
+				user-select: text;
 			}
 			.actions {
 				margin-top: 1rem;
@@ -120,8 +132,13 @@
 		<script>
 			document.querySelector('#try').addEventListener('click', () => mygo.call('Desktop.TryNow'))
 			const house = document.querySelector('.house')
+			const newest = () => (house.scrollTop = house.scrollHeight)
+			newest()
 			setInterval(async () => {
-				house.textContent = await mygo.call('Desktop.House').catch(() => house.textContent)
+				const text = await mygo.call('Desktop.House').catch(() => house.textContent)
+				if (text === house.textContent) return
+				house.textContent = text
+				newest()
 			}, 2000)
 			document.querySelector('form').addEventListener('submit', (event) => {
 				event.preventDefault()

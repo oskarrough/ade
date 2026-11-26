@@ -2,7 +2,7 @@
 
 ## 0.1.11
 
-- A release of ade that needs your threads converted first stays put, stopped, and shows the command to run, instead of going back to the one before and never coming again.
+- When ade won't start, the window scrolls, and what its log says sits in a small box of its own instead of pushing the page out of sight.
 
 ## 0.1.10
 
