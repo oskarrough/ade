@@ -177,13 +177,14 @@ function Meta(props) {
 	return html`
 		<small class="meta">
 			${() => props.children}
-			<a
-				class="thread-link"
-				href=${hrefOf(thread)}
-				onClick=${(event) => followThread(event, thread)}
-				>${() => titleOf(thread)}</a
-			>
-			${', '}<span title=${() => props.data.author} style=${() => colorOf(props.data.author)}
+			<span class="title"
+				><a
+					class="thread-link"
+					href=${hrefOf(thread)}
+					onClick=${(event) => followThread(event, thread)}
+					>${() => titleOf(thread)}</a
+				>,</span
+			><span title=${() => props.data.author} style=${() => colorOf(props.data.author)}
 				>${() => authorLabel(props.data.author)}</span
 			>${() => props.says ?? ''}${', '}<${Stamp}
 				time=${() => props.data.createdAt && Date.parse(props.data.createdAt)}
