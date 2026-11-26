@@ -108,7 +108,7 @@ GET    /api/threads/:id/draft          {draft}: yours, or null
 GET    /api/threads/:id/images/:entry-:n  that message's nth image, its bytes
 POST   /api/threads/:id/draft {key, text?, images?, pick?, page?}  saves what you're writing; {draft}, or {draft: null, sent: true} once its key was sent
 POST   /api/threads/:id/title {title}
-POST   /api/threads/:id/tools {tools}  a nonempty list of tool names, or null to reset
+POST   /api/threads/:id/tools {tools}  a nonempty list of tool names, or null to reset; a bot's home sets them for that bot in every thread, where it gets only what both allow
 POST   /api/threads/:id/pause {paused}  only @mentions and named recipients get an answer while paused
 POST   /api/threads/:id/move {conversation, runner}  moves that agent in place to another runner: its model and thinking there, its folder starting over; what it waits to answer goes with it
 POST   /api/threads/:id/typing {typing}  you're typing (a beat lasts 6 s) or stopped; the director's picks wait for it

@@ -140,15 +140,16 @@ export function server(core) {
 		if (rename) {
 			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
 			if (all[rename]) throw new Error(`${rename} is another bot; pick another name`)
-			await core.renameIn(tx, ids, name, rename)
 			all[rename] = JSON.parse(JSON.stringify(all[name]))
 			delete all[name]
+			await core.renameIn(tx, ids, name, rename)
 			changed.push('name')
 			name = rename
 		}
 		if (!all[name]) {
 			if (!to) throw new Error(`${name} is new: say what it runs as, to: model@runner`)
-			const home = await core.startThread(tx, name, null)
+			// Hands off: a bot leads, and hands the work itself to threads of their own
+			const home = await core.startThread(tx, name, null, ['-write', '-edit', '-bash'])
 			all[name] = { home, to, instructions: instructions ?? '', creator: by }
 			await core.trailed(tx, home, undefined, 'bot-created', {
 				bot: name,
@@ -268,6 +269,7 @@ export function server(core) {
 	const botNames = async () => Object.keys(await bots())
 	const homesOf = async () =>
 		Object.fromEntries(Object.entries(await bots()).map(([name, bot]) => [bot.home, name]))
+	const homeIn = async (tx, name) => (await tx.doc(Bots))[name]?.home
 
 	const bot = defineTool({
 		name: 'bot',
@@ -406,6 +408,7 @@ export function server(core) {
 		instructionsOf,
 		botNames,
 		homesOf,
+		homeIn,
 		settings: { voice },
 		extension: defineExtension({
 			name: 'ade.bots',

@@ -5,7 +5,7 @@
 - **Release**: a tag `v<major>.<minor>.<patch>` on main, cut with `pnpm release`, with the commit subjects since the last as its notes. An installed house (arbe desktop's own ade, npx) updates only to releases; one running from a checkout updates from its own files.
 - **Runner**: connects a machine to the server, offering its folders and the model logins pi has there. File tools reach nothing outside those folders; shell commands aren't confined. The server holds no logins.
 - **Agent**: a model, how hard it thinks, and the runner it works on, written `sonnet:high@laptop`. Every part is optional; `laptop` alone is that runner's default model. Each thread has one. Change its model or runner whenever you like and it keeps the conversation. It has no name.
-- **Thread**: what people, one agent and any bots write to each other. _Hands off_ prevents its agents from editing files or running commands.
+- **Thread**: what people, one agent and any bots write to each other. _Hands off_ prevents its agents from editing files or running commands; in a bot's home it holds for that bot wherever it answers.
 - **Bot**: one name in many threads, with a home thread, the agent it joins as, and instructions. Only bots have names.
 - **Checkout**: a working copy of a repo. A thread works in its folder's main checkout, or with `checkouts` on, in its own: a jj workspace or git worktree named after it.
 - **Conversation**: what one agent has read, its tool calls and its answers.

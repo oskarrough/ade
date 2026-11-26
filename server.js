@@ -1630,7 +1630,7 @@ const ranAs = (to, cwd) => ({
 
 /** @param {To} to */
 const setUp = async (tx, conversation, threadId, to) => {
-	const { tools } = await tx.doc(Thread, threadId)
+	const tools = await toolsFor(tx, threadId, to.name ?? AGENT)
 	const cwd = folder((await tx.doc(Runners))[to.runner], to)
 	await trailed(tx, threadId, undefined, 'joined', {
 		agent: writtenTo(to),
@@ -1674,7 +1674,7 @@ async function renameIn(tx, ids, from, to) {
 		// Answers already under its new name were another bot's, and are for it to read
 		recipient.named = (answers.at(-1)?.id ?? recipient.after) + 1
 		await configure(tx, row.agents[to].conversation, {
-			instructions: instructions(to, id, row.tools),
+			instructions: instructions(to, id, await toolsFor(tx, id, to)),
 		})
 	}
 }
@@ -2887,14 +2887,47 @@ async function setTitleIn(tx, id, title, expected) {
 async function setTools(id, { tools }) {
 	await conversation(id)
 	tools = toolList(tools)
+	// A bot's home sets what the bot may use in every thread it's in
+	const bot = ((await homesOf?.()) ?? {})[id]
+	const ids = bot ? threadIds() : [id]
 	return commit(async (tx) => {
 		const row = await tx.doc(Thread, id)
 		row.tools = tools
-		for (const { conversation } of Object.values(row.agents))
-			await configure(tx, conversation, { tools: toolsOf(tools) })
+		for (const threadId of ids) {
+			const { agents } = await tx.doc(Thread, threadId)
+			for (const [key, { conversation }] of Object.entries(agents)) {
+				if (threadId !== id && key !== bot) continue
+				const allowed = await toolsFor(tx, threadId, key)
+				await configure(tx, conversation, {
+					tools: toolsOf(allowed),
+					instructions: instructions(key, threadId, allowed),
+				})
+			}
+		}
 		await trailed(tx, id, undefined, 'tools', { tools })
 		return { tools }
 	})
+}
+
+/** What an agent in a thread may use: the thread's tools, narrowed for a bot by its home's */
+async function toolsFor(tx, threadId, key) {
+	const { tools } = await tx.doc(Thread, threadId)
+	const home = key !== AGENT && (await homeIn?.(tx, key))
+	return home && home !== threadId ? narrower(tools, (await tx.doc(Thread, home)).tools) : tools
+}
+
+/** Only what both lists allow */
+function narrower(one, other) {
+	if (!one || !other) return one ?? other
+	const changes = (list) => list.every((tool) => /^[+-]/.test(tool))
+	if (changes(one) && changes(other))
+		return [...new Set([...one, ...other].filter((tool) => tool.startsWith('-')))]
+	const all = registry
+		.snapshot()
+		.tools()
+		.map(({ tool }) => tool.name)
+	const allows = (list) => (changes(list) ? all.filter((name) => !list.includes(`-${name}`)) : list)
+	return allows(one).filter((name) => allows(other).includes(name))
 }
 
 /** Pauses a thread, or resumes it: only @mentions and named recipients get an answer while it's paused */
@@ -2975,9 +3008,10 @@ async function forkThread(id, { at, title }, person) {
 				const named = (key) => (source.agents[key].named ? { named: source.agents[key].named } : {})
 				for (const { key, answer, position } of agents) {
 					row[key] = await newAgent(tx, forkId, { ...position, ...named(key) }, answer)
+					const allowed = await toolsFor(tx, forkId, key)
 					await configure(tx, row[key].conversation, {
-						tools: toolsOf(source.tools),
-						instructions: instructions(key, forkId, source.tools),
+						tools: toolsOf(allowed),
+						instructions: instructions(key, forkId, allowed),
 					})
 				}
 				for (const [key, to] of fresh) {
@@ -3295,6 +3329,7 @@ const botAgent = hook('botAgent')
 const instructionsOf = hook('instructionsOf')
 const botNames = hook('botNames')
 const homesOf = hook('homesOf')
+const homeIn = hook('homeIn')
 const expand = hook('expand')
 const openQuestion = hook('openQuestion')
 /** Each thread with an open question, from the read model's tables: `all(sql, ...params)` answers rows */

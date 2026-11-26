@@ -27,8 +27,12 @@ const voiceInPrompt = JSON.stringify(voice).slice(1, -1)
 await server({ MODULES: '+bots' })
 /** Pi carries the system prompt in system messages: what each runner was last asked with */
 const prompt = {}
+/** The tools each runner's agent was last offered, as its codemode section lists them */
+const offered = {}
 const route = (runner) => (request) => {
 	prompt[runner] = JSON.stringify(request.messages.filter((m) => m.role === 'system'))
+	const listed = request.messages.findLast((m) => m.sections?.codemode)?.sections.codemode ?? ''
+	offered[runner] = [...listed.matchAll(/### `(\w+)`/g)].map(([, name]) => name)
 	const last = request.messages.findLast((m) => m.role !== 'system')
 	const t = text(last)
 	if (last.role === 'toolResult') return say(`tool: ${t}`)
@@ -53,12 +57,14 @@ let v = await answered(home)
 check(
 	made.status === 201 &&
 		homeRow?.title === 'bot1' &&
-		homeRow.tools === null &&
+		homeRow.tools?.join() === '-write,-edit,-bash' &&
+		!offered.laptop.includes('bash') &&
+		offered.laptop.includes('post') &&
 		v.agents.map((a) => a.name).join() === 'bot1' &&
 		made.json.instructions === '' &&
 		prompt.laptop.includes(voiceInPrompt),
-	'one call makes bot1 and her home, with every tool; she starts with no instructions of her own but reads the shared voice until she writes them',
-	JSON.stringify([made.json, homeRow, prompt.laptop]),
+	'one call makes bot1 and her home, hands off: she leads and hands the work on; she starts with no instructions of her own but reads the shared voice until she writes them',
+	JSON.stringify([made.json, homeRow, offered.laptop, prompt.laptop]),
 )
 
 const regenerate = await api('POST', `/api/threads/${home}/auto-title`, {})
@@ -124,12 +130,24 @@ check(
 	JSON.stringify(await bots()),
 )
 
-await postEntry(shed, 'be a pirate', 'bot1')
-v = await answered(shed, 2)
+const handsOffAway = !offered.laptop.includes('bash') && offered.laptop.includes('post')
+await api('POST', `/api/threads/${home}/tools`, { tools: null })
+await postEntry(shed, 'and now?', 'bot1')
+await answered(shed, 2)
+const handsOnAway = offered.laptop.includes('bash')
+await api('POST', `/api/threads/${home}/tools`, { tools: ['-write', '-edit', '-bash'] })
 check(
-	/Only a bot can, in its home thread/.test(answers(v)[1]?.data.body),
+	handsOffAway && handsOnAway,
+	"hands off at her home keeps her hands off wherever she's asked, and her home's switch reaches threads she's already in",
+	JSON.stringify(offered),
+)
+
+await postEntry(shed, 'be a pirate', 'bot1')
+v = await answered(shed, 3)
+check(
+	/Only a bot can, in its home thread/.test(answers(v)[2]?.data.body),
 	'away from home, her bot tool refuses',
-	answers(v)[1]?.data.body,
+	answers(v)[2]?.data.body,
 )
 
 const desk = await createThread('desk work')
