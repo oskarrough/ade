@@ -1199,13 +1199,14 @@ function placedTo({ runner, model, thinking, folder }, runners, name) {
 const askable = async (key, conversation) =>
 	(key !== AGENT && (await botAgent?.(key))) || agentOf(conversation, key)
 
-/** The agents in a thread as asking them asks them: bots as they are now */
+/** The agents in a thread as asking them asks them, bots as they are now, each with its `conversation` */
 const agentsHere = async (threadId) =>
 	(
 		await Promise.all(
-			Object.entries((await thread(threadId)).agents).map(([key, agent]) =>
-				askable(key, agent.conversation),
-			),
+			Object.entries((await thread(threadId)).agents).map(async ([key, agent]) => {
+				const one = await askable(key, agent.conversation)
+				return one && { ...one, conversation: agent.conversation }
+			}),
 		)
 	).filter(Boolean)
 
@@ -1531,6 +1532,8 @@ async function route(
 		row.unpicked = (row.unpicked ?? []).filter((id) => id !== messageId && !covers.includes(id))
 		// Paused while the chooser ran: it starts no reply
 		if (row.paused && to.length) [to, picked] = [[], PAUSED]
+		// A pick only asks members: one renamed or removed since the chooser saw it isn't asked under its old name
+		to = to.filter((one) => row.agents[keyOf(writtenTo(one))])
 	}
 	try {
 		await reach(to, data.author, await tx.doc(Runners))

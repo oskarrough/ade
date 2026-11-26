@@ -384,6 +384,13 @@ export function server(core) {
 							startedAt,
 							Boolean(state.checkpoint?.holdUntil),
 						)
+		// A bot renamed while the chooser ran answers under its new name, with the conversation it has
+		if (routed.to.length) {
+			const now = await core.agentsHere(threadId)
+			routed.to = routed.to
+				.map((one) => now.find((agent) => agent.conversation === one.conversation))
+				.filter(Boolean)
+		}
 		await rt.commit(async (tx) => {
 			await core.route(tx, threadId, entry, routed, { steer, pick: id, covers })
 			return finished()
