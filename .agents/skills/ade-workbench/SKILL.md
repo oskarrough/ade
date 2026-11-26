@@ -54,7 +54,7 @@ A change to how transcript rows, sidebar dots or reply labels render gets checke
 
 ## Real data, a real model, measuring
 
-- Real data: copy it with SQLite's `.backup`, never a plain file copy (`sqlite3 ${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite ".backup <copy>"`), and run `PORT=<free> DB_PATH=<copy> node server.js --no-runner` (without the flag it starts a runner called "oskar" that competes with the real one). `DB_PATH` doesn't move settings; point `XDG_CONFIG_HOME` at a scratch folder for that. For a UI check, default to a fresh try.js house instead; reach for real data only when the check needs its scale or shape.
+- Real data: copy it with SQLite's `.backup`, never a plain file copy (`sqlite3 ${XDG_DATA_HOME:-~/.local/share}/ade/ade.sqlite ".backup <copy>"`), one at a time (each is most of a gigabyte), and delete it once the check is done, and run `PORT=<free> DB_PATH=<copy> node server.js --no-runner` (without the flag it starts a runner called "oskar" that competes with the real one). `DB_PATH` doesn't move settings; point `XDG_CONFIG_HOME` at a scratch folder for that. For a UI check, default to a fresh try.js house instead; reach for real data only when the check needs its scale or shape.
 - A real model: `POST /api/runners {"name":"oskar"}` for a key, then `ADE_KEY=<key> node runner.js --server <url> --name oskar --dir <folder>`, and use `gpt-6-luna:low@oskar`.
 - A run's tool calls and token usage: `GET /api/conversations/:id`, the agent's `conversation` from `GET /api/threads/N`.
 - `pnpm perf` copies the real store into `.work/perf/` and times the lists, the biggest thread, the socket and page load; `--why` names the costly statements. Its `typing in N meanwhile` line is the one for drafts and typing.
