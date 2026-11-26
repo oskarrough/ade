@@ -1182,6 +1182,7 @@ harness.observeCommits({
 			if (change.type === 'entry') {
 				heardEntry(change.value)
 				heardAuthor(change.value)
+				facts?.delete(change.value.conversationId)
 			}
 			if (change.type === 'conversation' && !change.value.owner)
 				records.set(change.value.id, change.value)
@@ -2382,6 +2383,21 @@ function listFacts(all, archived) {
 		]),
 	)
 }
+/** Every thread's `listFacts`, read from the tables once they're made after a start; a thread's leave at its next
+ * entry, and its status reads its entries from then on */
+let facts
+let filling
+/** A thread's `listFacts` as the tables last said, if nothing was written there since */
+async function factsOf(id) {
+	if (!facts) {
+		// Filled in the tables' own transaction, so no commit lands between their reading and the cache
+		filling ??= read
+			.exact((all) => (facts = new Map([...listFacts(all, false), ...listFacts(all, true)])))
+			.finally(() => (filling = undefined))
+		await filling
+	}
+	return facts?.get(id)
+}
 /** Short display label for an author: a model's bare id, a tailnet login without `~` or `+provider`, or a name as is */
 const shortLabel = (author) =>
 	!author
@@ -3437,7 +3453,9 @@ const core = {
 	work,
 	isWork,
 	familyOf: (id) => familyOf(id),
-	statusOf: async (id, jobs, reader) => status(id, await thread(id), jobs, reader),
+	statusOf: async (id, jobs, reader) =>
+		status(id, await thread(id), jobs, reader, await factsOf(id)),
+	factsOf,
 	agentDocKind: AgentDoc.definition.kind,
 	feed,
 	scopedKey,
@@ -4376,6 +4394,11 @@ for (const conv of await conversations()) {
 for (const [name, runner] of Object.entries(await known())) provide(name, runner.models)
 harness.resume()
 read.start()
+// The bots list and inbox read every thread's status: what the tables know of them is read once they're made, not on first ask
+read
+	.recent(() => true)
+	.then(() => factsOf())
+	.catch((error) => console.error(`the bots' and inbox's first read: ${error.message}`))
 for (const module of modules) await module.start?.()
 
 /** Messages a thread opens on: few, so it shows at once, with only their agents' turns */

@@ -62,7 +62,8 @@ export function server(core) {
 	async function itemOf(thread, reader, work) {
 		const row = await core.thread(thread)
 		if (!row || row.hidden) return undefined
-		const question = await openQuestion(thread, row)
+		const facts = await core.factsOf(thread)
+		const question = (!facts || facts.question) && (await openQuestion(thread, row))
 		if (question) {
 			if (question.id === row.dismissed) return undefined
 			/** The conversation of the agent that asked, whom an answer from the inbox goes to */

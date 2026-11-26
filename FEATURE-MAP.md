@@ -35,6 +35,7 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   work, status, busiest, agentsIn   working / blocked / idle for agents, threads, runners
   threadIds, threadList, threadRows, threadRow, threadPage, threadView, people, newest   GET /api/threads and a thread's view, which `thread/<id>` shares
   listFacts, placedTo               what a whole list reads of messages and agents, from the `ade_` tables while they're current
+  factsOf                           listFacts for one thread, read once after a start for the bots list and inbox, dropped at its next entry
   loadEntries                       the shared entry cache
   recent, older, back, conversationRecord   each thread's newest entries, older ones on demand
   anyRunner, mayRun                 `bash` with a `runner`, and the `runners` tool
