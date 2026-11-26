@@ -338,7 +338,7 @@ export function ThreadItem(props) {
 						focused
 						value=${() => props.thread.title}
 						onSave=${(next) => renameThread(props.thread.id, next)}
-						onDone=${() => setEditing(false)}
+						onDone=${(_e) => setEditing(false)}
 					/>
 				<//>
 			</a>

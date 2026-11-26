@@ -58,7 +58,7 @@ export function People(props) {
 					on=${() => props.on}
 					title=${() => `Invites: ${props.on ? 'on' : 'off'}`}
 					disabled=${() => props.disabled}
-					onToggle=${() => props.onToggle()}
+					onToggle=${(_on) => props.onToggle()}
 				/>
 			</li>
 			<${For} each=${invited}>${(person) => html`<${Person} person=${() => person} />`}<//>

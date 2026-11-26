@@ -213,7 +213,7 @@ export function Settings() {
 							onChoose=${choose}
 							onConfigure=${choose}
 						/>`}
-					><${PiSessionList} onStarted=${() => panel.hidePopover()}
+					><${PiSessionList} onStarted=${(_e) => panel.hidePopover()}
 				/><//>`}
 			>
 				<${Show} when=${() => server().modules.includes('usage')}>
@@ -240,7 +240,7 @@ export function Settings() {
 					<${People}
 						on=${invitesOn}
 						disabled=${() => !editable()}
-						onToggle=${() =>
+						onToggle=${(_on) =>
 							setDraft((store) => {
 								if (store.invites === undefined) store.invites = !invitesOn()
 								else delete store.invites
@@ -279,7 +279,7 @@ export function Settings() {
 										on=${() => on(module)}
 										title=${() => `${module.name}: ${on(module) ? 'on' : 'off'}`}
 										disabled=${() => !editable() || overridden('MODULES')}
-										onToggle=${() => toggle(module)}
+										onToggle=${(_on) => toggle(module)}
 									/>
 									<${Show}
 										when=${() => module.name === 'memory' && expanded() === 'memory' && on(module)}

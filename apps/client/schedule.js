@@ -363,7 +363,7 @@ function TaskRow(props) {
 							? `P${whenOf(props.task).slice(1)}`
 							: `Next ${whenOf(props.task)}`}</small
 				>
-				<${LastRun} task=${() => props.task} onOpen=${() => props.onOpen?.()} />
+				<${LastRun} task=${() => props.task} onOpen=${(_e) => props.onOpen?.()} />
 				<${OfflineRunner} task=${() => props.task} />
 				<small class="said"
 					>${() => `${shortLabel(props.task.by)}: ${props.task.instructions}`}</small
