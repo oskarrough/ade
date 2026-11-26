@@ -588,7 +588,6 @@ agent-memory {
 			}
 
 			&.failed {
-				padding-left: var(--space-3);
 				box-shadow: inset 2px 0 var(--danger);
 				color: var(--danger);
 			}
@@ -2843,11 +2842,23 @@ body.resizing {
 		> small.meta {
 			display: flex;
 			align-items: baseline;
-			white-space: pre-wrap;
+			min-width: 0;
+			white-space: pre;
+
+			> * {
+				flex: none;
+			}
 
 			> .dot {
 				align-self: center;
 				margin-right: var(--space-2);
+			}
+
+			> .thread-link {
+				flex: 0 1 auto;
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
 			}
 
 			> .dismiss {
