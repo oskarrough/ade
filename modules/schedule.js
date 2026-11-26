@@ -24,15 +24,14 @@
  * posts once, outside its schedule; an edit's instructions, schedule, model and runner live in its checkpoint from then
  * on (current). From its time coming until that run is posted its key is expired, so it takes none: it's firing. A webhook task, paused, refuses events.
  *
- * A task `after` thread N sleeps on Ended. When the server hears a thread's work end (`ended`), and once on start,
- * settle signals each such task whose thread has no work left (core.busy); one set while N is already idle runs at once.
+ * A task `after` thread N, or `when` something happens, sleeps on Happened, runs once and ends. Inside, `after` is the
+ * trigger `{idle: N}` (triggerOf), beside `when`'s `{online}` or `{offline}`, a runner by name, and `{failed}` or
+ * `{answered}`, a thread. Idle, online and offline are states: true already on set or on start, the task runs at once
+ * (already). Failed and answered are events, the next run there to fail or agent to answer, as its trail says
+ * (entryStored). Nothing polls: the server tells the module (ended, runner, entryStored) and happen signals the tasks
+ * whose trigger that makes true.
  * With hooks on, one `on` an outside event (hooks.js) sleeps on its next Hooked signal and posts each event beside its
  * instructions as `event`, which the agent reads as outside data.
- *
- * A task `when` something happens sleeps on Happened, runs once and ends, like `after`: `{online}` or `{offline}`, a
- * runner by name, when it connects or drops (at once if it already is, on set and on start); `{failed}` or
- * `{answered}`, a thread, the next time a run there fails or an agent there answers, as its trail says (entryStored).
- * Nothing polls: the server tells the module (runner, entryStored) and it signals the tasks waiting on just that.
  *
  * A run, or a run skipped, is a step in its thread's
  * trail; every change tells every page (`schedule` changed). Archiving a thread cancels its tasks.
@@ -258,12 +257,7 @@ async function startOf(asked, { core, hooks, threadId, now }) {
 	return { at: now + duration(asked.in, 'in') }
 }
 
-const Ended = defineSignal({
-	name: 'ade.thread-ended',
-	version: 1,
-	schema: obj({}),
-})
-/** What a task `when` waits for came to pass */
+/** What a task `after` or `when` waits for came to pass */
 const Happened = defineSignal({
 	name: 'ade.happened',
 	version: 1,
@@ -307,10 +301,11 @@ const wakeAt = (schedule, checkpoint) =>
 		? schedule.until
 		: Math.min(checkpoint.at, schedule.until ?? Infinity)
 
-/**
- * What a task sleeps on at `checkpoint`: its next run's time or its end, its next event, Ended or Happened, and its
- * next Control key
- */
+/** What a one-shot task waits for: `when` as asked, or `after` a thread as that thread going idle */
+const triggerOf = (schedule) =>
+	schedule.after !== undefined ? { idle: schedule.after } : schedule.when
+
+/** What a task sleeps on at `checkpoint`: its next run's time or its end, its next event or Happened, and its next Control key */
 const asleep = (schedule, checkpoint) => ({
 	status: /** @type {const} */ ('sleeping'),
 	...(wakeAt(schedule, checkpoint) === undefined ? {} : { until: wakeAt(schedule, checkpoint) }),
@@ -320,11 +315,9 @@ const asleep = (schedule, checkpoint) => ({
 			? []
 			: schedule.on !== undefined
 				? [Hooked.key(`event-${checkpoint.n}`)]
-				: schedule.after !== undefined
-					? [Ended.key('ended')]
-					: schedule.when !== undefined
-						? [Happened.key('happened')]
-						: []),
+				: triggerOf(schedule) !== undefined
+					? [Happened.key('happened')]
+					: []),
 	],
 	checkpoint,
 })
@@ -405,35 +398,25 @@ export function server(core) {
 		}))
 	}
 
-	/** Runs each task after `threadId`, or after any thread, whose thread has no work left; `duplicate` is fine */
-	async function settle(threadId) {
-		const idle = new Map()
+	/** Wakes each task whose trigger `holds`, asking once per trigger; a `duplicate` signal is fine */
+	async function happen(holds) {
+		const asked = new Map()
 		for (const { id, schedule } of await waiting()) {
-			const { after } = schedule
-			if (after === undefined || (threadId !== undefined && after !== threadId)) continue
-			if (!idle.has(after)) idle.set(after, !(await core.busy(after)))
-			if (idle.get(after)) await core.signal(id, Ended, 'ended', {})
+			const trigger = triggerOf(schedule)
+			if (trigger === undefined) continue
+			const key = JSON.stringify(trigger)
+			if (!asked.has(key)) asked.set(key, await holds(trigger))
+			if (asked.get(key)) await core.signal(id, Happened, 'happened', {})
 		}
 	}
-	const settling = (threadId) => settle(threadId).catch((error) => console.error(error))
-
-	/** Wakes each task `when` that `holds` for */
-	async function happen(holds) {
-		for (const { id, schedule } of await waiting())
-			if (schedule.when !== undefined && holds(schedule.when))
-				await core.signal(id, Happened, 'happened', {})
-	}
 	const waking = (holds) => happen(holds).catch((error) => console.error(error))
-	/** A runner already as a task waits for it to be: online, or offline */
-	const already = (when) =>
-		when.online !== undefined
-			? core.runners.isOnline(when.online)
-			: when.offline !== undefined && !core.runners.isOnline(when.offline)
-	/** A task just set or edited whose wait is already over runs at once */
-	const settleNew = (schedule) => {
-		if (schedule.after !== undefined) settling(schedule.after)
-		if (schedule.when !== undefined && already(schedule.when)) waking(already)
-	}
+	/** A state a task waits for that's true already: its thread idle, its runner online or offline */
+	const already = async (trigger) =>
+		trigger.idle !== undefined
+			? !(await core.busy(trigger.idle))
+			: trigger.online !== undefined
+				? core.runners.isOnline(trigger.online)
+				: trigger.offline !== undefined && !core.runners.isOnline(trigger.offline)
 
 	/** A task runs as whoever set it. An agent may only cancel its own conversation’s tasks. */
 	async function taskForChange(threadId, id, by, conversation = undefined) {
@@ -911,7 +894,7 @@ export function server(core) {
 			if (input.schedule.on !== undefined) await issue(tx, made)
 			return made
 		})
-		settleNew(input.schedule)
+		if (triggerOf(input.schedule)) waking(already)
 		return id
 	}
 
@@ -1226,7 +1209,7 @@ export function server(core) {
 			},
 			user,
 		)
-		if (schedule) settleNew(schedule)
+		if (schedule && triggerOf(schedule)) waking(already)
 		return accepted
 	}
 
@@ -1309,8 +1292,9 @@ export function server(core) {
 	return {
 		serve,
 		archiving,
-		start: () => (settling(), waking(already)),
-		ended: settling,
+		start: () => waking(already),
+		/** A thread's work ended */
+		ended: (threadId) => waking((trigger) => trigger.idle === threadId && already(trigger)),
 		/** Someone was put out of the house: the tasks that run as them end */
 		uninvited: async (name) => {
 			const theirs = [

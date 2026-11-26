@@ -83,7 +83,7 @@ modules/
                          `canvas_act` (apply, created, updated), meta.by (authorizeRecord, onCommittedChanges, grew); serve, connect
   inbox.js               `ask_person`, openQuestion, openQuestions (from the `ade_` tables), itemOf, list, the `inbox` feed a thread at a time; serve (GET /api/inbox, dismissals)
   schedule.js            scheduled tasks: `schedule` tool, create, edit, placed, recipientsOf, current, ScheduledTask (asleep, wakeAt, endOf,
-                         onward, Control, Hooked, Ended, Happened), run, scheduleOf, startOf, firstRun, settle, happen, already, runner, uninvited,
+                         onward, Control, Hooked, Happened, triggerOf), run, scheduleOf, startOf, firstRun, happen, already, runner, uninvited,
                          entryStored, pending, taskForChange, cancel, control, checker, checkOf, stillGoing (the overlap skip), steps (end, next, onward, post), the `checked` phase; serve
   check.js               a scheduled task's check: CheckRun, Said doc, the `scheduled_check` tool (Code Mode with post, done
                          and keep as globals), outcomeOf, the hook that keeps it from `schedule`
