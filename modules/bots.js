@@ -264,7 +264,7 @@ export function server(core) {
 	const botAgent = async (name) => asking(named(await bots(), name))
 	const botAt = async (home) => asking((await bots())[home])
 
-	const instructionsOf = async (name) => named(await bots(), name)?.instructions
+	const instructionsOf = async (home) => (await bots())[home]?.instructions
 	const botNames = async () => Object.values(await bots()).map((bot) => bot.name)
 	const homesOf = async () =>
 		Object.fromEntries(Object.entries(await bots()).map(([home, bot]) => [home, bot.name]))

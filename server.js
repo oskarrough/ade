@@ -83,8 +83,8 @@ import { createRead } from './read.js'
 import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
 
 /**
- * @typedef {{ runner: string, model: string, thinkingLevel?: import("@earendil-works/pi-ai").ThinkingLevel, dir?: string, name?: string, home?: number }} To  An agent as it runs:
- *   the thread's own, or with `name` and `home`, a bot. Asking one as another model, thinking or runner changes it in place.
+ * @typedef {{ runner: string, model: string, thinkingLevel?: import("@earendil-works/pi-ai").ThinkingLevel, dir?: string, name?: string, home?: number, forgotten?: true }} To  An agent as it runs:
+ *   the thread's own, or with `name` and `home`, a bot, `forgotten` once it's no bot. Asking one as another model, thinking or runner changes it in place.
  * @typedef {object} Message  The data of every thread entry.
  * @property {string} author  A human's name, a bot's as it was then, or the thread's agent as `model:thinking@runner` when it wrote.
  * @property {import("@earendil-works/pi-durable").ConversationId} [conversation]  The conversation of the agent that wrote it, on
@@ -197,10 +197,7 @@ if (oldMembers) {
 /**
  * A store from before bots had ids keys each bot by its name, in the bots document and in every thread it's in, so a
  * rename moved it everywhere. Bots are keyed by their home thread's id now. The server converts such a store before it
- * opens it, under its lock and in one transaction, after a copy of the store goes beside it: each bot under its home
- * with its name as a field; each thread's bots under their homes; the messages an agent would have taken for its own
- * by its name, which its own conversation doesn't say yet, skipped; its instructions without its name, which the bots
- * section gives; scheduled tasks' recipients by home. No message is rewritten.
+ * opens it, under its lock and in one transaction, after a copy of the store goes beside it (`convertBots`).
  */
 const oldBots = String.raw`select 1 from documents d join document_revisions r on r.document_id = d.id, json_each(r.content) where d.kind = '"ade.bots"' and value -> '$.home' is not null union all select 1 from documents d join document_revisions r on r.document_id = d.id, json_each(r.content, '$.agents') where d.kind = '"ade.thread"' and value -> '$.named' is not null limit 1`
 const botsByName = (() => {
@@ -219,59 +216,146 @@ if (botsByName) {
 	const backup = [`${file}.before-bot-ids`, `${file}.before-bot-ids-${Date.now()}`].find(
 		(name) => !existsSync(name),
 	)
-	const convert = String.raw`create temp table old_bots as
-	select key as name, cast(value ->> '$.home' as text) as home from documents d
-	join document_revisions r on r.document_id = d.id, json_each(r.content)
-	where d.kind = '"ade.bots"' and value -> '$.home' is not null;
-update document_revisions set content = json_set(content, '$.instructions',
-		'You are a bot in thread ' || substr(content ->> '$.instructions', length(bot.prefix) + 1))
-	from (select agent.value ->> '$.conversation' as conversation, 'You are ' || agent.key || ' in thread ' as prefix
-		from documents d join document_revisions r on r.document_id = d.id, json_each(r.content, '$.agents') agent
-		where d.kind = '"ade.thread"' and agent.key != 'agent' and instr(agent.key, '@') = 0) bot
-	where document_revisions.document_id in (select id from documents where kind = '"pi.agent"' and owner_id = bot.conversation)
-		and substr(content ->> '$.instructions', 1, length(bot.prefix)) = bot.prefix;
-update document_revisions set content = json_set(content, '$.agents', json((
-	select coalesce(json_group_object(coalesce((select home from old_bots where name = one.key), one.key), json(iif(
-		one.ids = '[]',
-		json_remove(one.value, '$.named', '$.skip'),
-		json_set(json_remove(one.value, '$.named'), '$.skip', json(one.ids))))), '{}')
-	from (select agent.key, agent.value, (select coalesce(json_group_array(id), '[]') from (
-		select value as id from json_each(coalesce(agent.value -> '$.skip', '[]'))
-		union
-		select e.id from entries e
-		where e.conversation_id = (select owner_id from documents where id = document_revisions.document_id)
-			and e.id > agent.value ->> '$.after'
-			and e.record ->> '$.kind' = 'ade.message' and e.record -> '$.data.from' is null
-			and coalesce(e.record -> '$.data.answer', e.record -> '$.data.error', e.record -> '$.data.re', e.record -> '$.data.waitingOnPerson') is not null
-			and iif(instr(e.record ->> '$.data.author', '@'), 'agent', e.record ->> '$.data.author') = agent.key
-			and e.id >= coalesce(agent.value ->> '$.named', 0)
-			and e.record ->> '$.data.answer.conversation' is not agent.value ->> '$.conversation'
-		order by 1)) as ids
-	from json_each(content, '$.agents') agent) one)))
-	where document_id in (select id from documents where kind = '"ade.thread"');
-update tasks set record = json_set(record, '$.state.checkpoint.recipients', json((
-		select json_group_array(coalesce((select home from old_bots where name = value), value))
-		from json_each(record, '$.state.checkpoint.recipients'))))
-	where kind = '"ade.scheduled-task"' and record -> '$.state.checkpoint.recipients' is not null;
-update tasks set record = json_set(record, '$.input.recipients', json((
-		select json_group_array(coalesce((select home from old_bots where name = value), value))
-		from json_each(record, '$.input.recipients'))))
-	where kind = '"ade.scheduled-task"' and record -> '$.input.recipients' is not null;
-update document_revisions set content = (
-		select coalesce(json_group_object(value ->> '$.home', json(json_set(json_remove(value, '$.home'), '$.name', key))), '{}')
-		from json_each(content))
-	where document_id in (select id from documents where kind = '"ade.bots"');
-drop table temp.old_bots;`.replace(/\s+/g, ' ')
 	const db = new DatabaseSync(file)
 	try {
 		db.exec(`vacuum into '${backup.replaceAll("'", "''")}'`)
-		db.exec(`begin immediate; ${convert}; commit`)
+		db.exec('begin immediate')
+		try {
+			convertBots(db)
+			db.exec('commit')
+		} catch (error) {
+			db.exec('rollback')
+			throw error
+		}
 	} finally {
 		db.close()
 	}
 	console.log(
 		`converted bots to be known by their home threads; the store as it was is in ${backup}`,
 	)
+}
+
+/**
+ * Each bot goes under its home with its name as a field. A thread's member keyed by a name goes under the home of the
+ * bot that had that name when the member joined: the live bot of that name, from its home on, or one forgotten under it,
+ * from its home until it was forgotten, as its trail says. A member no bot's span holds, or more than one's, keeps its
+ * name, and so does its history; a forgotten bot with members gets a record of its name. A thread keeps the names it
+ * re-keyed as `aliases`, for its older messages, which still say them. Each member's own messages it hasn't read, which it
+ * told apart by its name and now tells by its conversation, it skips; its instructions lose its name, which the bots
+ * section gives; scheduled tasks' recipients go by the thread's keys, and their last run's by conversation. No message
+ * is rewritten.
+ */
+function convertBots(db) {
+	const all = (sql, ...params) => db.prepare(sql).all(...params)
+	const revisionsOf = (kind) =>
+		all(
+			`select r.document_id, r.seq, r.content, d.owner_id from document_revisions r join documents d on d.id = r.document_id where d.kind = ?`,
+			JSON.stringify(kind),
+		)
+	const write = db.prepare(
+		'update document_revisions set content = ? where document_id = ? and seq = ?',
+	)
+	const bots = revisionsOf('ade.bots')
+	/** Each name's spans: a live bot's from its home on, a forgotten one's until it was forgotten */
+	const spans = new Map()
+	const span = (name, home, until) => spans.set(name, [...(spans.get(name) ?? []), { home, until }])
+	for (const { content } of bots.slice(-1))
+		for (const [name, bot] of Object.entries(JSON.parse(content)))
+			if (bot.home) span(name, bot.home, Infinity)
+	for (const step of all(
+		`select id, record ->> '$.data.thread' as home, record ->> '$.data.bot' as name from entries where record ->> '$.kind' = 'ade.trail' and record ->> '$.data.kind' = 'bot-forgotten'`,
+	))
+		span(step.name, step.home, step.id)
+	const homeOf = (name, conversation) => {
+		const holding = (spans.get(name) ?? []).filter(
+			({ home, until }) => conversation > home && conversation < until,
+		)
+		return holding.length === 1 ? holding[0].home : undefined
+	}
+	const forgotten = new Map()
+	/** Each thread's keys, old to new, for its tasks */
+	const keysIn = new Map()
+	const ownUnread = db.prepare(
+		`select id, record -> '$.data' as data from entries where conversation_id = ? and id > ? and record ->> '$.kind' = 'ade.message'`,
+	)
+	const instructions = db.prepare(
+		`select r.document_id, r.seq, r.content from document_revisions r join documents d on d.id = r.document_id where d.kind = '"pi.agent"' and d.owner_id = ?`,
+	)
+	for (const { document_id, seq, content, owner_id: thread } of revisionsOf('ade.thread')) {
+		const doc = JSON.parse(content)
+		const agents = {}
+		const aliases = { ...doc.aliases }
+		const keys = new Map()
+		for (const [key, { named, ...member }] of Object.entries(doc.agents ?? {})) {
+			const bot = key !== AGENT && !key.includes('@')
+			const home = bot && homeOf(key, member.conversation)
+			const now = home ? String(home) : key
+			if (home && !spans.get(key).some((one) => one.home === home && one.until === Infinity))
+				forgotten.set(String(home), key)
+			if (home) aliases[key] = now
+			keys.set(key.includes('@') ? AGENT : key, { key: now, conversation: member.conversation })
+			// What it would have taken for its own answers by its name, but its conversation doesn't say it wrote
+			const skip = new Set(member.skip ?? [])
+			for (const entry of ownUnread.all(thread, member.after)) {
+				const data = JSON.parse(entry.data)
+				const by = data.author?.includes('@') ? AGENT : data.author
+				const answers = data.answer || data.error || data.re || data.waitingOnPerson
+				if (by === key && !data.from && answers && entry.id >= (named ?? 0))
+					if (data.answer?.conversation !== member.conversation) skip.add(entry.id)
+			}
+			if (skip.size) member.skip = [...skip].sort((left, right) => left - right)
+			else delete member.skip
+			agents[now] = member
+			if (bot)
+				for (const agent of instructions.all(member.conversation)) {
+					const value = JSON.parse(agent.content)
+					const prefix = `You are ${key} in thread `
+					if (!value.instructions?.startsWith(prefix)) continue
+					value.instructions = `You are a bot in thread ${value.instructions.slice(prefix.length)}`
+					write.run(JSON.stringify(value), agent.document_id, agent.seq)
+				}
+		}
+		keysIn.set(thread, keys)
+		write.run(
+			JSON.stringify({
+				...doc,
+				agents,
+				...(Object.keys(aliases).length ? { aliases } : {}),
+			}),
+			document_id,
+			seq,
+		)
+	}
+	const tasks = all(
+		`select id, conversation_id as thread, record from tasks where kind = '"ade.scheduled-task"'`,
+	)
+	const writeTask = db.prepare('update tasks set record = ? where id = ?')
+	for (const { id, thread, record } of tasks) {
+		const task = JSON.parse(record)
+		const keys = keysIn.get(thread) ?? new Map()
+		const recipients = (list) => list.map((name) => keys.get(name)?.key ?? name)
+		if (task.input?.recipients) task.input.recipients = recipients(task.input.recipients)
+		const checkpoint = task.state?.checkpoint
+		if (checkpoint?.recipients) checkpoint.recipients = recipients(checkpoint.recipients)
+		const last = checkpoint?.last
+		if (last?.to) {
+			const there = keysIn.get(last.thread) ?? new Map()
+			last.to = last.to
+				.map((name) => there.get(name.includes('@') ? AGENT : name)?.conversation)
+				.filter(Boolean)
+		}
+		writeTask.run(JSON.stringify(task), id)
+	}
+	for (const { document_id, seq, content } of bots) {
+		const now = Object.fromEntries(
+			Object.entries(JSON.parse(content)).map(([name, { home, ...bot }]) => [
+				home,
+				{ ...bot, name },
+			]),
+		)
+		for (const [home, name] of forgotten) now[home] ??= { name, forgotten: true }
+		write.run(JSON.stringify(now), document_id, seq)
+	}
 }
 /** `--dir` folders for the server's own runner, the first where threads start; `--no-runner` lends no runner */
 const { values: flags } = parseArgs({
@@ -496,6 +580,8 @@ const Thread = defineDoc({
 		unpicked: [],
 		/** With inbox on, the open question dismissed from it: its message id */
 		dismissed: null,
+		/** A store from before bots had ids, converted: each bot name its older messages say, to the key it went under */
+		aliases: null,
 		/** The conversation its trail's steps go in, from its first; a fork starts its own */
 		trail: null,
 	}),
@@ -732,6 +818,7 @@ const Deliver = defineTask({
 			if (held.length)
 				await trailed(tx, threadId, Math.max(...held), 'stopped', {
 					agent: await nameIn(tx, await tx.doc(Thread, threadId), agent),
+					conversation: agent,
 					held,
 					run: id,
 				})
@@ -1148,6 +1235,16 @@ const loopback = (address) =>
 // ── Addressing: whom a message asks ───────────────────────────────────────
 
 async function address(to, command = false, signal, useDefaultThinking = true) {
+	// A bot by its home, as a pick made before a rename holds it, else by name; what `to` leaves out, it runs as now
+	const bot =
+		to?.home !== undefined
+			? await botAt?.(to.home)
+			: typeof to?.name === 'string' && (await botAgent?.(to.name))
+	if ((to?.home !== undefined || to?.name !== undefined) && !bot)
+		throw new Error(
+			`${to.name ?? to.home} is no bot: only bots have names, and a thread's agent has none`,
+		)
+	if (bot) to = { ...bot, ...to }
 	const name = field(to?.runner, 'to.runner')
 	if (!(await keys())[name]) throw new Error(`No runner named ${name}`)
 	const runner = (await known())[name]
@@ -1168,19 +1265,7 @@ async function address(to, command = false, signal, useDefaultThinking = true) {
 	for (const key of ['thinkingLevel', 'dir'])
 		if (typeof to[key] === 'string' && to[key].trim()) clean[key] = to[key].trim()
 	if (clean.thinkingLevel) clean.thinkingLevel = await clamped(clean, clean.thinkingLevel)
-	if (to.home !== undefined || to.name !== undefined) {
-		// A bot by its home, as a pick made before a rename holds it, else by name
-		const bot =
-			to.home !== undefined
-				? await botAt?.(to.home)
-				: typeof to.name === 'string' && (await botAgent?.(to.name))
-		if (!bot)
-			throw new Error(
-				`${to.name ?? to.home} is no bot: only bots have names, and a thread's agent has none`,
-			)
-		clean.name = bot.name
-		clean.home = bot.home
-	}
+	if (bot) Object.assign(clean, { name: bot.name, home: bot.home })
 	const cwd = folder(runner, clean)
 	// A folder someone names is checked on the spot; one an agent already works in is checked when it runs
 	if (clean.dir && runners.isOnline(name)) {
@@ -1305,11 +1390,20 @@ function placedTo({ runner, model, thinking, folder }, runners, who) {
 	}
 }
 /** Who the agent under `key` in a thread is: nothing for the thread's own, a bot's `name` and `home`, or a bot's name
- * that was its key before bots had ids; `names`, every bot's by its home, saves reading them for each */
+ * that was its key before bots had ids; `forgotten` unless that bot is one now. `names`, `{live, all}`, the bots' names
+ * by home, those now and every one, saves reading them for each */
 async function whoIs(key, names = undefined) {
 	if (!key || key === AGENT) return {}
-	if (!/^\d+$/.test(key)) return { name: key }
-	return { name: (names ?? (await botLabels?.()) ?? {})[key] ?? `bot ${key}`, home: Number(key) }
+	if (!/^\d+$/.test(key)) return { name: key, forgotten: true }
+	const { live = {}, all = {} } = names ?? {
+		live: await homesOf?.(),
+		all: await botLabels?.(),
+	}
+	return {
+		name: all[key] ?? `bot ${key}`,
+		home: Number(key),
+		...(live[key] === undefined && { forgotten: true }),
+	}
 }
 
 /** Whom asking an agent asks: a bot as it is now, which may be another runner or model than its agent here; else the agent */
@@ -1376,7 +1470,7 @@ const busy = async (threadId) => (await work()).some((job) => job.thread === thr
 
 /** @returns {Promise<Agent[]>} */
 async function agentsIn(row, busy, all, facts = undefined, names = undefined) {
-	names ??= (await botLabels?.()) ?? {}
+	names ??= { live: (await homesOf?.()) ?? {}, all: (await botLabels?.()) ?? {} }
 	return Promise.all(
 		Object.entries(row.agents).map(async ([key, { conversation }]) => {
 			const settings = facts?.agents.get(conversation)
@@ -1484,15 +1578,13 @@ async function lastAsked(id) {
 		}
 		if (!(cursor = page.next)) break
 	}
-	const { agents } = await thread(id)
+	const row = await thread(id)
 	return Promise.all(
-		names.map(async (name) =>
-			agents[keyOf(name)]
-				? askable(keyOf(name), agents[keyOf(name)].conversation)
-				: /^\d+$/.test(name)
-					? botAt?.(name)
-					: whom(id, name),
-		),
+		names.map(async (name) => {
+			const key = memberKey(row, name)
+			if (row.agents[key]) return askable(key, row.agents[key].conversation)
+			return /^\d+$/.test(name) ? botAt?.(name) : whom(id, name)
+		}),
 	)
 }
 
@@ -1770,11 +1862,13 @@ const instructions = (key, threadId, tools) =>
 async function writerKey(row, data) {
 	const by = writtenBy(data)
 	if (by) return nameOf(row, by)
-	if (keyOf(data.author) === AGENT) return row.agents[AGENT] ? AGENT : undefined
-	const home = (await botAgent?.(data.author))?.home
-	if (home && row.agents[home]) return String(home)
-	return row.agents[data.author] ? data.author : undefined
+	const key = memberKey(row, data.author)
+	return row.agents[key] ? key : undefined
 }
+
+/** The key in `row`, a thread's doc, of one a message asks or one who wrote it, as stored; a bot that a message from
+ * before bots had ids names, by the name it had when the thread was converted */
+const memberKey = (row, stored) => row.aliases?.[stored] ?? keyOf(stored)
 
 /** Whom a message asks, as it stores them, by the names they have now: a bot by its name, a model as written */
 async function toNames(stored) {
@@ -1900,12 +1994,13 @@ async function outcome(threadId, agent, settled, mine) {
 			)
 		: []
 	/** A thread answers the thread that started it on its own; a post from anywhere else gets an answer only through `post` */
-	const { parent } = await thread(threadId)
+	const row = await thread(threadId)
+	const { parent } = row
 	const asks = held.filter((entry) => entry.data.from && !entry.data.re)
 	const posts = asks.filter((entry) => entry.data.from === parent)
 	const re = held
 		.filter((entry) => !asks.includes(entry) || posts.includes(entry))
-		.filter((entry) => entry.data.to?.some((stored) => keyOf(stored) === key))
+		.filter((entry) => entry.data.to?.some((stored) => memberKey(row, stored) === key))
 		.map((entry) => entry.id)
 	let failure
 	if (!done) {
@@ -2050,6 +2145,7 @@ async function tell(tx, threadId, agent, settled, submitted, told, upTo, run) {
 		settled.status === 'done' ? 'answered' : stopped ? 'stopped' : 'failed',
 		{
 			agent: await nameIn(tx, await tx.doc(Thread, threadId), agent),
+			conversation: agent,
 			held,
 			run,
 			...(answer === undefined ? {} : { answer }),
@@ -2171,7 +2267,13 @@ async function threadRow(
 ) {
 	const { reads, hidden, dismissed: _, picks: __, trail: ___, ...row } = await thread(id)
 	const busy = all.filter((job) => job.thread === id)
-	const agents = await agentsIn(row, busy, runnersKnown, facts, names)
+	const agents = await agentsIn(
+		row,
+		busy,
+		runnersKnown,
+		facts,
+		names && { live: homes ?? (await homesOf?.()) ?? {}, all: names },
+	)
 	const rowStatus = await status(id, { ...row, reads }, busy, reader, facts)
 	return {
 		id,
@@ -2559,7 +2661,7 @@ async function recipients(
 	{ explicit, fallback = () => lastAsked(id), director = true } = {},
 ) {
 	const joining = director ? await invited(id, message.body) : []
-	const and = (to) => [...to, ...joining.filter((bot) => !to.some((one) => one.name === bot.name))]
+	const and = (to) => [...to, ...joining.filter((bot) => !to.some((one) => one.home === bot.home))]
 	const directed = director && (await direct?.(id, message, explicit === undefined))
 	if (directed?.mention) return { ...directed, to: and(directed.to) }
 	// Paused, only @mentions and named recipients get an answer
@@ -3112,7 +3214,7 @@ async function forkThread(id, { at, title }, person) {
 		// An answer from a conversation it doesn't have now, a fork's source's, counts as none
 		const key = data.answer && nameOf(source, data.answer.conversation)
 		if (key) answers[key] = data.answer
-		for (const stored of data.to ?? []) asked.add(keyOf(stored))
+		for (const stored of data.to ?? []) asked.add(memberKey(source, stored))
 	}
 	/** Asked but not answered by then: made anew, as the source's is now */
 	const fresh = await Promise.all(
@@ -3135,6 +3237,7 @@ async function forkThread(id, { at, title }, person) {
 			init: async (tx, forkId) => {
 				Object.assign(await tx.doc(Thread, forkId), {
 					tools: source.tools,
+					aliases: source.aliases ?? null,
 					memory: source.memory ?? null,
 				})
 				const row = {}
@@ -3339,6 +3442,7 @@ const core = {
 	whom,
 	agentOf,
 	agentsHere,
+	askable,
 	workingIn,
 	conversation,
 	thread,
@@ -3364,7 +3468,8 @@ const core = {
 	openQuestion: (id, row, tx) => openQuestion?.(id, row, tx),
 	lastAsked,
 	recipients,
-	instructionsOf: (name) => instructionsOf?.(name),
+	/** A bot's instructions, by its home */
+	instructionsOf: (home) => instructionsOf?.(home),
 	botAgent: (name) => botAgent?.(name),
 	botAt: (home) => botAt?.(home),
 	writerKey,

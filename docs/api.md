@@ -127,7 +127,7 @@ A thread's trail is what happened in it, one step at a time, like Temporal's eve
 - `posted` `{author, to, direct?, picked?}`: a message to whom; `direct` when the director picks
 - `waited` `{ms, held?}`: the director's quiet before its pick, `held` when someone's typing kept it waiting
 - `picked` `{to, picked?, over?, chose?}`: whom the pick asks. `chose` is how it chose: `{model, outcome, ms, waited, choice, confidence, candidates, read}`, `read` the ids of the messages it read, or `error` when it failed; `over` when the author's next message took over
-- `started`, `answered`, `failed` `{reason}`, `stopped`: an agent's run, with its `agent`, the messages it `held` and `run`, the run's id, the same on each of its steps; `answered` names its `answer`
+- `started`, `answered`, `failed` `{reason}`, `stopped`: an agent's run, with its `agent`, the messages it `held` and `run`, the run's id, the same on each of its steps; `answered`, `failed` and `stopped` give its `conversation` too, and `answered` names its `answer`
 - `nobody`: the message asked no one and nothing started
 - `withdrawn`: its author took it back
 
@@ -185,7 +185,7 @@ GET    /api/threads/:home/bots?asked=4,7   for a bot's home, each thread that as
 
 Only the creator or the house owner can change or forget a bot through the API. Other guests get 403. Bots made before ade recorded their creator belong to the house owner; a bot made with the `bot` tool belongs to the same person as the bot that made it.
 
-A bot is its home thread: `home` is its id, and its name a label. `rename` gives it a new name, under the same rules as a new one, and changes nothing else: it keeps its home, instructions, model and colour, and its agent in every thread it's in, with all it has read there and its own answers, which it never reads back. It answers to the new name from then on, even for a message that asked it, or a pick that chose it, under the old one. Messages already written keep the name their author had; a message that asked the bot shows its name now. A bot made later with an old name is another bot, and the old one's answers are for it to read like anyone else's. A forgotten bot's agents stay in the threads they were in, under the name it had. A bot's home thread always shows the bot's name as its title, so it can't be renamed on its own.
+A bot is its home thread: `home` is its id, and its name a label. `rename` gives it a new name, under the same rules as a new one, and changes nothing else: it keeps its home, instructions, model and colour, and its agent in every thread it's in, with all it has read there and its own answers, which it never reads back. It answers to the new name from then on, even for a message that asked it, or a pick that chose it, under the old one. Messages already written keep the name their author had; a message that asked the bot shows its name now. A bot made later with an old name is another bot, and the old one's answers are for it to read like anyone else's. A forgotten bot's agents stay in the threads they were in, under the name it had, their `to` marked `forgotten`; the director and @mentions only wake bots that are bots now, and a scheduled task set to ask a forgotten bot still asks its agent there, never a new bot of its name. A bot's home thread always shows the bot's name as its title, so it can't be renamed on its own.
 
 `GET /api/bots` gives each bot an `answeredAt`: an ISO time, the newest message anywhere she answered (not only her home), or `null` if she never has.
 

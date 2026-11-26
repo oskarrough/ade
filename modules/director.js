@@ -203,9 +203,13 @@ export function server(core) {
 		)
 	}
 
+	/** A thread's agents, and those it may ask for `author`: neither them nor a forgotten bot, whose name may be another's now */
 	async function agentsOf(threadId, author) {
 		const participants = await core.agentsHere(threadId)
-		return { participants, here: participants.filter((agent) => agent.name !== author) }
+		return {
+			participants,
+			here: participants.filter((agent) => agent.name !== author && !agent.forgotten),
+		}
 	}
 
 	/**
@@ -231,7 +235,7 @@ export function server(core) {
 						name: AGENT,
 						persona: `the thread's own agent, ${writtenTo(agent)}; a generalist`,
 					}
-				const text = ((await core.instructionsOf?.(agent.name)) ?? '').replace(/\s+/g, ' ').trim()
+				const text = ((await core.instructionsOf?.(agent.home)) ?? '').replace(/\s+/g, ' ').trim()
 				return {
 					name: agent.name,
 					persona: !text

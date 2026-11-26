@@ -9,7 +9,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   Anchor, Admit, Deliver, Shell     tasks: own an agent, take a message in, hand it over, run `$ cmd`
   person                            whether a person wrote a message
   ownAnswer, writerKey, whoIs, toNames   which agent wrote a message, by its conversation; a bot's key (its home) and name
-  botsByName                        refuses a store whose bots are keyed by name, and prints the command that converts it
+  botsByName, convertBots           a store whose bots are keyed by name, converted at startup after a backup
+  memberKey                         a bot an older message names, by the thread's `aliases`
   address, whom, modelOn, reach     whom a `to` asks, on which runner and model
   recipients, invited               who a message asks; bots it @mentions that aren't in the thread yet
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused

@@ -46,7 +46,7 @@
 import { createHash } from 'node:crypto'
 import { arr, bool, num, obj, opt, str, unknown } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
-import { AGENT, background, finished, writtenTo } from '../util.js'
+import { AGENT, background, finished, keyOf, storedTo, writtenTo } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
 import { clockTime, DAYS, instant, lastRun, nextRun, span } from '../apps/client/clock.js'
 import { EVENTS, Hooked, issue } from './hooks.js'
@@ -516,8 +516,8 @@ export function server(core) {
 		const to = (
 			await Promise.all(
 				keys.map((key) =>
-					/^\d+$/.test(key)
-						? core.botAt(key)
+					row.agents?.[key]
+						? core.askable(key, row.agents[key].conversation)
 						: core.whom(threadId, key, false, signal).catch(() => null),
 				),
 			)
@@ -540,7 +540,7 @@ export function server(core) {
 
 	/**
 	 * Whether a task's last run, `{thread, entry, to?}`, still goes on: its new thread still working, or, in the task's
-	 * own thread, that thread working and someone it asked (anyone, if it named no one) not done with its message yet,
+	 * own thread, that thread working and someone it asked (`to`, their conversations; anyone, if it named no one) not done with its message yet,
 	 * so other work there doesn't count
 	 */
 	async function stillGoing(threadId, last) {
@@ -553,13 +553,13 @@ export function server(core) {
 						['answered', 'stopped', 'failed'].includes(step.kind) &&
 						step.held?.includes(last.entry),
 				)
-				.map((step) => step.agent),
+				.map((step) => step.conversation),
 		)
-		return last.to?.length ? last.to.some((name) => !done.has(name)) : done.size === 0
+		return last.to?.length ? last.to.some((agent) => !done.has(agent)) : done.size === 0
 	}
 
 	/**
-	 * Posts one run's instructions: where it landed, `{thread, entry}`, with whom it asks there, `to`, in its own thread;
+	 * Posts one run's instructions: where it landed, `{thread, entry}`, with whom it asks there, `to`, their conversations, in its own thread;
 	 * or false when there's no one left to ask
 	 */
 	async function run(tx, { id, threadId, input, asked, event, checked }) {
@@ -593,7 +593,7 @@ export function server(core) {
 				{ author: writtenTo(to), ...mark, to: [to], conversation: input.conversation },
 				{ member: true, fired: { ...fired, recipients: [writtenTo(to)] } },
 			)
-			return { thread: threadId, entry, to: [writtenTo(to)] }
+			return { thread: threadId, entry, to: [input.conversation] }
 		}
 		if (input.to !== undefined) {
 			const thread = await core.startThread(tx, defaultTitle(input.instructions), threadId)
@@ -616,7 +616,9 @@ export function server(core) {
 			},
 			{ direct: asked.direct, unlessPaused: asked.solo, fired },
 		)
-		return { thread: threadId, entry, to: asked.to.map(writtenTo) }
+		// Whom it asked, by conversation, which a rename doesn't change
+		const to = asked.to.map((one) => row.agents[keyOf(storedTo(one))]?.conversation).filter(Boolean)
+		return { thread: threadId, entry, to }
 	}
 
 	const json = (value) => JSON.parse(JSON.stringify(value))
