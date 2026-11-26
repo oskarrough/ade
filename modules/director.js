@@ -213,15 +213,14 @@ export function server(core) {
 	 * thread's agent; `chose` is how, from the pick's start `since`. Pi's `signal` ending it (a stop, a restart) throws,
 	 * so the task decides again or ends.
 	 */
-	async function pick(threadId, entry, covers, stopped, since, held) {
-		const first = Math.min(entry, ...covers)
+	async function pick(threadId, author, ids, stopped, since, held) {
+		const first = Math.min(...ids)
 		const latest = await core.messages(threadId, { after: first - 1 })
-		const message = latest.find((one) => one.id === entry).data
-		const fresh = [...covers, entry]
+		const fresh = ids
 			.map((id) => latest.find((one) => one.id === id)?.data)
 			.filter(Boolean)
 			.map((data) => ({ author: data.author, body: (data.body ?? '').slice(0, SAID) }))
-		const { participants, here: everyone } = await agentsOf(threadId, message.author)
+		const { participants, here: everyone } = await agentsOf(threadId, author)
 		// Agents whose runner is offline would only wait: it picks among the others, unless none is online
 		const online = everyone.filter((agent) => core.runners.isOnline(agent.runner))
 		const here = online.length ? online : everyone
@@ -398,20 +397,29 @@ export function server(core) {
 		const { id, conversationId: threadId, input, startedAt, state } = /** @type {any} */ (task)
 		const { entry, steer, author, covers = [] } = input
 		const row = await core.thread(threadId)
+		/** The messages it picks for that are still there, not withdrawn */
+		const live = ({ unpicked = [] }) => [...covers, entry].filter((id) => unpicked.includes(id))
+		let routed
 		// Taken over by the author's next message, or before it got here (no burst, or a restart): no model call
-		const routed =
-			row.picks?.[author] !== id
-				? { to: [] }
-				: row.paused
-					? { to: [], picked: PAUSED }
-					: await pick(
+		if (row.picks?.[author] !== id) routed = { to: [] }
+		else if (row.paused) routed = { to: [], picked: PAUSED }
+		else
+			for (let ids = live(row); ;) {
+				routed = ids.length
+					? await pick(
 							threadId,
-							entry,
-							covers,
+							author,
+							ids,
 							rt.signal,
 							startedAt,
 							Boolean(state.checkpoint?.holdUntil),
 						)
+					: { to: [] }
+				// One withdrawn while the chooser ran: it chooses again over what's left, or asks no one
+				const left = live(await core.thread(threadId))
+				if (left.length === ids.length) break
+				ids = left
+			}
 		// A bot renamed while the chooser ran answers under its new name, with the conversation it has
 		if (routed.to.length) {
 			const now = await core.agentsHere(threadId)

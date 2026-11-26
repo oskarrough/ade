@@ -1530,10 +1530,11 @@ async function route(
 	const row = await tx.doc(Thread, threadId)
 	row.picks ??= {}
 	const over = row.picks[data.author] !== pick
-	if (over)
-		// The author's newer message took over: this one asks no one, and whatever took over reads it
-		[to, picked] = [[], undefined]
-	else {
+	// The author's newer message took over: this one asks no one, and whatever took over reads it; or all it picked
+	// for was withdrawn since
+	const gone = ![messageId, ...covers].some((id) => row.unpicked?.includes(id))
+	if (over || gone) [to, picked] = [[], undefined]
+	if (!over) {
 		delete row.picks[data.author]
 		// Its messages are free to be read now, whoever it asks
 		row.unpicked = (row.unpicked ?? []).filter((id) => id !== messageId && !covers.includes(id))
