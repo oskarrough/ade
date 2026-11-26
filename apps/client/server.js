@@ -48,7 +48,7 @@ if (linkKey) {
 }
 /** What a device with the owner's tailnet login but not their key hears when it writes: it reads as them, and nothing more */
 export const keyless =
-	'This device only reads until it has your key: on one that writes, open Settings → People → Open on another device, and open that link here.'
+	'This device can’t write without your key: on one that can, open Settings → People → Open on another device, then open that link here.'
 export const api = (path, body, method = body === undefined ? 'GET' : 'POST') =>
 	fetch(url + path, {
 		headers: { 'Content-Type': 'application/json' },

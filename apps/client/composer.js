@@ -152,6 +152,9 @@ export function Composer(props) {
 	const open = () => !props.inbox && current() === props.thread
 	const active = () => props.inbox || open()
 	const enter = () => props.inbox || openThread(props.thread)
+	/** An inbox answer's refusal shows above its own box, which may be far below the inbox's top */
+	const from = props.inbox ? Symbol('inbox answer') : undefined
+	const say = (error) => report(error, from)
 	/** Whom it asks: in the inbox, the agent that asked, and no one until the thread's list knows it; never a guess from history */
 	const whom = () => (props.inbox ? [props.asks].filter(Boolean) : recipients(props.thread))
 	/**
@@ -218,7 +221,7 @@ export function Composer(props) {
 					['images'],
 				)
 			} catch (error) {
-				report(error)
+				say(error)
 			}
 		input.focus()
 	}
@@ -295,7 +298,7 @@ export function Composer(props) {
 				id ?? key,
 				['text', 'images'],
 			)
-			report(error)
+			say(error)
 		} finally {
 			sendingNow.delete(going)
 			changeDraft(
@@ -364,7 +367,7 @@ export function Composer(props) {
 			<${Show} when=${() => server().modules?.includes('schedule') && props.thread} keyed>
 				${(thread) => html`<${ScheduledTasks} thread=${thread} />`}
 			<//>
-			<${Show} when=${open}><${Notice} /><//>
+			<${Show} when=${active}><${Notice} from=${from} /><//>
 			<${Show} when=${() => draft().images.length}>
 				<ul class="images" aria-label="Images to send">
 					<${For} each=${() => draft().images}
