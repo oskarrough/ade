@@ -64,7 +64,8 @@ remote.js                the runner protocol: createRunners (server), serveRunne
 cli.js                   the API from a terminal; `link`, the owner's browser link; `update` (POST /api/update); `runners`
 util.js                  shared helpers: errorLine, plainError, personName, agentTo, writtenTo, smallModel, mentioned, keyOf, speaker, said,
                          written, byAgent, finished, background, collect, firstIn, complete (module model calls), stepText
-modules.js               builtIn, dataDir, ade.json, MODULES; loads each module's server and runner half
+modules.js               builtIn, dataDir, ade.json, MODULES; loads each module's server and runner half;
+                         leftovers: an off module's `off(core)` settles the tasks it left
 modules/
   talk.js                `post` and `threads` tools; resolveThread, reply, member
   auto-title.js          AutoTitle, sanitizeThreadTitle; serve
@@ -75,7 +76,7 @@ modules/
                          answeredAt, posted, homesOf, DEFAULT_VOICE, voice, section, bot-threads, volatility, withoutProject
   context.js             AGENTS.md, skills and cwd from the runner; expand, skillCommand
   director.js            the `direct` hook and Pick task: directing, picks, typing, beatOf, typingIn, sent, Nudge,
-                         pick, decide, covers, turns, botTurns, section
+                         pick, decide, covers, turns, botTurns, section; off, settle: leftover picks once it's off
   mermaid.js             nudges agents toward Mermaid diagrams
   recap.js               a thread's recap: WRITER, Recap doc, Write task, walk, since, start, misshapen, checklist, looking,
                          serve, the `recap` tool

@@ -51,7 +51,7 @@ import {
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node'
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode'
 import { CodemodeSandbox } from '@earendil-works/pi-codemode'
-import { about, builtIn, dataDir, load, loadEnvFile, readConfig } from './modules.js'
+import { about, builtIn, dataDir, leftovers, load, loadEnvFile, readConfig } from './modules.js'
 import { DEFAULT_VOICE } from './modules/bots.js'
 import { WebSocketServer } from 'ws'
 import {
@@ -3251,6 +3251,7 @@ const modules = await load('server', core, settings)
 // that change most go last: a module's `volatility`, 0 unless it says otherwise
 for (const module of modules.toSorted((a, b) => (a.volatility ?? 0) - (b.volatility ?? 0)))
 	if (module.extension) registry.install(module.extension)
+for (const extension of await leftovers(core)) registry.install(extension)
 const customModules = (settings.config.modules ?? [])
 	.map((entry) => entry.replace(/^[+-]/, ''))
 	.filter((entry) => entry.includes('/'))

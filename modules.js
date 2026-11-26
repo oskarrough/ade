@@ -84,6 +84,17 @@ export async function builtIn() {
 	)
 }
 
+/**
+ * What built-in modules that are off left in the store, settled: an off module's `off(core)` returns the extension
+ * that finishes its tasks still pending, like a pick from before the director was turned off
+ */
+export async function leftovers(core) {
+	const off = Object.keys(await builtIn()).filter((name) => !core.modulesOn.includes(name))
+	return (
+		await Promise.all(off.map(async (name) => (await import(`./modules/${name}.js`)).off?.(core)))
+	).filter(Boolean)
+}
+
 /** A module exports `server(core)` and/or `runner(core)`, which return its hooks */
 export async function load(end, core, settings) {
 	const { file, config } = settings ?? (await readConfig())

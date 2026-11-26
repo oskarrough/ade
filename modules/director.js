@@ -65,6 +65,34 @@ Answer with JSON and nothing else: {"choice": "<a candidate's name, all, or nobo
 {"choice": "all", "confidence": 0.9, "reason": "they asked everyone"}
 {"choice": "nobody", "confidence": 0.9, "reason": "they're talking to each other"}`
 
+const PICK = { name: 'ade.pick', version: 1 }
+const STOPPED = 'Stopped before the director picked.'
+
+/** A pick that ends asking no one, `picked` saying why, unless the author's newer message took it over: then quietly */
+const settle =
+	(core, picked, status = undefined) =>
+	(
+		/** @type {any} */ { id, conversationId: threadId, input: { entry, steer, covers = [] } },
+		rt,
+		ctx,
+	) =>
+		rt.commit(async (tx) => {
+			await core.route(tx, threadId, entry, { to: [], picked }, { steer, pick: id, covers })
+			return finished(status)
+		}, ctx)
+
+/** Turned off, it ends the picks it left asking no one, which frees their messages for whoever is asked next */
+export function off(core) {
+	const left = settle(core, 'The director was turned off before it picked.')
+	const Pick = defineTask({
+		...PICK,
+		initial: () => ({ phase: 'wait' }),
+		phases: { wait: left, call: left },
+		abort: settle(core, STOPPED, 'aborted'),
+	})
+	return defineExtension({ name: 'ade.director', tasks: [Pick] })
+}
+
 export function server(core) {
 	const own = core.config?.director ?? {}
 	const name = process.env.DIRECTOR_MODEL || own.model
@@ -404,8 +432,7 @@ export function server(core) {
 	 * author's newer message. The thread's stop aborts it; a restart picks up where it was.
 	 */
 	const Pick = defineTask({
-		name: 'ade.pick',
-		version: 1,
+		...PICK,
 		initial: () => /** @type {{phase: string, round?: number}} */ ({ phase: 'wait', round: 0 }),
 		phases: {
 			async wait(task, rt, ctx) {
@@ -442,22 +469,7 @@ export function server(core) {
 			},
 			call,
 		},
-		abort: async (
-			{ id, conversationId: threadId, input: { entry, steer, covers = [] } },
-			rt,
-			ctx,
-		) => {
-			await rt.commit(async (tx) => {
-				await core.route(
-					tx,
-					threadId,
-					entry,
-					{ to: [], picked: 'Stopped before the director picked.' }, // the author's newer message makes it ask no one, quietly
-					{ steer, pick: id, covers },
-				)
-				return finished('aborted')
-			}, ctx)
-		},
+		abort: settle(core, STOPPED, 'aborted'),
 	})
 
 	const directing = (tx, threadId, entry, { steer = false, author = '', covers = [] } = {}) =>
