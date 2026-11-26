@@ -1003,6 +1003,14 @@ harness.observeCommits({
 	end: () => {},
 })
 
+function setOffers(runner, offered) {
+	Object.assign(runner, {
+		offers: offered.offers ?? [],
+		thinkingLevels: offered.thinkingLevels ?? {},
+		metered: offered.metered ?? [],
+		free: offered.free ?? [],
+	})
+}
 /** What each runner said when it last connected; a runner whose key is gone stays here, so its agents can wait for its name */
 const known = async () => (await harness.snapshot(Runners, context)) ?? {}
 const keys = async () => (await harness.snapshot(Keys, context)) ?? {}
@@ -3505,7 +3513,15 @@ const routes = /** @type {[string, Function][]} */ ([
 		},
 		'GET /api/runners/:name/available': async (req, name) => {
 			if (!runners.isOnline(name)) throw new Error(`${name} is offline`)
-			return runners.call(name, { op: 'available' }, {})
+			const { available, offered } = await runners.call(name, { op: 'available' }, {})
+			if (offered) {
+				await commit(async (tx) => {
+					const runner = (await tx.doc(Runners))[name]
+					if (runner) setOffers(runner, offered)
+				})
+				feed.touch('runners')
+			}
+			return available
 		},
 		'GET /api/changes': async (_req, _id, url) => {
 			if (release) return { commits: release.notes.map((subject) => ({ subject, at: release.at })) }
@@ -4556,13 +4572,7 @@ async function upgrade(req, raw, head, serve = false) {
 	if (offered)
 		await commit(async (tx) => {
 			const all = await tx.doc(Runners)
-			if (connection.phase !== 'closed' && all[name])
-				Object.assign(all[name], {
-					offers: offered.offers ?? [],
-					thinkingLevels: offered.thinkingLevels ?? {},
-					metered: offered.metered ?? [],
-					free: offered.free ?? [],
-				})
+			if (connection.phase !== 'closed' && all[name]) setOffers(all[name], offered)
 		})
 	if (connection.phase === 'closed') return
 	feed.touch(['runners', 'bots', 'threads', 'archived', 'thread'])

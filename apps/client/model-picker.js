@@ -40,6 +40,7 @@ export function ModelPicker(props) {
 	let input, list
 	const [typed, setTyped] = createSignal('')
 	const search = () => typed().trim()
+	const [visible, setVisible] = createSignal(false)
 	const online = () => runners.filter((runner) => runner.online)
 	/** Online runners first; an offline one shows greyed, so you see where a thread waits, and can't be picked */
 	const listed = () => [...online(), ...runners.filter((runner) => !runner.online && runner.dir)]
@@ -58,9 +59,13 @@ export function ModelPicker(props) {
 	// Closing the popover it sits in starts the next opening on an empty search
 	onSettled(() => {
 		const popover = input.closest('[popover]')
-		const closed = (event) => event.newState === 'closed' && clear()
-		popover?.addEventListener('toggle', closed)
-		return () => popover?.removeEventListener('toggle', closed)
+		setVisible(!popover || popover.matches(':popover-open'))
+		const toggled = (event) => {
+			setVisible(event.newState === 'open')
+			if (event.newState === 'closed') clear()
+		}
+		popover?.addEventListener('toggle', toggled)
+		return () => popover?.removeEventListener('toggle', toggled)
 	})
 	const recipients = (event) =>
 		event.key === 'Enter' &&
@@ -114,7 +119,7 @@ export function ModelPicker(props) {
 						</li>
 					`}
 				>
-					${(runner) => PickerRunner(runner, props, search, () => askedRunner()?.name)}
+					${(runner) => PickerRunner(runner, props, search, visible, () => askedRunner()?.name)}
 				<//>
 				${() => props.after?.(search())}
 			</ul>
@@ -129,7 +134,7 @@ export function ModelPicker(props) {
  * A runner with no scoped models lists them all at once, so a fresh house's picker isn't empty.
  * Until opened or searched, the runner asked shows its first three models and every other runner its first one, so the next runner and the bots stay in view.
  */
-function PickerRunner(runner, props, search, askedRunner) {
+function PickerRunner(runner, props, search, visible, askedRunner) {
 	const to = () => props.getTo(runner)
 	const selected = () => props.selectedRunner === runner.name
 	const [opened, setAll] = createSignal(false)
@@ -138,17 +143,20 @@ function PickerRunner(runner, props, search, askedRunner) {
 	const isAsked = () => askedRunner() === runner.name
 	const folded = () => !search() && !unfolded() && !(isAsked() && all())
 	const [available, setAvailable] = createSignal([])
-	let asked = -1
-	// Asked once, and again after the window comes back from a login; `runner.name` is read here, tracked, since
-	// the effect's callback runs untracked and would otherwise freeze it at the runner it first saw.
 	createEffect(
-		() => [(search() || all()) && runner.online ? logins() : null, runner.name],
-		([round, name]) => {
-			if (round === null || asked === round) return
-			asked = round
-			api(`/api/runners/${encodeURIComponent(name)}/available`).then(setAvailable, () => {
-				asked = -1
-			})
+		() => [visible() && runner.online ? runner.name : null, logins()],
+		([name]) => {
+			if (!name) return
+			let current = true
+			api(`/api/runners/${encodeURIComponent(name)}/available`).then(
+				(models) => {
+					if (current) setAvailable(models)
+				},
+				() => {},
+			)
+			return () => {
+				current = false
+			}
 		},
 	)
 	/** Only echo answers here: pi isn't logged in to any model */

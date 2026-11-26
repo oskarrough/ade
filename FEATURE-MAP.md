@@ -54,7 +54,7 @@ images.js                addressed, serveImage: image URLs and dimensions in thr
 version.js               watchVersion: the client version and whether server code changed since startup
 feed.js                  createFeed: versioned /ws views, subscriptions, row deltas, replay and eviction
 echo.js                  echo/try scripted model responses
-runner.js                a runner: offers models and folders, runs agents on its machine
+runner.js                a runner: offers models and folders, refreshModels picks up Pi providers when the picker opens, runs agents on its machine
 runner-updater.js        what `curl <server>/connect-runner | sh` starts; keeps the runner up to date
 read.js                  the `ade_` tables, the house as SQL in ade's database: SCHEMA, projector (one function per kind of
                          Pi record, apply, know), snapshot (Pi's records at one commit), recordsOf, fill; keep, the worker

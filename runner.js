@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	statSync,
 	writeFileSync,
 } from 'node:fs'
 import os from 'node:os'
@@ -14,6 +15,7 @@ import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { clampThinkingLevel, getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
 import {
 	createAgentSessionServices,
+	getAgentDir,
 	resolveCliModel,
 	resolveModelScopeWithDiagnostics,
 	SettingsManager,
@@ -198,14 +200,43 @@ const save = () => {
 }
 
 /** pi's own models and logins, as pi reads them, with the providers its extensions add, such as claude-code */
-const { modelRuntime: models, diagnostics } = await createAgentSessionServices({ cwd: dir })
-for (const diagnostic of diagnostics)
-	if (diagnostic.type === 'error') console.log(`pi: ${diagnostic.message}`)
 const echo = fauxProvider({
 	provider: 'echo',
 	models: [{ id: 'echo' }, { id: 'try', reasoning: true }],
 })
-models.registerNativeProvider(echo.provider)
+const providerFiles = [getAgentDir(), path.join(dir, '.pi')].flatMap((folder) =>
+	['settings.json', 'extensions', 'models.json', 'auth.json'].map((file) =>
+		path.join(folder, file),
+	),
+)
+const revision = () =>
+	providerFiles.map((file) => statSync(file, { throwIfNoEntry: false })?.mtimeMs).join(':')
+let loaded = revision()
+async function loadModels() {
+	const { modelRuntime: models, diagnostics } = await createAgentSessionServices({ cwd: dir })
+	for (const diagnostic of diagnostics)
+		if (diagnostic.type === 'error') console.log(`pi: ${diagnostic.message}`)
+	models.registerNativeProvider(echo.provider)
+	await models.refresh({ allowNetwork: false })
+	return models
+}
+let models = await loadModels()
+let refreshing
+async function refreshModels() {
+	if (refreshing) return refreshing
+	const current = revision()
+	if (loaded === current) return false
+	refreshing = loadModels()
+		.then((next) => {
+			models = next
+			loaded = current
+			return true
+		})
+		.finally(() => {
+			refreshing = undefined
+		})
+	return refreshing
+}
 
 /** What `pi --model pattern` runs */
 function resolve(pattern) {
@@ -300,6 +331,31 @@ async function billing() {
 	}
 }
 
+const offers = async () => {
+	let scoped = []
+	try {
+		;({ scopedModels: scoped } = await resolveModelScopeWithDiagnostics(
+			SettingsManager.create(dir).getEnabledModels() ?? [],
+			models,
+		))
+	} catch (error) {
+		if (!warnedOffers) console.error(`${name}: couldn't list models: ${error.message}`)
+		warnedOffers = true
+	}
+	const refOf = (model) => `${model.provider}/${model.id}`
+	const leveled = [
+		...(defaultModel().model ? [resolve('').model] : []),
+		...scoped.map(({ model }) => model),
+	]
+	return {
+		...(await billing()),
+		offers: [...new Set(scoped.map(({ model }) => refOf(model)))],
+		thinkingLevels: Object.fromEntries(
+			leveled.map((model) => [refOf(model), getSupportedThinkingLevels(model)]),
+		),
+	}
+}
+
 async function connect() {
 	const { model, thinkingLevel, error } = defaultModel()
 	const query = new URLSearchParams({
@@ -332,7 +388,9 @@ async function connect() {
 	const runner = serveRunner({
 		name,
 		dir,
-		models,
+		get models() {
+			return models
+		},
 		resolve,
 		echo,
 		ops: {
@@ -341,31 +399,19 @@ async function connect() {
 			),
 			/** The models pi has scoped here, offered first, the thinking levels of each and of the default, as pi's
 			 * Shift+Tab cycles them, and what bills per use; a message, since a catalog of hundreds won't fit the socket's URL */
-			models: async () => {
-				let scoped = []
-				try {
-					;({ scopedModels: scoped } = await resolveModelScopeWithDiagnostics(
-						SettingsManager.create(dir).getEnabledModels() ?? [],
-						models,
-					))
-				} catch (error) {
-					if (!warnedOffers) console.error(`${name}: couldn't list models: ${error.message}`)
-					warnedOffers = true
-				}
-				const refOf = (model) => `${model.provider}/${model.id}`
-				const leveled = [...(model ? [resolve('').model] : []), ...scoped.map(({ model }) => model)]
+			models: offers,
+			/** Every model pi is logged in for, beyond the scoped ones it offers first */
+			available: async () => {
+				const changed = await refreshModels()
 				return {
-					...(await billing()),
-					offers: [...new Set(scoped.map(({ model }) => refOf(model)))],
-					thinkingLevels: Object.fromEntries(
-						leveled.map((model) => [refOf(model), getSupportedThinkingLevels(model)]),
-					),
+					offered: changed ? await offers() : undefined,
+					available: [
+						...new Set(
+							(await models.getAvailable()).map((model) => `${model.provider}/${model.id}`),
+						),
+					],
 				}
 			},
-			/** Every model pi is logged in for, beyond the scoped ones it offers first */
-			available: async () => [
-				...new Set((await models.getAvailable()).map((model) => `${model.provider}/${model.id}`)),
-			],
 		},
 		readOnly: args['read-only'],
 		send: (text) => socket.readyState === WebSocket.OPEN && socket.send(text),

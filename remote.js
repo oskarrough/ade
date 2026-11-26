@@ -415,17 +415,8 @@ export function remoteEnv(runners, name, cwd) {
 }
 
 /** `resolve(pattern)` is pi's `--model pattern`: { model, thinkingLevel? */
-export function serveRunner({
-	name,
-	dir,
-	models,
-	resolve,
-	echo,
-	ops: more = {},
-	readOnly = false,
-	send,
-	onTell,
-}) {
+export function serveRunner(config) {
+	const { name, dir, resolve, echo, ops: more = {}, readOnly = false, send, onTell } = config
 	const running = new Map()
 	const handles = new Map()
 	const kept = new Map()
@@ -473,6 +464,7 @@ export function serveRunner({
 		context = {
 			messages: messages.filter((message) => !saidNothing(message)).map(withoutEmptyText),
 		}
+		const models = config.models
 		let { model } = await resolve(ref)
 		if (model.provider === 'echo') {
 			echo.appendResponses([
