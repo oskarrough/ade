@@ -1,6 +1,6 @@
 /** `pnpm perf`: how fast ade reads Oskar's real store, numbers only, to run before and after a change.
  * It copies ~/.local/share/ade/ade.sqlite (or DB_PATH) into .work/perf/, never touching the live one, starts a scratch
- * server on the copy with --no-runner and its own config (the live ade.json's modules plus inbox and search), and prints three tables:
+ * server on the copy once to make its SQL tables, then restarts it, with --no-runner and its own config (the live ade.json's modules plus inbox and search), and prints three tables:
  *   server  each read the client makes, timed cold and warm, with the SQLite rows and statements it took and its size; a post to the
  *           biggest thread while scripted runs, list reads and typing there go on: its draft saved ten times a second, as a
  *           page saves it after each pause, which the line under it times
@@ -124,27 +124,49 @@ async function measure() {
 		HOST: '127.0.0.1',
 		MODULES: '+inbox,+bots,+search,-web-search',
 	}
-	const started = performance.now()
-	const server = fork(path.join(repo, 'server.js'), ['--no-runner'], {
-		cwd: work,
-		env: { ...env, ADE_PERF_HOOK: '1' },
-		execArgv: ['--import', import.meta.filename],
-		silent: true,
-	})
-	const children = [server]
+	const children = []
 	const stop = () => children.forEach((child) => child.exitCode === null && child.kill())
 	process.on('exit', stop)
 	process.on('SIGINT', () => process.exit(130))
-	let output = ''
-	server.stderr?.on('data', (chunk) => (output += chunk))
-	const base = await new Promise((resolve, reject) => {
-		server.stdout?.on('data', (chunk) => {
-			output += chunk
-			const port = /http:\/\/127\.0\.0\.1:(\d+)/.exec(output)?.[1]
-			if (port) resolve(`http://127.0.0.1:${port}`)
+	/** A server on the copy and its address, counting its reads when `hooked` */
+	const boot = async (hooked) => {
+		const server = fork(path.join(repo, 'server.js'), ['--no-runner'], {
+			cwd: work,
+			env: hooked ? { ...env, ADE_PERF_HOOK: '1' } : env,
+			execArgv: hooked ? ['--import', import.meta.filename] : [],
+			silent: true,
 		})
-		server.once('exit', (code) => reject(new Error(`server exited ${code}:\n${output}`)))
-	})
+		children.push(server)
+		let output = ''
+		server.stderr?.on('data', (chunk) => (output += chunk))
+		const base = await new Promise((resolve, reject) => {
+			server.stdout?.on('data', (chunk) => {
+				output += chunk
+				const port = /http:\/\/127\.0\.0\.1:(\d+)/.exec(output)?.[1]
+				if (port) resolve(`http://127.0.0.1:${port}`)
+			})
+			server.once('exit', (code) => reject(new Error(`server exited ${code}:\n${output}`)))
+		})
+		const ready = (route, test) =>
+			fetch(base + route).then(
+				async (response) => response.ok && test(await response.json()),
+				() => false,
+			)
+		while (!(await ready('/api/server', () => true))) await sleep(50)
+		return { server, base, ready }
+	}
+	/** A copy of a running house has its SQL tables a beat behind Pi, or written by other code, so its first start
+	 * makes them again, as after a crash, and lists read the slow way meanwhile. Times are for a restart: this start
+	 * makes them, a clean stop keeps them, and the next start is the one measured. */
+	const first = await boot(false)
+	const made = (read) => {
+		if (read.state.startsWith('broken')) throw new Error(`the SQL tables: ${read.state}`)
+		return read.state === 'current'
+	}
+	while (!(await first.ready('/api/read', made))) await sleep(200)
+	await new Promise((resolve) => (first.server.once('exit', resolve), first.server.kill('SIGINT')))
+	const started = performance.now()
+	const { server, base } = await boot(true)
 	const api = async (method, route, body) => {
 		const response = await fetch(base + route, {
 			method,
