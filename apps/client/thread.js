@@ -1016,6 +1016,7 @@ function Message(props) {
 				elsewhere: crossed(),
 				failed: row().failed,
 				mine: row().voice === 'mine',
+				waiting: props.waiting,
 				same: row().voice === 'said' && !row().name,
 			})}
 		>

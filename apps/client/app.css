@@ -578,6 +578,13 @@ agent-memory {
 				padding: var(--space-3) var(--space-4);
 				border-radius: var(--radius-large);
 				background: var(--tint);
+
+				/* Not read by any agent yet, so still yours to take back: an outline with no fill, filling in the moment one reads it */
+				&.waiting {
+					background: transparent;
+					outline: 1px dashed color-mix(in srgb, CanvasText 28%, Canvas);
+					outline-offset: -1px;
+				}
 			}
 
 			&.failed {
