@@ -8,7 +8,6 @@ import { current, feedItem, openThread, threadOf, titleOf } from './server.js'
 import { shortLabel } from './agent.js'
 import { Icon } from './icons.js'
 
-const DAY = 86_400_000
 /** How far back a view counts, from local midnight `days - 1` days ago */
 const RANGES = [
 	{ key: 'today', label: 'Today', days: 1 },
@@ -18,13 +17,12 @@ const RANGES = [
 	{ key: 'quarter', label: 'Last 90 days', days: 90 },
 	{ key: 'all', label: 'All time' },
 ]
-const midnight = () => new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+const midnight = (back = 0) => new Date().setHours(-24 * back, 0, 0, 0)
 const sinceOf = (key) => {
 	const { days } = RANGES.find((range) => range.key === key) ?? {}
-	return days ? midnight() - (days - 1) * DAY : 0
+	return days ? midnight(days - 1) : 0
 }
-/** What this clock adds to UTC, so the server's days start at our midnight */
-const zone = () => -new Date().getTimezoneOffset() * 60_000
+const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 const number = new Intl.NumberFormat(undefined, {
 	notation: 'compact',
@@ -105,11 +103,7 @@ const Days = (props) => {
 		const known = new Map(props.days.map((day) => [day.day, day]))
 		const first = props.since || props.days[0]?.day || midnight()
 		const out = []
-		for (
-			let day = first;
-			day <= midnight();
-			day = new Date(day).setDate(new Date(day).getDate() + 1)
-		)
+		for (let day = first; day <= midnight(); day = new Date(day).setHours(24))
 			out.push({ day, count: known.get(day) })
 		return out
 	})
@@ -170,7 +164,7 @@ export function Usage() {
 	const [range, setRange] = createSignal('fortnight')
 	const [measure, setMeasure] = createSignal('cost')
 	const since = () => sinceOf(range())
-	const usage = feedItem(() => `usage?since=${since()}&zone=${zone()}`)
+	const usage = feedItem(() => `usage?since=${since()}&timeZone=${timeZone}`)
 	return html`
 		<article class="thread current inbox usage" aria-label="Usage">
 			<header>

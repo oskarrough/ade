@@ -46,7 +46,7 @@ Successful API writes (`POST` and `DELETE`), except the cookie exchange at `/api
 
 With the `inbox` module on, the agent's `ask_person({body})` tool posts a message with `waitingOnPerson: true`. Thread views and lists return `status: "blocked"` until a person's next message, even if agents keep writing. This takes precedence over live work and unread-answer status. It is derived from messages, not stored separately. The tool returns at once, so the agent may carry on or end its turn; the CLI's `post` and `wait` stop waiting once only the question is left. A thread's `busy` says whether it has work whatever its status shows: an agent answering or waiting for its runner, a `$` command, a director pick. With a question open and a command running, it's `blocked` and `busy`, and `wait` waits for the command.
 
-Everything a page hears from the server comes over one versioned feed on `/ws`. Subscribe with `{"sub": "<view>", "after": <seq?>, "boot": "<boot?>"}`, unsubscribe with `{"unsub": "<view>"}`, or ask to catch up to a write's version with `{"sync": "<view>", "seq": <seq>}`. Views are `server`, `runners`, `bots`, `inbox`, `threads`, `archived`, `schedule`, `schedule/<id>`, `recap/<id>`, `memory/<id>?room=<n>`, `usage?since=<ms>&zone=<ms>`, `usage/<id>?since=<ms>`, `thread/<id>`, `agents/<id>`, `trail/<id>`, and your own `draft/<id>` and `draft/new`. The server sends ordered envelopes:
+Everything a page hears from the server comes over one versioned feed on `/ws`. Subscribe with `{"sub": "<view>", "after": <seq?>, "boot": "<boot?>"}`, unsubscribe with `{"unsub": "<view>"}`, or ask to catch up to a write's version with `{"sync": "<view>", "seq": <seq>}`. Views are `server`, `runners`, `bots`, `inbox`, `threads`, `archived`, `schedule`, `schedule/<id>`, `recap/<id>`, `memory/<id>?room=<n>`, `usage?since=<ms>&timeZone=<zone>`, `usage/<id>?since=<ms>`, `thread/<id>`, `agents/<id>`, `trail/<id>`, and your own `draft/<id>` and `draft/new`. The server sends ordered envelopes:
 
 ```json
 {
@@ -162,7 +162,7 @@ Modules add routes under their own names. Each of these needs its module on:
 ```
 GET    /api/context?runner=name&dir=folder    the skills there; leave out dir for the runner’s folder
 GET    /api/search?q=words                    matching messages across threads, best first
-GET    /api/usage?since=ms&until=ms&zone=ms   tokens and cost across the house; zone is the offset from UTC
+GET    /api/usage?since=ms&until=ms&timeZone=   tokens and cost across the house; days by timeZone's clock
 GET    /api/threads/:id/usage                 this thread’s totals by model; since and until narrow either read
 POST   /api/threads/:id/auto-title            asks for a fresh title: {title}, or an error if none comes back
 GET    /api/pi-sessions?runner=name&dir=folder   pi sessions there

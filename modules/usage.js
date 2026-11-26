@@ -13,8 +13,8 @@
  * where the runner that ran it bills the provider per token, an API key or pi's Anthropic login (its `metered` providers, less its `free` models) or
  * the provider reported the cost itself (OpenRouter). Each turn and module call keeps its runner for that. Tokens are the honest number either way.
  *
- * `GET /api/usage?since=&until=&zone=` answers the house's `{total, models, days, threads, by, threadCount}`: days
- * start at the asker's midnight, `zone` being what its clock adds to UTC in milliseconds; `by` is who or what spent it,
+ * `GET /api/usage?since=&until=&timeZone=` answers the house's `{total, models, days, threads, by, threadCount}`: days
+ * start at midnight on `timeZone`'s clock, the server's if left out; `by` is who or what spent it,
  * each bot across its threads, `agent` the threads' own agents, then `titles`, `memory`, `director`, `recap` and
  * `compaction`. `GET /api/threads/:id/usage` answers the thread's `{total, models}`, a model row for each agent there,
  * or `purpose` for the rest; `since` and `until` are epoch milliseconds. Each count
@@ -24,6 +24,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { defineDoc, UsageDoc } from '@earendil-works/pi-durable'
 import { AGENT } from '../util.js'
+import { midnight } from '../apps/client/clock.js'
 
 export const on = false
 
@@ -261,12 +262,9 @@ export function server(core) {
 				: Object.values(all).some((one) => meters(one, provider, model))
 	}
 
-	const DAY = 86_400_000
-	/** `since` and `until` in epoch milliseconds, and `zone`, what the asker's clock adds to UTC, which its days follow */
 	const range = (query) => ({
 		since: Number(query.get('since')) || 0,
 		until: Number(query.get('until')) || Number.MAX_SAFE_INTEGER,
-		zone: Number(query.get('zone')) || 0,
 	})
 	/** A row of sums as the API answers it: billed is the whole cost on a metered model, else what the provider reported */
 	const counted = ({ reported, ...row }, metered) => ({
@@ -301,9 +299,10 @@ export function server(core) {
 		select conversation, purpose, runner, provider, model, ${SUMS} from spend where at >= :since and at < :until
 		group by conversation, purpose, runner, provider, model
 	`)
+	// By the quarter hour, as every time zone's midnight falls on one
 	const byDay = db.prepare(`
-		select cast((at + :zone) / ${DAY} as integer) as day, runner, provider, model, ${SUMS} from spend
-		where at >= :since and at < :until group by day, runner, provider, model
+		select at / 900000 * 900000 as quarter, runner, provider, model, ${SUMS} from spend
+		where at >= :since and at < :until group by quarter, runner, provider, model
 	`)
 	const ofConversation = db.prepare(`
 		select purpose, runner, provider, model, ${SUMS} from spend
@@ -332,15 +331,16 @@ export function server(core) {
 		const metered = await meteredOf()
 		const priced = (/** @type {any} */ { runner, ...row }) =>
 			counted(row, metered(row.provider, row.model, runner))
-		const { zone: _, ...within } = between
-		const models = merged(/** @type {any[]} */ (byModel.all(within)).map(priced))
-		const days = grouped(/** @type {any[]} */ (byDay.all(between)).map(priced), (row) => row.day)
-			.map(([day, sums]) => ({ day: day * DAY - between.zone, ...sums }))
+		const models = merged(/** @type {any[]} */ (byModel.all(between)).map(priced))
+		const days = grouped(/** @type {any[]} */ (byDay.all(between)).map(priced), (row) =>
+			midnight(row.quarter, query.get('timeZone') ?? undefined),
+		)
+			.map(([day, sums]) => ({ day, ...sums }))
 			.sort((one, other) => one.day - other.day)
 		const owners = new Map(
 			(await core.conversations()).map((one) => [one.id, one.owner?.conversationId ?? one.id]),
 		)
-		const rows = /** @type {any[]} */ (byConversation.all(within)).map((row) => ({
+		const rows = /** @type {any[]} */ (byConversation.all(between)).map((row) => ({
 			...priced(row),
 			thread: owners.get(row.conversation) ?? row.conversation,
 		}))
@@ -383,10 +383,9 @@ export function server(core) {
 		const owned = (await core.conversations()).filter(
 			(one) => one.id === id || one.owner?.conversationId === id,
 		)
-		const { zone: _, ...within } = between
 		const models = merged(
 			owned.flatMap((one) =>
-				/** @type {any[]} */ (ofConversation.all({ conversation: one.id, ...within })).map(
+				/** @type {any[]} */ (ofConversation.all({ conversation: one.id, ...between })).map(
 					({ runner, purpose, ...row }) => ({
 						agent: purpose || (names.get(one.id) ?? AGENT),
 						...counted(row, metered(row.provider, row.model, runner)),

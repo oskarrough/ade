@@ -5,24 +5,30 @@
 
 export const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
+const formats = {}
+/** The moment the day holding `ms` began on `timeZone`'s clock */
+export function midnight(ms, timeZone) {
+	const at = wall(ms, timeZone)
+	return instant(at.year, at.month, at.day, 0, 0, timeZone)
+}
+
 /**
  * What a wall clock in `timeZone` reads at `ms`
  * @returns {{ year: number, month: number, day: number, hour: number, minute: number, second: number }}
  */
 function wall(ms, timeZone) {
+	formats[timeZone] ??= new Intl.DateTimeFormat('en-US', {
+		timeZone,
+		hourCycle: 'h23',
+		year: 'numeric',
+		month: 'numeric',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: 'numeric',
+		second: 'numeric',
+	})
 	const parts = Object.fromEntries(
-		new Intl.DateTimeFormat('en-US', {
-			timeZone,
-			hourCycle: 'h23',
-			year: 'numeric',
-			month: 'numeric',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: 'numeric',
-			second: 'numeric',
-		})
-			.formatToParts(ms)
-			.map((part) => [part.type, Number(part.value)]),
+		formats[timeZone].formatToParts(ms).map((part) => [part.type, Number(part.value)]),
 	)
 	return /** @type {any} */ ({ ...parts, month: parts.month - 1 })
 }
