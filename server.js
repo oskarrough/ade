@@ -482,7 +482,8 @@ const Anchor = defineTask({
  * Admissions are ordered by Pi task dependencies, independently of how long the answers take. An input takes what its
  * agent hasn't seen, up to the message that asked, in the commit that submits it: until then its position stays,
  * so a failed or stopped admission has nothing to give back. With `turn`, the Deliver of the agent named before it, it
- * starts once that answer has landed and takes all it hasn't seen.
+ * starts once that answer has landed and takes it too, with any other agent's answer since; a person's newer message
+ * asks on its own.
  */
 const Admit = defineTask({
 	name: 'ade.admit',
@@ -502,10 +503,16 @@ const Admit = defineTask({
 			const { note } = recipient
 			// It reads only from its position, however long the thread
 			const since = await messages(threadId, { after: readFrom(recipient) })
-			/** Its turn comes after the answer before it, so it takes that answer, and whatever was said meanwhile */
+			/** Its turn comes after the answer before it, so it takes that answer and other agents' since, but no
+			 * person's newer message, which asks it on its own */
 			const waiting = new Set(row.unpicked ?? [])
+			const answers = new Set(
+				turn
+					? since.filter((entry) => entry.id > upTo && byAgent(entry.data)).map((entry) => entry.id)
+					: [],
+			)
 			const held = unseenIn(recipient, nameOf(row, agent), since).filter(
-				(id) => (turn || id <= upTo) && !waiting.has(id),
+				(id) => (id <= upTo || answers.has(id)) && !waiting.has(id),
 			)
 			if (!held.length) return rt.commit(() => finished('completed', { held }), ctx)
 			await prepare?.(threadId, agent, rt.signal)
