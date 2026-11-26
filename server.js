@@ -160,6 +160,21 @@ process.on('exit', (code) => logged(`exited with code ${code}`))
 process.on('exit', () => Number(readFileSync(lock, 'utf8')) === process.pid && rmSync(lock))
 
 /**
+ * The store as it was before this start converted it. An installed release that stops before it comes up still has the
+ * one it replaced beside it, in `<folder>.old`, and arbe desktop goes back to that one, which can't read the converted
+ * store: so the store goes back too, and whatever this start wrote in the new shape goes with it.
+ */
+let unconverted
+process.on('exit', () => {
+	if (!unconverted || !existsSync(`${import.meta.dirname}.old/bin.js`)) return
+	for (const suffix of ['-wal', '-shm']) rmSync(`${file}${suffix}`, { force: true })
+	renameSync(unconverted, file)
+	console.log(
+		'stopped before it came up; the store is back as it was before this release converted it',
+	)
+})
+
+/**
  * A store from before members kept a place in the thread: each still holds the list of every message it hadn't been
  * handed, which this server doesn't read, so it would hand them nothing new. It converts them before it opens the store,
  * under its lock and in one transaction, after a copy of the store goes beside it: every member's place at the newest
@@ -186,6 +201,7 @@ if (oldMembers) {
 	const db = new DatabaseSync(file)
 	try {
 		db.exec(`vacuum into '${backup.replaceAll("'", "''")}'`)
+		unconverted ??= backup
 		db.exec(`begin immediate; ${convert}; commit`)
 	} finally {
 		db.close()
@@ -219,6 +235,7 @@ if (botsByName) {
 	const db = new DatabaseSync(file)
 	try {
 		db.exec(`vacuum into '${backup.replaceAll("'", "''")}'`)
+		unconverted ??= backup
 		db.exec('begin immediate')
 		try {
 			convertBots(db)
