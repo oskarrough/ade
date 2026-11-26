@@ -74,11 +74,11 @@ export const tryEcho = (request) => {
 			),
 			fauxText('Thought about it.'),
 		])
-	// "fail" makes the run fail, as a model error would
-	if (latest.role === 'user' && text(latest).trim() === 'fail')
+	// "fail" makes the run fail, as a model error would; "fail <error>" fails with that provider error
+	if (latest.role === 'user' && /^fail(?:\s|$)/.test(text(latest).trim()))
 		return fauxAssistantMessage([], {
 			stopReason: 'error',
-			errorMessage: 'the model failed, on purpose',
+			errorMessage: text(latest).trim().slice(5) || 'the model failed, on purpose',
 		})
 	// "ask <question>" asks the person, with inbox on
 	if (latest.role === 'user' && text(latest).startsWith('ask '))

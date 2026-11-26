@@ -27,7 +27,7 @@ To take a runner offline mid-work, kill its node process (`pgrep -f "^node [^ ]*
 
 What a message to `echo/try@bot` makes it do:
 
-- `slow` runs a 5-second tool; `post` asks another thread (`post to 12` follows up in thread 12), `slow post` carries `slow` over, and `post show <path>` has the asked thread answer with that image, `post own` starts it in a checkout of its own (`+checkouts`); `think <text>` is a turn that only thinks; `fail` fails the run; `sleep 0.5` delays it.
+- `slow` runs a 5-second tool; `post` asks another thread (`post to 12` follows up in thread 12), `slow post` carries `slow` over, and `post show <path>` has the asked thread answer with that image, `post own` starts it in a checkout of its own (`+checkouts`); `think <text>` is a turn that only thinks; `fail` fails the run, `fail <error>` with that provider error; `sleep 0.5` delays it.
 - `shell <command>` runs it in bash and answers with what it printed.
 - `ask <question>` calls `ask_person` (one-person threads only); `search <words>` calls `search` (`+search`).
 - `schedule 5m …`, `schedule every 1h …`, `schedule daily 09:00 …` and `schedule mon,fri 09:00,17:30 …` set tasks; `schedule on hook …` answers with its `/hooks/<id>` path (`+hooks`); `GET /api/threads/N/hooks?task=<id>` gives its secret.

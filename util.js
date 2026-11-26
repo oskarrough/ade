@@ -257,6 +257,22 @@ const LOGINS = {
 	'openai-codex': ["pi's ChatGPT login", 'Run pi, then /login.'],
 	'claude-code': ['The Claude Code login', 'Run claude, then /login.'],
 }
+/** Where each paid provider takes more credit */
+const CREDIT = {
+	openrouter: ['your OpenRouter account', 'Add credits at https://openrouter.ai/settings/credits'],
+	anthropic: [
+		'your Anthropic API account',
+		'Buy credits at https://console.anthropic.com/settings/billing',
+	],
+	openai: [
+		'your OpenAI API account',
+		'Add credit at https://platform.openai.com/settings/organization/billing',
+	],
+	deepseek: ['your DeepSeek account', 'Top up at https://platform.deepseek.com/top_up'],
+}
+/** A paid provider refusing for want of money: OpenRouter's 402, Anthropic's low credit balance, OpenAI's insufficient_quota */
+const OUT_OF_CREDIT =
+	/(?<![\w-])402(?![\w-])|payment required|insufficient.?(?:balance|quota|credits?|funds)|credit balance is too low|more credits|available credits|exceeded your current quota|quota exceeded|out of budget|billing/i
 /** A failed model call as one plain line people can act on, `auth` when it was a login; the whole detail goes to the
  * server log */
 export function plainError(detail, to, purpose, thread) {
@@ -271,14 +287,18 @@ export function plainError(detail, to, purpose, thread) {
 		/OAuth auth derivation|API key auth failed|No API key|not configured|authentication_error|invalid.{0,10}api.?key|\b401\b|unauthori[sz]ed|not logged in|\/login/i.test(
 			detail,
 		)
+	const model = to.model.slice(provider.length + 1)
+	const [account, topUp] = CREDIT[provider] ?? [`your ${provider} account`, `Top up ${provider}`]
 	const line = auth
 		? `${login} ${expired ? 'expired' : 'failed'} on ${to.runner}. ${fix}`
-		: `${to.model} failed: ${
-				detail
-					.split(/\r?\n|; (?:details|stack)=|: (?=\w*Error\b)/)[0]
-					.trim()
-					.slice(0, 200) || 'no reason given'
-			}`
+		: OUT_OF_CREDIT.test(detail)
+			? `${model} was refused: ${account} is out of credit or quota. ${topUp}, or pick another model.`
+			: `${to.model} failed: ${
+					detail
+						.split(/\r?\n|; (?:details|stack)=|: (?=\w*Error\b)/)[0]
+						.trim()
+						.slice(0, 200) || 'no reason given'
+				}`
 	return Object.assign(new Error(line), { auth })
 }
 
