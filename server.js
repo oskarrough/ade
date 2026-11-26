@@ -1375,8 +1375,8 @@ const isWork = (kind) => runsOnRunner(kind) || moduleWork.includes(kind)
 const busy = async (threadId) => (await work()).some((job) => job.thread === threadId)
 
 /** @returns {Promise<Agent[]>} */
-async function agentsIn(row, busy, all, facts = undefined) {
-	const names = (await botLabels?.()) ?? {}
+async function agentsIn(row, busy, all, facts = undefined, names = undefined) {
+	names ??= (await botLabels?.()) ?? {}
 	return Promise.all(
 		Object.entries(row.agents).map(async ([key, { conversation }]) => {
 			const settings = facts?.agents.get(conversation)
@@ -2159,11 +2159,19 @@ async function firstWrote(id) {
 	return writers.get(id).first
 }
 
-/** `homes`, each bot's home thread → its name, and the `runners` as known save reading them for every row of a list */
-async function threadRow(id, reader, all, homes, runnersKnown, facts = undefined) {
+/** `homes`, each bot's home thread → its name, the `runners` as known and the bots' `names` save reading them for every row of a list */
+async function threadRow(
+	id,
+	reader,
+	all,
+	homes,
+	runnersKnown,
+	facts = undefined,
+	names = undefined,
+) {
 	const { reads, hidden, dismissed: _, picks: __, trail: ___, ...row } = await thread(id)
 	const busy = all.filter((job) => job.thread === id)
-	const agents = await agentsIn(row, busy, runnersKnown, facts)
+	const agents = await agentsIn(row, busy, runnersKnown, facts, names)
 	const rowStatus = await status(id, { ...row, reads }, busy, reader, facts)
 	return {
 		id,
@@ -2191,12 +2199,17 @@ async function threadRow(id, reader, all, homes, runnersKnown, facts = undefined
 }
 /** `[id, row]` for each of `ids`, the row null for a thread the list doesn't show: the open ones, or the archived */
 const threadRows = async (ids, reader, archived = false, facts = undefined) => {
-	const [busy, homes, runnersKnown] = await Promise.all([work(), homesOf?.() ?? {}, known()])
+	const [busy, homes, runnersKnown, names] = await Promise.all([
+		work(),
+		homesOf?.() ?? {},
+		known(),
+		botLabels?.() ?? {},
+	])
 	return Promise.all(
 		ids.map(async (id) => [
 			id,
 			placed.get(id)?.hidden === archived
-				? await threadRow(id, reader, busy, homes, runnersKnown, facts?.get(id))
+				? await threadRow(id, reader, busy, homes, runnersKnown, facts?.get(id), names)
 				: null,
 		]),
 	)
