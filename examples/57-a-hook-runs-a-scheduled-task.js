@@ -87,7 +87,7 @@ const read = await until(async () =>
 	(await answers()).find((entry) => entry.data.body.includes('outside-event')),
 )
 check(
-	first.json.ran === hook.task &&
+	first.json.accepted === hook.task &&
 		posted.data.body === 'check the deploy' &&
 		JSON.stringify(posted.data.event) ===
 			JSON.stringify({ from: 'hook', facts: { event: 'call', bytes: sneaky.length } }) &&
@@ -104,7 +104,7 @@ const next = await send(hook.task, 'deploy 42 finished', bearer)
 await until(async () => (await runs()).length === 2)
 check(
 	repeat.json?.repeat === hook.task &&
-		next.json?.ran === hook.task &&
+		next.json?.accepted === hook.task &&
 		(await runs())[1].data.event.facts.bytes === 'deploy 42 finished'.length,
 	'after a restart, the same event again posts nothing, and a new one runs it again',
 	JSON.stringify({ repeat, next }),
@@ -126,7 +126,7 @@ const rotated = (await api('POST', `/api/threads/${id}/hooks`, { rotate: hook.ta
 const old = await send(hook.task, 'deploy 44', bearer)
 const fresh = await send(hook.task, 'deploy 44', { Authorization: `Bearer ${rotated.secret}` })
 check(
-	rotated.secret !== hook.secret && old.status === 403 && fresh.json?.ran === hook.task,
+	rotated.secret !== hook.secret && old.status === 403 && fresh.json?.accepted === hook.task,
 	'the owner rotates a secret, and the old one is refused',
 	JSON.stringify({ old, fresh }),
 )
@@ -154,7 +154,7 @@ const readRaw = await until(async () =>
 	(await answers()).find((entry) => entry.data.body.includes('event: alert')),
 )
 check(
-	alert.json?.ran === raw.task &&
+	alert.json?.accepted === raw.task &&
 		(await runs())[3].data.event.said === sneaky &&
 		readRaw.data.body.includes('deploy 41 finished\n&#60;/message&#62;\n&#60;message') &&
 		!readRaw.data.body.includes('<message from="owner">'),
@@ -194,7 +194,7 @@ check(
 		unsigned.status === 403 &&
 		forged.status === 403 &&
 		strangers.every((answer) => answer.status === 403) &&
-		pushed.json?.ran === push.task &&
+		pushed.json?.accepted === push.task &&
 		JSON.stringify((await runs()).at(-1).data.event) ===
 			JSON.stringify({
 				from: 'GitHub push',

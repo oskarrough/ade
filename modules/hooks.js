@@ -194,7 +194,7 @@ export function server(core) {
 	}
 
 	/**
-	 * One event for task `id`: `{ran}`, `{repeat}` for one it took already, `{ignored}` for one it doesn't wait for.
+	 * One event for task `id`: `{accepted}` once the task has it, `{repeat}` for one it took already, `{ignored}` for one it doesn't wait for.
 	 * Everything it can check from the headers it checks before reading the body.
 	 */
 	async function webhook(id, { headers, body }) {
@@ -269,7 +269,7 @@ export function server(core) {
 			})
 			if (sent !== 'delivered') throw fail(404, 'No hook here')
 			doc.events += 1
-			return { ran: id }
+			return { accepted: id }
 		})
 	}
 
