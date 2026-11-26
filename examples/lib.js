@@ -94,7 +94,7 @@ process.on('exit', () => {
 process.on('SIGINT', () => process.exit(130))
 process.on('SIGTERM', () => process.exit(143))
 
-/** Servers and runners use the example's own store and XDG config, never the person's settings. */
+/** Servers and runners use the example's own store and XDG folders, never the person's settings, logs or checkouts. */
 export function start(file, args = [], env = {}, cwd = tmp) {
 	return command(process.execPath, [path.resolve(repo, file), ...args], {
 		cwd,
@@ -105,6 +105,7 @@ export function start(file, args = [], env = {}, cwd = tmp) {
 			HOST: '127.0.0.1',
 			DB_PATH: db,
 			XDG_CONFIG_HOME: tmp,
+			XDG_DATA_HOME: tmp,
 			...env,
 		},
 	})
