@@ -8,7 +8,7 @@
 - Commit only your own paths and push `main` yourself. If the push is refused, fetch, rebase and push again; never force it or move main backwards. Report a commit id only once `main@origin` has it. While a sprint holds pushes, stop before `jj git push`. After pushing, bring `~/sites/ade` up to main without touching Oskar's uncommitted edits.
 - Commit subjects are the changelog, shown in the app: one plain sentence for the person using ade, benefit first ("Forking a long thread is instant", not "fork: read only needed entries"); internal work says so ("Server code is simpler, nothing changes for you"). The why and how go in the body. One commit per change the person would notice: a run of fixes to one feature is squashed into one before pushing, so it reads as one entry. Voice: `~/.agents/skills/arbe-changelog/SKILL.md`.
 - Never abandon, restore or revert someone else's work. If you need lines someone else is changing, agree in their thread who goes first.
-- :3000 is Oskar's live house. Use it through its API or page as he would, but never stop or restart it or write to its SQLite file; a change that needs that is rehearsed on a copy and handed to Oskar as one command that refuses to run while the server is up.
+- :3000 is Oskar's live house. Use it through its API or page as he would, but never stop or restart it or write to its SQLite file. A change to how data is stored converts it when the server starts, after a backup beside the store, in one transaction; rehearse that on a copy of the real data first, and tell Oskar what he should see once his house restarts.
 - Never `pkill` or `killall`; stop only the pid you started. Build no proxies, harnesses or helper scripts: if ade and agent-browser can't show it, ask.
 - Test in proportion. A style, copy or layout tweak gets no browser check; look only at new or redesigned UI. Landing always runs `pnpm check`; `pnpm examples` runs too unless the change is client-only (apps/client: CSS, copy, markup, client JS). Run `pnpm perf` before and after a change to reads, lists or rendering. If a check fails twice, stop and report.
 - Leave package.json and the lockfile alone unless the task is about dependencies.
@@ -32,7 +32,7 @@
 ## Code
 
 - `examples/` guards the twenty-odd promises users rely on, through the API, socket or CLI, never internals, wording or styling. Add one only for a new promise, and see it fail on the old code first. `examples/00-the-api.js` is the README's walkthrough: change both together. Examples wait for events, not the clock; a flaky one gets its cause fixed or is deleted.
-- No unit or UI tests, build step, migrations, shims or backwards compatibility: rename outright.
+- No unit or UI tests, build step, shims or backwards compatibility: rename outright. Stored data in an old shape is converted once at startup, as above, never read both ways.
 - Durability, ordering, retries and cancellation are Pi Durable's; use its primitives. A tool's cancellation is `execute`'s third argument's `abortSignal`; pass it through runner calls.
 - In a Pi commit, `submit(tx, …)` comes before table writes, and a snapshot inside it deadlocks silently. A doc's value is a live proxy: copy it with `JSON.parse(JSON.stringify(…))` before it leaves the commit.
 - Pi forks restore `pi.agent` at the fork entry, so the creating commit sets tools and identity without replacing the inherited model, thinking or folder.
