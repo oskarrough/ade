@@ -389,7 +389,8 @@ export function server(core) {
 		const last = beatOf(threadId, person)
 		if (!last?.on) return
 		core.afterCommit(tx, () => {
-			typing(threadId, person, false, last.seq).catch((error) => console.error(error))
+			// No sequence of its own: it ends their latest beat, and keeps its sequence against beats arriving late
+			typing(threadId, person, false).catch((error) => console.error(error))
 		})
 	}
 
