@@ -158,10 +158,10 @@ const botPut = await until(async () =>
 			frame.view === 'bots' &&
 			!frame.reset &&
 			frame.seq >= madeBot.json.seq &&
-			frame.put?.some((item) => item.key === 'ada'),
+			frame.put?.some((item) => item.key === madeBot.json.home),
 	),
 )
-const ada = botPut?.put.find((item) => item.key === 'ada')?.row
+const ada = botPut?.put.find((item) => item.key === madeBot.json.home)?.row
 check(
 	Boolean(ada) &&
 		typeof ada.color === 'number' &&
@@ -176,7 +176,10 @@ const forgot = await api('DELETE', '/api/bots/ada?key=forget-ada')
 const forgotAgain = await api('DELETE', '/api/bots/ada?key=forget-ada')
 const botDel = await until(async () =>
 	again.frames.find(
-		(frame) => frame.view === 'bots' && frame.seq >= forgot.json.seq && frame.del?.includes('ada'),
+		(frame) =>
+			frame.view === 'bots' &&
+			frame.seq >= forgot.json.seq &&
+			frame.del?.includes(madeBot.json.home),
 	),
 )
 check(

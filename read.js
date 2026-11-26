@@ -73,16 +73,16 @@ create table ade_bots (
 	instructions   text    not null
 ) strict;
 
--- A thread's one agent (name 'agent') and each bot in it, by the name it has there now
+-- A thread's one agent (key 'agent') and each bot in it, by its home thread's id
 create table ade_agents (
 	conversation_id integer primary key,       -- Pi's conversation: what this agent has read, its tool calls, its answers
 	thread_id      integer not null references ade_threads (id),
-	name           text    not null,
+	key            text    not null,           -- 'agent', a bot's home id, or the name of a bot forgotten before bots had ids
 	runner         text,                       -- where it runs now; none for a model off any runner
 	model          text,                       -- none until Pi holds its settings in its own conversation, as a fork's agent before it changes
 	thinking       text,
 	folder         text,                       -- the whole path, on its runner's machine
-	unique (thread_id, name)
+	unique (thread_id, key)
 ) strict;
 
 create table ade_messages (
@@ -106,7 +106,7 @@ create index ade_messages_by_command on ade_messages (thread_id, id) where comma
 create index ade_messages_by_author on ade_messages (author, id);
 create index ade_messages_by_run on ade_messages (run_id) where run_id is not null;
 
--- Whom a message asks: an agent's name in its thread
+-- Whom a message asks, as it says: the thread's agent as model@runner, a bot by its home's id, or before bots had ids, its name
 create table ade_asks (
 	message_id     integer not null references ade_messages (id),
 	agent          text    not null,
@@ -373,18 +373,17 @@ function projector(db) {
 			for (const read of reads)
 				run('insert into ade_reads (thread_id, person, message_id) values (?, ?, ?)', ...read)
 		}
-		const agents = Object.entries(doc.agents ?? {}).map(([name, agent]) => [
+		const agents = Object.entries(doc.agents ?? {}).map(([key, agent]) => [
 			agent.conversation,
 			id,
-			name,
+			key,
 			...(settings.get(agent.conversation) ?? [null, null, null, null]),
 		])
 		if (same(all('select * from ade_agents where thread_id = ?', id), agents)) return
-		// A renamed bot keeps its conversation under the new name; two rows can't hold one name meanwhile
 		run('delete from ade_agents where thread_id = ?', id)
 		for (const agent of agents)
 			run(
-				'insert into ade_agents (conversation_id, thread_id, name, runner, model, thinking, folder) values (?, ?, ?, ?, ?, ?, ?)',
+				'insert into ade_agents (conversation_id, thread_id, key, runner, model, thinking, folder) values (?, ?, ?, ?, ?, ?, ?)',
 				...agent,
 			)
 	}
@@ -421,17 +420,18 @@ function projector(db) {
 
 	function bots(doc) {
 		run('delete from ade_bots')
-		for (const [name, bot] of Object.entries(doc))
-			run(
-				'insert into ade_bots (home_id, name, model, thinking, runner, folder, instructions) values (?, ?, ?, ?, ?, ?, ?)',
-				bot.home,
-				name,
-				bot.to?.model ?? null,
-				bot.to?.thinkingLevel ?? null,
-				bot.to?.runner ?? null,
-				bot.to?.dir ?? null,
-				bot.instructions ?? '',
-			)
+		for (const [home, bot] of Object.entries(doc))
+			if (!bot.forgotten)
+				run(
+					'insert into ade_bots (home_id, name, model, thinking, runner, folder, instructions) values (?, ?, ?, ?, ?, ?, ?)',
+					Number(home),
+					bot.name,
+					bot.to?.model ?? null,
+					bot.to?.thinkingLevel ?? null,
+					bot.to?.runner ?? null,
+					bot.to?.dir ?? null,
+					bot.instructions ?? '',
+				)
 	}
 
 	/** A thread's module calls, as its usage document has them now */
@@ -973,11 +973,11 @@ union all select 'threads', ade_threads.id, 'title, parent, archived or paused' 
 union all select 'reads', pi_thread.id, 'differs' from pi_thread
 	where (select coalesce(json_group_object(person, message_id), '{}') from (select * from ade_reads where thread_id = pi_thread.id order by person))
 		is not (select coalesce(json_group_object(key, value), '{}') from (select key, value from json_each(pi_thread.doc, '$.reads') order by key))
-union all select 'agents', pi_thread.id, 'missing or renamed: ' || each.key from pi_thread, json_each(pi_thread.doc, '$.agents') each
-	where not exists (select 1 from ade_agents where conversation_id = each.value ->> '$.conversation' and name = each.key and thread_id = pi_thread.id)
+union all select 'agents', pi_thread.id, 'missing or moved: ' || each.key from pi_thread, json_each(pi_thread.doc, '$.agents') each
+	where not exists (select 1 from ade_agents where conversation_id = each.value ->> '$.conversation' and key = each.key and thread_id = pi_thread.id)
 union all select 'agents', conversation_id, 'not in its thread in Pi' from ade_agents
 	where not exists (select 1 from pi_thread, json_each(pi_thread.doc, '$.agents') each
-		where pi_thread.id = ade_agents.thread_id and each.key = ade_agents.name and each.value ->> '$.conversation' = ade_agents.conversation_id)
+		where pi_thread.id = ade_agents.thread_id and each.key = ade_agents.key and each.value ->> '$.conversation' = ade_agents.conversation_id)
 union all select 'messages', id, 'missing' from pi_message where id not in (select id from ade_messages)
 union all select 'messages', id, 'not in Pi' from ade_messages where id not in (select id from pi_message)
 union all select 'messages', ade_messages.id, 'thread, author or time' from ade_messages join pi_message using (id)
@@ -1045,11 +1045,11 @@ union all select 'schedules', ade_schedules.id, 'status, instructions or next ru
 		or (tasks.status != 'terminal' and cast(strftime('%s', ade_schedules.next_run_at) as integer)
 			is not (tasks.record ->> '$.state.until') / 1000)
 union all select 'bots', null, 'differs' where
-	(select coalesce(json_group_object(name, home_id), '{}') from (select * from ade_bots order by name))
-	is not (select coalesce(json_group_object(key, value ->> '$.home'), '{}') from (select key, value from documents documents
+	(select coalesce(json_group_object(home_id, name), '{}') from (select * from ade_bots order by home_id))
+	is not (select coalesce(json_group_object(key, value ->> '$.name'), '{}') from (select key, value from documents documents
 		join document_revisions revisions on revisions.document_id = documents.id, json_each(revisions.content)
-		where documents.kind = '"${BOTS}"' and documents.retired_at is null
-			and revisions.seq = (select max(seq) from document_revisions where document_id = documents.id) order by key))
+		where documents.kind = '"${BOTS}"' and documents.retired_at is null and value ->> '$.forgotten' is null
+			and revisions.seq = (select max(seq) from document_revisions where document_id = documents.id) order by cast(key as integer)))
 union all select 'messages', null, 'the search index holds another number of them'
 	where (select count(*) from ade_messages) != (select count(*) from ade_messages_fts_docsize)
 union all select "table", rowid, 'points at no ' || parent from pragma_foreign_key_check

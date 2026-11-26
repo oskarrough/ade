@@ -42,7 +42,7 @@ await scriptedRunner('laptop', async (request) => {
 		if (body === 'nothing for anyone') return new Promise((resolve) => (releaseNobody = resolve))
 		return say(JSON.stringify({ choice: 'Jeroen', confidence: 0.9, reason: 'he knows' }))
 	}
-	return say(system.includes('You are Jeroen in thread') ? 'Jeroen here' : 'agent here')
+	return say(system.includes('You are the bot Jeroen') ? 'Jeroen here' : 'agent here')
 })
 await api('POST', '/api/bots', { name: 'Jeroen', to: 'echo/echo@laptop' })
 const post = (body, to) =>

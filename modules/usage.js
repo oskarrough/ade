@@ -347,12 +347,13 @@ export function server(core) {
 		const threadIds = [...new Set(rows.map((row) => row.thread))]
 		const found = await Promise.all(threadIds.map((id) => core.thread(id)))
 		const docs = new Map(threadIds.map((id, index) => [id, found[index]]))
+		const labels = await core.botLabels()
 		/** Who spent it: a module's purpose or compaction, else a bot by name, else the thread's own agent */
 		const whose = (row) => {
 			if (row.purpose) return row.purpose
 			const agents = Object.entries(docs.get(row.thread)?.agents ?? {})
 			const key = agents.find(([, agent]) => agent.conversation === row.conversation)?.[0]
-			return key && key !== AGENT ? key : AGENT
+			return key && key !== AGENT ? (labels[key] ?? key) : AGENT
 		}
 		return {
 			total: add(models),
@@ -377,8 +378,12 @@ export function server(core) {
 		await built()
 		const between = range(query)
 		const metered = await meteredOf()
+		const labels = await core.botLabels()
 		const names = new Map(
-			Object.entries(doc.agents ?? {}).map(([key, { conversation }]) => [conversation, key]),
+			Object.entries(doc.agents ?? {}).map(([key, { conversation }]) => [
+				conversation,
+				labels[key] ?? key,
+			]),
 		)
 		const owned = (await core.conversations()).filter(
 			(one) => one.id === id || one.owner?.conversationId === id,

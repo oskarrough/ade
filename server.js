@@ -57,6 +57,8 @@ import { WebSocketServer } from 'ws'
 import {
 	AGENT,
 	writtenTo,
+	storedTo,
+	writtenBy,
 	agentTo,
 	collect,
 	firstIn,
@@ -81,14 +83,16 @@ import { createRead } from './read.js'
 import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } from './remote.js'
 
 /**
- * @typedef {{ runner: string, model: string, thinkingLevel?: import("@earendil-works/pi-ai").ThinkingLevel, dir?: string, name?: string }} To  An agent as it runs:
- *   the thread's own, or with `name`, a bot. Asking one as another model, thinking or runner changes it in place.
+ * @typedef {{ runner: string, model: string, thinkingLevel?: import("@earendil-works/pi-ai").ThinkingLevel, dir?: string, name?: string, home?: number }} To  An agent as it runs:
+ *   the thread's own, or with `name` and `home`, a bot. Asking one as another model, thinking or runner changes it in place.
  * @typedef {object} Message  The data of every thread entry.
- * @property {string} author  A human's name, a bot's, or the thread's agent as `model:thinking@runner` when it wrote.
+ * @property {string} author  A human's name, a bot's as it was then, or the thread's agent as `model:thinking@runner` when it wrote.
+ * @property {import("@earendil-works/pi-durable").ConversationId} [conversation]  The conversation of the agent that wrote it, on
+ *   all an agent writes but answers, which hold it in `answer`; older messages have none.
  * @property {string} body
  * @property {string} [createdAt]  When it was written, as an ISO time, which append stamps; a pi session's message keeps pi's. Older messages have none.
  * @property {{ type: 'image', mimeType: string, data: string }[]} [images]  As pi's ImageContent, base64; the agent sees them with the words.
- * @property {string[]} [to]  Whom it asks, named as `author` names them.
+ * @property {string[]} [to]  Whom it asks: a bot by its home's id, the thread's agent as `model:thinking@runner`; older messages name bots.
  * @property {number} [from]  The thread it came from.
  * @property {number[]} [re]  What it answers: messages here, or with `from`, posts there.
  * @property {{ conversation: import("@earendil-works/pi-durable").ConversationId, entry: number }} [answer]  The agent's entry it copies.
@@ -101,11 +105,11 @@ import { createRunners, messageText, remoteEnv, runnerBundle, runnerProvider } f
  * @property {true} [stopped]  Its author pressed Stop while the thread was working; the body says `stopped`.
  * @property {{ runner: string, code: number | null, stdout: string, stderr: string, error?: string }} [shell]  What `$ cmd` printed.
  * @typedef {{ name: string, conversation: import("@earendil-works/pi-durable").ConversationId, to: To | null, status: string, contextWindow?: number }} Agent  An agent or bot, as a thread view shows it.
- * @typedef {{ conversation: import("@earendil-works/pi-durable").ConversationId, after: number, earlier?: number[], skip?: number[], named?: number, admission?: { admit: number, deliver: number }, note?: string }} Recipient
- *   A thread doc's row for its agent or a bot: its conversation; what it hasn't seen, as a position, every message for it
- *   after `after` but those in `skip`, and the few at or before it in `earlier`, held back while the director picked or
- *   given back by a Stop; the message from which it has gone by its name, so answers under that name before it are
- *   another agent's; its latest input's tasks; and what to tell it about a change before its next one.
+ * @typedef {{ conversation: import("@earendil-works/pi-durable").ConversationId, after: number, earlier?: number[], skip?: number[], admission?: { admit: number, deliver: number }, note?: string }} Recipient
+ *   A thread doc's row for its agent, under `agent`, or a bot, under its home's id: its conversation; what it hasn't
+ *   seen, as a position, every message for it after `after` but those in `skip`, and the few at or before it in
+ *   `earlier`, held back while the director picked or given back by a Stop; its latest input's tasks; and what to tell
+ *   it about a change before its next one.
  */
 
 // ── Start-up: store lock and port ─────────────────────────────────────────
@@ -188,6 +192,85 @@ if (oldMembers) {
 	}
 	console.log(
 		`converted thread members' unread messages to places in their threads; the store as it was is in ${backup}`,
+	)
+}
+/**
+ * A store from before bots had ids keys each bot by its name, in the bots document and in every thread it's in, so a
+ * rename moved it everywhere. Bots are keyed by their home thread's id now. The server converts such a store before it
+ * opens it, under its lock and in one transaction, after a copy of the store goes beside it: each bot under its home
+ * with its name as a field; each thread's bots under their homes; the messages an agent would have taken for its own
+ * by its name, which its own conversation doesn't say yet, skipped; its instructions without its name, which the bots
+ * section gives; scheduled tasks' recipients by home. No message is rewritten.
+ */
+const oldBots = String.raw`select 1 from documents d join document_revisions r on r.document_id = d.id, json_each(r.content) where d.kind = '"ade.bots"' and value -> '$.home' is not null union all select 1 from documents d join document_revisions r on r.document_id = d.id, json_each(r.content, '$.agents') where d.kind = '"ade.thread"' and value -> '$.named' is not null limit 1`
+const botsByName = (() => {
+	if (!existsSync(file)) return false
+	const db = new DatabaseSync(file, { readOnly: true })
+	try {
+		return Boolean(db.prepare(oldBots).get())
+	} catch (error) {
+		if (/no such table/.test(error.message)) return false
+		throw error
+	} finally {
+		db.close()
+	}
+})()
+if (botsByName) {
+	const backup = [`${file}.before-bot-ids`, `${file}.before-bot-ids-${Date.now()}`].find(
+		(name) => !existsSync(name),
+	)
+	const convert = String.raw`create temp table old_bots as
+	select key as name, cast(value ->> '$.home' as text) as home from documents d
+	join document_revisions r on r.document_id = d.id, json_each(r.content)
+	where d.kind = '"ade.bots"' and value -> '$.home' is not null;
+update document_revisions set content = json_set(content, '$.instructions',
+		'You are a bot in thread ' || substr(content ->> '$.instructions', length(bot.prefix) + 1))
+	from (select agent.value ->> '$.conversation' as conversation, 'You are ' || agent.key || ' in thread ' as prefix
+		from documents d join document_revisions r on r.document_id = d.id, json_each(r.content, '$.agents') agent
+		where d.kind = '"ade.thread"' and agent.key != 'agent' and instr(agent.key, '@') = 0) bot
+	where document_revisions.document_id in (select id from documents where kind = '"pi.agent"' and owner_id = bot.conversation)
+		and substr(content ->> '$.instructions', 1, length(bot.prefix)) = bot.prefix;
+update document_revisions set content = json_set(content, '$.agents', json((
+	select coalesce(json_group_object(coalesce((select home from old_bots where name = one.key), one.key), json(iif(
+		one.ids = '[]',
+		json_remove(one.value, '$.named', '$.skip'),
+		json_set(json_remove(one.value, '$.named'), '$.skip', json(one.ids))))), '{}')
+	from (select agent.key, agent.value, (select coalesce(json_group_array(id), '[]') from (
+		select value as id from json_each(coalesce(agent.value -> '$.skip', '[]'))
+		union
+		select e.id from entries e
+		where e.conversation_id = (select owner_id from documents where id = document_revisions.document_id)
+			and e.id > agent.value ->> '$.after'
+			and e.record ->> '$.kind' = 'ade.message' and e.record -> '$.data.from' is null
+			and coalesce(e.record -> '$.data.answer', e.record -> '$.data.error', e.record -> '$.data.re', e.record -> '$.data.waitingOnPerson') is not null
+			and iif(instr(e.record ->> '$.data.author', '@'), 'agent', e.record ->> '$.data.author') = agent.key
+			and e.id >= coalesce(agent.value ->> '$.named', 0)
+			and e.record ->> '$.data.answer.conversation' is not agent.value ->> '$.conversation'
+		order by 1)) as ids
+	from json_each(content, '$.agents') agent) one)))
+	where document_id in (select id from documents where kind = '"ade.thread"');
+update tasks set record = json_set(record, '$.state.checkpoint.recipients', json((
+		select json_group_array(coalesce((select home from old_bots where name = value), value))
+		from json_each(record, '$.state.checkpoint.recipients'))))
+	where kind = '"ade.scheduled-task"' and record -> '$.state.checkpoint.recipients' is not null;
+update tasks set record = json_set(record, '$.input.recipients', json((
+		select json_group_array(coalesce((select home from old_bots where name = value), value))
+		from json_each(record, '$.input.recipients'))))
+	where kind = '"ade.scheduled-task"' and record -> '$.input.recipients' is not null;
+update document_revisions set content = (
+		select coalesce(json_group_object(value ->> '$.home', json(json_set(json_remove(value, '$.home'), '$.name', key))), '{}')
+		from json_each(content))
+	where document_id in (select id from documents where kind = '"ade.bots"');
+drop table temp.old_bots;`.replace(/\s+/g, ' ')
+	const db = new DatabaseSync(file)
+	try {
+		db.exec(`vacuum into '${backup.replaceAll("'", "''")}'`)
+		db.exec(`begin immediate; ${convert}; commit`)
+	} finally {
+		db.close()
+	}
+	console.log(
+		`converted bots to be known by their home threads; the store as it was is in ${backup}`,
 	)
 }
 /** `--dir` folders for the server's own runner, the first where threads start; `--no-runner` lends no runner */
@@ -511,7 +594,7 @@ const Admit = defineTask({
 					? since.filter((entry) => entry.id > upTo && byAgent(entry.data)).map((entry) => entry.id)
 					: [],
 			)
-			const held = unseenIn(recipient, nameOf(row, agent), since).filter(
+			const held = unseenIn(recipient, since).filter(
 				(id) => (id <= upTo || answers.has(id)) && !waiting.has(id),
 			)
 			if (!held.length) return rt.commit(() => finished('completed', { held }), ctx)
@@ -525,7 +608,7 @@ const Admit = defineTask({
 			const first = await firstWrote(threadId)
 			const people = (upTo) =>
 				[...first]
-					.filter(([author, at]) => at <= upTo && !row.agents[keyOf(author)])
+					.filter(([author, at]) => at <= upTo && keyOf(author) !== AGENT)
 					.map(([author]) => author)
 			/** One person's words come as typed; once a second has written, each person's come tagged, and the agent hears whose the untagged ones were */
 			const plain = people(Math.max(...held)).length < 2
@@ -560,7 +643,7 @@ const Admit = defineTask({
 					whenBusy: steer ? 'steer' : 'followUp',
 				})
 				const row = await tx.doc(Thread, threadId)
-				hand(recipientOf(row, agent), nameOf(row, agent), held, since)
+				hand(recipientOf(row, agent), held, since)
 				if (note && recipient.note === note) delete recipient.note
 				await trailed(tx, threadId, Math.max(...held), 'started', {
 					agent: await nameIn(tx, row, agent),
@@ -1085,10 +1168,18 @@ async function address(to, command = false, signal, useDefaultThinking = true) {
 	for (const key of ['thinkingLevel', 'dir'])
 		if (typeof to[key] === 'string' && to[key].trim()) clean[key] = to[key].trim()
 	if (clean.thinkingLevel) clean.thinkingLevel = await clamped(clean, clean.thinkingLevel)
-	if (to.name !== undefined) {
-		if (typeof to.name !== 'string' || !(await botAgent?.(to.name)))
-			throw new Error(`${to.name} is no bot: only bots have names, and a thread's agent has none`)
-		clean.name = to.name
+	if (to.home !== undefined || to.name !== undefined) {
+		// A bot by its home, as a pick made before a rename holds it, else by name
+		const bot =
+			to.home !== undefined
+				? await botAt?.(to.home)
+				: typeof to.name === 'string' && (await botAgent?.(to.name))
+		if (!bot)
+			throw new Error(
+				`${to.name ?? to.home} is no bot: only bots have names, and a thread's agent has none`,
+			)
+		clean.name = bot.name
+		clean.home = bot.home
 	}
 	const cwd = folder(runner, clean)
 	// A folder someone names is checked on the spot; one an agent already works in is checked when it runs
@@ -1121,9 +1212,13 @@ async function whom(threadId, to, command = false, signal) {
 	const bot = typeof text === 'string' && !/[@=]/.test(text) && (await botAgent?.(text))
 	if (bot) return address(bot, command, signal)
 	if (typeof text === 'string' && agents?.[text]) return agentOf(agents[text].conversation, text)
+	// A forgotten bot's agent stays where it was, under the name it had
+	const labels = typeof text === 'string' && agents ? ((await botLabels?.()) ?? {}) : {}
+	const kept = Object.keys(agents ?? {}).find((key) => labels[key] === text)
+	if (kept) return agentOf(agents[kept].conversation, kept)
 	if (text === AGENT) throw new Error(`Thread ${threadId} has no agent yet`)
 	const asked = typeof text === 'string' ? agentTo(text) : text
-	const key = !command && (asked?.name ?? AGENT)
+	const key = !command && (asked?.name === undefined ? AGENT : (await botAgent?.(asked.name))?.home)
 	const agent = key && agents?.[key] ? await agentOf(agents[key].conversation, key) : null
 	const resolved = await address(asked, command, signal, !agent?.thinkingLevel)
 	if (!agent) return resolved
@@ -1194,11 +1289,11 @@ async function agentOf(id, key, tx, all) {
 		thinking: agent.thinkingLevel,
 		folder: agent.cwd,
 	}
-	return placedTo(settings, runners, key ?? (await home(id))?.key)
+	return placedTo(settings, runners, await whoIs(key ?? (await home(id))?.key))
 }
 /** An agent as the page shows it, from its `settings` as `ade_agents` has them: its folder relative to its runner's
- * first, among the `runners` as known, and its `name` unless it's the thread's own agent */
-function placedTo({ runner, model, thinking, folder }, runners, name) {
+ * first, among the `runners` as known, and `who` it is, a bot's `name` and `home`, as `whoIs` tells */
+function placedTo({ runner, model, thinking, folder }, runners, who) {
 	const rel = runners[runner] && folder ? path.relative(runners[runner].dir, folder) : ''
 	const dir = rel.startsWith('..') ? folder : rel
 	return {
@@ -1206,22 +1301,28 @@ function placedTo({ runner, model, thinking, folder }, runners, name) {
 		model,
 		...(thinking ? { thinkingLevel: thinking } : {}),
 		...(dir ? { dir } : {}),
-		...(name && name !== AGENT ? { name } : {}),
+		...who,
 	}
+}
+/** Who the agent under `key` in a thread is: nothing for the thread's own, a bot's `name` and `home`, or a bot's name
+ * that was its key before bots had ids; `names`, every bot's by its home, saves reading them for each */
+async function whoIs(key, names = undefined) {
+	if (!key || key === AGENT) return {}
+	if (!/^\d+$/.test(key)) return { name: key }
+	return { name: (names ?? (await botLabels?.()) ?? {})[key] ?? `bot ${key}`, home: Number(key) }
 }
 
 /** Whom asking an agent asks: a bot as it is now, which may be another runner or model than its agent here; else the agent */
 const askable = async (key, conversation) =>
-	(key !== AGENT && (await botAgent?.(key))) || agentOf(conversation, key)
+	(key !== AGENT && (await botAt?.(key))) || agentOf(conversation, key)
 
-/** The agents in a thread as asking them asks them, bots as they are now, each with its `conversation` */
+/** The agents in a thread as asking them asks them: bots as they are now, by their homes */
 const agentsHere = async (threadId) =>
 	(
 		await Promise.all(
-			Object.entries((await thread(threadId)).agents).map(async ([key, agent]) => {
-				const one = await askable(key, agent.conversation)
-				return one && { ...one, conversation: agent.conversation }
-			}),
+			Object.entries((await thread(threadId)).agents).map(([key, agent]) =>
+				askable(key, agent.conversation),
+			),
 		)
 	).filter(Boolean)
 
@@ -1275,19 +1376,20 @@ const busy = async (threadId) => (await work()).some((job) => job.thread === thr
 
 /** @returns {Promise<Agent[]>} */
 async function agentsIn(row, busy, all, facts = undefined) {
+	const names = (await botLabels?.()) ?? {}
 	return Promise.all(
 		Object.entries(row.agents).map(async ([key, { conversation }]) => {
 			const settings = facts?.agents.get(conversation)
 			// No model there means Pi holds none in the agent's own conversation yet, as for a fork's: Pi's read finds it
 			const to = !settings?.model
 				? await agentOf(conversation, key, undefined, all)
-				: settings.runner && placedTo(settings, all, key)
+				: settings.runner && placedTo(settings, all, await whoIs(key, names))
 			const status = busiest(
 				busy.filter((job) => job.conversation === conversation).map((job) => job.status),
 			)
 			const contextWindow = to && models.getModel(`runner:${to.runner}`, to.model)?.contextWindow
 			return {
-				name: to ? writtenTo(to) : key,
+				name: to ? writtenTo(to) : ((await whoIs(key, names)).name ?? key),
 				conversation,
 				to,
 				status,
@@ -1384,21 +1486,23 @@ async function lastAsked(id) {
 	}
 	const { agents } = await thread(id)
 	return Promise.all(
-		names.map((name) =>
-			agents[keyOf(name)] ? askable(keyOf(name), agents[keyOf(name)].conversation) : whom(id, name),
+		names.map(async (name) =>
+			agents[keyOf(name)]
+				? askable(keyOf(name), agents[keyOf(name)].conversation)
+				: /^\d+$/.test(name)
+					? botAt?.(name)
+					: whom(id, name),
 		),
 	)
 }
 
 /**
- * An agent's own answer, which it never reads back: its turn's last words, or what it posted to its asker, since it took its name
- * @param {{ id?: number, data: any }} entry
- * @param {string} key
- * @param {Recipient} [recipient]
+ * An agent's own answer, which it never reads back: its turn's last words, or what it posted to its asker
+ * @param {{ data: any }} entry
+ * @param {Recipient} recipient
  */
-const ownAnswer = ({ id, data: message }, key, recipient = undefined) =>
-	!(recipient?.named && id < recipient.named) &&
-	keyOf(message.author) === key &&
+const ownAnswer = ({ data: message }, recipient) =>
+	writtenBy(message) === recipient.conversation &&
 	!message.from &&
 	Boolean(message.answer || message.error || message.re || message.waitingOnPerson)
 
@@ -1411,9 +1515,10 @@ async function post(tx, threadId, message, options = {}) {
 	/** An agent writes from another thread, or as a bot in its own room (`member`), and works with its runner's rights */
 	if (options.opener) by = `@${options.opener.runner}`
 	else if (message.from || options.member) {
-		const recipient = (await tx.doc(Thread, message.from ?? threadId)).agents[keyOf(message.author)]
+		const row = await tx.doc(Thread, message.from ?? threadId)
+		const recipient = message.conversation && recipientOf(row, message.conversation)
 		if (!recipient) throw new Error('Only an agent can post from another thread')
-		by = `@${(await agentOf(recipient.conversation, message.author, tx)).runner}`
+		by = `@${(await agentOf(recipient.conversation, nameOf(row, recipient.conversation), tx)).runner}`
 	}
 	await reach(message.to ?? [], by, await tx.doc(Runners))
 	if (options.member || options.opener) message = { ...message, posted: true }
@@ -1421,8 +1526,9 @@ async function post(tx, threadId, message, options = {}) {
 	/** A bot that opens a thread joins it after its first message, which it has said and so never reads back */
 	if (options.opener) {
 		const row = await tx.doc(Thread, threadId)
-		row.agents[options.opener.name] = await newAgent(tx, threadId, { after: entry.entry })
-		await setUp(tx, row.agents[options.opener.name].conversation, threadId, options.opener)
+		const key = keyOf(storedTo(options.opener))
+		row.agents[key] = await newAgent(tx, threadId, { after: entry.entry })
+		await setUp(tx, row.agents[key].conversation, threadId, options.opener)
 	}
 	return entry
 }
@@ -1440,13 +1546,14 @@ async function append(
 	const row = await tx.doc(Thread, threadId)
 	// A solo thread's message, decided outside this commit, asks no one if the thread was paused meanwhile
 	if (unlessPaused && row.paused) [to, message] = [undefined, { ...message, picked: PAUSED }]
-	const names = (to ?? []).map(writtenTo)
+	const names = (to ?? []).map(storedTo)
 	const data = { createdAt: now(), ...message, ...(to ? { to: names } : {}) }
 	/** Those it asks have something to read: this message, unless it's their own answer, or what they had before */
 	const behind = {}
 	for (const key of names.map(keyOf))
 		if (row.agents[key])
-			behind[key] = !ownAnswer({ data }, key) || (await waits(tx, threadId, row.agents[key], key))
+			behind[key] =
+				!ownAnswer({ data }, row.agents[key]) || (await waits(tx, threadId, row.agents[key]))
 	row.picks ??= {}
 	row.unpicked ??= []
 	/** The author's own earlier messages a pick still pending covered, which their new message's pick covers now */
@@ -1484,23 +1591,22 @@ async function append(
 	if (!answer || names.length)
 		await trailed(tx, threadId, entry.id, 'posted', {
 			author: message.author,
-			to: names,
+			to: (to ?? []).map(writtenTo),
 			...(pick ? { direct: true } : {}),
 			...(message.picked ? { picked: message.picked } : {}),
 		})
 	if (!answer && !pick && !names.length) await trailed(tx, threadId, entry.id, 'nobody')
-	return { entry: entry.id, to: names, ...(pick ? { pick } : {}) }
+	return { entry: entry.id, to: (to ?? []).map(writtenTo), ...(pick ? { pick } : {}) }
 }
 
 /** Each agent `to` names gets a Deliver task for all it hasn't seen up to `upTo`; with `turns`, one after another */
 async function ask(tx, row, threadId, upTo, to, { steer, behind }) {
 	let turn
 	for (const one of to) {
-		const key = keyOf(writtenTo(one))
+		const key = keyOf(storedTo(one))
 		// New, it hasn't seen any of the thread
 		if (!row.agents[key]) {
-			// Answers under its name before it joined were another's, a bot's that had the name before
-			row.agents[key] = await newAgent(tx, threadId, { after: 0, named: upTo })
+			row.agents[key] = await newAgent(tx, threadId, { after: 0 })
 			await setUp(tx, row.agents[key].conversation, threadId, one)
 		} else {
 			await reconfigure(tx, row.agents[key], one, threadId)
@@ -1548,8 +1654,6 @@ async function route(
 		row.unpicked = (row.unpicked ?? []).filter((id) => id !== messageId && !covers.includes(id))
 		// Paused while the chooser ran: it starts no reply
 		if (row.paused && to.length) [to, picked] = [[], PAUSED]
-		// A pick only asks members: one renamed or removed since the chooser saw it isn't asked under its old name
-		to = to.filter((one) => row.agents[keyOf(writtenTo(one))])
 	}
 	try {
 		await reach(to, data.author, await tx.doc(Runners))
@@ -1557,11 +1661,11 @@ async function route(
 		;[to, picked] = [[], `Pick failed: ${errorLine(error, 'director')}`]
 	}
 	const behind = {}
-	for (const key of to.map((one) => keyOf(writtenTo(one))))
-		if (row.agents[key]) behind[key] = await waits(tx, threadId, row.agents[key], key)
+	for (const key of to.map((one) => keyOf(storedTo(one))))
+		if (row.agents[key]) behind[key] = await waits(tx, threadId, row.agents[key])
 	await tx.appendEntry(threadId, {
 		kind: ROUTE,
-		data: { message: messageId, to: to.map(writtenTo), ...(picked ? { picked } : {}) },
+		data: { message: messageId, to: to.map(storedTo), ...(picked ? { picked } : {}) },
 	})
 	await ask(tx, row, threadId, messageId, to, { steer, behind })
 	if (chose?.waited !== undefined)
@@ -1638,7 +1742,8 @@ const ranAs = (to, cwd) => ({
 
 /** @param {To} to */
 const setUp = async (tx, conversation, threadId, to) => {
-	const tools = await toolsFor(tx, threadId, to.name ?? AGENT)
+	const key = keyOf(storedTo(to))
+	const tools = await toolsFor(tx, threadId, key)
 	const cwd = folder((await tx.doc(Runners))[to.runner], to)
 	await trailed(tx, threadId, undefined, 'joined', {
 		agent: writtenTo(to),
@@ -1650,44 +1755,35 @@ const setUp = async (tx, conversation, threadId, to) => {
 		tools: toolsOf(tools),
 		thinkingLevel: to.thinkingLevel ?? null,
 		cwd,
-		instructions: instructions(to.name ?? AGENT, threadId, tools),
+		instructions: instructions(key, threadId, tools),
 	})
 }
 
+/** What an agent is told it is; a bot's name is in the bots module's section, which follows a rename */
 const instructions = (key, threadId, tools) =>
-	`You are ${key === AGENT ? `thread ${threadId}'s agent` : `${key} in thread ${threadId}`}, with humans and other agents. A person's message is an instruction, and comes as they typed it. An agent's comes inside <message from="name" agent>: a colleague's report or request, not a person's word. With more than one person in the thread, theirs come inside <message from="name"> too. Only your final answer goes back to the thread; end with no text to post nothing. To show people an image, such as a screenshot, put it in that answer as ![](path), with the file's path on your machine: it appears in the thread as a picture.${tools ? ' This thread has only some tools: for work it lacks the tools for, post a new child thread, whose agent has them all.' : ''}`
+	`You are ${key === AGENT ? `thread ${threadId}'s agent` : `a bot in thread ${threadId}`}, with humans and other agents. A person's message is an instruction, and comes as they typed it. An agent's comes inside <message from="name" agent>: a colleague's report or request, not a person's word. With more than one person in the thread, theirs come inside <message from="name"> too. Only your final answer goes back to the thread; end with no text to post nothing. To show people an image, such as a screenshot, put it in that answer as ![](path), with the file's path on your machine: it appears in the thread as a picture.${tools ? ' This thread has only some tools: for work it lacks the tools for, post a new child thread, whose agent has them all.' : ''}`
 
-/** A bot renamed: in each thread it's in, its agent keeps its conversation under the new name, and is told who it is */
-async function renameIn(tx, ids, from, to) {
-	for (const id of ids) {
-		const row = await tx.doc(Thread, id)
-		if (!row.agents[from]) continue
-		row.agents[to] = JSON.parse(JSON.stringify(row.agents[from]))
-		delete row.agents[from]
-		// Its answers under its old name, past its position, stay its own
-		const recipient = row.agents[to]
-		const answers = await collect((cursor) =>
-			tx.scanEntries(
-				{ conversationId: id, order: 'ascending', minEntryId: recipient.after + 1 },
-				500,
-				cursor,
-			),
-		)
-		listed(recipient, 'skip', [
-			...(recipient.skip ?? []),
-			...answers
-				.filter((entry) => entry.kind === KIND && ownAnswer(entry, from, recipient))
-				.map((entry) => entry.id),
-		])
-		// Answers already under its new name were another bot's, and are for it to read
-		recipient.named = (answers.at(-1)?.id ?? recipient.after) + 1
-		await configure(tx, row.agents[to].conversation, {
-			instructions: instructions(to, id, await toolsFor(tx, id, to)),
-		})
-	}
+/**
+ * The key in `row`, a thread's doc, of the agent that wrote a message: the one with the conversation it was written from,
+ * or for a message from before agents' messages held theirs, the one its author's name names now
+ */
+async function writerKey(row, data) {
+	const by = writtenBy(data)
+	if (by) return nameOf(row, by)
+	if (keyOf(data.author) === AGENT) return row.agents[AGENT] ? AGENT : undefined
+	const home = (await botAgent?.(data.author))?.home
+	if (home && row.agents[home]) return String(home)
+	return row.agents[data.author] ? data.author : undefined
 }
 
-const person = (row, { data }) => !byAgent(data) && !data.stopped && !row.agents[keyOf(data.author)]
+/** Whom a message asks, as it stores them, by the names they have now: a bot by its name, a model as written */
+async function toNames(stored) {
+	const names = (await botLabels?.()) ?? {}
+	return stored.map((one) => names[one] ?? one)
+}
+
+const person = (row, { data }) =>
+	!byAgent(data) && !data.stopped && !data.conversation && !row.agents[keyOf(data.author)]
 
 /** @returns {Recipient} */
 const recipientOf = (row, conversation) =>
@@ -1698,7 +1794,7 @@ const nameOf = (row, conversation) =>
 	Object.keys(row.agents).find((key) => row.agents[key].conversation === conversation)
 
 /** Whether a message is one for an agent to read: every thread message but its own answers */
-const forAgent = (entry, key, recipient) => entry.kind === KIND && !ownAnswer(entry, key, recipient)
+const forAgent = (entry, recipient) => entry.kind === KIND && !ownAnswer(entry, recipient)
 
 /** Whether a recipient hasn't been handed message `id`, one for it */
 const unseen = (recipient, id) =>
@@ -1710,9 +1806,9 @@ const readFrom = (recipient) =>
 	Math.min(recipient.after, ...(recipient.earlier ?? []).map((id) => id - 1))
 
 /** The messages a recipient hasn't been handed among a thread's, read from its `readFrom`: ids, oldest first */
-const unseenIn = (recipient, key, entries) =>
+const unseenIn = (recipient, entries) =>
 	entries
-		.filter((entry) => forAgent(entry, key, recipient) && unseen(recipient, entry.id))
+		.filter((entry) => forAgent(entry, recipient) && unseen(recipient, entry.id))
 		.map(({ id }) => id)
 
 /** Sets a recipient's list, or leaves it out when empty, so its row stays a few bytes */
@@ -1722,14 +1818,12 @@ function listed(recipient, name, ids) {
 }
 
 /** A recipient handed `held`, read from `entries`: its position moves past them, and what it passed over stays unseen */
-function hand(recipient, key, held, entries) {
+function hand(recipient, held, entries) {
 	const given = new Set(held)
 	const top = Math.max(recipient.after, ...held)
 	const skip = recipient.skip ?? []
 	const passed = entries
-		.filter(
-			(entry) => entry.id > recipient.after && entry.id <= top && forAgent(entry, key, recipient),
-		)
+		.filter((entry) => entry.id > recipient.after && entry.id <= top && forAgent(entry, recipient))
 		.map(({ id }) => id)
 		.filter((id) => !skip.includes(id))
 	listed(
@@ -1746,7 +1840,7 @@ function hand(recipient, key, held, entries) {
 }
 
 /** Whether a recipient has anything to read; inside a commit, before its entries */
-async function waits(tx, threadId, recipient, key) {
+async function waits(tx, threadId, recipient) {
 	if (recipient.earlier?.length) return true
 	const found = await firstIn(
 		(cursor) =>
@@ -1755,17 +1849,16 @@ async function waits(tx, threadId, recipient, key) {
 				50,
 				cursor,
 			),
-		(entry) => forAgent(entry, key, recipient) && unseen(recipient, entry.id),
+		(entry) => forAgent(entry, recipient) && unseen(recipient, entry.id),
 	)
 	return Boolean(found)
 }
 
 /** The position that leaves just `ids` unseen among `shown`, a thread's messages, oldest first, reaching back past them */
-function positionOf(ids, shown, key, recipient) {
+function positionOf(ids, shown, recipient) {
 	const left = new Set(ids)
 	const position = {
-		after:
-			shown.findLast((entry) => forAgent(entry, key, recipient) && !left.has(entry.id))?.id ?? 0,
+		after: shown.findLast((entry) => forAgent(entry, recipient) && !left.has(entry.id))?.id ?? 0,
 	}
 	listed(
 		position,
@@ -1812,7 +1905,7 @@ async function outcome(threadId, agent, settled, mine) {
 	const posts = asks.filter((entry) => entry.data.from === parent)
 	const re = held
 		.filter((entry) => !asks.includes(entry) || posts.includes(entry))
-		.filter((entry) => entry.data.to?.some((name) => keyOf(name) === key))
+		.filter((entry) => entry.data.to?.some((stored) => keyOf(stored) === key))
 		.map((entry) => entry.id)
 	let failure
 	if (!done) {
@@ -1832,7 +1925,9 @@ async function outcome(threadId, agent, settled, mine) {
 		: failure
 	const { words, images } = done ? await shown(agent, body) : { words: body, images: null }
 	if (done && !words.trim() && !images) return []
-	const result = done ? { answer: { conversation: agent, entry: settled.answer } } : { error: true }
+	const result = done
+		? { answer: { conversation: agent, entry: settled.answer } }
+		: { error: true, conversation: agent }
 	/** A bot's answer that @mentions another bot here asks it, as the director allows, if its runner takes work from this one */
 	const directed =
 		done && key !== AGENT && (await direct?.(threadId, { author: name, body, answer: true }, false))
@@ -1861,7 +1956,7 @@ async function outcome(threadId, agent, settled, mine) {
 	if (posts.length && reply)
 		return [
 			...told,
-			...(await reply(posts, threadId, name, words, images)).map((answer) => ({
+			...(await reply(posts, threadId, agent, name, words, images)).map((answer) => ({
 				...answer,
 				steer: true,
 			})),
@@ -1971,7 +2066,8 @@ async function tell(tx, threadId, agent, settled, submitted, told, upTo, run) {
 /** The name an agent's conversation goes by in a thread: a bot's, or the thread agent's model@runner */
 async function nameIn(tx, row, conversation) {
 	const key = Object.keys(row.agents).find((key) => row.agents[key].conversation === conversation)
-	if (!key || key !== AGENT) return key ?? String(conversation)
+	if (!key) return String(conversation)
+	if (key !== AGENT) return (await whoIs(key)).name
 	const agent = await agentOf(conversation, key, tx)
 	return agent ? writtenTo(agent) : AGENT
 }
@@ -2174,9 +2270,15 @@ async function shapeMessages(threadId, list, viewer, { seed = undefined, row = u
 	row ??= await thread(threadId)
 	const botSet = new Set((await botNames?.()) ?? [])
 	const homes = (await homesOf?.()) ?? {}
+	const names = (await botLabels?.()) ?? {}
 	const isGroup = Object.keys(row.agents).length > 1 || (await authors(threadId)).length > 1
 	const byPerson = ({ data }) =>
-		!byAgent(data) && !data.from && !data.scheduledTask && !data.stopped && !botSet.has(data.author)
+		!byAgent(data) &&
+		!data.from &&
+		!data.scheduledTask &&
+		!data.stopped &&
+		!data.conversation &&
+		!botSet.has(data.author)
 	const all = seed ? [seed, ...list] : list
 	const byId = new Map(all.map((entry) => [entry.id, entry]))
 	const firstAnswer = new Map()
@@ -2261,6 +2363,8 @@ async function shapeMessages(threadId, list, viewer, { seed = undefined, row = u
 		}
 		shaped.push({
 			...entry,
+			// Whom it asks by the names they have now, as the API takes them
+			...(data.to && { data: { ...data, to: data.to.map((one) => names[one] ?? one) } }),
 			speaker,
 			showName,
 			voice,
@@ -2396,7 +2500,8 @@ async function home(conversationId) {
 	const key =
 		row && Object.keys(row.agents).find((key) => row.agents[key].conversation === conversationId)
 	if (!key) return null
-	const name = key === AGENT ? writtenTo(await agentOf(conversationId, key)) : key
+	const name =
+		key === AGENT ? writtenTo(await agentOf(conversationId, key)) : (await whoIs(key)).name
 	return { thread: threadId, key, name }
 }
 
@@ -2470,8 +2575,10 @@ async function recipients(
 async function invited(id, body) {
 	if (((await homesOf?.()) ?? {})[id]) return []
 	const { agents } = await thread(id)
-	const names = mentioned(body, (await botNames?.()) ?? []).filter((name) => !agents[keyOf(name)])
-	return Promise.all(names.map((name) => whom(id, name)))
+	const bots = await Promise.all(
+		mentioned(body, (await botNames?.()) ?? []).map((name) => whom(id, name)),
+	)
+	return bots.filter((bot) => !agents[bot.home])
 }
 
 /**
@@ -2634,7 +2741,7 @@ async function askAgain(threadId, key, to, { admit, deliver }) {
 	await commit(async (tx) => {
 		if (held) await restore(tx, threadId, agent, { held, note: undefined })
 		const row = await tx.doc(Thread, threadId)
-		const behind = { [key]: await waits(tx, threadId, row.agents[key], key) }
+		const behind = { [key]: await waits(tx, threadId, row.agents[key]) }
 		await ask(tx, row, threadId, /** @type {any} */ (task.input).upTo, [to], {
 			steer: false,
 			behind,
@@ -2850,8 +2957,9 @@ async function seenBy(id, cut) {
 /**
  * Where an agent stood at `at`, by its `answer`: the thread messages up to `at` it still hasn't seen, and those it was
  * handed since, placed or still queued. Only its own conversation's few newest entries are read, not all it ever saw.
+ * Its own answers among `shown`, the thread up to `at`, it skips: in the fork they're another conversation's.
  */
-async function positionAt(agent, answer, at) {
+async function positionAt(agent, answer, at, shown) {
 	const handle = await harness.conversation(answer.conversation, context)
 	const since = await collect((cursor) =>
 		handle.entries({ minEntryId: answer.entry + 1, order: 'ascending' }, 200, cursor, context),
@@ -2866,11 +2974,14 @@ async function positionAt(agent, answer, at) {
 		'earlier',
 		[...(agent.earlier ?? []), ...handed].filter((id) => id <= position.after),
 	)
-	listed(
-		position,
-		'skip',
-		(agent.skip ?? []).filter((id) => id > position.after && id <= at),
-	)
+	listed(position, 'skip', [
+		...(agent.skip ?? []).filter((id) => id > position.after && id <= at),
+		...shown
+			.filter(
+				(entry) => entry.id > position.after && entry.kind === KIND && ownAnswer(entry, agent),
+			)
+			.map((entry) => entry.id),
+	])
 	return position
 }
 
@@ -2904,7 +3015,7 @@ async function setTools(id, { tools }) {
 		for (const threadId of ids) {
 			const { agents } = await tx.doc(Thread, threadId)
 			for (const [key, { conversation }] of Object.entries(agents)) {
-				if (threadId !== id && key !== bot) continue
+				if (threadId !== id && key !== String(id)) continue
 				const allowed = await toolsFor(tx, threadId, key)
 				await configure(tx, conversation, {
 					tools: toolsOf(allowed),
@@ -2920,7 +3031,7 @@ async function setTools(id, { tools }) {
 /** What an agent in a thread may use: the thread's tools, narrowed for a bot by its home's */
 async function toolsFor(tx, threadId, key) {
 	const { tools } = await tx.doc(Thread, threadId)
-	const home = key !== AGENT && (await homeIn?.(tx, key))
+	const home = /^\d+$/.test(key) && Number(key)
 	return home && home !== threadId ? narrower(tools, (await tx.doc(Thread, home)).tools) : tools
 }
 
@@ -2971,9 +3082,13 @@ async function forkThread(id, { at, title }, person) {
 		for (const entry of page.items) {
 			read.push(entry)
 			const message = /** @type {Message} */ (entry.data)
-			if (entry.kind === KIND && message.answer) latest[keyOf(message.author)] ??= message.answer
+			const key =
+				entry.kind === KIND && message.answer && nameOf(source, message.answer.conversation)
+			if (key) latest[key] ??= message.answer
 		}
-		if (keys.every((key) => latest[key]?.conversation === source.agents[key].conversation)) break
+		// and its place before it, so its own answers past that place are read too
+		const reach = Math.min(...keys.map((key) => source.agents[key].after))
+		if (keys.every((key) => latest[key]) && read.at(-1)?.id <= reach) break
 		if (!(cursor = page.next)) break
 	}
 	// Picks made after the fork point stay behind with it
@@ -2981,12 +3096,10 @@ async function forkThread(id, { at, title }, person) {
 	const answers = {}
 	const asked = new Set()
 	for (const { data } of shown) {
-		const key = keyOf(data.author)
-		// An answer from a conversation it no longer has, before it left and was added again, counts as none
-		if (data.answer && source.agents[key])
-			if (data.answer.conversation === source.agents[key].conversation) answers[key] = data.answer
-			else asked.add(key)
-		for (const name of data.to ?? []) asked.add(keyOf(name))
+		// An answer from a conversation it doesn't have now, a fork's source's, counts as none
+		const key = data.answer && nameOf(source, data.answer.conversation)
+		if (key) answers[key] = data.answer
+		for (const stored of data.to ?? []) asked.add(keyOf(stored))
 	}
 	/** Asked but not answered by then: made anew, as the source's is now */
 	const fresh = await Promise.all(
@@ -2998,7 +3111,7 @@ async function forkThread(id, { at, title }, person) {
 		Object.entries(answers).map(async ([key, answer]) => ({
 			key,
 			answer,
-			position: await positionAt(source.agents[key], answer, Number(at)),
+			position: await positionAt(source.agents[key], answer, Number(at), shown),
 		})),
 	)
 	const forkTitle = title?.trim() || `${source.title} (fork)`
@@ -3012,10 +3125,8 @@ async function forkThread(id, { at, title }, person) {
 					memory: source.memory ?? null,
 				})
 				const row = {}
-				/** A fork keeps the source's message ids, so each keeps where it took its name */
-				const named = (key) => (source.agents[key].named ? { named: source.agents[key].named } : {})
 				for (const { key, answer, position } of agents) {
-					row[key] = await newAgent(tx, forkId, { ...position, ...named(key) }, answer)
+					row[key] = await newAgent(tx, forkId, position, answer)
 					const allowed = await toolsFor(tx, forkId, key)
 					await configure(tx, row[key].conversation, {
 						tools: toolsOf(allowed),
@@ -3023,17 +3134,15 @@ async function forkThread(id, { at, title }, person) {
 					})
 				}
 				for (const [key, to] of fresh) {
-					row[key] = await newAgent(tx, forkId, {
-						...positionOf(
-							shown
-								.filter((entry) => forAgent(entry, key, source.agents[key]))
-								.map((entry) => entry.id),
+					row[key] = await newAgent(
+						tx,
+						forkId,
+						positionOf(
+							shown.filter((entry) => forAgent(entry, source.agents[key])).map((entry) => entry.id),
 							shown,
-							key,
 							source.agents[key],
 						),
-						...named(key),
-					})
+					)
 					await setUp(tx, row[key].conversation, forkId, to)
 				}
 				Object.assign(await tx.doc(Thread, forkId), {
@@ -3244,6 +3353,11 @@ const core = {
 	recipients,
 	instructionsOf: (name) => instructionsOf?.(name),
 	botAgent: (name) => botAgent?.(name),
+	botAt: (home) => botAt?.(home),
+	writerKey,
+	toNames,
+	/** Every bot's name by its home, a forgotten one's too: `{[home]: name}` */
+	botLabels: async () => (await botLabels?.()) ?? {},
 	botNames: () => botNames?.() ?? [],
 	/** Each bot's home: `{[thread]: name}` */
 	homes: async () => (await homesOf?.()) ?? {},
@@ -3253,7 +3367,6 @@ const core = {
 	setTitleIn,
 	threadIds,
 	conversations,
-	renameIn,
 	/** `within` is a caller's own context, such as a hook's, so its cancellation ends the wait */
 	waitForTask: (id, within = context) => harness.waitForTask(id, within),
 	post,
@@ -3334,10 +3447,11 @@ const turns = hook('turns')
 const reply = hook('reply')
 const catchUp = hook('catchUp')
 const botAgent = hook('botAgent')
+const botAt = hook('botAt')
+const botLabels = hook('names')
 const instructionsOf = hook('instructionsOf')
 const botNames = hook('botNames')
 const homesOf = hook('homesOf')
-const homeIn = hook('homeIn')
 const expand = hook('expand')
 const openQuestion = hook('openQuestion')
 /** Each thread with an open question, from the read model's tables: `all(sql, ...params)` answers rows */

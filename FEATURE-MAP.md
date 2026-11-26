@@ -8,6 +8,8 @@ server.js                the server: Pi Durable store, tasks, HTTP API, /ws, run
   Thread, Runners, Keys, Receipts   its docs (defineDoc); sessionDoc, shared session defaults
   Anchor, Admit, Deliver, Shell     tasks: own an agent, take a message in, hand it over, run `$ cmd`
   person                            whether a person wrote a message
+  ownAnswer, writerKey, whoIs, toNames   which agent wrote a message, by its conversation; a bot's key (its home) and name
+  botsByName                        refuses a store whose bots are keyed by name, and prints the command that converts it
   address, whom, modelOn, reach     whom a `to` asks, on which runner and model
   recipients, invited               who a message asks; bots it @mentions that aren't in the thread yet
   post, append, postEntry           write a message and hand it to each agent it asks; setPaused
@@ -72,8 +74,8 @@ modules/
   memory.js              memory lines (Line task), `zoom`, writerOf, demand, beforeCompact, inTurn, writeLines,
                          indexOf, messagesAt, checked, remembers, turn, view, opened, views, layOut, render, rendered,
                          progress and its `backlog/` feed (what's left to write, the pace in `paces`)
-  bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, requireBotEditor, botKey, renameIn), askedHome,
-                         answeredAt, posted, homesOf, DEFAULT_VOICE, voice, section, bot-threads, volatility, withoutProject
+  bots.js                bots: their doc, `bot` tool, /api/bots (serve, change, remove, requireBotEditor, botKey, write), askedHome,
+                         answeredAt, posted, homesOf, botAgent, botAt, names, DEFAULT_VOICE, voice, section, bot-threads, volatility, withoutProject
   context.js             AGENTS.md, skills and cwd from the runner; expand, skillCommand
   director.js            the `direct` hook and Pick task: directing, picks, typing, beatOf, typingIn, sent, Nudge,
                          pick, decide, covers, turns, botTurns, section; off, settle: leftover picks once it's off

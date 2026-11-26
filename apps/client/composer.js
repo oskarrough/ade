@@ -897,7 +897,12 @@ export const agent = (thread = current()) => {
 const askedBots = (thread) => {
 	if (homeBot(thread)) return []
 	const chosen = pick(thread)
-	if (chosen?.bots) return chosen.bots
+	// Picked before a rename, a bot shows its name now
+	if (chosen?.bots)
+		return chosen.bots.map((to) => {
+			const bot = to.home && bots.find((one) => one.home === to.home)
+			return bot ? { ...to, name: bot.name } : to
+		})
 	const last = lastTo(thread)
 	return here(thread)
 		.map((agent) => agent.to)

@@ -15,7 +15,7 @@
  */
 import { obj, str } from '@earendil-works/pi-schema'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
-import { keyOf, writtenTo } from '../util.js'
+import { writtenTo } from '../util.js'
 
 export const on = true
 
@@ -33,13 +33,13 @@ export function server(core) {
 		replay: 'safe',
 		execute: async ({ body }, api) => {
 			if (!body.trim()) throw new Error('body is required')
-			const { thread, name } = await core.home(api.conversationId)
-			const author = writtenTo(await core.agentOf(api.conversationId, name))
+			const { thread, key } = await core.home(api.conversationId)
+			const author = writtenTo(await core.agentOf(api.conversationId, key))
 			return core.once(`ask_person ${api.taskId}`, 'ask_person', async (tx) => {
 				await core.post(
 					tx,
 					thread,
-					{ author, body: body.trim(), waitingOnPerson: true },
+					{ author, body: body.trim(), waitingOnPerson: true, conversation: api.conversationId },
 					{ member: true },
 				)
 				return {
@@ -66,8 +66,9 @@ export function server(core) {
 		if (question) {
 			if (question.id === row.dismissed) return undefined
 			/** The conversation of the agent that asked, whom an answer from the inbox goes to */
-			const asker = row.agents[keyOf(question.data.author)]?.conversation ?? null
-			const askerTo = asker ? await core.agentOf(asker, keyOf(question.data.author)) : null
+			const key = await core.writerKey(row, question.data)
+			const asker = (key && row.agents[key]?.conversation) ?? null
+			const askerTo = asker ? await core.agentOf(asker, key) : null
 			return { thread, kind: 'question', question, asker, askerTo }
 		}
 		const jobs = work.filter((job) => job.thread === thread)

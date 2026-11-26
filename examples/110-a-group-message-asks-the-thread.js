@@ -41,7 +41,7 @@ await scriptedRunner('laptop', async (request) => {
 			}),
 		)
 	}
-	return say(system.includes('You are Jeroen in thread') ? 'Jeroen here' : 'agent here')
+	return say(system.includes('You are the bot Jeroen') ? 'Jeroen here' : 'agent here')
 })
 const post = (id, body, to) =>
 	api('POST', `/api/threads/${id}/entries`, { body, ...(to === undefined ? {} : { to }) })

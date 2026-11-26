@@ -314,7 +314,7 @@ check(
 		v?.agents.map((a) => `${a.name} ${a.conversation}`).join() ===
 			`robin ${sideAgent.conversation}` &&
 		answers(v).at(-1)?.data.author === 'robin' &&
-		prompt.laptop.includes(`You are robin in thread ${side.id}`) &&
+		prompt.laptop.includes('You are the bot robin') &&
 		titled.status === 400 &&
 		oldName.status === 400,
 	'a renamed bot keeps her home, instructions, model and conversations under the new name; her home shows it, and the old name asks no one',

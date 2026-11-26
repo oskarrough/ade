@@ -1,6 +1,6 @@
 /**
- * A bot is one name in many threads: a home thread, the agent it joins as, instructions, and the hue it's shown in if
- * someone picked one.
+ * A bot is one agent in many threads: a home thread, which is its id, a name, the agent it joins as, instructions, and
+ * the hue it's shown in if someone picked one. Its name is a label: renaming it changes that one field.
  */
 import { createHash } from 'node:crypto'
 import { obj, opt, str } from '@earendil-works/pi-schema'
@@ -23,15 +23,23 @@ const Bots = defineDoc({
 
 export function server(core) {
 	const madeHue = (index) => Math.round(50 + index * 137.508) % 360
-	const bots = async () => (await core.snapshot(Bots)) ?? {}
+	/** Each bot by its home thread's id, with `home` as a number; a forgotten one keeps only its name, for its threads to show */
+	const bots = async () => withHomes((await core.snapshot(Bots)) ?? {})
+	const withHomes = (all) =>
+		Object.fromEntries(
+			Object.entries(all)
+				.filter(([, bot]) => !bot.forgotten)
+				.map(([home, bot]) => [home, { ...bot, home: Number(home) }]),
+		)
+	const named = (all, name) => Object.values(withHomes(all)).find((bot) => bot.name === name)
 	const list = async (viewer) => {
 		const all = await bots()
-		const order = Object.entries(all).sort(([, left], [, right]) => left.home - right.home)
-		const defaults = new Map(order.map(([name], index) => [name, madeHue(index)]))
+		// Ordered by home, the keys' own order
+		const defaults = new Map(Object.keys(all).map((home, index) => [home, madeHue(index)]))
 		const allWork = await core.work()
 		return Promise.all(
-			Object.entries(all).map(async ([name, { creator: _creator, ...bot }]) => {
-				const defaultColor = defaults.get(name)
+			Object.entries(all).map(async ([home, { creator: _creator, ...bot }]) => {
+				const defaultColor = defaults.get(home)
 				const family = core.familyOf(bot.home)
 				let working = 0
 				let blocked = false
@@ -55,7 +63,6 @@ export function server(core) {
 								? 'done'
 								: 'idle'
 				return {
-					name,
 					...bot,
 					color: bot.color ?? defaultColor,
 					defaultColor,
@@ -69,7 +76,7 @@ export function server(core) {
 	}
 	core.feed.define('bots', {
 		perViewer: true,
-		keyOf: (row) => row.name,
+		keyOf: (row) => row.home,
 		all: (viewer) => list(viewer),
 		match: (change) => {
 			if (change.type === 'document')
@@ -125,66 +132,58 @@ export function server(core) {
 		}
 		return { name, rename, to, instructions, append: append?.trim(), color, projectContext }
 	}
-	/** `ids`, every thread, read before the commit: a rename moves the bot's agent in each one it's in */
-	async function write(
-		tx,
-		{ name, rename, to, instructions, append, color, projectContext },
-		by,
-		ids = [],
-	) {
+	async function write(tx, { name, rename, to, instructions, append, color, projectContext }, by) {
 		const all = await tx.doc(Bots)
-		requireBotEditor(all[name], by)
+		let home = named(all, name)?.home
+		requireBotEditor(home && all[home], by)
 		/** What this write changes, for the step in the bot's home trail */
 		const changed = []
 		const old = name
 		if (rename) {
-			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
-			if (all[rename]) throw new Error(`${rename} is another bot; pick another name`)
-			all[rename] = JSON.parse(JSON.stringify(all[name]))
-			delete all[name]
-			await core.renameIn(tx, ids, name, rename)
+			if (!home) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
+			if (named(all, rename)) throw new Error(`${rename} is another bot; pick another name`)
+			all[home].name = name = rename
 			changed.push('name')
-			name = rename
 		}
-		if (!all[name]) {
+		const bot = home && all[home]
+		if (!bot) {
 			if (!to) throw new Error(`${name} is new: say what it runs as, to: model@runner`)
 			// Hands off: a bot leads, and hands the work itself to threads of their own
-			const home = await core.startThread(tx, name, null, ['-write', '-edit', '-bash'])
-			all[name] = { home, to, instructions: instructions ?? '', creator: by }
+			home = await core.startThread(tx, name, null, ['-write', '-edit', '-bash'])
+			all[home] = { name, to, instructions: instructions ?? '', creator: by }
 			await core.trailed(tx, home, undefined, 'bot-created', {
 				bot: name,
 				to: writtenTo({ ...to, name: undefined }),
 			})
 		} else {
 			if (to) {
-				all[name].to = to
+				bot.to = to
 				changed.push('agent')
 			}
-			if (instructions !== undefined && instructions !== all[name].instructions) {
-				all[name].instructions = instructions
+			if (instructions !== undefined && instructions !== bot.instructions) {
+				bot.instructions = instructions
 				changed.push('instructions')
 			}
 		}
+		const now = all[home]
 		if (append) {
-			all[name].instructions = [all[name].instructions, append].filter(Boolean).join('\n')
+			now.instructions = [now.instructions, append].filter(Boolean).join('\n')
 			if (!changed.includes('instructions')) changed.push('instructions')
 		}
 		if (changed.length)
-			await core.trailed(tx, all[name].home, undefined, 'bot-changed', {
+			await core.trailed(tx, home, undefined, 'bot-changed', {
 				bot: name,
 				changed,
 				...(rename ? { from: old } : {}),
-				...(changed.includes('agent')
-					? { to: writtenTo({ ...all[name].to, name: undefined }) }
-					: {}),
-				...(changed.includes('instructions') ? { instructions: all[name].instructions } : {}),
+				...(changed.includes('agent') ? { to: writtenTo({ ...now.to, name: undefined }) } : {}),
+				...(changed.includes('instructions') ? { instructions: now.instructions } : {}),
 			})
-		if (projectContext === false) all[name].projectContext = false
-		else if (projectContext) delete all[name].projectContext
-		if (color === null) delete all[name].color
-		else if (color !== undefined) all[name].color = color
-		const { creator: _creator, ...bot } = all[name]
-		return JSON.parse(JSON.stringify({ name, ...bot }))
+		if (projectContext === false) now.projectContext = false
+		else if (projectContext) delete now.projectContext
+		if (color === null) delete now.color
+		else if (color !== undefined) now.color = color
+		const { creator: _creator, ...shown } = now
+		return JSON.parse(JSON.stringify({ ...shown, home }))
 	}
 
 	const askedHome = (ids, viewer) =>
@@ -222,13 +221,12 @@ export function server(core) {
 		if (id !== undefined)
 			throw new Error('Bots live at /api/bots; a home reads the threads that asked with ?asked=1,2')
 		if (body === undefined) return list(by)
-		requireBotEditor((await bots())[body?.name], by)
+		requireBotEditor(named(await bots(), body?.name), by)
 		const asked = await change(body)
-		const ids = asked.rename ? await core.threadIds() : []
 		return core.once(
 			botKey('change', asked.name, by, body.key ?? body.requestId),
 			`bot ${asked.name}`,
-			(tx) => write(tx, asked, by, ids),
+			(tx) => write(tx, asked, by),
 		)
 	}
 	/** Bots made before ade recorded their creator belong to the owner. */
@@ -242,13 +240,13 @@ export function server(core) {
 			)
 	}
 	const remove = async (name, requestKey, by) => {
-		requireBotEditor((await bots())[name], by)
+		requireBotEditor(named(await bots(), name), by)
 		return core.once(botKey('forget', name, by, requestKey), `forget ${name}`, async (tx) => {
 			const all = await tx.doc(Bots)
-			if (!all[name]) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
-			requireBotEditor(all[name], by)
-			const { home } = all[name]
-			delete all[name]
+			const home = named(all, name)?.home
+			if (!home) throw Object.assign(new Error(`No bot ${name}`), { status: 404 })
+			requireBotEditor(all[home], by)
+			all[home] = { name, forgotten: true }
 			await core.trailed(tx, home, undefined, 'bot-forgotten', { bot: name })
 			await core.archiveIn(tx, home)
 			return { name, home }
@@ -256,20 +254,25 @@ export function server(core) {
 	}
 
 	async function archiving(tx, threadId) {
-		const [name] = Object.entries(await tx.doc(Bots)).find(([, bot]) => bot.home === threadId) ?? []
+		const bot = (await tx.doc(Bots))[threadId]
+		const name = !bot?.forgotten && bot?.name
 		if (name) throw new Error(`Thread ${threadId} is ${name}'s home; forget ${name} first`)
 	}
 
-	async function botAgent(name) {
-		const bot = (await bots())[name]
-		return bot && { ...bot.to, name }
-	}
+	/** A bot as asking it asks it: its agent as it is now, with its `name` and `home` */
+	const asking = (bot) => bot && { ...bot.to, name: bot.name, home: bot.home }
+	const botAgent = async (name) => asking(named(await bots(), name))
+	const botAt = async (home) => asking((await bots())[home])
 
-	const instructionsOf = async (name) => (await bots())[name]?.instructions
-	const botNames = async () => Object.keys(await bots())
+	const instructionsOf = async (name) => named(await bots(), name)?.instructions
+	const botNames = async () => Object.values(await bots()).map((bot) => bot.name)
 	const homesOf = async () =>
-		Object.fromEntries(Object.entries(await bots()).map(([name, bot]) => [bot.home, name]))
-	const homeIn = async (tx, name) => (await tx.doc(Bots))[name]?.home
+		Object.fromEntries(Object.entries(await bots()).map(([home, bot]) => [home, bot.name]))
+	/** Every bot's name by its home, a forgotten one's too */
+	const names = async () =>
+		Object.fromEntries(
+			Object.entries((await core.snapshot(Bots)) ?? {}).map(([home, bot]) => [home, bot.name]),
+		)
 
 	const bot = defineTool({
 		name: 'bot',
@@ -293,11 +296,9 @@ export function server(core) {
 		execute: async (input, api) => {
 			const args = /** @type {any} */ (input)
 			const at = await core.home(api.conversationId)
-			const all = await bots()
-			if (!at || all[at.name]?.home !== at.thread)
-				throw new Error('Only a bot can, in its home thread')
+			if (!at || at.key !== String(at.thread)) throw new Error('Only a bot can, in its home thread')
 			const name = args.name ?? at.name
-			if (name !== at.name && all[name])
+			if (name !== at.name && named(await bots(), name))
 				throw new Error(`${name} is another bot; it changes at its own home`)
 			const own = await core.agentOf(api.conversationId)
 			const asked = await change({
@@ -308,9 +309,10 @@ export function server(core) {
 			})
 			const made = await core.once(`bot ${api.taskId}`, 'bot', async (tx) => {
 				const roster = await tx.doc(Bots)
-				const self = roster[at.name]
-				if (self?.home !== at.thread) throw new Error('Only a bot can, in its home thread')
-				const was = roster[name]
+				const self = roster[at.thread]
+				if (!self || self.forgotten || self.name !== at.name)
+					throw new Error('Only a bot can, in its home thread')
+				const was = named(roster, name)
 				if (name !== at.name && was)
 					throw new Error(`${name} is another bot; it changes at its own home`)
 				const before = was && {
@@ -341,8 +343,8 @@ export function server(core) {
 	/** The agent's bot, in its section and the one after it with its threads and the other bots, which change most */
 	const botOf = async ({ conversationId, read }) => {
 		const at = await core.home(conversationId)
-		const all = at && ((await read.snapshot(Bots, context)) ?? {})
-		return all?.[at.name] && { at, all, bot: all[at.name] }
+		const all = at && withHomes((await read.snapshot(Bots, context)) ?? {})
+		return all?.[at.key] && { at, all, bot: all[at.key] }
 	}
 	const section = {
 		key: 'bot',
@@ -376,7 +378,9 @@ export function server(core) {
 			const where = threads.map(
 				(thread) => `${thread.id} "${thread.title}"${thread.id === bot.home ? ' (home)' : ''}`,
 			)
-			const others = Object.keys(all).filter((name) => name !== at.name)
+			const others = Object.values(all)
+				.map((bot) => bot.name)
+				.filter((name) => name !== at.name)
 			// Empty rather than gone, so it keeps its place when a thread joins
 			return [
 				where.length &&
@@ -405,10 +409,11 @@ export function server(core) {
 		remove,
 		archiving,
 		botAgent,
+		botAt,
 		instructionsOf,
 		botNames,
 		homesOf,
-		homeIn,
+		names,
 		settings: { voice },
 		extension: defineExtension({
 			name: 'ade.bots',
@@ -421,7 +426,8 @@ export function server(core) {
 		async posted(tx, threadId, entry) {
 			if (!entry.data.answer) return
 			const all = await tx.doc(Bots)
-			if (all[entry.data.author]) all[entry.data.author].answeredAt = entry.data.createdAt
+			const home = named(all, entry.data.author)?.home
+			if (home) all[home].answeredAt = entry.data.createdAt
 		},
 	}
 }

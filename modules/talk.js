@@ -5,7 +5,7 @@
 import { num, obj, opt, str, union } from '@earendil-works/pi-schema'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
 import { messageText } from '../remote.js'
-import { AGENT, writtenTo, keyOf, said, mentioned } from '../util.js'
+import { AGENT, writtenTo, said, mentioned } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
 
 export const on = true
@@ -143,8 +143,8 @@ export function server(core) {
 						})
 			const done = await answered(thread, from, questions)
 			const asked = questions.findLast((entry) => !done.has(entry.id))
-			const askerKey = asked && keyOf(asked.data.author)
-			const asker = asked && (await agentOf(row.agents[askerKey]?.conversation, askerKey))
+			const askerKey = asked && (await core.writerKey(row, asked.data))
+			const asker = askerKey && (await agentOf(row.agents[askerKey].conversation, askerKey))
 			/** An answer goes back to its asker; any other post to a thread asks the bots it @mentions there, or with no `to`, whom the director picks */
 			const { to, picked, direct } = opening
 				? { to: await ask(named) }
@@ -180,6 +180,8 @@ export function server(core) {
 					{
 						author: name,
 						body: args.body,
+						// It speaks there as its agent in that thread, else as itself here
+						conversation: member ? row.agents[key].conversation : api.conversationId,
 						...(to.length ? { to } : {}),
 						...(member || opening ? {} : { from }),
 						...(asked ? { re: [asked.id] } : {}),
@@ -189,7 +191,13 @@ export function server(core) {
 					{ empty: fresh, steer: true, direct, member, opener },
 				)
 				// An answer was said here too: its own thread shows it, and its agent never reads it back
-				if (asked) await core.post(tx, from, { author: name, body: args.body, re: [asked.id] })
+				if (asked)
+					await core.post(tx, from, {
+						author: name,
+						body: args.body,
+						re: [asked.id],
+						conversation: api.conversationId,
+					})
 				const who = direct ? 'whom the director picks' : to.map(writtenTo).join(', ') || 'nobody'
 				const text =
 					member || opening
@@ -265,14 +273,16 @@ export function server(core) {
 								.filter(Boolean)
 								.join(', '),
 						)
-					: (
-							await core.messages(thread ?? mine, {
-								last: args.last ?? 20,
-								matches: query ? (entry) => said(entry).toLowerCase().includes(query) : undefined,
-							})
-						).map(
-							({ id, data: message }) =>
-								`#${id} ${message.author}${message.from ? ` from thread ${message.from}` : ''}${message.to ? ` to ${message.to.join(', ')}` : ''}: ${message.body.slice(0, 2000)}`,
+					: await Promise.all(
+							(
+								await core.messages(thread ?? mine, {
+									last: args.last ?? 20,
+									matches: query ? (entry) => said(entry).toLowerCase().includes(query) : undefined,
+								})
+							).map(
+								async ({ id, data: message }) =>
+									`#${id} ${message.author}${message.from ? ` from thread ${message.from}` : ''}${message.to ? ` to ${(await core.toNames(message.to)).join(', ')}` : ''}: ${message.body.slice(0, 2000)}`,
+							),
 						)
 			const text = lines.join('\n') || (args.query ? 'No entry contains it.' : 'Nothing yet.')
 			return { output: [{ type: 'text', text }] }
@@ -283,11 +293,10 @@ export function server(core) {
 		const { agents } = await core.thread(threadId)
 		/** The thread's agent goes by its key and by the model it runs as now */
 		const candidates = await Promise.all(
-			Object.entries(agents).map(async ([key, { conversation }]) => [
-				key === AGENT ? writtenTo(await agentOf(conversation, key)) : key,
-				key,
-				conversation,
-			]),
+			Object.entries(agents).map(async ([key, { conversation }]) => {
+				const one = await agentOf(conversation, key)
+				return [one ? writtenTo(one) : key, key, conversation]
+			}),
 		)
 		const exact = candidates.filter(([name, key]) => name === agent || key === agent)
 		const found = exact.length ? exact : candidates.filter(([name]) => name.includes(agent))
@@ -342,25 +351,28 @@ export function server(core) {
 			"Answers to your posts wake you, even mid-turn: while you wait for one, end your turn with no text, and don't sleep or poll.",
 	}
 
-	async function reply(posts, answeredIn, agent, body, images) {
+	/** What `agent`, the conversation that answered as `name` in thread `answeredIn`, says back to the threads that posted there */
+	async function reply(posts, answeredIn, agent, name, body, images) {
 		const replies = []
 		for (const from of new Set(posts.map((post) => post.data.from))) {
 			const theirs = posts.filter((post) => post.data.from === from)
 			const done = await answered(from, answeredIn, theirs)
 			const mine = theirs.filter((post) => !done.has(post.id))
 			if (!mine.length) continue
-			const { agents } = await core.thread(from)
+			const row = await core.thread(from)
+			const keys = await Promise.all(mine.map((post) => core.writerKey(row, post.data)))
 			const askers = (
 				await Promise.all(
-					[...new Set(mine.map((post) => keyOf(post.data.author)))]
-						.filter((key) => agents[key])
-						.map((key) => agentOf(agents[key].conversation, key)),
+					[...new Set(keys.filter(Boolean))].map((key) =>
+						agentOf(row.agents[key].conversation, key),
+					),
 				)
 			).filter(Boolean)
 			replies.push({
 				thread: from,
 				data: {
-					author: agent,
+					author: name,
+					conversation: agent,
 					body: body.slice(0, 8000),
 					...(images ? { images } : {}),
 					...(askers.length ? { to: askers } : {}),

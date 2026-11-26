@@ -40,10 +40,14 @@ export const writtenTo = (to) =>
 	to &&
 	(to.name ??
 		`${to.model.split('/').pop()}${to.thinkingLevel ? `:${to.thinkingLevel}` : ''}@${to.runner}`)
-/** The thread's own agent's key among its agents; bots are keyed by name */
+/** The thread's own agent's key among its agents; bots are keyed by their home thread's id */
 export const AGENT = 'agent'
-/** Bot names have no `@`, so any name with one is the thread's agent, whatever model it had */
-export const keyOf = (name) => (name.includes('@') ? AGENT : name)
+/** Whom a message asks, as it stores it: a bot by its home's id, so a rename can't lose it, else as written */
+export const storedTo = (to) => (to.home ? String(to.home) : writtenTo(to))
+/** The key among a thread's agents of one a message asks, as stored: any with an `@` is the thread's agent */
+export const keyOf = (stored) => (stored.includes('@') ? AGENT : stored)
+/** The conversation of the agent that wrote a message: stamped on what agents write, and an answer's own */
+export const writtenBy = (message) => message.conversation ?? message.answer?.conversation
 const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 /** `model:thinking@runner`, each part but the runner optional; `ada=model@runner` asks the bot ada as that */
 export const agentTo = (name) => {

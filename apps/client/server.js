@@ -503,7 +503,7 @@ export const {
 		/** @returns {any} */ () => ({ open: openSub.rows(), archived: archivedSub.rows() }),
 	)
 	const [runners, setOptimisticRunners] = viewStore(subscribeView('runners'), 'name')
-	const [bots, setOptimisticBots] = viewStore(subscribeView('bots'), 'name')
+	const [bots, setOptimisticBots] = viewStore(subscribeView('bots'), 'home')
 	/** What needs you, one entry per thread: open questions, then failures, then unread answers */
 	const [inbox, setOptimisticInbox] = viewStore(
 		subscribeView('inbox', { sort: inboxSort }),
@@ -547,23 +547,24 @@ export const {
 		})
 	const renameThread = patchThread('title')
 	const pauseThread = patchThread('pause', 'paused')
-	/** Changes a bot, shown on its row at once; a rename waits for the server, since the name is the row's key */
+	/** Changes a bot, a new name too, shown on its row at once */
 	const saveBot = action(function* (name, change) {
-		if (!change.rename)
-			setOptimisticBots((rows) =>
-				rows.map((row) =>
-					row.name !== name
-						? row
-						: {
-								...row,
-								...change,
-								...('color' in change && {
-									customColor: change.color !== null,
-									color: change.color ?? row.defaultColor,
-								}),
-							},
-				),
-			)
+		const { rename, ...rest } = change
+		setOptimisticBots((rows) =>
+			rows.map((row) =>
+				row.name !== name
+					? row
+					: {
+							...row,
+							...rest,
+							...(rename && { name: rename }),
+							...('color' in change && {
+								customColor: change.color !== null,
+								color: change.color ?? row.defaultColor,
+							}),
+						},
+			),
+		)
 		const saved = yield write('/api/bots', { name, ...change })
 		yield caughtUp('bots', saved.seq, saved.boot)
 		return saved
@@ -770,7 +771,8 @@ export async function createThread(title, first = {}) {
 export const fork = async (id, at) => openThread((await api(`/api/threads/${id}/fork`, { at })).id)
 
 export const homeBot = (id) => bots.find((bot) => bot.home === id)
-export const botAgent = (bot) => ({ ...bot.to, name: bot.name })
+/** A bot as asking it asks it: by its home, which a rename keeps, with the name it has now */
+export const botAgent = (bot) => ({ ...bot.to, name: bot.name, home: bot.home })
 export const hues = Array.from(
 	{ length: 8 },
 	(_, index) => Math.round(50 + index * 137.508) % 360,

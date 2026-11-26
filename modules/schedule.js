@@ -4,7 +4,8 @@
  *
  * An agent sets one with `schedule`; its instructions come back to it, as it, marked `scheduledTask`. A person sets one
  * from the Scheduled tasks list (POST /api/schedule): it runs in a bot's home, asking her; in a thread, carrying its own
- * `recipients` (keys into that thread's agents, a bot's name or `agent` for its own; left out, everyone there, worked
+ * `recipients` (keys into that thread's agents, a bot's home id or `agent` for its own, named on the API as the bot's
+ * name or `agent`; left out, everyone there, worked
  * out fresh each run so the director never guesses for it); or in a new thread each run, a child of the task's own
  * thread, asking the agent they chose.
  *
@@ -45,7 +46,7 @@
 import { createHash } from 'node:crypto'
 import { arr, bool, num, obj, opt, str, unknown } from '@earendil-works/pi-schema'
 import { defineExtension, defineSignal, defineTask, defineTool } from '@earendil-works/pi-durable'
-import { background, finished, writtenTo } from '../util.js'
+import { AGENT, background, finished, writtenTo } from '../util.js'
 import { defaultTitle } from '../apps/client/title.js'
 import { clockTime, DAYS, instant, lastRun, nextRun, span } from '../apps/client/clock.js'
 import { EVENTS, Hooked, issue } from './hooks.js'
@@ -351,7 +352,17 @@ export function server(core) {
 	 * that ends after a `count`, how many it has run; `note` why it's paused.
 	 */
 	async function pending(threadId) {
-		return [...(await sleeping(threadId)), ...(await sleeping(threadId, 'waiting'))]
+		const homes = await core.homes()
+		const listed = [...(await sleeping(threadId)), ...(await sleeping(threadId, 'waiting'))]
+		const names = new Map(
+			await Promise.all(
+				listed.map(async ({ id, input, state }) => {
+					const recipients = current(input, /** @type {any} */ (state).checkpoint).recipients
+					return /** @type {const} */ ([id, recipients && (await core.toNames(recipients))])
+				}),
+			),
+		)
+		return listed
 			.map(({ id, conversationId, input: set, state, startedAt }) => {
 				const { checkpoint } = /** @type {any} */ (state)
 				const input = current(set, checkpoint)
@@ -377,9 +388,9 @@ export function server(core) {
 					instructions: input.instructions,
 					by: input.by,
 					...(input.conversation === undefined ? {} : { agent: input.by }),
-					...(input.bot === undefined ? {} : { bot: input.bot }),
+					...(input.bot === undefined ? {} : { bot: homes[conversationId] ?? input.bot }),
 					...(input.to === undefined ? {} : { to: input.to }),
-					...(input.recipients === undefined ? {} : { recipients: input.recipients }),
+					...(input.recipients === undefined ? {} : { recipients: names.get(id) }),
 					...(input.check ? { check: input.check } : {}),
 				}
 			})
@@ -501,10 +512,14 @@ export function server(core) {
 			return name ? { to: [await core.whom(threadId, name, false, signal)] } : null
 		}
 		const row = await core.thread(threadId)
-		const names = input.recipients ?? Object.keys(row.agents ?? {})
+		const keys = input.recipients ?? Object.keys(row.agents ?? {})
 		const to = (
 			await Promise.all(
-				names.map((name) => core.whom(threadId, name, false, signal).catch(() => null)),
+				keys.map((key) =>
+					/^\d+$/.test(key)
+						? core.botAt(key)
+						: core.whom(threadId, key, false, signal).catch(() => null),
+				),
 			)
 		).filter(Boolean)
 		return { to }
@@ -518,7 +533,8 @@ export function server(core) {
 		if (input.conversation !== undefined) return input.conversation
 		if (input.to !== undefined) return undefined
 		const { agents = {} } = (await core.thread(threadId)) ?? {}
-		const key = input.bot ?? (input.recipients ?? Object.keys(agents))[0]
+		const key =
+			input.bot !== undefined ? String(threadId) : (input.recipients ?? Object.keys(agents))[0]
 		return agents[key]?.conversation
 	}
 
@@ -574,7 +590,7 @@ export function server(core) {
 			const { entry } = await core.post(
 				tx,
 				threadId,
-				{ author: writtenTo(to), ...mark, to: [to] },
+				{ author: writtenTo(to), ...mark, to: [to], conversation: input.conversation },
 				{ member: true, fired: { ...fired, recipients: [writtenTo(to)] } },
 			)
 			return { thread: threadId, entry, to: [writtenTo(to)] }
@@ -1059,17 +1075,26 @@ export function server(core) {
 	})
 
 	/**
-	 * Who a task running in its own thread asks each time, from `body.recipients`: keys into that thread's agents (a
-	 * bot's name, or `agent` for its own); left out, it asks everyone there, worked out fresh each run
+	 * Who a task running in its own thread asks each time, from `body.recipients`, its bots' names or `agent` for its
+	 * own: kept as keys into that thread's agents; left out, it asks everyone there, worked out fresh each run
 	 */
 	async function recipientsOf(body, threadId) {
 		if (body.recipients === undefined) return {}
 		if (!Array.isArray(body.recipients) || !body.recipients.length)
 			throw new Error('recipients is who it asks there, at least one')
 		const { agents } = await core.thread(threadId)
-		const unknown = body.recipients.find((name) => typeof name !== 'string' || !agents?.[name])
+		const keys = await Promise.all(
+			body.recipients.map(async (name) =>
+				typeof name !== 'string' || name === AGENT
+					? name
+					: String((await core.botAgent(name))?.home ?? name),
+			),
+		)
+		const unknown = body.recipients.find(
+			(name, at) => typeof name !== 'string' || !agents?.[keys[at]],
+		)
 		if (unknown !== undefined) throw new Error(`${unknown} isn't in thread ${threadId}`)
-		return { recipients: [...new Set(body.recipients)] }
+		return { recipients: [...new Set(keys)] }
 	}
 
 	/**
@@ -1172,7 +1197,9 @@ export function server(core) {
 			throw new Error("An agent's task runs in its own thread")
 		const staying =
 			!places.length ||
-			(body.bot !== undefined && body.bot === was.bot) ||
+			(body.bot !== undefined &&
+				was.bot !== undefined &&
+				body.bot === (await core.homes())[record.conversationId]) ||
 			(body.to !== undefined && was.to !== undefined) ||
 			(body.thread !== undefined &&
 				was.bot === undefined &&
